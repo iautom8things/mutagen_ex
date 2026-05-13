@@ -177,23 +177,23 @@ decisions:
   covers: [mutagen.coverage.r1, mutagen.coverage.r2, mutagen.coverage.r3, mutagen.coverage.r4]
   kind: command
   command: mix test test/mutagen_ex/coverage_runner_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.coverage.v2
   covers: [mutagen.coverage.r5]
   kind: command
   command: mix test test/mutagen_ex/coverage_runner_test.exs --only scope_filter
-  execute: false
+  execute: true
 
 - id: mutagen.coverage.v3
   covers: [mutagen.coverage.r6]
   kind: command
   command: mix test test/mutagen_ex/ast_cache_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.coverage.v4
   covers: [mutagen.coverage.r7]
   kind: command
   command: mix test test/mutagen_ex/integration/c1_test.exs
-  execute: false
+  execute: true
 ```

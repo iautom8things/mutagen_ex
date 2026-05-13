@@ -234,7 +234,7 @@ decisions:
     - mutagen.mutation_pipeline.r2
   kind: command
   command: mix test test/mutagen_ex/baseline_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutation_pipeline.v2
   covers:
@@ -247,7 +247,7 @@ decisions:
     - mutagen.mutation_pipeline.r9
   kind: command
   command: mix test test/mutagen_ex/mutation_runner_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutation_pipeline.v3
   covers:
@@ -255,11 +255,11 @@ decisions:
     - mutagen.mutation_pipeline.r11
   kind: command
   command: mix test test/mutagen_ex/integration/c1_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutation_pipeline.v4
   covers: [mutagen.mutation_pipeline.r10]
   kind: command
   command: mix test test/mutagen_ex/integration/c2_test.exs
-  execute: false
+  execute: true
 ```

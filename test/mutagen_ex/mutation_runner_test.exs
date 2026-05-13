@@ -1,0 +1,660 @@
+defmodule MutagenEx.MutationRunnerTest do
+  @moduledoc """
+  Tests for `MutagenEx.MutationRunner` and (by way of the runner's public
+  surface) the private `MutagenEx.MutationRunner.MutationLoop`.
+
+  Subjects advanced (see `.spec/specs/mutation_pipeline.spec.md`):
+
+    * `mutagen.mutation_pipeline.r3` / `s2` — self-mutation refusal.
+    * `mutagen.mutation_pipeline.r4` / `s3` — per-mutation timeout; site
+      classified `:timeout`; subsequent results tainted.
+    * `mutagen.mutation_pipeline.r5` / `s4` — five outcomes; compile
+      errors don't enter the kill-rate denominator.
+    * `mutagen.mutation_pipeline.r6` / `s5` — restore via
+      `Code.compile_quoted` on cached AST; unrecoverable restore failure
+      aborts.
+    * `mutagen.mutation_pipeline.r7` / `s6` — pre/post snapshots flag
+      taint; subsequent results carry `tainted_predecessors: true`.
+    * `mutagen.mutation_pipeline.r8` / `s7` — `use SomeModule` modules
+      emit `state_drift_warning`.
+    * `mutagen.mutation_pipeline.r9` / `s8` — stderr captured into
+      `results[i].warnings`.
+    * `mutagen.mutation_pipeline.r11` — no file on disk is modified by
+      the runner.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias MutagenEx.AstCache
+  alias MutagenEx.MutationEnumerator.Site
+  alias MutagenEx.MutationRunner
+  alias MutagenEx.ScopeResolver.Scope
+  alias MutagenEx.TestSelector.TestFilter
+
+  # Forward aliases for inner stub modules so bare references in tests
+  # (e.g. `ExUnitFake`, `CompilerStub`) resolve to our test-local
+  # definitions rather than `Elixir.ExUnitFake`.
+  alias __MODULE__.{CaptureIoStub, CompilerStub, ExUnitFake, ExUnitServerStub}
+
+  # `:cover` stop hygiene (defensive — none of these tests instrument cover, but
+  # CoverageRunner tests may have left it running. Per H-Tt3.)
+  setup do
+    # Start the ExUnit fake's Agent. on_exit kills it so each test has
+    # an isolated state machine.
+    {:ok, _pid} = ExUnitFake.start_link()
+
+    on_exit(fn ->
+      try do
+        apply(:cover, :stop, [])
+      rescue
+        _ -> :ok
+      catch
+        _, _ -> :ok
+      end
+    end)
+
+    :ok
+  end
+
+  # ---- Stubs ----------------------------------------------------------------
+
+  # A named Agent backs the fake's state so it works across the Task
+  # MutationLoop spawns (Process dictionary doesn't cross task
+  # boundaries; this Agent does).
+  defmodule ExUnitFake do
+    @moduledoc false
+    @agent :mutagen_ex_runner_test_exunit_fake
+
+    def start_link do
+      Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
+    end
+
+    def set_results(results), do: Agent.update(@agent, fn s -> %{s | results: results} end)
+    def get_configure, do: Agent.get(@agent, & &1.configure)
+
+    def configure(opts) do
+      Agent.update(@agent, fn s -> %{s | configure: opts} end)
+      :ok
+    end
+
+    def run do
+      next =
+        Agent.get_and_update(@agent, fn s ->
+          case s.results do
+            [head | rest] -> {head, %{s | results: rest}}
+            [] -> {:default, s}
+          end
+        end)
+
+      handle_next(next)
+    end
+
+    defp handle_next(:default), do: %{failures: 0, total: 1, excluded: 0, skipped: 0}
+
+    defp handle_next({:result, r}), do: r
+
+    defp handle_next({:raise, msg}), do: raise(msg)
+
+    defp handle_next({:sleep_then, ms, r}) do
+      Process.sleep(ms)
+      r
+    end
+  end
+
+  defmodule ExUnitServerStub do
+    @moduledoc false
+    def add_module(_mod, _cfg) do
+      Process.put(:exunit_server_stub_calls, (Process.get(:exunit_server_stub_calls) || 0) + 1)
+      :ok
+    end
+  end
+
+  defmodule CaptureIoStub do
+    @moduledoc false
+    # ExUnit.CaptureIO.capture_io(:stderr, fn -> ... end) returns the
+    # captured stderr string. We delegate to the real ExUnit.CaptureIO so
+    # tests that don't care about capture get the real shape; tests
+    # asserting against captured-stderr content also work because the
+    # real capture suppresses + returns.
+    defdelegate capture_io(device, fun), to: ExUnit.CaptureIO
+  end
+
+  defmodule CompilerStub do
+    @moduledoc false
+    # In-memory compiler replacement. Records every call; can be
+    # configured to raise for specific calls so we exercise compile_error
+    # and restore-failure paths.
+    #
+    # `:compiler_stub_hooks` is `[{predicate_fn, action}]`. The first
+    # predicate that returns `true` on `{ast, file}` decides the action.
+    # `action` is `{:raise, message}` or `{:ok, modules}`.
+    def compile_quoted(ast, file) do
+      Process.put(
+        :compiler_stub_calls,
+        [{file, ast} | Process.get(:compiler_stub_calls) || []]
+      )
+
+      hooks = Process.get(:compiler_stub_hooks) || []
+
+      case Enum.find(hooks, fn {pred, _action} -> pred.(ast, file) end) do
+        {_, {:raise, message}} ->
+          raise CompileError, description: message
+
+        {_, {:ok, modules}} ->
+          modules
+
+        nil ->
+          # Default: pretend compile succeeded; return an empty module
+          # list so the runner sees a valid `{module, binary}` shape.
+          []
+      end
+    end
+  end
+
+  # Predicate helpers — `contains_node?/2` walks a candidate AST looking
+  # for a sub-tree equal to `target`. This lets compile-stub hooks fire
+  # when the runner's full-file AST contains the mutated/original site
+  # node (since the runner passes the WHOLE file AST to compile_quoted).
+  defp contains_node?(ast, target) do
+    {_, found} =
+      Macro.prewalk(ast, false, fn
+        _node, true -> {nil, true}
+        node, _ -> {node, node == target}
+      end)
+
+    found
+  end
+
+  # ---- Site builder ---------------------------------------------------------
+
+  defp build_site(opts \\ []) do
+    file = Keyword.get(opts, :file, "synthetic/foo.ex")
+    line = Keyword.get(opts, :line, 2)
+    column = Keyword.get(opts, :column, 13)
+    mutator = Keyword.get(opts, :mutator, :arith)
+    id = Keyword.get(opts, :id, "syn:1:arith")
+
+    original_ast =
+      Keyword.get(
+        opts,
+        :original_ast,
+        {:+, [line: line, column: column], [1, 2]}
+      )
+
+    mutated_ast =
+      Keyword.get(
+        opts,
+        :mutated_ast,
+        {:-, [line: line, column: column], [1, 2]}
+      )
+
+    %Site{
+      id: id,
+      file: file,
+      line: line,
+      column: column,
+      mutator: mutator,
+      original_ast: original_ast,
+      mutated_ast: mutated_ast
+    }
+  end
+
+  defp build_file_ast_with_site(site, file) do
+    {:defmodule, [line: 1, column: 1],
+     [
+       {:__aliases__, [line: 1], [:Synthetic, :Foo]},
+       [
+         do:
+           {:def, [line: 2, column: 3],
+            [
+              {:add, [line: 2, column: 7], []},
+              [do: site.original_ast]
+            ]}
+       ]
+     ]}
+    |> tap(fn _ast -> :ok end)
+    |> then(fn ast ->
+      # Build the ast_cache entry the runner expects: {ast, source}.
+      {file, {ast, "defmodule Synthetic.Foo do\n  def add, do: 1 + 2\nend\n"}}
+    end)
+  end
+
+  defp base_cfg(site_or_sites, opts \\ []) do
+    sites = List.wrap(site_or_sites)
+    file = (List.first(sites) || %{file: "synthetic/foo.ex"}).file
+
+    {^file, entry} = build_file_ast_with_site(List.first(sites), file)
+    ast_cache = %{file => entry}
+
+    scope_records =
+      Keyword.get(opts, :scope_records, [
+        %Scope{file: file, line_range: 1..3, module: Synthetic.Foo}
+      ])
+
+    %{
+      seed: 0,
+      timeout_ms: Keyword.get(opts, :timeout_ms, 500),
+      test_filter: %TestFilter{include: [], exclude: [:test], files: []},
+      ast_cache: ast_cache,
+      sites: sites,
+      scope_records: scope_records,
+      test_modules:
+        Keyword.get(opts, :test_modules, [
+          {Some.TestModule, %{async?: false, group: nil, parameterize: nil}}
+        ]),
+      ex_unit: ExUnitFake,
+      ex_unit_server: ExUnitServerStub,
+      capture_io: CaptureIoStub,
+      compiler: {CompilerStub, :compile_quoted}
+    }
+  end
+
+  defp clear_stubs do
+    Process.delete(:exunit_fake_run_results)
+    Process.delete(:exunit_fake_configure)
+    Process.delete(:exunit_server_stub_calls)
+    Process.delete(:compiler_stub_calls)
+    Process.delete(:compiler_stub_hooks)
+  end
+
+  # ---------------------------------------------------------------------------
+  # r3 / s2: self-mutation refusal
+  # ---------------------------------------------------------------------------
+
+  describe "r3: self-mutation refusal (s2)" do
+    test "aborts before any compile if a scope record names a MutagenEx.* module" do
+      clear_stubs()
+      site = build_site()
+
+      cfg = %{
+        base_cfg(site)
+        | scope_records: [
+            %Scope{
+              file: "lib/mutagen_ex/mutation_runner.ex",
+              line_range: 1..10,
+              module: MutagenEx.MutationRunner
+            }
+          ]
+      }
+
+      assert {:error, :self_mutation_refused, details} = MutationRunner.run(cfg)
+      assert MutagenEx.MutationRunner in details.modules
+      assert is_binary(details.message)
+
+      # No compile attempts were made.
+      assert (Process.get(:compiler_stub_calls) || []) == []
+    end
+
+    test "aborts on Mix.Tasks.Mutagen" do
+      clear_stubs()
+      site = build_site()
+
+      cfg = %{
+        base_cfg(site)
+        | scope_records: [
+            %Scope{file: "lib/mix/tasks/mutagen.ex", line_range: 1..10, module: Mix.Tasks.Mutagen}
+          ]
+      }
+
+      assert {:error, :self_mutation_refused, details} = MutationRunner.run(cfg)
+      assert Mix.Tasks.Mutagen in details.modules
+    end
+
+    test "allows a benign scope (no MutagenEx.* or Mix.Tasks.Mutagen)" do
+      clear_stubs()
+      site = build_site()
+      cfg = base_cfg(site)
+
+      assert {:ok, %{results: [_]}} = MutationRunner.run(cfg)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r5 / s4: five outcomes; :compile_error excluded from results array
+  # ---------------------------------------------------------------------------
+
+  describe "r5: five outcomes" do
+    test ":killed when ExUnit reports failures > 0" do
+      clear_stubs()
+      site = build_site(id: "k1")
+      cfg = base_cfg(site)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 1, total: 3, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert result.status == :killed
+    end
+
+    test ":survived when failures == 0" do
+      clear_stubs()
+      site = build_site(id: "s1")
+      cfg = base_cfg(site)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 3, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert result.status == :survived
+    end
+
+    test ":compile_error sites live in compile_errors, NOT results (s4)" do
+      clear_stubs()
+      site = build_site(id: "c1")
+      cfg = base_cfg(site)
+
+      Process.put(:compiler_stub_hooks, [
+        {fn ast, _file -> contains_node?(ast, site.mutated_ast) end,
+         {:raise, "syntax err for site c1"}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+      assert output.results == []
+      assert [entry] = output.compile_errors
+      assert entry.id == "c1"
+      assert entry.mutator == :arith
+      assert is_binary(entry.message)
+    end
+
+    test ":error when ExUnit.run raises uncaught" do
+      clear_stubs()
+      site = build_site(id: "e1")
+      cfg = base_cfg(site)
+
+      ExUnitFake.set_results([{:raise, "boom"}])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert result.status == :error
+      assert Enum.any?(result.warnings, &(&1 =~ "error"))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r4 / r7 / s3 / s6: timeout + taint propagation
+  # ---------------------------------------------------------------------------
+
+  describe "r4 + r7: timeout and taint (s3, s6)" do
+    test ":timeout site classifies as :timeout and subsequent result has tainted_predecessors: true" do
+      clear_stubs()
+      site1 = build_site(id: "t1", line: 2, column: 13)
+      site2 = build_site(id: "t2", line: 2, column: 13)
+
+      cfg = base_cfg([site1, site2], timeout_ms: 50)
+
+      ExUnitFake.set_results([
+        # Site 1: sleep past the 50ms budget to trigger a timeout.
+        {:sleep_then, 200, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        # Site 2: normal pass.
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [r1, r2]}} = MutationRunner.run(cfg)
+      assert r1.status == :timeout
+      assert r1.tainted_predecessors == false
+
+      assert r2.tainted_predecessors == true
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r6 / s5: restore via Code.compile_quoted; unrecoverable_restore_failure aborts
+  # ---------------------------------------------------------------------------
+
+  describe "r6: restore (s5)" do
+    test "after each site, runner calls compile_quoted with the ORIGINAL file AST" do
+      clear_stubs()
+      site = build_site(id: "r1")
+      cfg = base_cfg(site)
+      [{_file, {original_file_ast, _src}}] = Map.to_list(cfg.ast_cache)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, _} = MutationRunner.run(cfg)
+
+      calls = Process.get(:compiler_stub_calls) || []
+      # Calls are pushed in reverse-time order; the LAST call should be the restore.
+      [{_last_file, last_ast} | _] = calls
+
+      assert last_ast == original_file_ast
+    end
+
+    test "aborts the pipeline with :unrecoverable_restore_failure when restore compile raises" do
+      clear_stubs()
+      site = build_site(id: "rf1")
+      cfg = base_cfg(site)
+      [{_file, {original_file_ast, _src}}] = Map.to_list(cfg.ast_cache)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      # Set the compiler stub to raise specifically when called with the
+      # original AST (the restore call). The mutated-AST swap call passes
+      # a different tree (it carries `site.mutated_ast`); the restore
+      # call passes the original.
+      Process.put(:compiler_stub_hooks, [
+        {fn ast, _file -> ast == original_file_ast end, {:raise, "restore boom"}}
+      ])
+
+      assert {:error, :unrecoverable_restore_failure, details} = MutationRunner.run(cfg)
+      assert details.site_id == "rf1"
+      assert details.file == site.file
+      assert details.message =~ "restore"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r8 / s7: state_drift_warning for `use SomeModule`
+  # ---------------------------------------------------------------------------
+
+  describe "r8: state_drift_warning for `use` (s7)" do
+    test "module whose AST contains `use GenServer` is listed in state_drift_warning" do
+      clear_stubs()
+      site = build_site(id: "d1", line: 5, column: 13)
+
+      # Build an AST that contains `use GenServer` inside the scoped
+      # module's body.
+      file = "synthetic/use_gs.ex"
+
+      file_ast =
+        {:defmodule, [line: 1, column: 1],
+         [
+           {:__aliases__, [line: 1], [:Synthetic, :UseGs]},
+           [
+             do:
+               {:__block__, [],
+                [
+                  {:use, [line: 2, column: 3], [{:__aliases__, [line: 2], [:GenServer]}]},
+                  {:def, [line: 5, column: 3],
+                   [
+                     {:add, [line: 5, column: 7], []},
+                     [do: site.original_ast]
+                   ]}
+                ]}
+           ]
+         ]}
+
+      cfg = %{
+        base_cfg(site)
+        | ast_cache: %{file => {file_ast, "..."}},
+          sites: [%{site | file: file}],
+          scope_records: [%Scope{file: file, line_range: 1..10, module: Synthetic.UseGs}]
+      }
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+      assert output.state_drift_warning[Synthetic.UseGs] == [GenServer]
+    end
+
+    test "module with no `use` has no state_drift_warning entry" do
+      clear_stubs()
+      site = build_site(id: "d2")
+      cfg = base_cfg(site)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+      assert output.state_drift_warning == %{}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r9 / s8: stderr captured into results[i].warnings
+  # ---------------------------------------------------------------------------
+
+  describe "r9: stderr captured into results[i].warnings (s8)" do
+    test "compiler-warning stderr lands in the site's warnings field" do
+      clear_stubs()
+      site = build_site(id: "w1")
+      cfg = base_cfg(site)
+
+      # Replace the compiler stub with one that writes to stderr.
+      defmodule StderrCompiler do
+        def compile_quoted(_ast, _file) do
+          IO.write(:stderr, "warning: this is a captured stderr line\n")
+          []
+        end
+      end
+
+      cfg = %{cfg | compiler: {StderrCompiler, :compile_quoted}}
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert Enum.any?(result.warnings, &(&1 =~ "captured stderr line"))
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r11: no disk writes during the runner phase
+  # ---------------------------------------------------------------------------
+
+  describe "r11: no disk writes" do
+    test "all lib/ source SHA-256s are unchanged before and after a runner pass" do
+      clear_stubs()
+      site = build_site(id: "n1")
+      cfg = base_cfg(site)
+
+      lib_files = Path.wildcard("lib/**/*.ex")
+
+      pre =
+        for f <- lib_files, into: %{} do
+          {f, :crypto.hash(:sha256, File.read!(f))}
+        end
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, _} = MutationRunner.run(cfg)
+
+      for f <- lib_files do
+        post = :crypto.hash(:sha256, File.read!(f))
+        assert post == pre[f], "runner modified source file #{f}"
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Input validation
+  # ---------------------------------------------------------------------------
+
+  describe "input validation" do
+    test "rejects malformed input" do
+      assert {:error, :invalid_input, _} = MutationRunner.run(%{})
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # End-to-end against the real AstCache / real Code.compile_quoted (light)
+  # ---------------------------------------------------------------------------
+  #
+  # The stubs above let us assert state-machine shape without touching the
+  # global module registry. The check below uses the REAL compiler against
+  # a freshly defined synthetic module so we confirm the compile+restore
+  # round-trips and a `:cover_compiled`-shaped artifact isn't required for
+  # the runner to work.
+
+  describe "end-to-end with real Code.compile_quoted" do
+    @tag :integration
+    test "round-trips a synthetic module through one mutation site" do
+      clear_stubs()
+
+      source = """
+      defmodule MutationRunnerTestSynth.RealFixture do
+        def two, do: 1 + 1
+      end
+      """
+
+      assert {:ok, ast_cache} =
+               AstCache.load(["synth_real.ex"], reader: fn _ -> source end)
+
+      assert {:ok, {file_ast, _src}} = AstCache.get(ast_cache, "synth_real.ex")
+
+      # Locate the `1 + 1` node in the AST so the site's metadata matches
+      # what the enumerator would produce.
+      {_, [add_node]} =
+        Macro.prewalk(file_ast, [], fn
+          {:+, _meta, [1, 1]} = node, acc -> {node, [node | acc]}
+          node, acc -> {node, acc}
+        end)
+
+      {_, meta, args} = add_node
+
+      site = %Site{
+        id: "real:1:arith",
+        file: "synth_real.ex",
+        line: Keyword.get(meta, :line),
+        column: Keyword.get(meta, :column),
+        mutator: :arith,
+        original_ast: add_node,
+        mutated_ast: {:-, meta, args}
+      }
+
+      cfg = %{
+        seed: 0,
+        timeout_ms: 500,
+        test_filter: %TestFilter{include: [], exclude: [:test], files: []},
+        ast_cache: ast_cache,
+        sites: [site],
+        scope_records: [
+          %Scope{
+            file: "synth_real.ex",
+            line_range: 1..3,
+            module: MutationRunnerTestSynth.RealFixture
+          }
+        ],
+        test_modules: [],
+        # We DO use the stub ExUnit so we don't reschedule a real test
+        # run inside ourselves. The compiler path is the real one — we
+        # want to prove the real Code.compile_quoted round-trip works.
+        ex_unit: ExUnitFake,
+        ex_unit_server: ExUnitServerStub,
+        capture_io: CaptureIoStub
+      }
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert result.status == :survived
+
+      # After the run the fixture module's `two/0` should still return 2
+      # (i.e., restore succeeded). Use apply/3 since the module name
+      # didn't exist at this file's compile time.
+      assert apply(MutationRunnerTestSynth.RealFixture, :two, []) == 2
+    end
+  end
+end
