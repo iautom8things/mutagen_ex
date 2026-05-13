@@ -121,6 +121,52 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert Enum.all?(result.skipped, fn s -> s.mutator != :arith or s.file != "lib/foo.ex" end)
     end
 
+    @tag :filtering
+    test "uncovered with-chain is filtered before WithSwap.validate is consulted (r2 ordering)" do
+      # This is the load-bearing test for r2's ORDERING clause: "filtered
+      # out BEFORE `validate/1` is consulted". A flipped filter/validate
+      # order would route the with-chain through `WithSwap.validate/1`,
+      # which returns `{:skip, :bound_var_used_before_binding}` for this
+      # exact shape (g(a) references `a` before the swap would have bound
+      # it — see mutagen.mutators.s2). That would add a with_swap entry to
+      # `result.skipped`. With the contract honored, the uncovered line is
+      # filtered before validate runs, so NO skip entry appears.
+      source = """
+      defmodule Ordering do
+        def covered_op(x), do: x + 1
+        def uncovered_with do
+          with {:ok, a} <- f(), {:ok, b} <- g(a) do
+            a + b
+          end
+        end
+      end
+      """
+
+      cache = ast_cache("lib/ordering.ex", source)
+      scopes = [scope("lib/ordering.ex", Ordering)]
+      # Cover the arith line (2) but NOT line 4, where the `with` keyword
+      # lives. If the filter ran AFTER validate/1, the with node would
+      # route through WithSwap.validate and add a skip entry. The
+      # filter-before-validate contract (r2) means no with_swap skip entry
+      # should exist for this file.
+      covered = covered_lines("lib/ordering.ex", [2])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      with_swap_skips =
+        Enum.filter(result.skipped, fn s ->
+          s.mutator == :with_swap and s.file == "lib/ordering.ex"
+        end)
+
+      assert with_swap_skips == [],
+             "Expected no with_swap skip entry (filter must run before validate/1), got: #{inspect(with_swap_skips)}"
+
+      # Belt and suspenders: the covered arith op still produces its site,
+      # so the scope is non-empty and we're observing real enumeration
+      # (not a vacuous pass from short-circuiting).
+      assert Enum.any?(result.sites, &(&1.mutator == :arith and &1.line == 2))
+    end
+
     test "fully uncovered scope produces no arith sites and a no-mutation-candidates warning" do
       source = """
       defmodule Foo do
@@ -287,6 +333,28 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert result.sites == []
       assert result.skipped == []
       assert {:no_mutation_candidates, Contract} in result.warnings
+
+      # r5 exclusivity: a non-empty scope (Sample has two arith ops on
+      # covered lines) must NOT receive the no_mutation_candidates
+      # warning. Gates against indiscriminate warning emission — a
+      # regression that emitted this for every scope would still pass
+      # the assertion above.
+      non_empty_source = """
+      defmodule Sample do
+        def f(x), do: x + 1
+        def g(x), do: x * 2
+      end
+      """
+
+      non_empty_cache = ast_cache("lib/sample.ex", non_empty_source)
+      non_empty_scopes = [scope("lib/sample.ex", Sample)]
+      non_empty_covered = covered_lines("lib/sample.ex", [1, 2, 3, 4])
+
+      non_empty_result =
+        MutationEnumerator.enumerate(non_empty_cache, non_empty_scopes, non_empty_covered)
+
+      assert {:no_mutation_candidates, Sample} not in non_empty_result.warnings,
+             "no_mutation_candidates warning must not fire on non-empty scopes; got warnings: #{inspect(non_empty_result.warnings)}"
     end
   end
 
