@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-13T13:31:48Z",
+  "description": "Advances: mutagen.test_selection\n\nDeliverable:\n- `lib/mutagen_ex/test_selector.ex` (module `MutagenEx.TestSelector`)\n  implementing the contract in [mutagen.test_selection](.spec/specs/test_selection.spec.md).\n- Parses targets of shape `path_test.exs`, `path_test.exs:LINE`, `tag:NAME`.\n- Tag resolution walks `test/**/*_test.exs` via AST (`Code.string_to_quoted/2`)\n  — does NOT load the test modules.\n- Returns `%TestFilter{include, exclude, files}` records or structured errors.\n- `test/mutagen_ex/test_selector_test.exs` exercising every requirement.\n\nVerification:\n- Tests to pass: `mix test test/mutagen_ex/test_selector_test.exs`.\n- Covers spec-verification stubs `mutagen.test_selection.v1`, `.v2`, `.v3`.\n- Behaviors to demonstrate: scenarios `mutagen.test_selection.s1` through `s5`.\n\nOut of Scope (files):\n- `lib/mutagen_ex/scope_resolver.ex` (S3a)\n- `lib/mutagen_ex/baseline.ex` (S5)\n- All other `lib/mutagen_ex/*.ex` not in Allowed\n\nAllowed touches (this stage may modify):\n- `lib/mutagen_ex/test_selector.ex`\n- `test/mutagen_ex/test_selector_test.exs`\n\nOut of Scope (intent):\n- Do not use `ExUnit.Filters.parse_paths/1` directly to load modules. The\n  selector must remain unit-testable without ExUnit being running.\n- Do not introduce any state-touching call (no ETS, no `Code.require_file/1`).\n\nMerge gate:\n- [ ] Code compiles cleanly with `--warnings-as-errors`\n- [ ] Unit tests pass\n- [ ] Spec verification passes (`mutagen.test_selection.v1`-`.v3`)\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
+  "id": "mutagen-wrd.4",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "S3b: Test selector",
+  "type": "task",
+  "updated_at": "2026-05-13T13:31:48Z"
+}
