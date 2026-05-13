@@ -1,21 +1,38 @@
-# MutagenEx
+# mutagen_ex
 
-**TODO: Add description**
+Mutation testing for Elixir, designed for in-process operation against a chosen
+scope and a cited test set. Emits a single JSON document describing every
+mutation site, its classification, and the surrounding run metadata.
 
-## Installation
+> **Status: pre-v1 scaffolding.** This README is a skeleton; the full surface
+> ships in S8. Until then, the authoritative documentation is `mix help
+> mutagen` and the specs under `.spec/`.
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `mutagen_ex` to your list of dependencies in `mix.exs`:
+## Quick look
 
-```elixir
-def deps do
-  [
-    {:mutagen_ex, "~> 0.1.0"}
-  ]
-end
+```bash
+mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/mutagen_ex>.
+See `mix help mutagen` for the complete flag surface, exit codes, and known
+caveats.
 
+## Specs
+
+The behavioural contract for `mutagen_ex` lives in `.spec/`:
+
+- `.spec/specs/cli.spec.md` — `mix mutagen` command surface
+- `.spec/specs/mutation_pipeline.spec.md` — orchestration state machine
+- `.spec/specs/mutators.spec.md` — mutator catalog and predicates
+- `.spec/specs/json_schema.spec.md` — v1 output document shape
+- `.spec/decisions/` — durable architectural decisions
+
+When the implementation and the specs disagree, fix the spec first (see
+`.spec/AGENTS.md`).
+
+## Development
+
+```bash
+mix compile --warnings-as-errors
+mix test
+```

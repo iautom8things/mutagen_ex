@@ -1,0 +1,276 @@
+defmodule MutagenEx.CLI do
+  @moduledoc """
+  Pure command-line argument parser for `mix mutagen`.
+
+  Built on `OptionParser` with no third-party dependency, per
+  `mutagen.cli` Out of Scope (intent).
+
+  ## Contract
+
+  `parse/1` is total: every input shape returns either
+  `{:ok, %MutagenEx.Config{}}` or `{:error, reason, details}` where `reason`
+  is an atom matching the JSON schema's `abort_reason` vocabulary. The Mix
+  task (`Mix.Tasks.Mutagen`) is responsible for handing the error tuple to
+  the reporter and choosing an exit code; this module never calls `IO`,
+  `System.halt/1`, or `File.write!/2`.
+
+  This split is the seam the ticket's "private dispatch table" exploits: the
+  Mix task's reporter can be swapped in tests, but the parser is pure enough
+  to be tested directly without any injection.
+
+  ## Recognised flags
+
+    * `--scope <target>` — required, repeatable. Raw target string; shape
+      validation happens during scope resolution.
+    * `--tests <target>` — required, repeatable. Raw target string; shape
+      validation happens during test selection.
+    * `--timeout-ms <int>` — positive integer, default 5000.
+    * `--seed <int>` — non-negative integer, default 0.
+    * `--json <path>` — optional file path; when omitted, the final document
+      is written to stdout.
+
+  ## Refused flags
+
+    * `--no-json` — refused per `mutagen.decision.no_pretty_output_v1`.
+    * Self-mutation scope targets — any raw `--scope` target whose module-name
+      shape begins with `MutagenEx.` or equals exactly `Mix.Tasks.Mutagen` is
+      refused at parse time per `mutagen.decision.self_mutation_refused`. This
+      is a defence-in-depth heuristic; full resolution-based refusal lives in
+      `MutagenEx.ScopeResolver` (S3a) and ultimately at pipeline entry (S6).
+  """
+
+  alias MutagenEx.Config
+
+  @typedoc "Atom-shaped reason for a parse failure (see `mutagen.json_schema.abort_reason`)."
+  @type reason ::
+          :missing_scope
+          | :missing_tests
+          | :invalid_timeout
+          | :invalid_seed
+          | :flag_not_supported_in_v1
+          | :unknown_flag
+          | :self_mutation_refused
+
+  @typedoc "Structured error returned by `parse/1`."
+  @type error :: {:error, reason, map()}
+
+  @doc """
+  Parse a list of raw CLI argv tokens into a `%MutagenEx.Config{}` or a
+  structured error.
+
+  Argv is what `Mix.Task.run/1` hands the task: every token after `mix
+  mutagen` as a separate string.
+
+  Returns `{:ok, %Config{}}` for valid input.
+
+  Returns `{:error, reason, details}` for any failure. `reason` is one atom
+  from `t:reason/0`; `details` is a map with at least a `:message` string and
+  any reason-specific fields (e.g. `:flag` for `:unknown_flag`, `:value` for
+  `:invalid_timeout`).
+  """
+  @spec parse([String.t()]) :: {:ok, Config.t()} | error()
+  def parse(argv) when is_list(argv) do
+    with :ok <- refuse_unsupported(argv),
+         {:ok, parsed, rest, invalid} <- option_parse(argv),
+         :ok <- check_invalid(invalid),
+         :ok <- check_no_extra_args(rest),
+         scopes = collect(parsed, :scope),
+         tests = collect(parsed, :tests),
+         :ok <-
+           require_nonempty(scopes, :missing_scope, "at least one --scope target is required"),
+         :ok <- require_nonempty(tests, :missing_tests, "at least one --tests target is required"),
+         :ok <- refuse_self_mutation(scopes),
+         {:ok, timeout_ms} <- pick_timeout(parsed),
+         {:ok, seed} <- pick_seed(parsed),
+         {:ok, json_path} <- pick_json_path(parsed) do
+      {:ok,
+       %Config{
+         scopes: scopes,
+         tests: tests,
+         timeout_ms: timeout_ms,
+         seed: seed,
+         json_path: json_path
+       }}
+    end
+  end
+
+  # --- pre-OptionParser screen ------------------------------------------------
+
+  # OptionParser would happily silently coerce `--no-json` to `--json = false`
+  # because we declare `--json` as `:string`. Catch it before parsing so the
+  # error is the right shape per mutagen.decision.no_pretty_output_v1.
+  defp refuse_unsupported(argv) do
+    cond do
+      "--no-json" in argv ->
+        {:error, :flag_not_supported_in_v1,
+         %{
+           flag: "--no-json",
+           message: "--no-json is not supported in v1 (pretty output deferred to v1.1)"
+         }}
+
+      true ->
+        :ok
+    end
+  end
+
+  # --- OptionParser wiring ----------------------------------------------------
+
+  @option_switches [
+    scope: :keep,
+    tests: :keep,
+    timeout_ms: :integer,
+    seed: :integer,
+    json: :string
+  ]
+
+  # OptionParser converts dashes to underscores in switch names. The user
+  # types `--timeout-ms`, the parser key is `:timeout_ms`.
+  defp option_parse(argv) do
+    {parsed, rest, invalid} =
+      OptionParser.parse(argv,
+        strict: @option_switches
+      )
+
+    {:ok, parsed, rest, invalid}
+  end
+
+  # `invalid` is a list of `{flag, value}` tuples for unrecognised flags AND
+  # for type-mismatched values (e.g. `--timeout-ms abc`). We distinguish the
+  # two by checking whether the flag name is one we declared.
+  defp check_invalid([]), do: :ok
+
+  defp check_invalid([{flag, value} | _]) do
+    cond do
+      flag == "--timeout-ms" ->
+        {:error, :invalid_timeout,
+         %{flag: flag, value: value, message: "--timeout-ms requires a positive integer"}}
+
+      flag == "--seed" ->
+        {:error, :invalid_seed,
+         %{flag: flag, value: value, message: "--seed requires a non-negative integer"}}
+
+      true ->
+        {:error, :unknown_flag, %{flag: flag, value: value, message: "unrecognised flag #{flag}"}}
+    end
+  end
+
+  defp check_no_extra_args([]), do: :ok
+
+  defp check_no_extra_args([arg | _]) do
+    {:error, :unknown_flag,
+     %{flag: arg, value: nil, message: "unexpected positional argument #{arg}"}}
+  end
+
+  # --- per-flag picks ---------------------------------------------------------
+
+  # `:keep`-flagged switches appear once per occurrence in `parsed`. Order in
+  # `parsed` matches user order, which we preserve on the struct.
+  defp collect(parsed, key) do
+    for {^key, value} <- parsed, do: value
+  end
+
+  defp require_nonempty([], reason, message), do: {:error, reason, %{message: message}}
+  defp require_nonempty(_, _, _), do: :ok
+
+  # Pick the LAST occurrence of a non-`:keep` flag — matches OptionParser's
+  # documented behaviour for non-`:keep` switches and avoids surprises when
+  # users repeat them.
+  defp pick_timeout(parsed) do
+    case List.keyfind(parsed, :timeout_ms, 0, :default) do
+      :default ->
+        {:ok, 5_000}
+
+      {:timeout_ms, n} when is_integer(n) and n > 0 ->
+        {:ok, n}
+
+      {:timeout_ms, n} ->
+        {:error, :invalid_timeout,
+         %{flag: "--timeout-ms", value: n, message: "--timeout-ms must be a positive integer"}}
+    end
+  end
+
+  defp pick_seed(parsed) do
+    case List.keyfind(parsed, :seed, 0, :default) do
+      :default ->
+        {:ok, 0}
+
+      {:seed, n} when is_integer(n) and n >= 0 ->
+        {:ok, n}
+
+      {:seed, n} ->
+        {:error, :invalid_seed,
+         %{flag: "--seed", value: n, message: "--seed must be a non-negative integer"}}
+    end
+  end
+
+  defp pick_json_path(parsed) do
+    case List.keyfind(parsed, :json, 0, :default) do
+      :default ->
+        {:ok, nil}
+
+      {:json, ""} ->
+        {:error, :unknown_flag, %{flag: "--json", value: "", message: "--json requires a path"}}
+
+      {:json, path} when is_binary(path) ->
+        {:ok, path}
+    end
+  end
+
+  # --- self-mutation guard (heuristic, raw-string only) -----------------------
+
+  @self_module_prefix "MutagenEx."
+  @self_mix_task "Mix.Tasks.Mutagen"
+
+  defp refuse_self_mutation(scopes) do
+    case Enum.find(scopes, &self_module?/1) do
+      nil ->
+        :ok
+
+      offender ->
+        {:error, :self_mutation_refused,
+         %{
+           target: offender,
+           message:
+             "scope target #{inspect(offender)} names a mutagen_ex module; mutagen_ex cannot mutate itself in v1"
+         }}
+    end
+  end
+
+  # A target is "self" if it has a module-name shape (no `.ex` suffix, no
+  # filesystem-y leading path component) and either starts with the self
+  # prefix or matches the mix-task module exactly. The module-name shape
+  # covers both bare `Module.Name` and `Module.Name.fun/arity` (MFA) forms —
+  # for the MFA form we strip the trailing `/<arity>` and the trailing
+  # function segment before testing the prefix.
+  #
+  # File-path scope targets that happen to live under `lib/mutagen_ex/` are
+  # NOT caught here — the scope resolver (S3a) owns that check via real
+  # resolution. This is the cheap front-line guard; full coverage lives at
+  # pipeline entry per `mutagen.decision.self_mutation_refused`.
+  defp self_module?(target) do
+    cond do
+      String.ends_with?(target, ".ex") -> false
+      String.contains?(target, "/") -> self_module?(strip_mfa(target))
+      target == @self_mix_task -> true
+      String.starts_with?(target, @self_module_prefix) -> true
+      true -> false
+    end
+  end
+
+  # `MutagenEx.Foo.bar/1` → `MutagenEx.Foo`. We drop the `/<arity>` tail and
+  # the final function segment. Anything that doesn't fit this shape (e.g.
+  # `foo/bar.ex` — has a slash, but it's filesystem-y) drops the slash-tail
+  # half and falls through to the file-path branch on the recursive call.
+  defp strip_mfa(target) do
+    case String.split(target, "/", parts: 2) do
+      [head, _arity] ->
+        case String.split(head, ".") |> Enum.reverse() do
+          [_fun | mod_rev] when mod_rev != [] -> mod_rev |> Enum.reverse() |> Enum.join(".")
+          _ -> head
+        end
+
+      _ ->
+        target
+    end
+  end
+end

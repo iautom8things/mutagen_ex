@@ -199,13 +199,13 @@ decisions:
   covers: [mutagen.cli.r1, mutagen.cli.r2, mutagen.cli.r3, mutagen.cli.r4, mutagen.cli.r5]
   kind: command
   command: mix test test/mutagen_ex/cli_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.cli.v2
   covers: [mutagen.cli.r6, mutagen.cli.r7]
   kind: command
   command: mix test test/mutagen_ex/cli_test.exs --only exit_codes
-  execute: false
+  execute: true
 
 - id: mutagen.cli.v3
   covers: [mutagen.cli.r8]
@@ -217,5 +217,5 @@ decisions:
   covers: [mutagen.cli.r9]
   kind: command
   command: mix help mutagen
-  execute: false
+  execute: true
 ```
