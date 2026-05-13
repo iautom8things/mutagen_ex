@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-13T23:08:01Z",
+  "description": "Advances: mutagen.mutation_pipeline\n\nDiscovered during S7 (mutagen-wrd.9) end-to-end test driver authoring.\n\n## Problem\n\n`lib/mix/tasks/mutagen.ex:411` — the production mix task constructs the MutationRunner input with a literal `test_modules: []`. `MutationLoop`'s per-site `Enum.each(test_modules, \u0026ExUnit.Server.add_module/2)` is therefore a no-op against the empty list, so `ExUnit.run/0` inside the mutation pass reports zero tests run, and EVERY mutation is classified `:survived`.\n\n## Reproduction\n\nRun `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` against any module that has live mutators: `mutation.results[*].status` is uniformly `\"survived\"` regardless of whether the cited tests would actually kill those mutations.\n\n## E2E driver workaround\n\nThe S7 driver's `mutation_collaborator/1` does an AST walk of each cited `_test.exs`, finds every `defmodule` block, and populates `test_modules` with `[{mod, %{async?: false, group: nil, parameterize: nil}}]` entries before delegating to `MutagenEx.MutationRunner.run/1`. The production caller still bypasses this.\n\n## Spec reference\n\n`mutagen.mutation_pipeline` r3 (mutation classification semantics) and r5 (`:killed` vs `:survived` semantics) — these rules cannot be exercised by the production wire-up while every result is forced to `:survived`.\n\n## Resolution\n\nIn `lib/mix/tasks/mutagen.ex` around line 411, derive `test_modules` from the resolved `TestFilter.files` (or equivalent) rather than hardcoding `[]`. Retire the `mutation_collaborator` fork in `end_to_end_test.exs` once the production code is fixed.\n\n## Related\n\n- mutagen-wrd.9 (S7 end-to-end suite, where this was discovered)\n- mutagen-wrd.11 (TestSelector exclude: [:test] fix — same wire-up surface)",
+  "id": "mutagen-wrd.12",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "DISCOVERY: mix mutagen passes hardcoded test_modules: [] to MutationRunner",
+  "type": "bug",
+  "updated_at": "2026-05-13T23:08:01Z"
+}
