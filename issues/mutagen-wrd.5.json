@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-wrd.1"
+  ],
   "blocks": [],
   "created": "2026-05-13T13:31:48Z",
   "description": "Advances: mutagen.mutators\n\nDeliverable:\n- `lib/mutagen_ex/mutators.ex` (module `MutagenEx.Mutators`) — registry that\n  enumerates the 10 mutators below.\n- Per-mutator modules under `lib/mutagen_ex/mutators/`:\n  `arith.ex`, `compare.ex`, `boolean.ex`, `literal.ex`, `with_swap.ex`,\n  `case_drop.ex`, `pipeline.ex`, `result_tuple.ex`, `else_removal.ex`,\n  `guard_drop.ex`. Each module defines `match?/1`, `mutate/1`, `validate/1`.\n- Content-addressed site ID format: `{relative_file}:{ast_hash}:{mutator_name}`\n  where `ast_hash` is `:erlang.phash2/2` of the normalized AST node (strip\n  `:line`, `:column`, `:end_line`, `:end_column` from metadata before\n  hashing). Per [mutagen.decision.content_addressed_ids](.spec/decisions/content_addressed_ids.md).\n- Per-mutator unit tests at `test/mutagen_ex/mutators/\u003cmutator\u003e_test.exs`\n  (one per mutator).\n- `test/mutagen_ex/mutators_test.exs` for the registry.\n- `test/mutagen_ex/mutators_property_test.exs` covering symmetric-swap\n  invariants and round-trip `Macro.to_string/1` → `Code.string_to_quoted/2`.\n- `test/mutagen_ex/mutators/id_stability_test.exs` — golden test asserting\n  byte-identical IDs across 10 invocations on the same source.\n\nVerification:\n- Tests to pass: `mix test test/mutagen_ex/mutators_test.exs`,\n  `mix test test/mutagen_ex/mutators_property_test.exs`,\n  `mix test test/mutagen_ex/mutators/`.\n- Covers spec-verification stubs `mutagen.mutators.v1`, `.v2`, `.v3`, `.v4`.\n- Behaviors to demonstrate: scenarios `mutagen.mutators.s1` through `s6`.\n\nOut of Scope (files):\n- `lib/mutagen_ex/mutation_enumerator.ex` (S4b — consumes the catalog)\n- `lib/mutagen_ex/mutation_runner.ex` (S5)\n- Anything outside the mutators/ subtree\n\nAllowed touches (this stage may modify):\n- `lib/mutagen_ex/mutators.ex`\n- `lib/mutagen_ex/mutators/*.ex`\n- `test/mutagen_ex/mutators_test.exs`\n- `test/mutagen_ex/mutators_property_test.exs`\n- `test/mutagen_ex/mutators/*.exs`\n\nOut of Scope (intent):\n- Do not run any mutated code. The catalog is pure AST manipulation; runtime\n  classification (`:killed`, `:survived`, `:timeout`, `:compile_error`, `:error`)\n  is the runner's job in S5.\n- Do not add third-party deps. `StreamData` is the only acceptable test-only\n  dep; check whether it's already in `mix.exs` before adding.\n- Do not introduce mutator config (catalog is closed in v1 per\n  [mutagen.decision.validate_predicates](.spec/decisions/validate_predicates.md)).\n\nMerge gate:\n- [ ] Code compiles cleanly with `--warnings-as-errors`\n- [ ] All mutator unit tests + property tests + ID stability test pass\n- [ ] Spec verification passes (`mutagen.mutators.v1`-`.v4`)\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "S4a: Mutator catalog + validate predicates",
   "type": "task",
-  "updated_at": "2026-05-13T13:31:48Z"
+  "updated_at": "2026-05-13T13:33:17Z"
 }
