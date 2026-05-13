@@ -11,9 +11,15 @@
   "id": "mutagen-wrd.8",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: fa1552c1-29af-4847-9fbc-5065c95d3be9\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/fa1552c1-29af-4847-9fbc-5065c95d3be9.jsonl\n\nCommit: b2dd4d1\n\nFiles touched:\n- lib/mutagen_ex/json_reporter.ex (new)\n- lib/mix/tasks/mutagen.ex (orchestration body — full state machine\n  added; @moduledoc was already populated from S1)\n- test/mutagen_ex/json_reporter_test.exs (new — 34 tests)\n- test/mutagen_ex/json_reporter_golden_test.exs (new — 6 byte-equal\n  fixture tests)\n- test/mutagen_ex/golden/*.json (6 new fixtures)\n- .spec/specs/json_schema.spec.md (verification stubs flipped to\n  execute: true — authorized by orchestrator scope note)\n\nTests added:\n- MutagenEx.JsonReporterTest: 34 tests across describe blocks for\n  emit_report success (s1, r1, r2), mutation block shape (s2, r3, r4),\n  emit_error abort variant (s3, r5), I/O contract (s4, r6), encoding\n  round-trip + trailing newline (s5, r7, r8), and Mix task state-machine\n  error paths (the six abort exits the ticket enumerates + happy path).\n- MutagenEx.JsonReporterGoldenTest: 6 byte-equal fixture tests covering\n  the required fixture set in r9: baseline_red, coverage_partial_mutation_\n  perfect, coverage_full_mutation_partial, error_unresolvable_scope,\n  mutation_with_skipped, partial_report_cover_failure.\n\nVerification stubs flipped to execute: true:\n- mutagen.json_schema.v1 (r1-r4)\n- mutagen.json_schema.v2 (r5, --only error_variants)\n- mutagen.json_schema.v3 (r9, golden tests)\n- mutagen.json_schema.v4 (r6-r8, --only contract)\n\nmutagen.cli.v2 (--only exit_codes) was already execute: true; the new\nstate-machine error-path tests carry that tag and pass.\n\nAudit-expanded scope: n/a (iteration 1).\n\nDeferred must requirements: none.\n\nSummary: Stood up MutagenEx.JsonReporter as the single owner of the v1\nJSON schema (both success and abort variants per mutagen.decision.\njson_reporter_owns_error). Wired the S1 mix-task dispatch table into\nthe full pipeline CLI → Scope → Tests → AstCache → Coverage →\nEnumerator → Baseline → MutationRunner → JsonReporter → IO. The\nreporter is pure: emit_report/1 and emit_error/2 return\n{iodata, exit_code} and never call IO/System.halt/File.write; the\nmix task owns the I/O via the :io dispatch key, which tests override\nto capture the document without halting the VM. S1's two-key legacy\ndispatch (:reporter, :pipeline) is preserved on a fallback code path\nso existing CLI tests keep passing unchanged.\n\nProject verification: mix compile --warnings-as-errors clean;\nmix test = 1 doctest, 305 tests, 0 failures.",
+      "timestamp": "2026-05-13T16:55:22Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "S6: JSON reporter + Mix task wiring",
   "type": "task",
-  "updated_at": "2026-05-13T16:40:35Z"
+  "updated_at": "2026-05-13T16:55:22Z"
 }
