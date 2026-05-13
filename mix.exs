@@ -7,7 +7,23 @@ defmodule MutagenEx.MixProject do
       version: "0.1.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      # Lane fixture (test/fixtures/lane_project/**) is a self-contained
+      # mini-mix-project; its `_test.exs` files exist only to be cited by
+      # `mix mutagen --tests` from the end-to-end test driver, never run
+      # directly by the parent project's `mix test`. Without this ignore,
+      # the parent's loader picks up the fixture's `*_test.exs` files and
+      # fails because the fixture modules (`LaneFixture.*`) aren't on the
+      # parent's compile graph.
+      test_load_filters: [
+        fn path ->
+          String.ends_with?(path, "_test.exs") and
+            not String.starts_with?(path, "test/fixtures/lane_project/")
+        end
+      ],
+      test_ignore_filters: [
+        fn path -> String.starts_with?(path, "test/fixtures/") end
+      ]
     ]
   end
 
