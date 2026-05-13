@@ -156,17 +156,17 @@ decisions:
   covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2, mutagen.scope_resolution.r3, mutagen.scope_resolution.r5]
   kind: command
   command: mix test test/mutagen_ex/scope_resolver_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.scope_resolution.v2
   covers: [mutagen.scope_resolution.r3, mutagen.scope_resolution.r4]
   kind: command
   command: mix test test/mutagen_ex/scope_resolver_test.exs --only error_cases
-  execute: false
+  execute: true
 
 - id: mutagen.scope_resolution.v3
   covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2]
   kind: command
   command: mix test test/mutagen_ex/scope_resolver_property_test.exs
-  execute: false
+  execute: true
 ```

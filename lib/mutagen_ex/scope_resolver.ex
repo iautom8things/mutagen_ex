@@ -1,0 +1,635 @@
+defmodule MutagenEx.ScopeResolver.Scope do
+  @moduledoc """
+  A single resolved scope record. `file` is the path the resolver read
+  source from; `line_range` is an inclusive `Range` of source lines; `module`
+  is the atom name of the resolved module.
+  """
+
+  @enforce_keys [:file, :line_range, :module]
+  defstruct [:file, :line_range, :module]
+
+  @type t :: %__MODULE__{
+          file: String.t(),
+          line_range: Range.t(),
+          module: module()
+        }
+end
+
+defmodule MutagenEx.ScopeResolver do
+  @moduledoc """
+  Resolves user-supplied `--scope` targets into concrete
+  `%MutagenEx.ScopeResolver.Scope{}` records describing the file, line range,
+  and module each target points at.
+
+  This module implements the behavioural contract in
+  `.spec/specs/scope_resolution.spec.md` (`mutagen.scope_resolution`).
+
+  ## Target shapes
+
+  Per `mutagen.decision.scope_syntax_simplified`, exactly three shapes are
+  accepted:
+
+    * **File path** — anything ending in `.ex` (e.g. `lib/foo.ex`). Resolves
+      to one record per `defmodule` block in the file (`r1`).
+    * **Module name** — `Module.Name` (no `/arity`, no leading path). Resolves
+      to a single record covering the matching `defmodule` block (`r2`).
+    * **MFA** — `Module.Name.function/arity`. Arity is required. Resolves to
+      a single record whose `line_range` covers only the matching
+      `def`/`defp`/`defmacro`/`defmacrop` clause(s) for that arity (`r3`).
+
+  Targets containing a `:` are rejected with
+  `reason: :colon_syntax_unsupported` (`r4`). Module-shaped targets with a
+  lowercase trailing segment but no `/arity` are rejected with
+  `reason: :arity_required` (`r3`).
+
+  Resolution is purely an AST walk: source files are read via the injectable
+  loader (default `&File.read!/1`) and parsed with
+  `Code.string_to_quoted/2` requesting line/column metadata. No compile is
+  ever invoked; no file on disk is modified (`r6`).
+
+  ## Opts
+
+    * `:loader` — `(file :: String.t() -> String.t())`. Default
+      `&File.read!/1`. Per `r7`, this is the seam that lets tests work over
+      synthetic source strings without touching disk.
+    * `:source_files` — `[String.t()]`. For module-name and MFA targets, the
+      list of project files to search. Defaults to
+      `Path.wildcard("lib/**/*.ex")` so production callers don't have to
+      build the list themselves. Tests pass an explicit list of synthetic
+      paths so resolution stays deterministic.
+
+  ## Returns
+
+  `{:ok, [%Scope{}, ...]}` on success (always exactly one record for
+  module/MFA targets; one or more for file targets).
+
+  `{:error, reason, details}` for any failure. `reason` is one atom from
+  `t:reason/0`; `details` is a map with at least `:target` (the raw user
+  string) and a human-readable `:message`. Reason-specific fields may also
+  be present (e.g. `:file` for `:file_not_found`).
+  """
+
+  alias MutagenEx.ScopeResolver.Scope
+
+  @typedoc "Atom-shaped reason for a resolution failure."
+  @type reason ::
+          :colon_syntax_unsupported
+          | :arity_required
+          | :module_not_found
+          | :function_not_found
+          | :file_not_found
+          | :file_read_failed
+          | :parse_error
+          | :unrecognised_target
+
+  @typedoc "Injectable source loader. Receives a path, returns the file's bytes."
+  @type loader :: (String.t() -> String.t())
+
+  @typedoc "Result of `resolve/2`."
+  @type result :: {:ok, [Scope.t()]} | {:error, reason, map()}
+
+  @default_source_glob "lib/**/*.ex"
+
+  @doc """
+  Resolve a single raw scope target to one or more `%Scope{}` records.
+
+  See the module doc for opts and result shape.
+  """
+  @spec resolve(String.t(), keyword) :: result
+  def resolve(target, opts \\ []) when is_binary(target) do
+    loader = Keyword.get(opts, :loader, &File.read!/1)
+
+    cond do
+      String.contains?(target, ":") ->
+        {:error, :colon_syntax_unsupported,
+         %{
+           target: target,
+           message:
+             "scope target #{inspect(target)} uses the colon form, which is not supported in v1"
+         }}
+
+      file_target?(target) ->
+        resolve_file(target, loader)
+
+      true ->
+        resolve_symbolic(target, loader, opts)
+    end
+  end
+
+  # --- shape dispatch --------------------------------------------------------
+
+  defp file_target?(target), do: String.ends_with?(target, ".ex")
+
+  # `Module.fun/arity` MUST contain a `/`; the arity-less function-named form
+  # (e.g. `Foo.bar`) returns `:arity_required` per r3 / s4. The arity-less
+  # module form (e.g. `Foo.Bar`) resolves to its `defmodule` block per r2.
+  defp resolve_symbolic(target, loader, opts) do
+    case String.split(target, "/", parts: 2) do
+      [head, arity_str] ->
+        with {:ok, arity} <- parse_arity(target, arity_str),
+             {:ok, mod, fun} <- split_mfa(target, head) do
+          resolve_mfa(target, mod, fun, arity, loader, opts)
+        end
+
+      [_just_head] ->
+        resolve_module_or_arity_required(target, loader, opts)
+    end
+  end
+
+  defp parse_arity(target, arity_str) do
+    case Integer.parse(arity_str) do
+      {n, ""} when n >= 0 ->
+        {:ok, n}
+
+      _ ->
+        {:error, :unrecognised_target,
+         %{
+           target: target,
+           message:
+             "scope target #{inspect(target)} has a `/` but the suffix is not a non-negative integer arity"
+         }}
+    end
+  end
+
+  # `Foo.Bar.baz/1` → `{Foo.Bar, :baz}`. The head must have at least two
+  # dotted segments (module + function).
+  defp split_mfa(target, head) do
+    case head |> String.split(".") |> Enum.reverse() do
+      [fun_seg | mod_rev] when mod_rev != [] ->
+        mod = mod_rev |> Enum.reverse() |> Enum.join(".") |> string_to_module()
+
+        case lowercase_atom_segment(fun_seg) do
+          :error ->
+            {:error, :unrecognised_target,
+             %{
+               target: target,
+               message:
+                 "scope target #{inspect(target)} has function segment #{inspect(fun_seg)} that is not a valid lowercase atom"
+             }}
+
+          {:ok, fun} ->
+            {:ok, mod, fun}
+        end
+
+      _ ->
+        {:error, :unrecognised_target,
+         %{
+           target: target,
+           message:
+             "scope target #{inspect(target)} has `/arity` but no `Module.function` head"
+         }}
+    end
+  end
+
+  # Arity-less symbolic target: either `Module.Name` (resolves to the
+  # matching `defmodule`) or `Module.fun` (a function name with no `/arity`
+  # — error per r3 / s4). Distinguished by case of the trailing segment.
+  defp resolve_module_or_arity_required(target, loader, opts) do
+    segments = String.split(target, ".")
+    last = List.last(segments)
+
+    cond do
+      segments == [] or last == "" ->
+        {:error, :unrecognised_target,
+         %{target: target, message: "empty scope target"}}
+
+      starts_lowercase?(last) ->
+        {:error, :arity_required,
+         %{
+           target: target,
+           message:
+             "scope target #{inspect(target)} names a function but is missing the `/arity` suffix (e.g. #{target}/1)"
+         }}
+
+      Enum.all?(segments, &starts_uppercase?/1) ->
+        mod = string_to_module(target)
+        resolve_module(target, mod, loader, opts)
+
+      true ->
+        {:error, :unrecognised_target,
+         %{
+           target: target,
+           message:
+             "scope target #{inspect(target)} is not a valid module name (segments must start with an uppercase letter)"
+         }}
+    end
+  end
+
+  # `String.to_atom/1` to skirt the `String.to_existing_atom/1` problem: the
+  # user's target may name a module that isn't loaded yet (we resolve via
+  # AST, not via the code server).
+  defp string_to_module(name) do
+    String.to_atom("Elixir." <> name)
+  end
+
+  defp lowercase_atom_segment(seg) do
+    if seg != "" and starts_lowercase?(seg) and valid_atom_segment?(seg) do
+      {:ok, String.to_atom(seg)}
+    else
+      :error
+    end
+  end
+
+  defp valid_atom_segment?(seg) do
+    seg
+    |> String.to_charlist()
+    |> Enum.all?(fn
+      c when c in ?a..?z -> true
+      c when c in ?A..?Z -> true
+      c when c in ?0..?9 -> true
+      ?_ -> true
+      ?? -> true
+      ?! -> true
+      _ -> false
+    end)
+  end
+
+  defp starts_lowercase?(<<c, _::binary>>) when c in ?a..?z, do: true
+  defp starts_lowercase?(_), do: false
+
+  defp starts_uppercase?(<<c, _::binary>>) when c in ?A..?Z, do: true
+  defp starts_uppercase?(_), do: false
+
+  # --- file-target resolution ------------------------------------------------
+
+  defp resolve_file(file, loader) do
+    with {:ok, source} <- load(file, loader),
+         {:ok, ast} <- parse(file, source) do
+      records =
+        ast
+        |> find_defmodules()
+        |> Enum.map(fn {mod, range} ->
+          %Scope{file: file, line_range: range, module: mod}
+        end)
+
+      {:ok, records}
+    end
+  end
+
+  # --- module-target resolution ----------------------------------------------
+
+  defp resolve_module(target, mod, loader, opts) do
+    files = source_files(opts)
+
+    case search_for_module(files, mod, loader) do
+      {:ok, file, range} ->
+        {:ok, [%Scope{file: file, line_range: range, module: mod}]}
+
+      :not_found ->
+        {:error, :module_not_found,
+         %{
+           target: target,
+           module: mod,
+           message: "no `defmodule #{inspect(mod)}` found in any project source file"
+         }}
+
+      {:error, _reason, _details} = err ->
+        err
+    end
+  end
+
+  defp search_for_module([], _mod, _loader), do: :not_found
+
+  defp search_for_module([file | rest], mod, loader) do
+    case load_and_parse(file, loader) do
+      {:ok, ast} ->
+        case Enum.find(find_defmodules(ast), fn {m, _range} -> m == mod end) do
+          {^mod, range} -> {:ok, file, range}
+          nil -> search_for_module(rest, mod, loader)
+        end
+
+      {:soft_skip, _err} ->
+        search_for_module(rest, mod, loader)
+
+      {:hard_error, err} ->
+        err
+    end
+  end
+
+  # --- MFA-target resolution -------------------------------------------------
+
+  defp resolve_mfa(target, mod, fun, arity, loader, opts) do
+    files = source_files(opts)
+
+    case search_for_module_full(files, mod, loader) do
+      {:ok, file, mod_range, body_ast} ->
+        case find_function_clauses(body_ast, fun, arity) do
+          [] ->
+            {:error, :function_not_found,
+             %{
+               target: target,
+               module: mod,
+               function: fun,
+               arity: arity,
+               message:
+                 "no `def #{fun}/#{arity}` found in `defmodule #{inspect(mod)}` (#{file})"
+             }}
+
+          ranges ->
+            merged = merge_ranges(ranges)
+            constrained = constrain(merged, mod_range)
+            {:ok, [%Scope{file: file, line_range: constrained, module: mod}]}
+        end
+
+      :not_found ->
+        {:error, :module_not_found,
+         %{
+           target: target,
+           module: mod,
+           message: "no `defmodule #{inspect(mod)}` found in any project source file"
+         }}
+
+      {:error, _, _} = err ->
+        err
+    end
+  end
+
+  defp search_for_module_full([], _mod, _loader), do: :not_found
+
+  defp search_for_module_full([file | rest], mod, loader) do
+    case load_and_parse(file, loader) do
+      {:ok, ast} ->
+        case find_defmodule_block(ast, mod) do
+          {:ok, range, body} -> {:ok, file, range, body}
+          :not_found -> search_for_module_full(rest, mod, loader)
+        end
+
+      {:soft_skip, _err} ->
+        search_for_module_full(rest, mod, loader)
+
+      {:hard_error, err} ->
+        err
+    end
+  end
+
+  # Wrap load+parse so the search loops have one decision shape: ok, retry,
+  # or hard fail. We treat per-file read failures (e.g. the loader threw on
+  # a single missing path) as soft skips so a stray entry in
+  # `source_files:` doesn't tank the whole search, but a parse error is a
+  # hard fail because the user almost certainly wants to know their source
+  # is malformed.
+  defp load_and_parse(file, loader) do
+    case load(file, loader) do
+      {:ok, source} ->
+        case parse(file, source) do
+          {:ok, ast} -> {:ok, ast}
+          {:error, _, _} = err -> {:hard_error, err}
+        end
+
+      {:error, reason, _} = err when reason in [:file_not_found, :file_read_failed] ->
+        {:soft_skip, err}
+    end
+  end
+
+  # --- AST walking ------------------------------------------------------------
+
+  # Find every (possibly nested) `defmodule` block in an AST. Returns a list
+  # of `{module_atom, line_range}` in source order.
+  defp find_defmodules(ast) do
+    {_ast, acc} =
+      Macro.prewalk(ast, [], fn node, acc ->
+        case extract_defmodule(node) do
+          {:ok, mod, range} -> {node, [{mod, range} | acc]}
+          :no -> {node, acc}
+        end
+      end)
+
+    Enum.reverse(acc)
+  end
+
+  defp extract_defmodule({:defmodule, _meta, [alias_ast, [do: _body]]} = node) do
+    case alias_to_module(alias_ast) do
+      nil -> :no
+      mod -> {:ok, mod, node_line_range(node)}
+    end
+  end
+
+  defp extract_defmodule(_), do: :no
+
+  defp alias_to_module({:__aliases__, _, parts}) when is_list(parts) do
+    if Enum.all?(parts, &is_atom/1) do
+      Module.concat(parts)
+    else
+      nil
+    end
+  end
+
+  defp alias_to_module(mod) when is_atom(mod), do: mod
+  defp alias_to_module(_), do: nil
+
+  # Locate the `defmodule mod` block specifically, returning its line range
+  # AND its inner body AST (the AST under `[do: ...]`).
+  defp find_defmodule_block(ast, target_mod) do
+    {_ast, acc} =
+      Macro.prewalk(ast, :not_found, fn
+        {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
+          case alias_to_module(alias_ast) do
+            ^target_mod ->
+              {node, {:ok, node_line_range(node), body}}
+
+            _ ->
+              {node, :not_found}
+          end
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    acc
+  end
+
+  # Find every `def`/`defp`/`defmacro`/`defmacrop` clause matching the given
+  # function name and arity. Returns the list of line ranges (one per
+  # clause) in source order.
+  defp find_function_clauses(body, fun, arity) do
+    {_, acc} =
+      Macro.prewalk(body, [], fn node, acc ->
+        case extract_def(node) do
+          {:ok, ^fun, ^arity, range} -> {node, [range | acc]}
+          _ -> {node, acc}
+        end
+      end)
+
+    Enum.reverse(acc)
+  end
+
+  # `def name(args) do body end` and the keyword shorthand
+  # `def name(args), do: body` both parse to:
+  #
+  #     {def_kind, meta, [{name, _, args}, [do: body]]}
+  #
+  # where `def_kind` is `:def`, `:defp`, `:defmacro`, or `:defmacrop`.
+  # Guard clauses wrap the head in
+  # `{:when, _, [{name, _, args}, guard_expr]}`.
+  defp extract_def({kind, _meta, [head, [do: _body]]} = node)
+       when kind in [:def, :defp, :defmacro, :defmacrop] do
+    case head_to_fun_arity(head) do
+      {:ok, fun, arity} -> {:ok, fun, arity, node_line_range(node)}
+      :error -> :error
+    end
+  end
+
+  defp extract_def({kind, _meta, [head]} = node)
+       when kind in [:def, :defp, :defmacro, :defmacrop] do
+    case head_to_fun_arity(head) do
+      {:ok, fun, arity} -> {:ok, fun, arity, node_line_range(node)}
+      :error -> :error
+    end
+  end
+
+  defp extract_def(_), do: :error
+
+  defp head_to_fun_arity({:when, _, [inner | _]}), do: head_to_fun_arity(inner)
+
+  defp head_to_fun_arity({fun, _, args}) when is_atom(fun) do
+    arity = if is_list(args), do: length(args), else: 0
+    {:ok, fun, arity}
+  end
+
+  defp head_to_fun_arity(_), do: :error
+
+  # --- range plumbing --------------------------------------------------------
+
+  # Compute the inclusive line range covered by an AST node. We use the
+  # node's own `:line` meta as the start; we walk the subtree for the
+  # maximum `:line` to get the end. `Code.string_to_quoted/2` with
+  # `columns: true` populates `:line` on container nodes; we don't depend
+  # on `:closing` / `:end_of_expression` because they aren't always
+  # populated for the keyword-shorthand `do:` form.
+  defp node_line_range(node) do
+    start_line = meta_line(node) || 1
+    end_line = max_line_in_subtree(node, start_line)
+    start_line..end_line
+  end
+
+  defp meta_line({_kind, meta, _args}) when is_list(meta), do: Keyword.get(meta, :line)
+  defp meta_line(_), do: nil
+
+  # Pull every line-bearing entry from a node's meta. `:line` is always
+  # present on a properly-located node; `:end` and `:end_of_expression` are
+  # populated when `token_metadata: true` and let us see the closing `end`
+  # keyword's line — required so `defmodule` and `def` ranges cover their
+  # full `do ... end` block per r1.
+  defp meta_lines({_kind, meta, _args}) when is_list(meta), do: collect_lines(meta)
+  defp meta_lines(_), do: []
+
+  defp collect_lines(meta) do
+    Enum.reduce(meta, [], fn
+      {:line, n}, acc when is_integer(n) -> [n | acc]
+      {:end, sub}, acc when is_list(sub) -> add_sub_line(sub, acc)
+      {:end_of_expression, sub}, acc when is_list(sub) -> add_sub_line(sub, acc)
+      {:closing, sub}, acc when is_list(sub) -> add_sub_line(sub, acc)
+      {:do, sub}, acc when is_list(sub) -> add_sub_line(sub, acc)
+      _, acc -> acc
+    end)
+  end
+
+  defp add_sub_line(sub, acc) do
+    case Keyword.get(sub, :line) do
+      n when is_integer(n) -> [n | acc]
+      _ -> acc
+    end
+  end
+
+  defp max_line_in_subtree(node, init) do
+    {_node, max} =
+      Macro.prewalk(node, init, fn n, acc ->
+        Enum.reduce(meta_lines(n), acc, fn line, a -> max(a, line) end)
+        |> then(&{n, &1})
+      end)
+
+    max
+  end
+
+  defp merge_ranges([single]), do: single
+
+  defp merge_ranges(ranges) do
+    min_l = ranges |> Enum.map(& &1.first) |> Enum.min()
+    max_l = ranges |> Enum.map(& &1.last) |> Enum.max()
+    min_l..max_l
+  end
+
+  # Clamp `inner` to the bounds of `outer`. We expect the inner range to
+  # already lie within outer; this is a defensive guard so MFA ranges never
+  # bleed past the surrounding `defmodule` per r5.
+  defp constrain(inner, outer) do
+    first = max(inner.first, outer.first)
+    last = min(inner.last, outer.last)
+    first..last
+  end
+
+  # --- loading & parsing -----------------------------------------------------
+
+  defp load(file, loader) do
+    try do
+      {:ok, loader.(file)}
+    rescue
+      e in File.Error ->
+        {:error, :file_not_found,
+         %{
+           file: file,
+           message:
+             "could not read source file #{inspect(file)}: #{Exception.message(e)}"
+         }}
+
+      e ->
+        {:error, :file_read_failed,
+         %{
+           file: file,
+           message:
+             "could not read source file #{inspect(file)}: #{Exception.message(e)}"
+         }}
+    end
+  end
+
+  defp parse(file, source) do
+    case Code.string_to_quoted(source,
+           columns: true,
+           line: 1,
+           file: file,
+           token_metadata: true
+         ) do
+      {:ok, ast} ->
+        {:ok, ast}
+
+      {:error, {meta_or_line, description, token}} ->
+        line = parse_error_line(meta_or_line)
+
+        {:error, :parse_error,
+         %{
+           file: file,
+           line: line,
+           message:
+             "could not parse #{inspect(file)} at line #{line}: #{IO.iodata_to_binary(format_parse_error(description, token))}"
+         }}
+    end
+  end
+
+  defp parse_error_line(line) when is_integer(line), do: line
+
+  defp parse_error_line(meta) when is_list(meta) do
+    Keyword.get(meta, :line, 0)
+  end
+
+  defp parse_error_line(_), do: 0
+
+  defp format_parse_error(description, token) when is_binary(description) do
+    [description, inspect(token)]
+  end
+
+  defp format_parse_error({prefix, suffix}, token)
+       when is_binary(prefix) and is_binary(suffix) do
+    [prefix, suffix, " ", inspect(token)]
+  end
+
+  defp format_parse_error(description, token) do
+    [inspect(description), " ", inspect(token)]
+  end
+
+  defp source_files(opts) do
+    case Keyword.get(opts, :source_files) do
+      nil -> Path.wildcard(@default_source_glob)
+      list when is_list(list) -> list
+    end
+  end
+end
