@@ -6,6 +6,7 @@
     "mutagen-wrd.4",
     "mutagen-wrd.5"
   ],
+  "closed_at": "2026-05-13T14:09:25Z",
   "created": "2026-05-13T13:30:40Z",
   "description": "Advances: mutagen.cli\n\nDeliverable:\n- Mix task skeleton at `lib/mix/tasks/mutagen.ex` (module `Mix.Tasks.Mutagen`)\n  with a private dispatch table so the state machine error paths can be\n  unit-tested by injecting fake collaborators.\n- CLI parser at `lib/mutagen_ex/cli.ex` (module `MutagenEx.CLI`) using\n  `OptionParser` only — no external CLI dependency. Parses `--scope` (repeatable),\n  `--tests` (repeatable), `--timeout-ms \u003cint\u003e`, `--seed \u003cint\u003e`, `--json \u003cpath\u003e`.\n- Config struct at `lib/mutagen_ex/config.ex` (module `MutagenEx.Config`).\n- Types module at `lib/mutagen_ex/types.ex` (module `MutagenEx.Types`) holding\n  shared `@type` definitions (e.g., `%MutationSite{}`, `%Report{}`).\n- Project scaffolding: confirm `mix.exs` is the v1 shape (Elixir ~\u003e 1.16, no\n  third-party deps), `.formatter.exs` follows community default, `.gitignore`\n  covers `_build/`, `deps/`, `cover/`, `erl_crash.dump`. Delete any committed\n  `erl_crash.dump`.\n- `test/test_helper.exs` configured for ExUnit.\n- README skeleton (full content lands in S8).\n\nVerification:\n- Tests to pass: `mix test test/mutagen_ex/cli_test.exs`. Covers\n  spec-verification stubs `mutagen.cli.v1`, `mutagen.cli.v2`,\n  `mutagen.cli.v4` (the `mix help mutagen` stub).\n- Behaviors to demonstrate: scenarios `mutagen.cli.s1` through `mutagen.cli.s9`\n  in `.spec/specs/cli.spec.md`, plus `OptionParser` edge cases (repeated\n  `--scope`, negative integers in `--timeout-ms`).\n- `mix compile --warnings-as-errors` must be clean.\n\nOut of Scope (files):\n- `lib/mutagen_ex/coverage_runner.ex`\n- `lib/mutagen_ex/baseline.ex`\n- `lib/mutagen_ex/mutation_runner.ex`\n- `lib/mutagen_ex/mutators/**`\n- `lib/mutagen_ex/scope_resolver.ex`\n- `lib/mutagen_ex/test_selector.ex`\n- `lib/mutagen_ex/mutation_enumerator.ex`\n- `lib/mutagen_ex/json_reporter.ex`\n- `lib/mutagen_ex/ast_cache.ex`\n- `test/fixtures/**`\n- `test/mutagen_ex/integration/**`\n\nAllowed touches (this stage may modify):\n- `mix.exs`\n- `.formatter.exs`\n- `.gitignore`\n- `README.md` (skeleton only)\n- `lib/mix/tasks/mutagen.ex`\n- `lib/mutagen_ex/cli.ex`\n- `lib/mutagen_ex/config.ex`\n- `lib/mutagen_ex/types.ex`\n- `test/mutagen_ex/cli_test.exs`\n- `test/test_helper.exs`\n\nOut of Scope (intent):\n- No implementation of any pipeline phase. The mix task dispatches to\n  collaborators that don't exist yet; integration tests for the orchestration\n  state machine live in S6.\n- No third-party deps. No `nimble_options`, no `optimus`.\n- Do not implement scope or test target parsing here beyond storing the raw\n  strings on `%Config{}`. Validation and resolution live in S3a / S3b.\n\nMerge gate:\n- [ ] Code compiles cleanly with `--warnings-as-errors`\n- [ ] `mix test test/mutagen_ex/cli_test.exs` passes\n- [ ] Spec verification passes (`mutagen.cli.v1`, `.v2`, `.v4`)\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
   "id": "mutagen-wrd.1",
@@ -30,7 +31,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "S1: Scaffold + CLI + Config + Types",
   "type": "task",
   "updated_at": "2026-05-13T14:09:25Z"
