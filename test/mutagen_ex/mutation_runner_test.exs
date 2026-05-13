@@ -66,7 +66,36 @@ defmodule MutagenEx.MutationRunnerTest do
     @agent :mutagen_ex_runner_test_exunit_fake
 
     def start_link do
-      Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
+      # A prior test's Agent should die when its test process exits
+      # (it's linked), but under suite load the BEAM's name-registry
+      # cleanup can lag the next test's setup just long enough for
+      # `:already_started` to surface. Defensively reap any stale
+      # registration before re-registering.
+      case Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent) do
+        {:ok, pid} ->
+          {:ok, pid}
+
+        {:error, {:already_started, stale}} ->
+          Process.exit(stale, :kill)
+          # Wait until the name actually clears before retrying so the
+          # second start_link doesn't race the same way.
+          wait_until_unregistered()
+          Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
+      end
+    end
+
+    defp wait_until_unregistered(remaining_ms \\ 500) do
+      cond do
+        Process.whereis(@agent) == nil ->
+          :ok
+
+        remaining_ms <= 0 ->
+          :ok
+
+        true ->
+          Process.sleep(10)
+          wait_until_unregistered(remaining_ms - 10)
+      end
     end
 
     def set_results(results), do: Agent.update(@agent, fn s -> %{s | results: results} end)
@@ -97,6 +126,33 @@ defmodule MutagenEx.MutationRunnerTest do
 
     defp handle_next({:sleep_then, ms, r}) do
       Process.sleep(ms)
+      r
+    end
+
+    # Intentionally leak a named process so `Process.registered/0`'s
+    # length grows AFTER the runner takes its post-snapshot. The named
+    # pid is recorded under `{:leak, name}` on the test process's
+    # dictionary so on_exit can reap it without the registered name
+    # surviving into the next test. Used by the r7 snapshot-growth test
+    # to drive `snapshot_grew?` true without a `:timeout`.
+    defp handle_next({:leak_proc, name, r}) do
+      # Sanity: ensure the name isn't already registered (e.g. from a
+      # prior aborted test); if it is, unregister so we can re-register.
+      case Process.whereis(name) do
+        nil ->
+          :ok
+
+        pid ->
+          Process.unregister(name)
+          Process.exit(pid, :kill)
+      end
+
+      # Spawn a small process that idles. We register it ourselves so
+      # `Process.registered/0` reflects the growth immediately on
+      # return — the child only needs to stay alive long enough for the
+      # runner's post-snapshot.
+      pid = spawn(fn -> Process.sleep(:infinity) end)
+      true = Process.register(pid, name)
       r
     end
   end
@@ -395,6 +451,136 @@ defmodule MutagenEx.MutationRunnerTest do
       assert r1.tainted_predecessors == false
 
       assert r2.tainted_predecessors == true
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # r7 / s6: snapshot-growth taint propagation (WITHOUT timeout)
+  # ---------------------------------------------------------------------------
+  #
+  # The timeout test above also flips taint, but it does so via
+  # `status == :timeout` — that path is r4's mechanism. r7 is the
+  # INDEPENDENT snapshot-growth path: a site that completes well under
+  # the timeout but leaks named-process / ETS / persistent-term state
+  # must still mark the NEXT site as `tainted_predecessors: true` and
+  # emit a `state_leak` warning naming the offender. The implementation
+  # ORs `grew?` into `next_tainted` (mutation_runner.ex:464); a
+  # regression that drops `grew?` from that OR-expression would let a
+  # silent leak ship green — this test exists to fail load-bearingly in
+  # that case.
+
+  describe "r7: snapshot-growth without timeout (s6)" do
+    test "site that leaks a named process (no timeout) taints the NEXT site and emits a snapshot warning" do
+      clear_stubs()
+      site1 = build_site(id: "leak1", line: 2, column: 13)
+      site2 = build_site(id: "post_leak", line: 2, column: 13)
+
+      # Pick a name unlikely to collide with anything else in the BEAM.
+      leaked_name = :mutagen_ex_runner_test_r7_leaked_proc
+
+      # Be defensive: if a prior aborted run left the name registered,
+      # tear it down before the runner takes its pre-snapshot.
+      case Process.whereis(leaked_name) do
+        nil ->
+          :ok
+
+        pid ->
+          Process.unregister(leaked_name)
+          Process.exit(pid, :kill)
+      end
+
+      on_exit(fn ->
+        case Process.whereis(leaked_name) do
+          nil ->
+            :ok
+
+          pid ->
+            try do
+              Process.unregister(leaked_name)
+            rescue
+              ArgumentError -> :ok
+            end
+
+            Process.exit(pid, :kill)
+        end
+      end)
+
+      # 500ms timeout is the base_cfg default; the leak completes in
+      # microseconds (synchronous spawn+register) so `:timeout` is NOT
+      # the mechanism driving taint here. That is the entire point of
+      # this test: prove `grew?` carries the taint independently.
+      cfg = base_cfg([site1, site2])
+
+      ExUnitFake.set_results([
+        # Site 1: complete normally AND leak a named process before
+        # returning. Status will classify as `:survived` (failures == 0),
+        # NOT `:timeout`.
+        {:leak_proc, leaked_name,
+         %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        # Site 2: normal pass.
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [r1, r2], warnings: warnings}} = MutationRunner.run(cfg)
+
+      # r1 itself is `:survived` (NOT `:timeout`) — this distinguishes
+      # the r7 mechanism from r4's. If a regression dropped `grew?`
+      # from `next_tainted`, only `status == :timeout` would propagate
+      # taint, and r2.tainted_predecessors would be false below.
+      assert r1.status == :survived,
+             "expected the leaking site to classify as :survived (not :timeout); got #{inspect(r1.status)}"
+
+      # r1's own `tainted_predecessors` starts at false (no prior site
+      # leaked into it). The leak it CAUSES propagates to r2.
+      assert r1.tainted_predecessors == false
+
+      # THE LOAD-BEARING ASSERTION for r7's `next_tainted = tainted_now or
+      # grew? or status == :timeout`. Drop `grew?` from that OR and this
+      # assertion fails: status is :survived, tainted_now is false, so
+      # next_tainted collapses to false → r2.tainted_predecessors → false.
+      assert r2.tainted_predecessors == true,
+             "r7 regression: snapshot growth from site #{site1.id} did not propagate to next site"
+
+      # snapshot_warning/2 must fire and name the offending site + the
+      # process-growth kind. If `grew?` were dropped from the warning
+      # gate too, this also fails. The warning shape is enforced by
+      # snapshot_warning/2 in mutation_runner.ex.
+      assert Enum.any?(warnings, &(&1 =~ "state_leak after site " <> site1.id)),
+             "expected a state_leak warning naming site #{site1.id}; got: #{inspect(warnings)}"
+
+      assert Enum.any?(warnings, &(&1 =~ "processes+")),
+             "expected the state_leak warning to report process growth; got: #{inspect(warnings)}"
+
+      # Sanity: the leak actually happened (registered name survived
+      # into the assertion phase). Without this, a future change to
+      # `:leak_proc` could silently no-op and the test above would
+      # vacuously fail to detect the regression.
+      assert is_pid(Process.whereis(leaked_name)),
+             "the test's own :leak_proc helper failed to register #{inspect(leaked_name)} — the rest of this test would be vacuous"
+    end
+
+    test "site with NO state growth (no leak, no timeout) does NOT taint the next site" do
+      # Negative control for the test above. Without this, a buggy
+      # snapshot routine that always reports growth would make the
+      # positive assertion green vacuously. Here both sites complete
+      # cleanly; the second must NOT carry tainted_predecessors and no
+      # `state_leak` warning should be emitted.
+      clear_stubs()
+      site1 = build_site(id: "clean1", line: 2, column: 13)
+      site2 = build_site(id: "clean2", line: 2, column: 13)
+
+      cfg = base_cfg([site1, site2])
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [r1, r2], warnings: warnings}} = MutationRunner.run(cfg)
+      assert r1.status == :survived
+      assert r1.tainted_predecessors == false
+      assert r2.tainted_predecessors == false
+      refute Enum.any?(warnings, &(&1 =~ "state_leak"))
     end
   end
 
