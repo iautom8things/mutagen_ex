@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-13T13:31:17Z",
+  "description": "Advances: mutagen.scope_resolution\n\nDeliverable:\n- `lib/mutagen_ex/scope_resolver.ex` (module `MutagenEx.ScopeResolver`)\n  implementing the contract in [mutagen.scope_resolution](.spec/specs/scope_resolution.spec.md).\n- Accepts injectable source-loader function per r7; default `\u0026File.read!/1`.\n- Returns structured records with `{file, line_range, module}` for the three\n  target shapes. Errors are structured tuples.\n- `test/mutagen_ex/scope_resolver_test.exs` exercising all requirements with\n  synthetic source strings (no on-disk fixtures, per L-Tt1 seam).\n- Property test at `test/mutagen_ex/scope_resolver_property_test.exs` using\n  `StreamData` for the resolution invariant (for any synthesized small AST,\n  resolver returns either error or a range containing the target).\n\nVerification:\n- Tests to pass: `mix test test/mutagen_ex/scope_resolver_test.exs`,\n  `mix test test/mutagen_ex/scope_resolver_property_test.exs`.\n- Covers spec-verification stubs `mutagen.scope_resolution.v1`, `.v2`, `.v3`.\n- Behaviors to demonstrate: scenarios `mutagen.scope_resolution.s1` through `s7`.\n\nOut of Scope (files):\n- `lib/mutagen_ex/test_selector.ex` (S3b)\n- `lib/mutagen_ex/mutation_enumerator.ex` (S4b)\n- `lib/mutagen_ex/coverage_runner.ex` (S5)\n- All other `lib/mutagen_ex/*.ex` not in Allowed\n\nAllowed touches (this stage may modify):\n- `lib/mutagen_ex/scope_resolver.ex`\n- `test/mutagen_ex/scope_resolver_test.exs`\n- `test/mutagen_ex/scope_resolver_property_test.exs`\n\nOut of Scope (intent):\n- Do not call into mutation_enumerator or any compile path. Scope resolution\n  is purely an AST walk on parsed sources.\n- Do not accept the colon syntax (`file:Module`). It is rejected per\n  [mutagen.decision.scope_syntax_simplified](.spec/decisions/scope_syntax_simplified.md).\n- Do not infer arity. `Foo.bar` (no `/arity`) is an error, not best-effort.\n\nMerge gate:\n- [ ] Code compiles cleanly with `--warnings-as-errors`\n- [ ] Unit + property tests pass\n- [ ] Spec verification passes (`mutagen.scope_resolution.v1`-`.v3`)\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
+  "id": "mutagen-wrd.3",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "S3a: Scope resolver",
+  "type": "task",
+  "updated_at": "2026-05-13T13:31:17Z"
+}
