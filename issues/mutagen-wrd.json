@@ -6,9 +6,15 @@
   "description": "No spec subject (epic groups stages; each stage carries its own Advances:)\n\nJira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nDistilled from mega-plan run 20260513-083104-claude.\nPlan source: ~/Documents/my-vault/LLMs/plans/-Users-mz-dev-mz-my_ai/2026-05-13-test-faithfulness-verifier/runs/20260513-083104-claude/05-refined-plan.md\nSpec dir: .spec/\n\nThe library was renamed from the plan-era `verify_tests` to `mutagen_ex`. All\nmodule paths, mix task names, and test paths in the stage tickets use the new\nnaming:\n- `mix verify_tests` → `mix mutagen`\n- `VerifyTests.*` → `MutagenEx.*`\n- `Mix.Tasks.VerifyTests` → `Mix.Tasks.Mutagen`\n- `lib/verify_tests/` → `lib/mutagen_ex/`\n- `test/verify_tests/` → `test/mutagen_ex/`\n\nThe S2 spike is GATING: a negative outcome on any of the 4 fixture modules\nor the 100-iteration loop escalates to the user (fallback architecture\ndecision needed). Do not silently pivot.\n\nVerification command: `mix test` (strict pre-merge: `mix compile --warnings-as-errors \u0026\u0026 mix test`).\n\nStage children correspond to the refined plan's S1-S8 (S0 is planning-side\nand not actionable in this repo). Parallelism notes are in each stage's\n\"Depends on\" field.",
   "id": "mutagen-wrd",
   "labels": [],
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: starting unattended run.\n- Epic worktree: /Users/mz/dev/mz/mutagen_ex-mutagen-wrd (branch epic/mutagen-wrd)\n- Bootstrap commit on main: 8809324 (initial scaffolding from /distill)\n- Smoke command (no Makefile): mix compile --warnings-as-errors \u0026\u0026 mix test\n- Worktree cleanup: git worktree remove \u003cpath\u003e\n- generated_state_paths: .spec/state.json (not yet present)\n- regen_command: (none — spec tooling not installed yet)\n- Concurrency cap: 3 active background agents\n- Bounce cap: 2 total per ticket\n- No remote; epic-branch -\u003e main PR is a human checkpoint at the end (do NOT push or open PR)",
+      "timestamp": "2026-05-13T13:48:33Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "mutagen_ex: mix mutagen pipeline",
   "type": "epic",
-  "updated_at": "2026-05-13T13:30:17Z"
+  "updated_at": "2026-05-13T13:48:33Z"
 }
