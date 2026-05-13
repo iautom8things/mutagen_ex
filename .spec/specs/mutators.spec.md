@@ -205,23 +205,23 @@ decisions:
   covers: [mutagen.mutators.r1, mutagen.mutators.r2]
   kind: command
   command: mix test test/mutagen_ex/mutators_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutators.v2
   covers: [mutagen.mutators.r3, mutagen.mutators.r4]
   kind: command
   command: mix test test/mutagen_ex/mutators/id_stability_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutators.v3
   covers: [mutagen.mutators.r5, mutagen.mutators.r6]
   kind: command
   command: mix test test/mutagen_ex/mutators_property_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutators.v4
   covers: [mutagen.mutators.r2]
   kind: command
   command: mix test test/mutagen_ex/mutators/ --only validate
-  execute: false
+  execute: true
 ```
