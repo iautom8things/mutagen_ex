@@ -146,17 +146,17 @@ decisions:
   covers: [mutagen.mutation_enumeration.r1, mutagen.mutation_enumeration.r4, mutagen.mutation_enumeration.r5]
   kind: command
   command: mix test test/mutagen_ex/mutation_enumerator_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutation_enumeration.v2
   covers: [mutagen.mutation_enumeration.r1]
   kind: command
   command: mix test test/mutagen_ex/mutation_enumerator_property_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.mutation_enumeration.v3
   covers: [mutagen.mutation_enumeration.r2, mutagen.mutation_enumeration.r3]
   kind: command
   command: mix test test/mutagen_ex/mutation_enumerator_test.exs --only filtering
-  execute: false
+  execute: true
 ```
