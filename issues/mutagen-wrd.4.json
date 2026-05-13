@@ -11,9 +11,15 @@
   "id": "mutagen-wrd.4",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: fa1552c1-29af-4847-9fbc-5065c95d3be9\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/fa1552c1-29af-4847-9fbc-5065c95d3be9.jsonl\n\nCommit: a716064\nStage worktree: /Users/mz/dev/mz/mutagen_ex-mutagen-wrd.4 (branch mutagen-wrd.4/test-selector, based on epic/mutagen-wrd)\n\nFiles touched:\n- lib/mutagen_ex/test_selector.ex (new — Allowed)\n- test/mutagen_ex/test_selector_test.exs (new — Allowed)\n- .spec/specs/test_selection.spec.md (verification stubs flipped to execute: true; see Audit-expanded scope below)\n\nTests added (in MutagenEx.TestSelectorTest):\n- resolve/2 — file target (mutagen.test_selection.s1, r1) — 4 tests\n- resolve/2 — file:line target (mutagen.test_selection.s2, r2) — 3 tests\n- resolve/2 — tag target (mutagen.test_selection.s3, r3, r4) — 5 tests (incl. structural source check for r4)\n- resolve/2 — no matching tests (mutagen.test_selection.s4, r5) — 4 tests tagged @no_match_cases\n- resolve/2 — composing multiple targets (mutagen.test_selection.s5, r6) — 4 tests\n- exclude convention — 1 test\nTotal: 21 tests, 0 failures.\n\nVerification stubs flipped (false → true): mutagen.test_selection.v1, v2, v3\n- v1: `mix test test/mutagen_ex/test_selector_test.exs` → 21 tests, 0 failures\n- v2: structural source check inside test file — refutes Code.require_file/Code.eval_*/Code.compile_*/ExUnit.Filters.parse_paths; asserts Code.string_to_quoted is used\n- v3: `mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases` → 4 tests, 0 failures\n\nAudit-expanded scope: `.spec/specs/test_selection.spec.md` is outside the ticket's Allowed touches (which list only the lib + test files). Editing it was required by the ticket's own merge gate (\"Spec verification passes (mutagen.test_selection.v1-.v3)\"), since stubs cannot be considered \"passing\" while marked `execute: false`. The orchestrator's prompt to this worker explicitly authorized this flip (\"if flipping verification stubs in `.spec/specs/test_selection.spec.md` from `execute: false` to `execute: true` is required by the ticket's merge gate, do it — auditor will recognize this as planner oversight in Allowed touches. Document the flip in your IMPLEMENTED comment.\"). The diff to the spec file is the three `execute: false` → `execute: true` edits only.\n\nDeferred must requirements: none.\n\nSummary: Built MutagenEx.TestSelector with `resolve/2` returning `%TestFilter{include, exclude: [:test], files}` for the three target shapes (`file`, `file:line`, `tag:NAME`). Tag resolution walks `test/**/*_test.exs` via `Code.string_to_quoted/2` — never `Code.require_file` or any other module-loading call. File:line targets validate the line lies inside an AST-detected `test` block; empty resolutions (unmatched tag or out-of-block line) return structured `{:error, %{reason: :no_tests_match, target: ...}}`. Multiple targets compose by deduplicating union per r6. `mix compile --warnings-as-errors \u0026\u0026 mix test` passes (59 tests across the project, 0 failures).",
+      "timestamp": "2026-05-13T14:15:19Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "S3b: Test selector",
   "type": "task",
-  "updated_at": "2026-05-13T14:11:16Z"
+  "updated_at": "2026-05-13T14:15:19Z"
 }
