@@ -228,19 +228,19 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r4
   kind: command
   command: mix test test/mutagen_ex/json_reporter_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.json_schema.v2
   covers: [mutagen.json_schema.r5]
   kind: command
   command: mix test test/mutagen_ex/json_reporter_test.exs --only error_variants
-  execute: false
+  execute: true
 
 - id: mutagen.json_schema.v3
   covers: [mutagen.json_schema.r9]
   kind: command
   command: mix test test/mutagen_ex/json_reporter_golden_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.json_schema.v4
   covers:
@@ -249,5 +249,5 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r8
   kind: command
   command: mix test test/mutagen_ex/json_reporter_test.exs --only contract
-  execute: false
+  execute: true
 ```
