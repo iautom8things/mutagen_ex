@@ -23,11 +23,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: fa1552c1-29af-4847-9fbc-5065c95d3be9\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/fa1552c1-29af-4847-9fbc-5065c95d3be9.jsonl\n\nReasoning: Re-ran `mix compile --warnings-as-errors` (exit 0) and `mix test` (1 doctest + 202 tests, 0 failures). Mechanical checks confirmed: 25 files in the diff (matches verifier claim), all within Allowed touches, mix.exs untouched (deps still empty), and the only `.spec/` edit is the four `execute: false -\u003e true` flips on v1-v4 (pre-authorized by orchestrator note, precedent .1/.3/.4). Load-bearing tests confirmed for every must:\n- r3 hash formula: `mutators_test.exs:143-148` asserts `String.to_integer(hash) == :erlang.phash2(Mutators.normalize(ast))` — a re-implementation with any other hash function would fail this exact equality (not slip past).\n- r4 format-invariance: `id_stability_test.exs:69-91` does bytewise `MapSet.equal?` over full ID strings between two source variants that differ only in whitespace/line breaks; plus `:93-100` directly hashes two AST nodes that differ only in :line/:column/:end_line/:end_column. The test simulates `mix format` via a hand-edited reformatted source rather than running `mix format` at test time — semantically equivalent (both yield ASTs differing only in positional metadata) and the bytewise ID assertion holds regardless.\n- r1/r2/r5/r6/r7 each tied to load-bearing tests as listed in VERIFY (re-walked each per-mutator test; every mutate/1 assertion would break if the function no-op'd).\n\nSpecial-attention findings:\n- ElseRemoval `:ok`-unconditional: scenario s6 (not a must) describes a context-sensitive variant; the moduledoc's deferral to runner-time `:compile_error` is supported by `mutagen.decision.validate_predicates` (\"five-outcome classification: `:killed`, `:survived`, `:timeout`, `:compile_error`, `:error`\" and \"validate/1 is best-effort, not perfect\"). Acceptable for v1 — r1/r2 still satisfied by the bare callback + structural-skip path.\n- WithSwap over-approximation: phrasing is only in the module docstring, not in the spec or a decision doc. However, an over-approximation produces MORE `:skip` results (conservative direction), and the decision doc explicitly accepts best-effort validate semantics. r2/s2 is directly tested (`with_swap_test.exs:42-46` and `mutators_test.exs:91-110` cover both s2 dependent and independent shapes). Acceptable.\n- No registry consumer exists yet (S4b/S5 explicitly out of scope); registry callbacks/IDs are exercised by the unit + property tests in this stage, which is the right gate for a catalog-only stage.\n\nVerdict: APPROVE.",
       "timestamp": "2026-05-13T14:59:58Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.\n\nStage was branched off current epic HEAD (0c885cf) — clean ff-merge with no rebase needed. ff-merge: 0c885cf → 22a3784.\nPost-merge gates: mix compile --warnings-as-errors ✓, mix test 202+1 doctest 0 failures ✓, mix format --check-formatted ✓.",
+      "timestamp": "2026-05-13T15:03:00Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S4a: Mutator catalog + validate predicates",
   "type": "task",
-  "updated_at": "2026-05-13T14:59:58Z"
+  "updated_at": "2026-05-13T15:03:00Z"
 }
