@@ -26,11 +26,15 @@
     {
       "text": "-",
       "timestamp": "2026-05-13T16:05:24Z"
+    },
+    {
+      "text": "ORCHESTRATOR NOTE: the prior comment from audit subagent agent-a21829cc4e580c670 was posted with only \"-\" as content (tool-call mishap on the subagent side). Recording the auditor's full verdict here as relay for the audit trail. The subagent's session log preserves the full reasoning chain.\n\nAUDIT: BOUNCE → implementer (relayed by orchestrator from audit subagent a21829cc4e580c670)\n\nApproved aspects:\n- All 11 files match Allowed touches + orchestrator-pre-authorized spec stub flips (precedent stages .1/.3/.4/.5/.6)\n- 263 tests pass 3×, no flakes\n- 17 of 18 must-requirements have load-bearing assertions\n- Spike finding #1 (tools-*/ebin) generalizes structurally to coverage_runner.ex:198-205\n- Spike finding #4 (:vsn) correctly framed as test-only\n- Spike findings #2 (Dbgi) and #3 (add_module shape) documented in moduledocs but not enforced — acceptable per the implementer's framing\n- All Out-of-Scope (intent) items honored\n\nLoad-bearing gap forcing BOUNCE:\nmutagen.mutation_pipeline.r7 (snapshot-growth taint propagation) has zero direct test coverage. The single taint test (mutation_runner_test.exs:378-399) flips taint via status == :timeout, which is r4's mechanism — not r7's. The snapshot_warning/2 helper (mutation_runner.ex:519-534) is entirely untested. A regression dropping `grew?` from `next_tainted = tainted_now or grew? or status == :timeout` ships green. Since tainted_predecessors is consumed by the S6 JSON reporter and surfaced to the judge, this is load-bearing for downstream correctness.\n\nThe verifier's \"advisory, not blocking\" framing rubber-stamped the gap — r7 is an independent must, not a sub-case of r4.\n\nBOUNCE → implementer: add a dedicated test for r7's snapshot-growth path that:\n1. Runs the mutation runner over a synthetic mutated AST that intentionally leaks process/ETS/persistent_term state WITHOUT timing out (e.g., starts a named GenServer or registers a process that survives the test run, completes in well under the timeout).\n2. Asserts that the NEXT site result's tainted_predecessors == true AND that the snapshot warning fires (e.g., warning carries the leaked-resource name).\n3. A regression that drops `grew?` from next_tainted ORing should make this assertion fail.\n\n(Also acceptable: a unit test on snapshot_warning/2 that constructs the snapshot-delta input directly.)",
+      "timestamp": "2026-05-13T16:07:09Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S5: Coverage + Baseline + AstCache + MutationRunner + MutationLoop",
   "type": "task",
-  "updated_at": "2026-05-13T16:05:24Z"
+  "updated_at": "2026-05-13T16:07:09Z"
 }
