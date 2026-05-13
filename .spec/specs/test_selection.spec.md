@@ -132,17 +132,17 @@ decisions: []
   covers: [mutagen.test_selection.r1, mutagen.test_selection.r2, mutagen.test_selection.r3, mutagen.test_selection.r6]
   kind: command
   command: mix test test/mutagen_ex/test_selector_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.test_selection.v2
   covers: [mutagen.test_selection.r4]
   kind: source_file
   source_file: test/mutagen_ex/test_selector_test.exs
-  execute: false
+  execute: true
 
 - id: mutagen.test_selection.v3
   covers: [mutagen.test_selection.r5]
   kind: command
   command: mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases
-  execute: false
+  execute: true
 ```
