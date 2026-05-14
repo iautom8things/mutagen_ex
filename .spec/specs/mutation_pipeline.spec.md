@@ -157,6 +157,19 @@ decisions:
   statement: |
     `MutationRunner.run/1` does not modify any file on disk. The working
     tree is byte-identical before and after the runner completes.
+
+- id: mutagen.mutation_pipeline.r12
+  priority: must
+  statement: |
+    A raise, throw, or exit propagating out of the loaded-mutation
+    window (the span from successful `Code.compile_quoted/2` of the
+    mutated AST through the per-site test run and `:code.purge/1`
+    settle) MUST trigger restore before the exception re-propagates.
+    The original `{kind, value, stacktrace}` MUST reach the caller
+    intact — restore failure during such propagation is best-effort
+    and MUST NOT mask the original cause. Equivalently, on the
+    `:compile_error` branch, defensive restore failure surfaces as
+    `:unrecoverable_restore_failure` (not silently discarded).
 ```
 
 ```spec-scenarios
@@ -250,6 +263,36 @@ decisions:
   then: |
     The warnings appear in `mutation.results[i].warnings` of that site.
     No stderr line was written to the actual terminal.
+
+- id: mutagen.mutation_pipeline.s9
+  covers: [mutagen.mutation_pipeline.r12]
+  given: |
+    A mutated module is loaded for a site, and a fault inside the
+    loaded-mutation window (e.g. a misbehaving `:capture_io` seam,
+    `MutationLoop.run/1`'s internal smuggle pattern failing, or any
+    runtime error in the window) raises an exception before the runner
+    can call `restore/3` itself.
+  when: The exception propagates out of `MutationLoop.run/1`.
+  then: |
+    The runner runs restore (best-effort via `safe_restore/3`) before
+    the exception escapes. After the runner returns to the caller via
+    `reraise/2`, the originally-mutated module's MD5
+    (`<mod>.module_info(:md5)`) matches its pre-mutation value, and
+    the raised exception's `__STACKTRACE__` is preserved.
+
+- id: mutagen.mutation_pipeline.s10
+  covers: [mutagen.mutation_pipeline.r12]
+  given: |
+    A site whose mutated AST fails to compile (`:compile_error`
+    branch). The defensive restore that follows ALSO fails (e.g. the
+    AST cache became corrupted, or a test-injected `:compiler` seam
+    rejects the original AST).
+  when: The runner processes that site.
+  then: |
+    The runner aborts with `{:error, :unrecoverable_restore_failure,
+    ...}` whose `message` names both the restore failure and the
+    original `:compile_error` cause. The failure is NOT silently
+    discarded as it was prior to bw mutagen-wrd.17.
 ```
 
 ```spec-verification
@@ -286,5 +329,11 @@ decisions:
   covers: [mutagen.mutation_pipeline.r10]
   kind: command
   command: mix test test/mutagen_ex/integration/c2_test.exs
+  execute: true
+
+- id: mutagen.mutation_pipeline.v5
+  covers: [mutagen.mutation_pipeline.r12]
+  kind: command
+  command: mix test test/mutagen_ex/mutation_runner_raise_test.exs
   execute: true
 ```

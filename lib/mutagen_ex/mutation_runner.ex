@@ -28,6 +28,14 @@ defmodule MutagenEx.MutationRunner do
     * **r6** — after every per-site run, the original module is restored
       via `Code.compile_quoted(cached_ast, file)`. On restore failure the
       runner aborts with `{:error, :unrecoverable_restore_failure, ...}`.
+    * **r12** — a raise, throw, or exit propagating out of the
+      loaded-mutation window (from successful compile of the mutated
+      AST through the test run and `:code.purge/1` settle) triggers
+      restore before re-propagation. The original kind/value/stacktrace
+      surfaces to the caller; restore failure during such propagation
+      is best-effort and never masks the original cause. Implemented
+      via `with_restore/4`, mirroring
+      `MutagenEx.CoverageRunner`'s `with_cover_lifecycle/2`.
     * **r7** — pre/post state snapshots
       (`Process.registered/0`, `:ets.all/0`, `:persistent_term.info/0`).
       Growth flags `tainted_predecessors: true` for subsequent results
@@ -320,35 +328,35 @@ defmodule MutagenEx.MutationRunner do
         # 1. Compile the mutated AST.
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
-            # 2. Run cited tests under the timeout/capture loop.
-            outcome =
-              MutationLoop.run(%{
-                test_modules: cfg.test_modules,
-                timeout_ms: cfg.timeout_ms,
-                ex_unit: Map.get(cfg, :ex_unit, ExUnit),
-                ex_unit_server: Map.get(cfg, :ex_unit_server, ExUnit.Server),
-                capture_io: Map.get(cfg, :capture_io, ExUnit.CaptureIO),
-                cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100)
-              })
+            # r6 + r12: span the loaded-mutation window through
+            # `with_restore/4`. Any raise/throw/exit that escapes the
+            # closure triggers `safe_restore/3` before re-propagation;
+            # a clean closure return still routes through `restore/3`
+            # and surfaces failure as `:unrecoverable_restore_failure`.
+            case with_restore(file_ast, site, cfg, fn ->
+                   outcome =
+                     MutationLoop.run(%{
+                       test_modules: cfg.test_modules,
+                       timeout_ms: cfg.timeout_ms,
+                       ex_unit: Map.get(cfg, :ex_unit, ExUnit),
+                       ex_unit_server: Map.get(cfg, :ex_unit_server, ExUnit.Server),
+                       capture_io: Map.get(cfg, :capture_io, ExUnit.CaptureIO),
+                       cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100)
+                     })
 
-            # 2b. If MutationLoop had to brutal-kill the task to honour
-            # the wall-clock budget, the task may have been mid-flight
-            # inside `:code.load_binary/3` (or any code-server op),
-            # leaving the Code.Server holding an orphaned per-module
-            # load lock. Purge the file's scoped modules to release
-            # that lock before restore re-loads them. Safe in the
-            # non-timeout / graceful-cancel paths too: `:code.purge/1`
-            # on a module with no old-code revisions is a no-op.
-            # See `mutagen.decision.timeout_handling`.
-            settle_code_server!(site, cfg, outcome)
-
-            # 3. Restore the original AST before anything else. A failed
-            # restore aborts the pipeline (r6).
-            case restore(file_ast, site.file, cfg) do
-              :ok ->
+                   # If MutationLoop had to brutal-kill the task to honour
+                   # the wall-clock budget, the task may have been mid-flight
+                   # inside `:code.load_binary/3`, leaving the Code.Server
+                   # holding an orphaned per-module load lock. Purge before
+                   # restore re-loads. Safe on non-timeout paths too.
+                   # See `mutagen.decision.timeout_handling`.
+                   settle_code_server!(site, cfg, outcome)
+                   outcome
+                 end) do
+              {:ok, outcome} ->
                 record_outcome(site, outcome, compile_stderr, acc)
 
-              {:error, message} ->
+              {:error, :restore_failed, message} ->
                 {:error, :unrecoverable_restore_failure,
                  %{
                    site_id: site.id,
@@ -359,9 +367,11 @@ defmodule MutagenEx.MutationRunner do
 
           {:error, :compile_error, message} ->
             # r5: `:compile_error` outcomes don't go in `results`; they
-            # live in the parallel `compile_errors` array. We still
-            # restore (no-op here because the failed compile didn't
-            # replace the module).
+            # live in the parallel `compile_errors` array. The failed
+            # compile shouldn't have replaced the module, but we still
+            # call restore defensively to keep state hygiene uniform.
+            # Per r6, restore failure on this branch is also abort-worthy
+            # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
             entry = %{
               id: site.id,
               file: site.file,
@@ -371,12 +381,21 @@ defmodule MutagenEx.MutationRunner do
               message: message
             }
 
-            # Defensive restore: even though the failed compile shouldn't
-            # have replaced anything, calling restore here is harmless
-            # and keeps state hygiene uniform.
-            _ = restore(file_ast, site.file, cfg)
+            case restore(file_ast, site.file, cfg) do
+              :ok ->
+                {:ok, %{acc | compile_errors: [entry | acc.compile_errors]}}
 
-            {:ok, %{acc | compile_errors: [entry | acc.compile_errors]}}
+              {:error, restore_msg} ->
+                {:error, :unrecoverable_restore_failure,
+                 %{
+                   site_id: site.id,
+                   file: site.file,
+                   message:
+                     "restore failed on :compile_error branch: " <>
+                       restore_msg <>
+                       " (original :compile_error: " <> message <> ")"
+                 }}
+            end
         end
 
       {:error, :site_not_found} ->
@@ -388,6 +407,54 @@ defmodule MutagenEx.MutationRunner do
           "site_node_not_found: " <> site.id <> " in " <> site.file
 
         {:ok, %{acc | warnings: [warning | acc.warnings]}}
+    end
+  end
+
+  # Wrap a closure that operates while a mutated AST is installed as the
+  # module's current code. The protected window must complete with the
+  # original AST restored on every path — successful completion, runtime
+  # raise/throw/exit, or restore failure.
+  #
+  # Per `mutagen.mutation_pipeline.r12`:
+  #   - Closure return + restore success → `{:ok, result}`.
+  #   - Closure return + restore failure → `{:error, :restore_failed, msg}`
+  #     (the caller surfaces this as `:unrecoverable_restore_failure`).
+  #   - Closure raise/throw/exit → `safe_restore/3` runs best-effort, then
+  #     the original kind/value/stacktrace is re-propagated via
+  #     `reraise/2` or `:erlang.raise/3`. Restore failure during
+  #     propagation is intentionally swallowed inside `safe_restore/3`
+  #     so it cannot mask the original cause.
+  #
+  # Shape mirrors `MutagenEx.CoverageRunner.with_cover_lifecycle/2`.
+  defp with_restore(file_ast, %Site{} = site, cfg, fun) do
+    try do
+      result = fun.()
+
+      case restore(file_ast, site.file, cfg) do
+        :ok -> {:ok, result}
+        {:error, message} -> {:error, :restore_failed, message}
+      end
+    rescue
+      e ->
+        _ = safe_restore(file_ast, site, cfg)
+        reraise(e, __STACKTRACE__)
+    catch
+      kind, value ->
+        _ = safe_restore(file_ast, site, cfg)
+        :erlang.raise(kind, value, __STACKTRACE__)
+    end
+  end
+
+  # Cleanup that never throws. Preserves the original exception inside
+  # `rescue` / `catch` clauses by swallowing any failure of `restore/3`
+  # itself (including raises from a misbehaving `:compiler` seam).
+  defp safe_restore(file_ast, %Site{} = site, cfg) do
+    try do
+      restore(file_ast, site.file, cfg)
+    rescue
+      _ -> {:error, "safe_restore: restore raised"}
+    catch
+      _, _ -> {:error, "safe_restore: restore threw or exited"}
     end
   end
 

@@ -5,6 +5,31 @@ All notable changes to `mutagen_ex` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- `MutationRunner.run_one_site/3` now routes the loaded-mutation window
+  through a new `with_restore/4` lifecycle helper that mirrors
+  `MutagenEx.CoverageRunner.with_cover_lifecycle/2`. A raise, throw, or
+  exit inside the window (e.g. a misbehaving `:capture_io` seam) now
+  triggers restore before the exception re-propagates. The original
+  `{kind, value, stacktrace}` is preserved via `reraise/2` /
+  `:erlang.raise/3`; restore failure during propagation is swallowed
+  inside `safe_restore/3` and never masks the original cause. New
+  invariant: `mutagen.mutation_pipeline.r12`. *(mutagen-wrd.17)*
+- The `:compile_error` branch now surfaces defensive-restore failure as
+  `:unrecoverable_restore_failure` (with both the restore failure and
+  the original `:compile_error` message in `details.message`) instead
+  of silently discarding it via `_ = restore(...)`. Per
+  `mutagen.mutation_pipeline.r6`. *(mutagen-wrd.17)*
+
+### Removed
+
+- `lib/mutagen_ex.ex` and `test/mutagen_ex_test.exs` (`mix new`
+  placeholders) are deleted. The `MutagenEx` namespace is owned by its
+  submodules; no top-level module body is necessary. *(mutagen-wrd.17)*
+
 ## [0.1.0] — 2026-05-13
 
 First public cut. The CLI, the JSON document, and the mutator catalog are
