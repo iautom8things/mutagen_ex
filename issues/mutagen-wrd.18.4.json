@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "mutagen-wrd.18.2"
+    "mutagen-wrd.18.2",
+    "mutagen-wrd.18.3"
   ],
   "blocks": [],
   "created": "2026-05-14T18:20:44Z",
