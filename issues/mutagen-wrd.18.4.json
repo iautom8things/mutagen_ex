@@ -12,9 +12,15 @@
   "id": "mutagen-wrd.18.4",
   "labels": [],
   "parent": "mutagen-wrd.18",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 81a13509-99b2-41c4-9907-6ad88ad2ede0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/81a13509-99b2-41c4-9907-6ad88ad2ede0.jsonl\n\nCommit: a3007fc35f21314ab34eb7762912fcfb60eec3f3\nBranch: mutagen-wrd.18.4/supervision-test (worktree /Users/mz/dev/mz/mutagen_ex-supervision-test)\n\nFiles touched:\n- test/mutagen_ex/supervision_test.exs (NEW)\n- .spec/specs/mutation_pipeline.spec.md (stub v6: execute: false → true)\n- .spec/specs/coverage.spec.md (stub v5: execute: false → true)\n\nTests added (all 5 scenarios in test/mutagen_ex/supervision_test.exs):\n- \"scenario 1 — Application + TaskSup boots (s11 ↔ r13)\" / \"ensure_all_started/1 returns :ok and named supervisors are alive\"\n- \"scenario 2 — start_child / terminate_child round-trip (s12 ↔ r14)\" / \"Task.Supervisor.start_child + terminate_child clears the child\"\n- \"scenario 3 — terminate_child propagates through link tree (s12/s13 ↔ r14)\" / \"named trapping GenServer + unnamed worker both DOWN within window\"\n- \"scenario 4 — concurrent-caller rejection (s8 ↔ r1/r8)\" / \"cover_already_running message names MutagenEx.TaskSup as singleton owner\"\n- \"scenario 5 — snapshot delta zero on recursive-shutdown (s13 ↔ r14/r7)\" / \"MutationLoop.run timeout with linked named GenServer leaves delta empty\"\n\nVerification stubs flipped:\n- mutagen.mutation_pipeline.v6 (covers r13, r14) → execute: true\n- mutagen.coverage.v5 (covers r1, r8) → execute: true\n\nLocal sanity:\n- mix compile --warnings-as-errors green\n- mix test test/mutagen_ex/supervision_test.exs green (5 tests, 0 failures)\n- mix test test/mutagen_ex/supervision_test.exs \u0026\u0026 mix test test/mutagen_ex/supervision_test.exs green twice in a row (flake check)\n- mix test (full suite) green: 362 tests, 0 failures (357 baseline + 5 new)\n\nSummary: New test/mutagen_ex/supervision_test.exs (async: false) exercises the 5 scenarios prescribed by the ticket, each mapped 1:1 to a spec stub (s11/s12/s13 on mutation_pipeline + s8 on coverage). All assertions use :DOWN-based receives plus a wait_for_unregistered!/2 poll-wait helper — zero refute Process.alive? race-prone idioms per refined plan TR-2. Scenario 4 asserts atom + \"MutagenEx.TaskSup\" substring only per TR-8 (no exact prose). Helper GenServer (trap_exit: true + 20 ms sleep in terminate/2) and SleepyExUnit stub are inlined in the test file. The on_exit setup loop iterates Task.Supervisor.children(MutagenEx.TaskSup) (returns [pid], not 4-tuples) and calls terminate_child/2 on each, leaving the supervisor clean between tests.",
+      "timestamp": "2026-05-14T19:32:57Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "S4: supervision_test.exs (5 scenarios)",
   "type": "task",
-  "updated_at": "2026-05-14T18:21:10Z"
+  "updated_at": "2026-05-14T19:32:57Z"
 }
