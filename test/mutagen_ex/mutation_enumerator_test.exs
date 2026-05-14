@@ -471,4 +471,127 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert line_b2 == 2
     end
   end
+
+  describe "literal `__block__` wrapper end-to-end (bw mutagen-wrd.15)" do
+    # The enumerator's `node_line/1` only reads metadata from 3-tuples
+    # (`{form, meta, args}`). A bare literal (`0`, `true`, …) carries no
+    # metadata of its own, so the line check at
+    # `mutation_enumerator.ex:224` filters it out as "uncovered" even if
+    # its parent operator IS covered. The parser wraps a literal as
+    # `{:__block__, meta, [value]}` in shapes where it carries token /
+    # line / column info; in that case `node_line/1` returns the
+    # wrapper's line and the site survives the filter.
+    #
+    # This test injects a hand-built `__block__`-wrapped literal into a
+    # synthetic AST and asserts the literal mutator produces a site
+    # attributed to the wrapper's line. It is the end-to-end demonstration
+    # the ticket calls for: the `__block__` shape lands on the right line
+    # in the enumerator's site list.
+
+    alias MutagenEx.Mutators
+
+    defp inject_block_literal_ast(file_atom, module_atom, literal_line, literal_value) do
+      # Build the same shape `Code.string_to_quoted/2` would produce for a
+      # module containing a single function that returns a `__block__`-
+      # wrapped literal. The line metadata on the wrapper is what the
+      # enumerator reads.
+      wrapped_literal =
+        {:__block__, [token: inspect(literal_value), line: literal_line, column: 5],
+         [literal_value]}
+
+      defmodule_meta = [line: 1, column: 1]
+      def_meta = [line: literal_line - 1, column: 3]
+
+      ast =
+        {:defmodule, defmodule_meta,
+         [
+           {:__aliases__, [line: 1, column: 11], [module_atom]},
+           [
+             do:
+               {:def, def_meta,
+                [
+                  {:f, [line: literal_line - 1, column: 7], nil},
+                  [do: wrapped_literal]
+                ]}
+           ]
+         ]}
+
+      %{file_atom => ast}
+    end
+
+    test "boolean __block__ wrapper produces a literal site at the wrapper's line" do
+      file = "lib/blockbool.ex"
+      cache = inject_block_literal_ast(file, :BlockBool, 5, true)
+      scopes = [scope(file, BlockBool)]
+      covered = covered_lines(file, [4, 5])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      assert length(literal_sites) >= 1,
+             "expected a literal site for the __block__-wrapped true; got sites=#{inspect(result.sites)} skipped=#{inspect(result.skipped)}"
+
+      [literal_site | _] = literal_sites
+      assert literal_site.line == 5, "site line should be the wrapper's line"
+      assert literal_site.file == file
+      assert literal_site.mutator == :literal
+
+      # Site ID is content-addressed over the normalized AST. Normalization
+      # strips :line/:column/:end_line/:end_column but PRESERVES :token
+      # because that key is part of the AST's content (it tells
+      # `Macro.to_string/1` which token to render); see
+      # `mutagen.decision.content_addressed_ids`.
+      injected_value = literal_site.original_ast
+      expected_hash = Mutators.ast_hash(injected_value)
+      assert literal_site.id == "#{file}:#{expected_hash}:literal"
+
+      # Mutated AST preserves the wrapper and the positional meta so the
+      # runner can restore the original byte-for-byte; `:token` is
+      # intentionally dropped (the source token reflects the old value).
+      assert {:__block__, meta, [false]} = literal_site.mutated_ast
+      assert Keyword.get(meta, :line) == 5
+      refute Keyword.has_key?(meta, :token)
+    end
+
+    test "integer 0 __block__ wrapper produces a literal site at the wrapper's line" do
+      file = "lib/blockint.ex"
+      cache = inject_block_literal_ast(file, :BlockInt, 7, 0)
+      scopes = [scope(file, BlockInt)]
+      covered = covered_lines(file, [6, 7])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      assert length(literal_sites) >= 1,
+             "expected a literal site for the __block__-wrapped 0; got sites=#{inspect(result.sites)} skipped=#{inspect(result.skipped)}"
+
+      [literal_site | _] = literal_sites
+      assert literal_site.line == 7
+      assert literal_site.file == file
+
+      assert {:__block__, _meta, [1]} = literal_site.mutated_ast
+    end
+
+    test "uncovered __block__-wrapped literal is filtered (r2 ordering still holds)" do
+      file = "lib/blockfilt.ex"
+      cache = inject_block_literal_ast(file, :BlockFilt, 9, 1)
+      scopes = [scope(file, BlockFilt)]
+      # Cover only line 8 (the def line); leave the literal's line 9
+      # uncovered.
+      covered = covered_lines(file, [8])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+      literal_skips = Enum.filter(result.skipped, &(&1.mutator == :literal))
+
+      assert literal_sites == [],
+             "uncovered literal should produce no site; got: #{inspect(literal_sites)}"
+
+      assert literal_skips == [],
+             "uncovered literal should be filtered before validate, not skipped; got: #{inspect(literal_skips)}"
+    end
+  end
 end

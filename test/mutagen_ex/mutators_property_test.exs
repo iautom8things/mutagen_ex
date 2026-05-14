@@ -88,6 +88,50 @@ defmodule MutagenEx.MutatorsPropertyTest do
     end
   end
 
+  test "Literal (`__block__`-wrapped booleans): mutate ∘ mutate == identity (r5, bw mutagen-wrd.15)" do
+    # Note: `:token` metadata is intentionally absent here. `mutate/1`
+    # strips it on swap (see literal.ex: stale-token would make
+    # `Macro.to_string` render the OLD value, breaking r6's source-
+    # rendering bridge). Once stripped, subsequent swaps preserve the
+    # rest of meta verbatim, so the involutive invariant holds on
+    # token-less meta — which is the long-tail shape after the first
+    # swap.
+    meta = [line: 7, column: 5]
+
+    for value <- [true, false] do
+      ast = {:__block__, meta, [value]}
+      assert MutagenEx.Mutators.Literal.mutate(MutagenEx.Mutators.Literal.mutate(ast)) == ast
+    end
+  end
+
+  test "Literal (`__block__`-wrapped 0/1): mutate ∘ mutate == identity (r5, bw mutagen-wrd.15)" do
+    # See companion test above for the `:token`-absent rationale.
+    meta = [line: 12, column: 3]
+
+    for value <- [0, 1] do
+      ast = {:__block__, meta, [value]}
+      assert MutagenEx.Mutators.Literal.mutate(MutagenEx.Mutators.Literal.mutate(ast)) == ast
+    end
+  end
+
+  test "Literal (`__block__`-wrapped, with `:token`): swap strips stale token but preserves positional meta (bw mutagen-wrd.15)" do
+    # Demonstrate the rendering-bridge invariant explicitly: when `:token`
+    # is present, swap drops it so the rendered source reflects the
+    # swapped value rather than the original token. Positional meta
+    # survives so the enumerator's attribution lines remain stable.
+    meta = [token: "true", line: 7, column: 5]
+    ast = {:__block__, meta, [true]}
+
+    swapped = MutagenEx.Mutators.Literal.mutate(ast)
+    assert {:__block__, swapped_meta, [false]} = swapped
+    refute Keyword.has_key?(swapped_meta, :token)
+    assert Keyword.get(swapped_meta, :line) == 7
+    assert Keyword.get(swapped_meta, :column) == 5
+
+    # And the rendered source is the swapped value.
+    assert Macro.to_string(swapped) == "false"
+  end
+
   test "ResultTuple: mutate ∘ mutate == identity (r5)" do
     for ast <- @result_tuple_samples do
       mutator = MutagenEx.Mutators.ResultTuple
