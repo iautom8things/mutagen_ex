@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.18",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR NOTE — pre-existing format-gate red, NOT caused by 18.1\n\nAfter 18.1 merged cleanly into epic/mutagen-wrd at f384c25 (smoke 357/357 green, compile clean, deps.unlock clean), the standard merge-gate `mix format --check-formatted` surfaced pre-existing formatting violations in:\n\n- test/mutagen_ex/mutation_runner_test.exs (4 sites: multi-line tuple literals)\n- lib/mutagen_ex/mutation_runner.ex (1 site: if/do/else single-line that should split)\n- lib/mutagen_ex/scope_resolver.ex (1 site: error-message wrap)\n\nThese violations exist on the pre-18.1 epic HEAD (55af051) and earlier — confirmed by `git checkout 55af051 -- \u003cfiles\u003e \u0026\u0026 mix format --check-formatted` showing the same diffs. 18.1 did not touch any of these files (its diff was only `lib/mutagen_ex/application.ex` NEW + one line in `mix.exs`).\n\nNone of the remaining children (18.2-18.5) have these files in their Allowed touches, so the epic cannot fix this debt without a scope expansion. Surfacing for human visibility; orchestrator proceeding with 18.2 + 18.3 in parallel. Address the format debt with a follow-on cleanup ticket or by running `mix format` on those three files outside this epic.",
+      "timestamp": "2026-05-14T19:04:18Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "S9b: MutagenEx.Application + Task.Supervisor + singleton ownership contract",
   "type": "task",
-  "updated_at": "2026-05-14T16:36:34Z"
+  "updated_at": "2026-05-14T19:04:18Z"
 }
