@@ -56,6 +56,23 @@ defmodule Mix.Tasks.Mutagen do
     * non-zero — bad input or unrecoverable error. Every non-zero exit also
       emits an error-JSON document to stdout (or `--json <path>`).
 
+  ## JSON Schema Pointer
+
+  The v1 output document is defined by-example via the golden fixtures
+  committed at `test/mutagen_ex/golden/*.json`. Read these first:
+
+    * `end_to_end_scenario_1_arith.json` — canonical successful run with
+      a populated `mutation.results` array.
+    * `end_to_end_scenario_5_baseline_red.json` — `aborted: true` with a
+      populated `baseline.failures` block.
+    * `end_to_end_scenario_6_zero_coverage.json` — successful run with
+      zero coverage and an empty `mutation.results`.
+    * `error_unresolvable_scope.json` — abort path where the pipeline
+      never reaches the mutation phase.
+
+  The behavioural contract for the shape itself lives in
+  `.spec/specs/json_schema.spec.md`.
+
   ## Known Caveats
 
     * **State drift on `use SomeModule`.** Modules using compile-time DSLs
