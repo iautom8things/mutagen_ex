@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-wrd.18"
+  ],
   "blocks": [],
   "created": "2026-05-14T16:35:46Z",
   "description": "Advances: mutagen.mutation_pipeline, mutagen.json_schema\n\nCloses **F17** (HIGH, Performance). No parallelism, no `:telemetry`, no streaming/progress output; full report assembled in memory.\n\n**Dependencies**: requires .18 (Task.Supervisor exists) before parallelism can land.\n\n## Deliverable\n- `Task.Supervisor.async_stream_nolink/4` for the mutation loop with `max_concurrency: System.schedulers_online()`, configurable via `--max-concurrency`\n- `:telemetry` events at well-defined points: enumeration_done, baseline_done, coverage_done, site_started, site_completed, run_completed\n- Streaming NDJSON output to stdout (or `--json` file) when `--stream` is set; per-site result emitted as the site completes\n- Progress feedback to stderr (default on TTY; suppressed with `--no-progress`)\n- Report still aggregable to the final JSON shape (existing in-memory mode preserved as default)\n- Revise json_schema.spec.md for NDJSON variant; mutation_pipeline.spec.md for parallelism + telemetry contract.\n\n## Allowed touches\n- lib/mutagen_ex/mutation_runner.ex (parallelism)\n- lib/mutagen_ex/json_reporter.ex (streaming + NDJSON)\n- lib/mutagen_ex/cli.ex (flags)\n- lib/mix/tasks/mutagen.ex (progress + telemetry wiring)\n- .spec/specs/mutation_pipeline.spec.md, json_schema.spec.md\n- Corresponding test files\n- README.md, CHANGELOG.md\n\n## Out of Scope\n- Telemetry-poller / observable backend wiring — events are emitted; consumers configure their own subscribers\n- ETS / DETS-backed result store (in-memory is fine for v1.1)\n\n## Merge gate\n- [ ] mix test green\n- [ ] Parallel run produces byte-identical JSON to serial run on a deterministic scope (concurrency must not break r2)\n- [ ] NDJSON variant validates against json_schema.spec.md\n- [ ] Telemetry events fire (test with handler)\n- [ ] Auditor APPROVE",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Parallel mutation loop + telemetry + NDJSON streaming + progress feedback",
   "type": "task",
-  "updated_at": "2026-05-14T16:35:46Z"
+  "updated_at": "2026-05-14T16:36:34Z"
 }
