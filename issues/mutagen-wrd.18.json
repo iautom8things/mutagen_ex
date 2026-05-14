@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-14T16:32:41Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "S9b: MutagenEx.Application + Task.Supervisor + singleton ownership contract",
   "type": "task",
-  "updated_at": "2026-05-14T16:32:41Z"
+  "updated_at": "2026-05-14T16:35:01Z"
 }
