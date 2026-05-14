@@ -102,7 +102,10 @@ defmodule MutagenEx.CoverageRunner do
          %{
            message:
              ":cover_server is already registered. " <>
-               "Refusing to start a competing cover session."
+               "MutagenEx.TaskSup is the documented singleton owner of " <>
+               ":cover_server and ExUnit.Server during a MutagenEx mutation " <>
+               "cycle; a competing session is refused to prevent state " <>
+               "corruption. See .spec/decisions/supervision_tree.md."
          }}
 
       false ->

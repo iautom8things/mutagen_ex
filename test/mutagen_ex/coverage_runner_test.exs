@@ -113,6 +113,9 @@ defmodule MutagenEx.CoverageRunnerTest do
 
       assert {:error, :cover_already_running, details} = CoverageRunner.run(cfg)
       assert is_binary(details.message)
+      # r1 (revised): the rejection message names MutagenEx.TaskSup as the
+      # documented singleton owner — see .spec/decisions/supervision_tree.md.
+      assert details.message =~ "MutagenEx.TaskSup"
 
       # Neither configure/0 nor run/0 were called.
       assert Process.get(:exunit_fake_configure) == nil
