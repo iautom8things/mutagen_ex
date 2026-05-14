@@ -70,10 +70,17 @@ decisions:
   priority: must
   statement: |
     Per-mutation execution wraps `ExUnit.run/1` in a structure that
-    enforces `Config.timeout_ms`. When the timeout fires, the test process
-    is killed without grace. The site is classified `:timeout`, and the
-    next iteration's classification record carries
-    `tainted_predecessors: true` per mutagen.decision.timeout_handling.
+    enforces `Config.timeout_ms`. When the timeout fires, the test
+    process is cancelled via the two-phase path documented in
+    mutagen.decision.timeout_handling: a trappable `:shutdown` first,
+    escalating to `Process.exit(:kill)` only if the task does not
+    unwind inside a bounded grace window. The site is classified
+    `:timeout` regardless of which phase actually cleared the task,
+    and the next iteration's classification record carries
+    `tainted_predecessors: true`. After a `:timeout` outcome the
+    runner calls `:code.purge/1` on the site's scoped modules before
+    restore, so a brutal-killed task cannot leave the Code.Server
+    holding an orphaned per-module load lock for the next site.
 
 - id: mutagen.mutation_pipeline.r5
   priority: must

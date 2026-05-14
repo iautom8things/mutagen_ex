@@ -12,9 +12,16 @@ defmodule MutagenEx.MutationRunner do
     * **r3** — refuses to mutate `MutagenEx.*` or `Mix.Tasks.Mutagen`
       modules (see [`mutagen.decision.self_mutation_refused`](../../.spec/decisions/self_mutation_refused.md)).
     * **r4** — per-site test runs wrap `ExUnit.run/0` in the timeout
-      structure owned by `MutagenEx.MutationRunner.MutationLoop`. Timed-
-      out sites are classified `:timeout` and the following site carries
-      `tainted_predecessors: true`.
+      structure owned by `MutagenEx.MutationRunner.MutationLoop`. The
+      timeout uses the two-phase cooperative-cancellation path
+      documented in `mutagen.decision.timeout_handling` (trappable
+      `:shutdown` first, brutal_kill only as escalation). Timed-out
+      sites are classified `:timeout` and the following site carries
+      `tainted_predecessors: true`. After a `:timeout`, before
+      restore, the runner calls `:code.purge/1` on the site's scoped
+      modules to release any orphaned Code.Server load lock left by
+      a brutal-killed task — the per-mutation hardening that
+      bw mutagen-wrd.13 fixed.
     * **r5** — exactly five outcomes: `:killed`, `:survived`, `:timeout`,
       `:compile_error`, `:error`. `:compile_error` does not count toward
       the kill-rate denominator.
@@ -61,6 +68,13 @@ defmodule MutagenEx.MutationRunner do
       passed through to `MutationLoop`. Default: the real Elixir modules.
     * `:compiler` — `{module, fun}` to use instead of
       `Code.compile_quoted/2`. Test seam.
+    * `:cancel_grace_ms` — `non_neg_integer`. Grace window the
+      cooperative-cancellation phase waits before escalating to
+      brutal_kill on a timeout. Default `100`. Set to `0` in tests
+      that need to exercise the brutal-only path. Passed through to
+      `MutationLoop`.
+    * `:code_purge` — `(module -> any)`. Test seam for the post-
+      `:timeout` Code.Server settle pass. Default `&:code.purge/1`.
 
   ## Output shape
 
@@ -313,8 +327,20 @@ defmodule MutagenEx.MutationRunner do
                 timeout_ms: cfg.timeout_ms,
                 ex_unit: Map.get(cfg, :ex_unit, ExUnit),
                 ex_unit_server: Map.get(cfg, :ex_unit_server, ExUnit.Server),
-                capture_io: Map.get(cfg, :capture_io, ExUnit.CaptureIO)
+                capture_io: Map.get(cfg, :capture_io, ExUnit.CaptureIO),
+                cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100)
               })
+
+            # 2b. If MutationLoop had to brutal-kill the task to honour
+            # the wall-clock budget, the task may have been mid-flight
+            # inside `:code.load_binary/3` (or any code-server op),
+            # leaving the Code.Server holding an orphaned per-module
+            # load lock. Purge the file's scoped modules to release
+            # that lock before restore re-loads them. Safe in the
+            # non-timeout / graceful-cancel paths too: `:code.purge/1`
+            # on a module with no old-code revisions is a no-op.
+            # See `mutagen.decision.timeout_handling`.
+            settle_code_server!(site, cfg, outcome)
 
             # 3. Restore the original AST before anything else. A failed
             # restore aborts the pipeline (r6).
@@ -394,6 +420,58 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp node_matches_site?(_, _), do: false
+
+  # ---------------------------------------------------------------------------
+  # Code.Server settle (r4 hardening — `mutagen.decision.timeout_handling`)
+  # ---------------------------------------------------------------------------
+
+  # After a per-site mutation run that ended in `:timeout`, the inner
+  # task may have been brutal-killed mid-flight inside `:code.load_binary/3`
+  # (cover-recompile racing the mutation cycle). The Code.Server can be
+  # left holding an orphaned per-module load lock; the next site's
+  # compile-and-load cycle deadlocks waiting on it.
+  #
+  # Mitigation: call `:code.purge/1` on every scope record whose file
+  # matches the just-mutated site. `:code.purge/1` is documented to
+  # "remove the old code for the module" and, in OTP's current
+  # implementation, also clears the code_server's tracking state for
+  # that module — releasing the orphaned lock. Modules with no old
+  # revision are a no-op.
+  #
+  # We only purge after a `:timeout`-classified outcome to keep the
+  # happy-path cycle cheap. Graceful cancels and normal completions
+  # do not trigger purge.
+  #
+  # `code_purge` is configurable for tests: pass `cfg.code_purge :: (module -> any)`.
+  defp settle_code_server!(%Site{} = site, cfg, outcome) do
+    needs_settle? =
+      case outcome do
+        {:timeout, %{cancel_mode: :brutal}} -> true
+        {:timeout, _} -> true
+        _ -> false
+      end
+
+    if needs_settle? do
+      purge_fun = Map.get(cfg, :code_purge, &:code.purge/1)
+
+      modules_for_file =
+        cfg.scope_records
+        |> Enum.filter(fn %Scope{file: f} -> f == site.file end)
+        |> Enum.map(& &1.module)
+
+      Enum.each(modules_for_file, fn mod ->
+        try do
+          purge_fun.(mod)
+        rescue
+          _ -> :ok
+        catch
+          _, _ -> :ok
+        end
+      end)
+    end
+
+    :ok
+  end
 
   # ---------------------------------------------------------------------------
   # Compile + restore (r6, r11)

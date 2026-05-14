@@ -7,10 +7,26 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # Owns three responsibilities that the runner needs once per mutation
   # site but baseline/coverage do NOT need:
   #
-  #   1. **Timeout wrapping.** `Task.async + Task.yield(timeout_ms) +
-  #      Task.shutdown(:brutal_kill)` (the spike-blessed shape from S2).
-  #      A test that hangs is killed without grace; classification becomes
-  #      `:timeout`.
+  #   1. **Timeout wrapping with cooperative cancellation.**
+  #      `Task.async + Task.yield(timeout_ms)` is the happy path.
+  #      On timeout the loop drives a two-phase cancellation:
+  #
+  #        a. `Task.shutdown(task, cancel_grace_ms)` — issues a
+  #           trappable `:shutdown` exit. A test process that is in a
+  #           normal `receive` or that traps exits at a hot loop
+  #           checkpoint can terminate cleanly here, releasing any
+  #           locks it holds (in particular the Code.Server's per-module
+  #           load lock — see `mutagen.decision.timeout_handling`).
+  #        b. If the task is still alive after the grace window,
+  #           `Task.shutdown(task, :brutal_kill)`. This is the
+  #           last-resort path for tests that are genuinely stuck in
+  #           BIF code with no checkpoint reachable; classification is
+  #           `:timeout` in both cases.
+  #
+  #      The classification is `:timeout` whether the task exited via
+  #      the graceful or brutal path — r4 cares about the wall-clock
+  #      budget, not which kill mechanism cleared it.
+  #
   #   2. **Stderr capture.** `ExUnit.CaptureIO.capture_io(:stderr, fn -> ...)`
   #      so compiler warnings or test-emitted stderr never reach the user's
   #      terminal. The captured string is returned alongside the outcome
@@ -32,6 +48,13 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # exact `%{async?: false, group: nil, parameterize: nil}` shape the S2
   # spike validated against Elixir 1.19.5 / OTP 28.
 
+  # Default grace window the cooperative-shutdown phase waits for the
+  # task to exit cleanly before escalating to brutal_kill. Small enough
+  # to keep per-site latency in the same envelope as the original
+  # brutal-only path; large enough that a task in a normal `receive`
+  # block has time to process the `:shutdown` exit signal and unwind.
+  @default_cancel_grace_ms 100
+
   @typedoc "ExUnit-shaped run result map (subset)."
   @type exunit_result :: %{
           optional(:failures) => non_neg_integer(),
@@ -47,14 +70,32 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           persistent_terms: non_neg_integer()
         }
 
+  @typedoc "Mechanism the timeout cancellation actually used."
+  @type cancel_mode :: :graceful | :brutal | :n_a
+
   @typedoc "Outcome of a single `run/1` call."
   @type outcome ::
           {:completed, exunit_result(),
-           %{stderr: binary(), snapshot_before: snapshot(), snapshot_after: snapshot()}}
+           %{
+             stderr: binary(),
+             snapshot_before: snapshot(),
+             snapshot_after: snapshot(),
+             cancel_mode: cancel_mode()
+           }}
           | {:timeout,
-             %{stderr: binary(), snapshot_before: snapshot(), snapshot_after: snapshot()}}
+             %{
+               stderr: binary(),
+               snapshot_before: snapshot(),
+               snapshot_after: snapshot(),
+               cancel_mode: cancel_mode()
+             }}
           | {:error, term(),
-             %{stderr: binary(), snapshot_before: snapshot(), snapshot_after: snapshot()}}
+             %{
+               stderr: binary(),
+               snapshot_before: snapshot(),
+               snapshot_after: snapshot(),
+               cancel_mode: cancel_mode()
+             }}
 
   @typedoc "Input map."
   @type input :: %{
@@ -63,44 +104,36 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           optional(:ex_unit) => module(),
           optional(:ex_unit_server) => module(),
           optional(:capture_io) => module(),
-          optional(:task_supervisor) => module()
+          optional(:cancel_grace_ms) => non_neg_integer()
         }
 
   @spec run(input()) :: outcome()
   def run(input) when is_map(input) do
     snapshot_before = take_snapshot()
 
-    {stderr, body_result} =
+    {stderr, {body_result, cancel_mode}} =
       capture_stderr(input, fn ->
         execute_with_timeout(input)
       end)
 
     snapshot_after = take_snapshot()
 
+    meta = %{
+      stderr: stderr,
+      snapshot_before: snapshot_before,
+      snapshot_after: snapshot_after,
+      cancel_mode: cancel_mode
+    }
+
     case body_result do
       {:ok, exunit_result} ->
-        {:completed, exunit_result,
-         %{
-           stderr: stderr,
-           snapshot_before: snapshot_before,
-           snapshot_after: snapshot_after
-         }}
+        {:completed, exunit_result, meta}
 
       :timeout ->
-        {:timeout,
-         %{
-           stderr: stderr,
-           snapshot_before: snapshot_before,
-           snapshot_after: snapshot_after
-         }}
+        {:timeout, meta}
 
       {:error, reason} ->
-        {:error, reason,
-         %{
-           stderr: stderr,
-           snapshot_before: snapshot_before,
-           snapshot_after: snapshot_after
-         }}
+        {:error, reason, meta}
     end
   end
 
@@ -133,6 +166,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
   defp execute_with_timeout(input) do
     timeout = input.timeout_ms
+    grace = Map.get(input, :cancel_grace_ms, @default_cancel_grace_ms)
     test_modules = input.test_modules
     ex_unit = Map.get(input, :ex_unit, ExUnit)
     server = Map.get(input, :ex_unit_server, ExUnit.Server)
@@ -161,23 +195,92 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
     case Task.yield(task, timeout) do
       {:ok, {:ok, result}} ->
-        {:ok, result}
+        {{:ok, result}, :n_a}
 
       {:ok, {:error, reason}} ->
-        {:error, reason}
+        {{:error, reason}, :n_a}
 
       nil ->
-        # r4: brutal kill on timeout. The killed task may have left
-        # named processes / ETS tables / persistent terms behind; the
-        # post-snapshot will flag any growth.
-        case Task.shutdown(task, :brutal_kill) do
-          {:ok, {:ok, result}} -> {:ok, result}
-          {:ok, {:error, reason}} -> {:error, reason}
-          _ -> :timeout
-        end
+        # r4: timeout fired. Cooperatively cancel first so any
+        # Code.Server load locks (or other VM-internal locks) the
+        # task holds can be released cleanly before we escalate to
+        # brutal_kill. See `mutagen.decision.timeout_handling`.
+        cancel_on_timeout(task, grace)
 
       {:exit, reason} ->
-        {:error, {:task_exited, reason}}
+        {{:error, {:task_exited, reason}}, :n_a}
+    end
+  end
+
+  # Two-phase cancellation. Phase 1 is `Task.shutdown(task, grace_ms)`,
+  # which dispatches `Process.exit(pid, :shutdown)` — a trappable signal
+  # that lets a task in a normal `receive` (or one that traps exits)
+  # finish unwinding. If phase 1 produced a result we still classify
+  # against the original outcome: a task that returned `{:ok, result}`
+  # during the grace window is honored as `:completed`; a task that
+  # returned `{:error, reason}` is `:error`; an exit with a non-normal
+  # reason or no result means the task is still occupying the runner's
+  # wall-clock budget — escalate to brutal_kill.
+  #
+  # Phase 2, brutal_kill, is the last-resort escape for tasks genuinely
+  # stuck in BIF code with no checkpoint reachable.
+  defp cancel_on_timeout(task, grace_ms) when grace_ms > 0 do
+    case Task.shutdown(task, grace_ms) do
+      {:ok, {:ok, result}} ->
+        # Task happened to finish during the grace window AND returned
+        # a clean result. Classify it as completed; the timeout did
+        # not actually need to fire.
+        {{:ok, result}, :graceful}
+
+      {:ok, {:error, reason}} ->
+        # Task finished during the grace window but the inner body
+        # raised/caught. Same classification path as the no-timeout
+        # error branch above.
+        {{:error, reason}, :graceful}
+
+      nil ->
+        # Grace window expired and `Task.shutdown/2` decided NOT to
+        # escalate internally (rare with traps off; common with the
+        # normal `Process.sleep`-style tasks that are killed by the
+        # initial `:shutdown` signal). The result was lost. Escalate
+        # explicitly to brutal_kill for completeness — its behaviour
+        # on an already-dead task is `{:exit, :noproc}` which we
+        # classify as `:timeout` below.
+        brutal_shutdown(task)
+
+      {:exit, :killed} ->
+        # `Task.shutdown(task, grace_ms)` internally escalates to
+        # `Process.exit(pid, :kill)` after the grace window if the
+        # task is still running AND was trapping exits (e.g. it
+        # ignored the `:shutdown` signal). The task is already
+        # cleared; no second brutal_kill is needed. From the
+        # cancellation taxonomy's perspective this IS the brutal
+        # path — the cooperative phase ran out the clock and
+        # `Task.shutdown` itself did the kill — so cancel_mode is
+        # `:brutal`.
+        {:timeout, :brutal}
+
+      {:exit, _other_reason} ->
+        # Task exited during grace for some other reason (e.g. a
+        # raise that the task didn't rescue). Treat as timeout —
+        # the wall-clock budget elapsed regardless of the exit
+        # path.
+        {:timeout, :brutal}
+    end
+  end
+
+  defp cancel_on_timeout(task, _grace_ms) do
+    # grace_ms == 0 ⇒ skip the cooperative phase entirely. Preserved as
+    # an escape hatch for tests that deliberately exercise the
+    # brutal-only path.
+    brutal_shutdown(task)
+  end
+
+  defp brutal_shutdown(task) do
+    case Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, result}} -> {{:ok, result}, :brutal}
+      {:ok, {:error, reason}} -> {{:error, reason}, :brutal}
+      _ -> {:timeout, :brutal}
     end
   end
 

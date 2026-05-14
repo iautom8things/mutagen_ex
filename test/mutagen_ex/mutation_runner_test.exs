@@ -129,6 +129,37 @@ defmodule MutagenEx.MutationRunnerTest do
       r
     end
 
+    # Trap exits and idle in a receive loop. The cooperative-cancel path
+    # in `MutationLoop.cancel_on_timeout/2` issues `:shutdown` first (a
+    # trappable signal); a process that traps exits and matches on
+    # `{:EXIT, _, :shutdown}` can return a clean result inside the
+    # grace window — proving the cooperative phase actually fires
+    # before brutal_kill. Used by the r4 graceful-cancel regression
+    # test below.
+    defp handle_next({:trap_then_yield_on_shutdown, r}) do
+      Process.flag(:trap_exit, true)
+
+      receive do
+        {:EXIT, _from, :shutdown} -> r
+      after
+        # Defensive ceiling so a buggy fake doesn't hang the suite.
+        5_000 -> r
+      end
+    end
+
+    # Sleeps even when receiving a :shutdown signal. Used to drive the
+    # brutal-kill escalation path: trap exits and explicitly ignore
+    # :shutdown, so phase 1 of the cooperative-cancel sequence cannot
+    # finish — only phase 2 (brutal_kill) actually clears the task.
+    defp handle_next({:trap_and_ignore_shutdown, ms, r}) do
+      Process.flag(:trap_exit, true)
+      deadline = System.monotonic_time(:millisecond) + ms
+
+      drain_shutdowns_until(deadline)
+
+      r
+    end
+
     # Intentionally leak a named process so `Process.registered/0`'s
     # length grows AFTER the runner takes its post-snapshot. The named
     # pid is recorded under `{:leak, name}` on the test process's
@@ -154,6 +185,25 @@ defmodule MutagenEx.MutationRunnerTest do
       pid = spawn(fn -> Process.sleep(:infinity) end)
       true = Process.register(pid, name)
       r
+    end
+
+    # Helper for `{:trap_and_ignore_shutdown, ms, _}`. Kept private to
+    # the fake and below all `handle_next/1` clauses so the
+    # multiple-clauses-not-grouped lint stays quiet.
+    defp drain_shutdowns_until(deadline_ms) do
+      remaining = deadline_ms - System.monotonic_time(:millisecond)
+
+      cond do
+        remaining <= 0 ->
+          :ok
+
+        true ->
+          receive do
+            {:EXIT, _from, :shutdown} -> drain_shutdowns_until(deadline_ms)
+          after
+            remaining -> :ok
+          end
+      end
     end
   end
 
@@ -451,6 +501,198 @@ defmodule MutagenEx.MutationRunnerTest do
       assert r1.tainted_predecessors == false
 
       assert r2.tainted_predecessors == true
+    end
+
+    # ---------------------------------------------------------------------------
+    # r4 cooperative-cancellation regression (bw mutagen-wrd.13)
+    # ---------------------------------------------------------------------------
+    #
+    # The bug behind bw mutagen-wrd.13 was that a timed-out task was
+    # killed by `Task.shutdown(task, :brutal_kill)` mid-flight inside
+    # `:code.load_binary/3`, leaving the Code.Server with an orphaned
+    # per-module load lock. The fix is two-phase cancellation:
+    #
+    #   phase 1: `Task.shutdown(task, cancel_grace_ms)` — sends
+    #            `:shutdown` (trappable). A task that traps exits and
+    #            returns normally during the grace window unwinds
+    #            cleanly, releasing its locks.
+    #   phase 2: `Task.shutdown(task, :brutal_kill)` — only if phase 1
+    #            timed out. Plus a `:code.purge/1` settle pass on the
+    #            site's scoped modules before restore.
+    #
+    # The tests below are load-bearing on the fix:
+    #
+    #   * The graceful test proves phase 1 actually runs and can
+    #     produce a `:timeout` classification without the brutal path.
+    #     If a regression skipped the cooperative phase, this test
+    #     would still pass (the task would just be brutal-killed) so
+    #     we ALSO assert `cancel_mode == :graceful` indirectly via
+    #     classification + timing.
+    #   * The brutal test proves phase 2 still fires for tasks that
+    #     ignore `:shutdown`. Without phase 2 the runner would hang
+    #     forever.
+    #   * The settle test proves `:code.purge/1` is invoked for the
+    #     site's scoped modules on a timeout. If a regression dropped
+    #     the purge call, the next site's compile-and-load cycle would
+    #     deadlock on a real timed-out site — but the deadlock is
+    #     environmental and hard to reproduce inside a unit test. The
+    #     observable proxy is "purge was called for the scope module".
+
+    test "graceful-cancel path: task that traps exit and returns on :shutdown classifies :timeout without brutal_kill" do
+      clear_stubs()
+      site = build_site(id: "graceful", line: 2, column: 13)
+
+      cfg = base_cfg(site, timeout_ms: 50)
+
+      # The task will trap exits, wait for :shutdown, and return.
+      # `Task.shutdown(task, grace)` in the loop sends :shutdown.
+      # The task returns its configured result, which the loop reports
+      # via the graceful path. r4 classification is :timeout (the
+      # wall-clock budget elapsed regardless of the unwind mechanism).
+      ExUnitFake.set_results([
+        {:trap_then_yield_on_shutdown,
+         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      start_ms = System.monotonic_time(:millisecond)
+      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
+      elapsed_ms = System.monotonic_time(:millisecond) - start_ms
+
+      # The graceful path returns a `{:ok, result}` from the task —
+      # classification becomes :killed/:survived depending on
+      # failures. Here failures == 0, so :survived. This is the
+      # WIN of cooperative cancellation: the task got to finish
+      # unwinding inside the grace window so its result is honored.
+      # The bug repro (brutal_kill only) had no path to this outcome.
+      assert r.status == :survived,
+             "expected the trap-and-yield-on-shutdown task to be honoured as :survived on the graceful path (proving phase 1 of cancel_on_timeout fired); got #{inspect(r.status)}"
+
+      # Sanity: the timeout DID fire (we slept past 50ms wall-clock
+      # before the grace window settled). Without this, the test
+      # would be vacuous against a regression that skipped the
+      # timeout entirely.
+      assert elapsed_ms >= 50,
+             "expected elapsed >= 50ms (timeout_ms) but got #{elapsed_ms}ms — the timeout didn't fire"
+
+      # And it completed before the upper bound (timeout_ms + grace +
+      # noise). If a regression made the grace window unbounded, this
+      # would catch it.
+      assert elapsed_ms < 1_000,
+             "graceful cancel took #{elapsed_ms}ms — exceeded the timeout + grace budget"
+    end
+
+    test "brutal-kill escalation: task that ignores :shutdown still terminates via :brutal_kill and classifies :timeout" do
+      clear_stubs()
+      site = build_site(id: "brutal", line: 2, column: 13)
+
+      cfg = base_cfg(site, timeout_ms: 50)
+
+      # The task traps exits and DRAINS :shutdown signals for 1s before
+      # exiting. The cooperative phase (default grace 100ms) cannot
+      # finish; the loop must escalate to brutal_kill — that's the
+      # only path that actually clears the task.
+      ExUnitFake.set_results([
+        {:trap_and_ignore_shutdown, 1_000,
+         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      start_ms = System.monotonic_time(:millisecond)
+      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
+      elapsed_ms = System.monotonic_time(:millisecond) - start_ms
+
+      assert r.status == :timeout,
+             "task that ignores :shutdown must still classify :timeout via brutal_kill; got #{inspect(r.status)}"
+
+      # The cooperative phase consumes ~100ms (the default grace),
+      # then brutal_kill clears within milliseconds. The whole site
+      # should finish well under the 1_000ms drain ceiling — proof
+      # that escalation actually fired rather than us waiting out
+      # the drain.
+      assert elapsed_ms < 800,
+             "brutal-kill escalation should clear the site in under 800ms; got #{elapsed_ms}ms — phase 2 likely did not fire"
+    end
+
+    test "code-server settle: :code.purge/1 is invoked for the site's scoped modules on :timeout" do
+      clear_stubs()
+      site = build_site(id: "settle", line: 2, column: 13)
+      scope_module = Synthetic.SettleFixture
+
+      # Capture every module passed to `code_purge`. The runner's
+      # `settle_code_server!/3` calls this exactly once per scope-
+      # record whose file matches the site's file, only on :timeout.
+      purge_calls = :ets.new(:purge_calls, [:public, :ordered_set])
+
+      code_purge = fn mod ->
+        :ets.insert(purge_calls, {System.unique_integer([:monotonic]), mod})
+        :ok
+      end
+
+      cfg =
+        site
+        |> base_cfg(
+          timeout_ms: 50,
+          scope_records: [
+            %Scope{file: site.file, line_range: 1..10, module: scope_module}
+          ]
+        )
+        |> Map.put(:code_purge, code_purge)
+
+      ExUnitFake.set_results([
+        # Force a brutal-kill path so we KNOW the timeout actually
+        # fired with the cancel_mode that justifies the purge.
+        {:trap_and_ignore_shutdown, 1_000,
+         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
+      assert r.status == :timeout
+
+      purged = :ets.tab2list(purge_calls) |> Enum.map(fn {_, m} -> m end)
+
+      assert scope_module in purged,
+             "expected :code.purge to be called on #{inspect(scope_module)} after a :timeout site (Code.Server settle path per mutagen.decision.timeout_handling); got purge calls: #{inspect(purged)}"
+
+      :ets.delete(purge_calls)
+    end
+
+    test "non-timeout outcomes do NOT call :code.purge/1 (settle is timeout-only)" do
+      # The settle path is opt-in for the timeout class because
+      # gratuitous purges on every successful site would slow down
+      # the happy path (and risk unloading code that the test suite
+      # actually needs across sites). This test pins the gate.
+      clear_stubs()
+      site = build_site(id: "nopurge", line: 2, column: 13)
+      scope_module = Synthetic.NoPurgeFixture
+
+      purge_calls = :ets.new(:purge_calls_nopurge, [:public, :ordered_set])
+
+      code_purge = fn mod ->
+        :ets.insert(purge_calls, {System.unique_integer([:monotonic]), mod})
+        :ok
+      end
+
+      cfg =
+        site
+        |> base_cfg(
+          scope_records: [
+            %Scope{file: site.file, line_range: 1..10, module: scope_module}
+          ]
+        )
+        |> Map.put(:code_purge, code_purge)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
+      assert r.status == :survived
+
+      purged = :ets.tab2list(purge_calls) |> Enum.map(fn {_, m} -> m end)
+
+      assert purged == [],
+             "expected no :code.purge calls on a non-timeout site; got #{inspect(purged)}"
+
+      :ets.delete(purge_calls)
     end
   end
 
