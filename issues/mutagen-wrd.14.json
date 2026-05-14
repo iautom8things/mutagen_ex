@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.14",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: impl-only worker BLOCKED before Phase 0.\n\nThe spawned impl worker (general-purpose subagent on Opus) reported that Claude\nCode's auto-mode classifier denies its `bw` (beadwork CLI) invocations,\nclassifying them as Bitwarden credential exploration. The subagent could not\neven post `WORKER_ERROR` for the same reason. No code was written, no worktree\ncreated, no commits made.\n\nNote: /Users/mz/dev/go/bin/bw is the beadwork issue tracker (the tool every\nticket-driven skill depends on), NOT the Bitwarden CLI. Naming collision.\n\nResolution required from user: add an allow rule for `bw` in settings (e.g.\n`Bash(bw:*)` or `Bash(/Users/mz/dev/go/bin/bw:*)` under .claude/settings.local.json\nor ~/.claude/settings.json). After that, re-invoke /orchestrate-epic wrd and the\nloop will re-spawn this worker.\n\nmutagen-wrd.14 left open. Other in-flight tickets (.12 impl, .13 rebase) are not\naffected — the orchestrator (this session) has bw access; the subagent\nrestriction is what's hitting .14's worker.",
+      "timestamp": "2026-05-14T10:27:33Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "DISCOVERY: infinite_looper.ex uses :arith trigger, spec named :case_drop",
   "type": "task",
-  "updated_at": "2026-05-13T23:08:29Z"
+  "updated_at": "2026-05-14T10:27:33Z"
 }
