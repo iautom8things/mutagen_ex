@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.13",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: eb14f76b-662e-400e-ba6b-22e2f3772aea\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/eb14f76b-662e-400e-ba6b-22e2f3772aea.jsonl\n\nCommit: 5e37eb98cf4e6afe6c645d9ff5e4acfc87c7bea7\nStage worktree: /Users/mz/dev/mz/mutagen_ex-mutation-loop-cooperative-cancel\nStage branch: mutagen-wrd.13/mutation-loop-cooperative-cancel (off epic/mutagen-wrd @ ca1c2b6)\n\nFiles touched:\n- lib/mutagen_ex/mutation_runner/mutation_loop.ex (two-phase cooperative cancel)\n- lib/mutagen_ex/mutation_runner.ex (post-:timeout :code.purge/1 settle pass)\n- test/mutagen_ex/mutation_runner_test.exs (4 new tests, 2 new ExUnitFake actions)\n- test/mutagen_ex/golden/end_to_end_scenario_4_infinite_looper.json (regenerated;\n  top-level warning count dropped 1 → 0 because brutal_kill no longer leaks state)\n- .spec/specs/mutation_pipeline.spec.md (r4 wording: \"killed without grace\" → \"cancelled via the two-phase path\")\n- .spec/decisions/timeout_handling.md (Amendment section + Decision/Consequences updated)\n\nTests added:\n- MutationRunnerTest \"graceful-cancel path: task that traps exit and returns on :shutdown classifies :timeout without brutal_kill\"\n- MutationRunnerTest \"brutal-kill escalation: task that ignores :shutdown still terminates via :brutal_kill and classifies :timeout\"\n- MutationRunnerTest \"code-server settle: :code.purge/1 is invoked for the site's scoped modules on :timeout\"\n- MutationRunnerTest \"non-timeout outcomes do NOT call :code.purge/1 (settle is timeout-only)\"\n\nVerification stubs flipped: none (the existing v2 stub\n`mix test test/mutagen_ex/mutation_runner_test.exs` already covers r4\nand now also covers the new cooperative-cancel + settle path).\n\nTest results:\n- mix compile --warnings-as-errors: clean\n- mix test (default suite): 309 tests, 0 failures, 1 doctest (was 305 — +4 new)\n- mix test --include e2e_slow: 322 tests, 0 failures, 2 skipped\n  - Scenario 4 (`infinite_looper.ex` → `:timeout`) now passes alongside\n    all other scenarios in the same BEAM. Multiple seeds verified.\n  - Scenario 7 (`EctoUser`) stays `@tag :skip` — its blocker is\n    cover-instrumentation-vs-DSL, not the Code.Server load-lock fix\n    this ticket addresses.\n\nSummary: replaced `Task.shutdown(:brutal_kill)` with a two-phase\ncooperative cancel (trappable `:shutdown` first, default 100ms grace;\nbrutal_kill only on escalation) and added a `:code.purge/1` settle\npass on the site's scoped modules after every `:timeout` outcome.\nTogether these release the Code.Server's per-module load locks that\na brutal-killed task could orphan when mid-flight inside\n`:code.load_binary/3`, fixing the BEAM-corruption pattern Scenario 4\nexposed in the S7 e2e driver. r4 classification (`:timeout`) is\nunchanged; the spec wording for the cancellation mechanism is\nupdated to match, with the durable rationale captured as an\nAmendment in `mutagen.decision.timeout_handling`.",
+      "timestamp": "2026-05-14T10:19:48Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "DISCOVERY: MutationLoop Task.shutdown(:brutal_kill) corrupts Code.Server load locks",
   "type": "bug",
-  "updated_at": "2026-05-14T10:05:35Z"
+  "updated_at": "2026-05-14T10:19:48Z"
 }
