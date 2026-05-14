@@ -8,8 +8,9 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # site but baseline/coverage do NOT need:
   #
   #   1. **Timeout wrapping with cooperative cancellation.**
-  #      `Task.async + Task.yield(timeout_ms)` is the happy path.
-  #      On timeout the loop drives a two-phase cancellation:
+  #      `Task.Supervisor.async_nolink(task_sup, fn -> ... end)` +
+  #      `Task.yield(timeout_ms)` is the happy path. On timeout the
+  #      loop drives a two-phase cancellation:
   #
   #        a. `Task.shutdown(task, cancel_grace_ms)` — issues a
   #           trappable `:shutdown` exit. A test process that is in a
@@ -18,14 +19,21 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   #           locks it holds (in particular the Code.Server's per-module
   #           load lock — see `mutagen.decision.timeout_handling`).
   #        b. If the task is still alive after the grace window,
-  #           `Task.shutdown(task, :brutal_kill)`. This is the
-  #           last-resort path for tests that are genuinely stuck in
-  #           BIF code with no checkpoint reachable; classification is
-  #           `:timeout` in both cases.
+  #           `Task.Supervisor.terminate_child(task_sup, task.pid)`.
+  #           This routes the kill through the supervisor's child table
+  #           (synchronous removal of the dead child) and dispatches
+  #           `Process.exit(_, :shutdown)`, which propagates through
+  #           the task's link tree to reap descendants — the untrapped-
+  #           link and OTP-supervised-subtree classes per
+  #           `mutagen.decision.supervision_tree`. Immediately after
+  #           `terminate_child/2`, the loop calls
+  #           `Process.demonitor(task.ref, [:flush])` so the dying
+  #           task's stale `:DOWN` does not accumulate in the runner's
+  #           mailbox across timeout sites.
   #
-  #      The classification is `:timeout` whether the task exited via
-  #      the graceful or brutal path — r4 cares about the wall-clock
-  #      budget, not which kill mechanism cleared it.
+  #      Classification is `:timeout` whether the task exited via the
+  #      graceful or supervised-kill path — r4 cares about the
+  #      wall-clock budget, not which kill mechanism cleared it.
   #
   #   2. **Stderr capture.** `ExUnit.CaptureIO.capture_io(:stderr, fn -> ...)`
   #      so compiler warnings or test-emitted stderr never reach the user's
@@ -104,7 +112,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           optional(:ex_unit) => module(),
           optional(:ex_unit_server) => module(),
           optional(:capture_io) => module(),
-          optional(:cancel_grace_ms) => non_neg_integer()
+          optional(:cancel_grace_ms) => non_neg_integer(),
+          optional(:task_sup) => atom() | pid()
         }
 
   @spec run(input()) :: outcome()
@@ -170,9 +179,15 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     test_modules = input.test_modules
     ex_unit = Map.get(input, :ex_unit, ExUnit)
     server = Map.get(input, :ex_unit_server, ExUnit.Server)
+    # Per `mutagen.decision.supervision_tree`: the per-site task runs
+    # under the named `MutagenEx.TaskSup` in production. Tests can
+    # inject their own `Task.Supervisor` pid (or name) via `:task_sup`
+    # for isolation. Either an atom name or a pid is acceptable —
+    # `Task.Supervisor.async_nolink/2` accepts both.
+    task_sup = Map.get(input, :task_sup, MutagenEx.TaskSup)
 
     task =
-      Task.async(fn ->
+      Task.Supervisor.async_nolink(task_sup, fn ->
         # Re-register every cited test module so ExUnit.run/0 picks them
         # up. The shape `%{async?: false, group: nil, parameterize: nil}`
         # is what the S2 spike validated against Elixir 1.19.5/OTP 28; if
@@ -204,8 +219,10 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         # r4: timeout fired. Cooperatively cancel first so any
         # Code.Server load locks (or other VM-internal locks) the
         # task holds can be released cleanly before we escalate to
-        # brutal_kill. See `mutagen.decision.timeout_handling`.
-        cancel_on_timeout(task, grace)
+        # supervised termination. See
+        # `mutagen.decision.timeout_handling` and
+        # `mutagen.decision.supervision_tree`.
+        cancel_on_timeout(task, grace, task_sup)
 
       {:exit, reason} ->
         {{:error, {:task_exited, reason}}, :n_a}
@@ -220,11 +237,14 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # during the grace window is honored as `:completed`; a task that
   # returned `{:error, reason}` is `:error`; an exit with a non-normal
   # reason or no result means the task is still occupying the runner's
-  # wall-clock budget — escalate to brutal_kill.
+  # wall-clock budget — escalate via the supervisor.
   #
-  # Phase 2, brutal_kill, is the last-resort escape for tasks genuinely
-  # stuck in BIF code with no checkpoint reachable.
-  defp cancel_on_timeout(task, grace_ms) when grace_ms > 0 do
+  # Phase 2, `Task.Supervisor.terminate_child/2`, is the last-resort
+  # escape for tasks that did not exit in the grace window. Routing
+  # through the supervisor (rather than `Task.shutdown(:brutal_kill)`)
+  # is what propagates `:shutdown` through the task's link tree to
+  # reap descendants — see `mutagen.decision.supervision_tree`.
+  defp cancel_on_timeout(task, grace_ms, task_sup) when grace_ms > 0 do
     case Task.shutdown(task, grace_ms) do
       {:ok, {:ok, result}} ->
         # Task happened to finish during the grace window AND returned
@@ -243,21 +263,24 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         # escalate internally (rare with traps off; common with the
         # normal `Process.sleep`-style tasks that are killed by the
         # initial `:shutdown` signal). The result was lost. Escalate
-        # explicitly to brutal_kill for completeness — its behaviour
-        # on an already-dead task is `{:exit, :noproc}` which we
-        # classify as `:timeout` below.
-        brutal_shutdown(task)
+        # explicitly through the supervisor for completeness — its
+        # behaviour on an already-dead task is `{:error, :not_found}`
+        # which `brutal_shutdown/2` treats as `:timeout`.
+        brutal_shutdown(task, task_sup)
 
       {:exit, :killed} ->
         # `Task.shutdown(task, grace_ms)` internally escalates to
         # `Process.exit(pid, :kill)` after the grace window if the
         # task is still running AND was trapping exits (e.g. it
         # ignored the `:shutdown` signal). The task is already
-        # cleared; no second brutal_kill is needed. From the
+        # cleared; no second escalation is needed. From the
         # cancellation taxonomy's perspective this IS the brutal
         # path — the cooperative phase ran out the clock and
         # `Task.shutdown` itself did the kill — so cancel_mode is
-        # `:brutal`.
+        # `:brutal`. Flush the monitor explicitly so the stale
+        # `:DOWN` Task.shutdown produced does not survive into the
+        # next site's mailbox.
+        Process.demonitor(task.ref, [:flush])
         {:timeout, :brutal}
 
       {:exit, _other_reason} ->
@@ -265,19 +288,32 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         # raise that the task didn't rescue). Treat as timeout —
         # the wall-clock budget elapsed regardless of the exit
         # path.
+        Process.demonitor(task.ref, [:flush])
         {:timeout, :brutal}
     end
   end
 
-  defp cancel_on_timeout(task, _grace_ms) do
+  defp cancel_on_timeout(task, _grace_ms, task_sup) do
     # grace_ms == 0 ⇒ skip the cooperative phase entirely. Preserved as
     # an escape hatch for tests that deliberately exercise the
-    # brutal-only path.
-    brutal_shutdown(task)
+    # supervised-kill path.
+    brutal_shutdown(task, task_sup)
   end
 
-  defp brutal_shutdown(task) do
-    case Task.shutdown(task, :brutal_kill) do
+  # Phase-2 escalation. Capture any racing result the task may have
+  # produced between the grace window expiring and our `terminate_child`
+  # call (preserving the `pre_kill_result = Task.yield(task, 0)` shape
+  # of the original two-phase cancel), then route the kill through the
+  # supervisor so `:shutdown` propagates through the link tree, and
+  # finally flush the monitor so the stale `:DOWN` the dying task is
+  # about to emit does not accumulate in the runner's mailbox across
+  # timeout sites.
+  defp brutal_shutdown(task, task_sup) do
+    pre_kill_result = Task.yield(task, 0)
+    _ = Task.Supervisor.terminate_child(task_sup, task.pid)
+    Process.demonitor(task.ref, [:flush])
+
+    case pre_kill_result do
       {:ok, {:ok, result}} -> {{:ok, result}, :brutal}
       {:ok, {:error, reason}} -> {{:error, reason}, :brutal}
       _ -> {:timeout, :brutal}
