@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T16:34:21Z",
+  "description": "Advances: mutagen.mutation_pipeline\n\nCloses **F8 / CF5** (HIGH consensus from Idioms + Distributed + Performance — Idioms H1, Distributed MEDIUM-3, Performance F-PERF-09).\n\nTwo helpers (`safe_compile_quoted` in mutation_runner.ex:402-436 and `capture_stderr` in mutation_runner/mutation_loop.ex:186-207) use a process-dictionary side-channel to extract a value from the closure passed into `ExUnit.CaptureIO.capture_io/2`. Works only because `capture_io` happens to execute the closure synchronously in the calling process — undocumented implementation detail.\n\nThe stdlib already provides `ExUnit.CaptureIO.with_io/3` which returns `{result, captured_string}` directly. Replacing the pattern removes ~30 LOC per call site, eliminates the `make_ref` / `Process.put` / `Process.delete` lifetime bookkeeping, and removes the brittle dependency on capture_io implementation details.\n\n## Deliverable\n\n- Replace both call sites with `ExUnit.CaptureIO.with_io/3` (note: requires Elixir 1.10+; project is on 1.19.5).\n- Delete `make_ref` / `Process.put` / `Process.delete` scaffolding at both sites.\n- Update any tests that depended on the smuggle pattern (probably none — tests should be black-box).\n- Revise `.spec/specs/mutation_pipeline.spec.md`: capture-io contract updates if any (this is largely an internal refactor; spec may not need touching).\n\n## Verification\n\n- Existing tests in mutation_runner_test.exs continue to pass without modification (behavior-equivalent)\n- mix compile --warnings-as-errors / mix test green\n- LOC delta: ~-60 lines (~30 per site)\n\n## Allowed touches\n\n- lib/mutagen_ex/mutation_runner.ex (lines 402-436 region)\n- lib/mutagen_ex/mutation_runner/mutation_loop.ex (lines 186-207 region)\n- Corresponding test files only if behaviorally needed\n- .spec/specs/mutation_pipeline.spec.md only if a spec invariant becomes documentable\n- README.md, CHANGELOG.md\n\n## Out of Scope\n\n- Do not refactor `MutationLoop.run/1` orchestration beyond the capture-io swap — that is .18 + .25 territory\n- Do not change which streams are captured (still stderr in the loop, mixed for the compile)\n\n## Merge gate\n- [ ] mix test green (no test changes expected)\n- [ ] LOC delta is negative (verify with git diff --stat)\n- [ ] Auditor APPROVE",
+  "id": "mutagen-wrd.23",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "Replace Process.put smuggle with ExUnit.CaptureIO.with_io/3",
+  "type": "task",
+  "updated_at": "2026-05-14T16:34:21Z"
+}
