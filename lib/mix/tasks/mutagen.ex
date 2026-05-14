@@ -418,6 +418,13 @@ defmodule Mix.Tasks.Mutagen do
        ) do
     {mod, fun} = Map.fetch!(dispatch, :mutation)
 
+    # `MutationLoop` re-registers `test_modules` with `ExUnit.Server`
+    # before every per-site `ExUnit.run/0` because the server consumes
+    # its registered-module list per run. With the hardcoded `[]` this
+    # used to be, every site reported zero tests and every mutation was
+    # classified `:survived` (mutagen-wrd.12). Derive from the resolved
+    # `test_filter.files` so the production pipeline matches what
+    # `mutagen.mutation_pipeline.r5` requires.
     input = %{
       seed: seed,
       timeout_ms: timeout_ms,
@@ -425,7 +432,7 @@ defmodule Mix.Tasks.Mutagen do
       ast_cache: ast_cache,
       sites: sites,
       scope_records: scope_records,
-      test_modules: []
+      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
     }
 
     case apply(mod, fun, [input]) do

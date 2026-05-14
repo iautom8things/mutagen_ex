@@ -64,11 +64,14 @@ defmodule MutagenEx.EndToEndTest do
      fixture-local files.
   3. Invokes the pipeline via `Mix.Tasks.Mutagen.run/2` with a custom
      `:io` collaborator that captures `{iodata, exit_code}` instead of
-     calling `System.halt/1`. The `:tests`, `:baseline`, `:coverage`,
-     and `:mutation` collaborators wrap the production ones to inject
-     the `ExUnit.Server.modules_loaded/1` reset and `test_modules`
-     population the production wiring is missing in v1 (each tagged
-     with a `TODO(bw …)` referencing the production-fix ticket).
+     calling `System.halt/1`. The `:baseline` and `:coverage`
+     collaborators wrap the production ones to inject the
+     `ExUnit.Server.modules_loaded/1` reset (`Code.compile_file/1` per
+     scenario so the `use ExUnit.Case` `__after_compile__` side effect
+     re-fires). The `:tests` and `:mutation` collaborators are the
+     production ones (`MutagenEx.TestSelector.resolve/2` per
+     mutagen-wrd.11, `MutagenEx.MutationRunner.run/1` per
+     mutagen-wrd.12).
   4. Decodes the captured JSON and asserts shape and outcome.
 
   Per-scenario state isolation (`reset_e2e_state!/1`) keeps every
@@ -880,7 +883,13 @@ defmodule MutagenEx.EndToEndTest do
       tests: {MutagenEx.TestSelector, :resolve},
       baseline: {__MODULE__, :baseline_collaborator},
       coverage: {__MODULE__, :coverage_collaborator},
-      mutation: {__MODULE__, :mutation_collaborator}
+      # `mutagen-wrd.12` fixed `Mix.Tasks.Mutagen.phase_mutation/7` to
+      # derive `test_modules` from the resolved `test_filter.files` via
+      # `MutagenEx.TestModuleDiscovery.discover/1`, so the e2e suite now
+      # consumes the production `MutationRunner.run/1` directly. The
+      # `mutation_collaborator` fork (and its `discover_test_modules`
+      # / `alias_to_module` helpers) was retired in the same commit.
+      mutation: {MutagenEx.MutationRunner, :run}
     }
 
     prior_cwd = File.cwd!()
@@ -971,34 +980,6 @@ defmodule MutagenEx.EndToEndTest do
     MutagenEx.CoverageRunner.run(input)
   end
 
-  @doc false
-  # The production pipeline calls MutationRunner with `test_modules:
-  # []` — MutationLoop's per-site add_module loop is a no-op against
-  # an empty list, so ExUnit.run/0 reports zero tests and every
-  # mutation is classified `:survived`. The e2e test populates
-  # test_modules by parsing each cited test file's AST for its
-  # defmodule blocks.
-  #
-  # Note: we deliberately do NOT call `register_test_modules_for_phase!`
-  # here even though the cited test file's module needs to be loaded
-  # in the BEAM — MutationLoop's per-site Task wraps `add_module` +
-  # `ExUnit.run/0` in a fresh process per site, and if we both
-  # macro-add (via Code.compile_file) AND explicit-add (via the
-  # `test_modules` payload), the first site runs the cited tests
-  # twice. The cited modules are already loaded by the prior
-  # baseline_collaborator + coverage_collaborator phases (both of
-  # which DO call register_test_modules_for_phase!), so the module
-  # atom is resolvable when MutationLoop calls add_module.
-  # TODO(bw mutagen-wrd.12): retire this fork once the production
-  # `Mix.Tasks.Mutagen` derives `test_modules` from the resolved test
-  # filter instead of passing the hardcoded `[]`.
-  def mutation_collaborator(input) do
-    test_modules = discover_test_modules(input.test_filter.files)
-    augmented = Map.put(input, :test_modules, test_modules)
-
-    MutagenEx.MutationRunner.run(augmented)
-  end
-
   # Compile every cited test file via `Code.compile_file/1`, which
   # unconditionally re-evaluates the source (unlike `Code.require_file/1`
   # which caches by path). The re-evaluation fires the `use ExUnit.Case`
@@ -1027,40 +1008,6 @@ defmodule MutagenEx.EndToEndTest do
 
     :ok
   end
-
-  defp discover_test_modules(files) do
-    Enum.flat_map(files, fn file ->
-      with {:ok, source} <- File.read(file),
-           {:ok, ast} <- Code.string_to_quoted(source, file: file) do
-        {_, modules} =
-          Macro.prewalk(ast, [], fn
-            {:defmodule, _meta, [alias_ast, [do: _body]]} = node, acc ->
-              case alias_to_module(alias_ast) do
-                nil -> {node, acc}
-                mod -> {node, [mod | acc]}
-              end
-
-            node, acc ->
-              {node, acc}
-          end)
-
-        modules
-        |> Enum.reverse()
-        |> Enum.map(fn mod ->
-          {mod, %{async?: false, group: nil, parameterize: nil}}
-        end)
-      else
-        _ -> []
-      end
-    end)
-  end
-
-  defp alias_to_module({:__aliases__, _, parts}) when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1), do: Module.concat(parts), else: nil
-  end
-
-  defp alias_to_module(mod) when is_atom(mod), do: mod
-  defp alias_to_module(_), do: nil
 
   # ---------------------------------------------------------------------------
   # JSON decoding + helpers

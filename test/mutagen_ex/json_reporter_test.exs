@@ -710,6 +710,76 @@ defmodule MutagenEx.JsonReporterTest do
       assert decoded["aborted"] == false
       assert decoded["version"] == "1"
     end
+
+    @tag :exit_codes
+    test "mix task hands MutationRunner a populated test_modules derived from test_filter.files (mutagen-wrd.12)" do
+      # Regression test for mutagen-wrd.12. Before the fix the mix task
+      # passed `test_modules: []` to MutationRunner, so MutationLoop's
+      # per-site `add_module/2` loop was a no-op and every mutation was
+      # classified `:survived` regardless of whether the cited tests
+      # would actually kill them. The fix derives `test_modules` from
+      # `test_filter.files` via `MutagenEx.TestModuleDiscovery.discover/1`.
+
+      tmp_test =
+        Path.join(
+          System.tmp_dir!(),
+          "mutagen_ex_phase_mut_#{System.unique_integer([:positive])}_test.exs"
+        )
+
+      File.write!(tmp_test, """
+      defmodule Mutagen.Phase.MutationCaptureTest do
+        use ExUnit.Case
+        test "x", do: :ok
+      end
+      """)
+
+      on_exit(fn -> File.rm(tmp_test) end)
+
+      tests_returning_real_file = fn _targets, _opts ->
+        {:ok,
+         %MutagenEx.TestSelector.TestFilter{
+           include: [],
+           exclude: [],
+           files: [tmp_test]
+         }}
+      end
+
+      mutation_capturing_input = fn input ->
+        send(Process.get(:capture_target), {:mutation_input, input})
+        fake_mutation(input)
+      end
+
+      dispatch =
+        capture_dispatch(
+          scope: &fake_scope/2,
+          tests: tests_returning_real_file,
+          ast_cache: &fake_ast_cache/2,
+          coverage: &fake_coverage/1,
+          enumerator: &fake_enumerator/4,
+          baseline: &fake_baseline/1,
+          mutation: mutation_capturing_input
+        )
+
+      assert :ok =
+               Mix.Tasks.Mutagen.run(
+                 ["--scope", "lib/foo.ex", "--tests", tmp_test],
+                 dispatch
+               )
+
+      assert_received {:mutation_input, mutation_input}
+
+      # The test_modules payload must (a) not be empty, (b) include the
+      # exact module declared in the cited test file, (c) carry the
+      # ExUnit.Server.add_module/2 cfg shape (`%{async?: false,
+      # group: nil, parameterize: nil}`). Each of these would have been
+      # false before mutagen-wrd.12 fixed phase_mutation/7.
+      assert is_list(mutation_input.test_modules)
+      refute mutation_input.test_modules == [],
+             "test_modules must be derived from test_filter.files, not hardcoded to []"
+
+      assert {Mutagen.Phase.MutationCaptureTest,
+              %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
+    end
   end
 
   # ---------------------------------------------------------------------------
