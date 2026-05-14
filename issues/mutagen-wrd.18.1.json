@@ -10,9 +10,15 @@
   "id": "mutagen-wrd.18.1",
   "labels": [],
   "parent": "mutagen-wrd.18",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: agent-a83e8abf42dc7e70f (worker subagent of orchestrator session 81a13509-99b2-41c4-9907-6ad88ad2ede0)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/81a13509-99b2-41c4-9907-6ad88ad2ede0/subagents/agent-a83e8abf42dc7e70f.jsonl\n\nCommit: f384c25\nBranch: mutagen-wrd.18.1/app-bootstrap (worktree /Users/mz/dev/mz/mutagen_ex-app-bootstrap, based on epic/mutagen-wrd @ 55af051)\nFiles touched:\n- lib/mutagen_ex/application.ex (NEW, 56 lines, @moduledoc + start/2)\n- mix.exs (one-line addition: `mod: {MutagenEx.Application, []}` inside application/0; extra_applications unchanged)\nTests added: none (S1 is structural; supervision_test.exs is explicitly out-of-scope for S1 — owned by S4 per ticket Out of Scope).\nVerification stubs flipped: none (mutation_pipeline.v6 + coverage.v5 stay `execute: false` because they reference test/mutagen_ex/supervision_test.exs which S4 introduces; v1-v5 of mutation_pipeline and v1-v4 of coverage are already `execute: true` upstream).\n\nLocal sanity (run in stage worktree):\n- `mix compile --warnings-as-errors`: green\n- `mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/baseline_test.exs test/mutagen_ex/mutation_runner_raise_test.exs test/mutagen_ex/integration/c1_test.exs test/mutagen_ex/integration/c2_test.exs` (mutation_pipeline v1..v5): 39 tests, 0 failures.\n- `mix test test/mutagen_ex/coverage_runner_test.exs test/mutagen_ex/ast_cache_test.exs` (coverage v1..v4): 22 tests, 0 failures.\n- TR-5 concrete check `mix test test/mutagen_ex/scope_resolver_test.exs test/mutagen_ex/scope_resolver_property_test.exs test/mutagen_ex/coverage_runner_test.exs`: 38 tests, 0 failures.\n- Full `mix test`: 357 tests, 0 failures (13 excluded).\n- iex smoke (via `mix run --eval`): `{Process.whereis(MutagenEx.Supervisor) |\u003e is_pid(), Process.whereis(MutagenEx.TaskSup) |\u003e is_pid(), Application.ensure_all_started(:mutagen_ex)}` returned `{true, true, {:ok, []}}` — both supervisors are alive, application already started by Mix boot.\n\nScope check (mechanical): diff is exactly 2 files, both in Allowed touches. `lib/mutagen_ex/application.ex` is the NEW file the ticket calls for; `mix.exs` change is bounded to the `mod:` line as required.\n\nSummary: Adds the OTP application callback and minimal supervision tree foundation (one-for-one MutagenEx.Supervisor wrapping a named MutagenEx.TaskSup Task.Supervisor) per .spec/decisions/supervision_tree.md. Closes F25 structurally: library callers depending on :mutagen_ex now get the supervision tree on application start without any new public-API surface. S2 (mutation_loop async_nolink swap) and S3 (coverage_runner singleton-ownership message enrichment) can now reference MutagenEx.TaskSup by name knowing it is alive at runtime.",
+      "timestamp": "2026-05-14T18:50:58Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "S1: MutagenEx.Application + mix.exs mod: + decision file",
   "type": "task",
-  "updated_at": "2026-05-14T18:21:10Z"
+  "updated_at": "2026-05-14T18:50:58Z"
 }
