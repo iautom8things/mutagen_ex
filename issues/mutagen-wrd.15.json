@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-13T23:44:14Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "DISCOVERY: Literal mutator does not match parsed AST (token_metadata wraps literals)",
   "type": "bug",
-  "updated_at": "2026-05-13T23:44:14Z"
+  "updated_at": "2026-05-14T10:05:30Z"
 }
