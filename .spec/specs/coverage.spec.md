@@ -235,5 +235,5 @@ decisions:
   covers: [mutagen.coverage.r1, mutagen.coverage.r8]
   kind: command
   command: mix test test/mutagen_ex/supervision_test.exs
-  execute: false
+  execute: true
 ```

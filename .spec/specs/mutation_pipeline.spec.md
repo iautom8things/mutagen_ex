@@ -427,5 +427,5 @@ decisions:
     - mutagen.mutation_pipeline.r14
   kind: command
   command: mix test test/mutagen_ex/supervision_test.exs
-  execute: false
+  execute: true
 ```
