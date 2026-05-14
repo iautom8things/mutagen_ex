@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-14T10:21:59Z",
   "created": "2026-05-13T23:07:46Z",
   "description": "Advances: mutagen.test_selection\n\nDiscovered during S7 (mutagen-wrd.9) end-to-end test driver authoring.\n\n## Problem\n\n`lib/mutagen_ex/test_selector.ex` at lines 46, 130, 142, 259 — `TestSelector.resolve/2` produces a `%MutagenEx.TestSelector.TestFilter{}` whose default `exclude` field is `[:test]` for file-cited targets (i.e. `mix mutagen --tests path/to/test.exs`). When this filter reaches ExUnit's tag rule, it excludes every test (since `use ExUnit.Case` stamps each test with the implicit `:test` tag) — net effect is the baseline / coverage / mutation passes see zero tests, classifying every mutation as `:survived`.\n\n## Reproduction\n\nRun the production `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` against any module: every mutation lands in the `survived` bucket because the cited test file never gets to run.\n\n## E2E driver workaround\n\nThe S7 end-to-end test driver at `test/mutagen_ex/end_to_end_test.exs` (`tests_collaborator/2`) intercepts file-cited targets and replaces the production filter with `%TestFilter{include: [], exclude: [], files: [target]}`. This is a TEST-ONLY fork; the production caller still hits the buggy default.\n\n## Resolution\n\nFix in `lib/mutagen_ex/test_selector.ex` so file-cited targets produce `exclude: []` (or whatever the spec resolves to after clarification). Retire the `tests_collaborator` fork in `end_to_end_test.exs` once the production code is fixed.\n\n## Related\n\n- mutagen-wrd.9 (S7 end-to-end suite, where this was discovered)",
   "id": "mutagen-wrd.11",
@@ -26,7 +27,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "DISCOVERY: TestSelector emits exclude: [:test] for file-cited targets",
   "type": "bug",
   "updated_at": "2026-05-14T10:21:59Z"
