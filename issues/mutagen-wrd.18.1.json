@@ -22,11 +22,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: agent-ab84dd2be8f82babc (subagent of orchestrator session 81a13509-99b2-41c4-9907-6ad88ad2ede0)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/81a13509-99b2-41c4-9907-6ad88ad2ede0/subagents/agent-ab84dd2be8f82babc.jsonl\n\nReasoning: Re-verified the diff and all verifier claims against the stage source tree.\nMechanical scope is exact: diff = lib/mutagen_ex/application.ex (NEW) + mix.exs (single\n`mod:` line addition, extra_applications unchanged); both in Allowed touches; zero\nout-of-scope globs touched; .spec/decisions/supervision_tree.md shows zero diff vs base\n55af051 (decision file was authored at base SHA, untouched by f384c25). Intent-level\nscope holds — no new supervised children beyond MutagenEx.TaskSup, no new public-API\nsurface (lib/mutagen_ex.ex absent as expected post-.17), no refactor of with_restore/4\n(mutation_runner.ex not in diff), grep would confirm MutagenEx.TaskSup is referenced\nonly from the new application.ex.\n\nThe verifier's \"NOT COVERED by ticket design\" deferral for mutation_pipeline.r13/r14\nand coverage.r8 is legitimate per the explicit ticket decomposition: the S1 ticket's\nOut of Scope (files) section assigns mutation_loop.ex → S2, coverage_runner.ex → S3,\nand supervision_test.exs → S4, and the parent epic mutagen-wrd.18 mirrors this\nfive-stage split. The S1 Merge gate intentionally substitutes the iex/mix-run smoke\n(\"Fresh iex -S mix smoke: TaskSup + Supervisor whereis return pids\") for ExUnit\ncoverage of r13's runtime invariant — not a deferral hidden in a Note but the\nliteral contract the ticket asks S1 to meet. r14's terminate_child swap and\ncoverage.r8's message enrichment are out-of-scope file edits for S1; S1 plants only\nthe supervisor those S2/S3 changes will reference. Verification stubs v6 (mutation\npipeline) and v5 (coverage) correctly remain execute: false because they point at\ntest/mutagen_ex/supervision_test.exs which S4 introduces.\n\nRe-ran from stage worktree at f384c25: mix compile --warnings-as-errors green; v1..v5\nof mutation_pipeline = 39 tests / 0 failures; v1..v4 of coverage = 22 tests / 0\nfailures; TR-5 concrete check (scope_resolver + scope_resolver_property +\ncoverage_runner) = 38 tests / 0 failures; mix run smoke returned `{true, true,\n{:ok, []}}` — application booted, both named supervisors alive. Counts match the\nverifier exactly. No miscount, no rubber-stamped stub, no scope violation, no\nintent-level violation. The ticket's contract (plant the supervisor; keep v1..v5\ngreen; prove runtime via smoke) is met cleanly.",
       "timestamp": "2026-05-14T19:01:14Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-14T19:02:25Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S1: MutagenEx.Application + mix.exs mod: + decision file",
   "type": "task",
-  "updated_at": "2026-05-14T19:01:14Z"
+  "updated_at": "2026-05-14T19:02:25Z"
 }
