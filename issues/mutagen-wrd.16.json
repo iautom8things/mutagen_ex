@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T10:16:18Z",
+  "description": "Advances: mutagen.mutation_enumeration\n\nDiscovered while implementing bw mutagen-wrd.15. That ticket added __block__-wrapper match clauses to lib/mutagen_ex/mutators/literal.ex; they are correct and verified end-to-end (test/mutagen_ex/mutation_enumerator_test.exs \"literal __block__ wrapper end-to-end\"). But the hypothesis that Code.string_to_quoted(..., token_metadata: true) wraps atomic literals in {:__block__, meta, [value]} does NOT hold in Elixir 1.19.5 for the literals in test/fixtures/lane_project/lib/lane_fixture/decisions.ex.\n\nThose literals (0 in n \u003e 0, 1 in do: 1, true/false in boolean operands, 0/1 in case clause heads [0] -\u003e :zero) appear as BARE children of operator / clause-head tuples and carry no metadata of their own. node_line/1 returns nil for them; the enumerator at lib/mutagen_ex/mutation_enumerator.ex:224 filters them out (is_nil(line) -\u003e acc).\n\n## Resolution paths\n\n1. Parent-line-inheritance in the enumerator. When prewalk descends from a 3-tuple parent into a literal child, propagate the parents :line via the prewalk accumulator (or a Macro.traverse/4 rewrite). The literal mutators match?(bare_value) then has its coverage check answered by the parent line.\n\n2. Pre-pass that wraps bare literals in __block__. Normalize the parsed AST before enumeration so every bare boolean / 0/1/-1 literal becomes {:__block__, [line: parent_line], [v]}. Downstream code sees the wrapper unconditionally.\n\n## Verification once landed\n\nThe e2e Scenario 2a @tag :skip in test/mutagen_ex/end_to_end_test.exs (line ~425) gets dropped; mix test --only literal_floor_scenario must produce at least one literal site on decisions.ex.\n\n## Related\n\n- mutagen-wrd.15 (DISCOVERY-E first pass; __block__ wrapper match clauses)\n- mutagen-wrd.9 (S7 e2e, where the floor was first surfaced)\n- mutagen-wrd.6 (mutation enumerator; this fix lives there)",
+  "id": "mutagen-wrd.16",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "DISCOVERY: Literal mutator floor on decisions.ex needs enumerator parent-line-inheritance",
+  "type": "bug",
+  "updated_at": "2026-05-14T10:16:18Z"
+}
