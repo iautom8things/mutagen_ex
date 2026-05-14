@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-14T10:28:57Z",
   "created": "2026-05-13T23:08:15Z",
   "description": "Advances: mutagen.mutation_pipeline\n\nDiscovered during S7 (mutagen-wrd.9) end-to-end test driver authoring.\n\n## Problem\n\n`lib/mutagen_ex/mutation_runner/mutation_loop.ex` — per-site `Task.shutdown(task, :brutal_kill)` on a timed-out mutation aborts a task that may be mid-flight inside `:code.load_binary/3` (during the cover-recompile cycle), leaving the Code.Server with an unreleased load lock for the mutated module. Subsequent attempts to load any module in the same BEAM time out / deadlock waiting on the orphaned lock.\n\n## Symptom\n\nIn the S7 end-to-end driver, Scenario 4 (`infinite_looper.ex` → `:timeout`) cannot run in the same BEAM as the other scenarios. When it does run, scenarios that follow fail with hangs or with confused module-load errors. Scenarios 5/6/8 (per the original implementer's account) similarly suffer when the mutation-bearing scenarios precede them.\n\n## Spec reference\n\n`mutagen.mutation_pipeline` r4 (per-site timeout classification) + r7 (taint propagation across successors) — both rules require the BEAM stay healthy across timeout events.\n\n## Resolution\n\nOptions to investigate:\n\n1. Replace `Task.shutdown(:brutal_kill)` with a cooperative-cancellation path (e.g., a sentinel `receive` checkpoint inside the per-site sandbox, plus a graceful `exit(:timeout)`).\n2. Run the per-site sandbox in a peer Erlang node so brutal_kill cannot touch the orchestrator's Code.Server. (Heavier — only if option 1 is not viable.)\n3. After brutal_kill, explicitly release the Code.Server's per-module lock via the documented internal API (if one exists).\n\nThe fix must keep r4's timeout-classification semantics intact while not leaving the Code.Server poisoned for the next per-site iteration.\n\n## Related\n\n- mutagen-wrd.9 (S7 end-to-end suite, Scenario 4 + state isolation in driver)\n- mutagen-wrd.11 / mutagen-wrd.12 (sister production-wire-up bugs surfaced in the same audit cycle)",
   "id": "mutagen-wrd.13",
@@ -26,8 +27,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "DISCOVERY: MutationLoop Task.shutdown(:brutal_kill) corrupts Code.Server load locks",
   "type": "bug",
-  "updated_at": "2026-05-14T10:28:56Z"
+  "updated_at": "2026-05-14T10:28:57Z"
 }
