@@ -11,9 +11,15 @@
   "id": "mutagen-wrd.18.3",
   "labels": [],
   "parent": "mutagen-wrd.18",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 81a13509-99b2-41c4-9907-6ad88ad2ede0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/81a13509-99b2-41c4-9907-6ad88ad2ede0.jsonl\n\nCommit: e62c337\nFiles touched:\n- lib/mutagen_ex/coverage_runner.ex (rejection message at L101-110 — was 6 lines, now 10 lines after the multi-line concat)\n- test/mutagen_ex/coverage_runner_test.exs (added one `assert msg =~ \"MutagenEx.TaskSup\"` line in the r1 rejection test, plus a two-line comment annotating it)\n\nTests added: none — extended the existing r1 rejection-path test in coverage_runner_test.exs (\"r1: refuses if :cover_server already registered (s1) — returns :cover_already_running and does NOT call configure/run/compile\") with one new assertion exercising the enriched message.\n\nVerification stubs flipped: none — `mutagen.coverage.v1` was already `execute: true` on the epic branch (it had already been flipped by 18.1's foundation work that introduced the spec). `mutagen.coverage.v5` (`mix test test/mutagen_ex/supervision_test.exs`, covers r1+r8) remains `execute: false` because the supervision_test.exs file is S4's deliverable (mutagen-wrd.18.4), not S3's.\n\nSummary: Replaced the existing `:cover_already_running` rejection message at coverage_runner.ex L101-106 with the enriched form that names `MutagenEx.TaskSup` as the documented singleton owner of `:cover_server` and `ExUnit.Server` during a MutagenEx mutation cycle and cites `.spec/decisions/supervision_tree.md`. Extended the existing rejection-path assertion in coverage_runner_test.exs with `assert msg =~ \"MutagenEx.TaskSup\"`. The Process.whereis(:cover_server) check itself is unchanged — single lookup at L155-160, no new ex_unit_in_progress?/0 helper (cut per SA-1). The honest multi-second window during the coverage phase between the check and `:cover.start/0` is acknowledged as a Won't-Have in the decision file and intentionally not closed here. `mix compile --warnings-as-errors` green; `mix test test/mutagen_ex/coverage_runner_test.exs` green (12 tests, 0 failures); full `mix test` green (357 tests, 0 failures).",
+      "timestamp": "2026-05-14T19:08:31Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "S3: coverage_runner.ex singleton-ownership message enrichment",
   "type": "task",
-  "updated_at": "2026-05-14T19:06:05Z"
+  "updated_at": "2026-05-14T19:08:31Z"
 }
