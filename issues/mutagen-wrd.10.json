@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.10",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: fa1552c1-29af-4847-9fbc-5065c95d3be9\nLog: /Users/mz/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/fa1552c1-29af-4847-9fbc-5065c95d3be9.jsonl\n\nCommit: 57e1b66\nBranch: mutagen-wrd.10/docs-readme-changelog\nWorktree: /Users/mz/dev/mz/mutagen_ex-mutagen-wrd.10\n\nFiles touched:\n- README.md (rewrite — was a pre-v1 skeleton)\n- CHANGELOG.md (new)\n- lib/mix/tasks/mutagen.ex (@moduledoc only — JSON Schema Pointer section added between Exit Codes and Known Caveats)\n\nTests added: none (docs-only stage; no test files allowed per Out of Scope).\nVerification stubs flipped: none — `mutagen.cli.v4` was already `execute: true` from a prior stage.\nAudit-expanded scope: none.\nDeferred must requirements: none.\n\nVerification:\n- `mix help mutagen` displays the full @moduledoc with all named sections: Synopsis, Flags, Examples, Constraints, Exit Codes, JSON Schema Pointer, Known Caveats. All 8 Caveats items per r9 are present (state drift, macro slowdown, equivalent mutants, content-addressed IDs, no --no-json, --seed ordering only, colon syntax dropped, self-mutation refused) — grep confirms each token appears.\n- `mix compile --warnings-as-errors --force` clean (25 files, no warnings).\n- `mix test` — 305 tests, 0 failures (13 excluded).\n- Scope check: diff touches only `README.md`, `CHANGELOG.md`, `lib/mix/tasks/mutagen.ex` (all in Allowed; mix task edit is @moduledoc-only, no behavior change).\n\nSummary:\nS8 ships the v0.1.0 doc surface. The README is rewritten from its pre-v1 skeleton into a full user-facing reference with install snippet, what-mix-mutagen-does walkthrough, flag table, exit-code table, JSON-output golden-fixture pointer, and a Known limitations section that references the five S7-discovered production gaps (mutagen-wrd.11/.12/.13/.14/.15) without fixing them. The @moduledoc on Mix.Tasks.Mutagen gains a JSON Schema Pointer section pointing at the golden fixtures as schema-by-example; the existing Synopsis/Flags/Examples/Constraints/Exit Codes/Known Caveats sections were already in place from prior stages and are unchanged. CHANGELOG.md is new and records the v0.1.0 surface (CLI, pipeline, mutators, JSON document, refusals, mix-help output) plus the five known-limitation tickets carried forward.",
+      "timestamp": "2026-05-14T00:20:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "S8: Docs + README + CHANGELOG",
   "type": "task",
-  "updated_at": "2026-05-14T00:16:24Z"
+  "updated_at": "2026-05-14T00:20:15Z"
 }
