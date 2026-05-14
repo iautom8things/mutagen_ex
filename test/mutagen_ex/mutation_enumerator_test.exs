@@ -448,25 +448,30 @@ defmodule MutagenEx.MutationEnumeratorTest do
           covered
         )
 
-      # Same site SET, different ORDER: First's site comes first when
+      # Same site SET, different ORDER: First's sites come first when
       # scoped First-then-Second.
       assert MapSet.new(r_first_then_second.sites) ==
                MapSet.new(r_second_then_first.sites)
 
-      [first_a, first_b] = Enum.map(r_first_then_second.sites, & &1.mutator)
-      [second_a, _second_b] = Enum.map(r_second_then_first.sites, & &1.mutator)
+      # Filter to arith only so the ordering check stays load-bearing on
+      # the cross-scope ordering contract regardless of how many literal
+      # sites the bare-literal coverage path (bw mutagen-wrd.16) admits.
+      arith_first_then_second =
+        Enum.filter(r_first_then_second.sites, &(&1.mutator == :arith))
 
-      assert first_a == :arith
-      assert first_b == :arith
-      assert second_a == :arith
+      arith_second_then_first =
+        Enum.filter(r_second_then_first.sites, &(&1.mutator == :arith))
+
+      assert length(arith_first_then_second) == 2
+      assert length(arith_second_then_first) == 2
 
       # The lines distinguish them: First's def f is line 2, Second's
       # def g is line 6.
-      [line_a, line_b] = Enum.map(r_first_then_second.sites, & &1.line)
+      [line_a, line_b] = Enum.map(arith_first_then_second, & &1.line)
       assert line_a == 2
       assert line_b == 6
 
-      [line_a2, line_b2] = Enum.map(r_second_then_first.sites, & &1.line)
+      [line_a2, line_b2] = Enum.map(arith_second_then_first, & &1.line)
       assert line_a2 == 6
       assert line_b2 == 2
     end
@@ -592,6 +597,166 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
       assert literal_skips == [],
              "uncovered literal should be filtered before validate, not skipped; got: #{inspect(literal_skips)}"
+    end
+  end
+
+  describe "bare-literal parent-line inheritance (bw mutagen-wrd.16)" do
+    # Elixir 1.19's `Code.string_to_quoted(..., token_metadata: true)` does
+    # NOT wrap atomic literals in `{:__block__, meta, [value]}` when they
+    # appear as bare children of operator / clause-head tuples — only the
+    # parent operator/clause-head 3-tuple carries `:line`. The old
+    # enumerator's `is_nil(line) -> acc` filter dropped every such site.
+    # bw mutagen-wrd.16 added parent-line inheritance: a bare literal's
+    # effective line is the nearest enclosing 3-tuple's `:line` (the
+    # "ambient line" threaded by the walker). These tests pin that
+    # behaviour against real `Code.string_to_quoted/2` output so a future
+    # regression to a metadata-only walker would be caught here, before
+    # the e2e fixture.
+    test "bare 0 in a covered comparison produces a literal site on the comparison's line" do
+      # `n > 0` parses to `{:>, [line: 2, ...], [{:n, [...], nil}, 0]}` —
+      # the `0` is a bare child of the comparison and has no metadata.
+      source = """
+      defmodule Comp do
+        def positive?(n), do: n > 0
+      end
+      """
+
+      cache = ast_cache("lib/comp.ex", source)
+      scopes = [scope("lib/comp.ex", Comp)]
+      covered = covered_lines("lib/comp.ex", [1, 2, 3])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      assert length(literal_sites) == 1,
+             "expected exactly one literal site for bare `0`; got sites=#{inspect(result.sites)}"
+
+      [site] = literal_sites
+      # The bare `0`'s effective line is its parent `>`'s line (2).
+      assert site.line == 2, "literal site should inherit the parent comparison's line"
+      assert site.original_ast == 0
+      assert site.mutated_ast == 1
+    end
+
+    test "bare 1 in a covered `do: 1` keyword-shorthand body produces a literal site" do
+      # `do: 1` puts a bare `1` as the value of a keyword tuple inside
+      # the `def`'s args list. The walker must thread the parent's line
+      # through the keyword's two-tuple shape.
+      source = """
+      defmodule Body do
+        def one, do: 1
+      end
+      """
+
+      cache = ast_cache("lib/body.ex", source)
+      scopes = [scope("lib/body.ex", Body)]
+      covered = covered_lines("lib/body.ex", [1, 2, 3])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      assert length(literal_sites) == 1,
+             "expected exactly one literal site for bare `1`; got sites=#{inspect(result.sites)}"
+
+      [site] = literal_sites
+      assert site.line == 2
+      assert site.original_ast == 1
+      assert site.mutated_ast == 0
+    end
+
+    test "bare literal whose ambient line is UNCOVERED produces no site (r2 still wins)" do
+      # The literal's only available line is its parent's line. If the
+      # parent's line isn't in `covered_lines`, the inherited line must
+      # still fail the coverage check — inheritance does NOT bypass r2.
+      source = """
+      defmodule Uncov do
+        def positive?(n), do: n > 0
+        def negative?(n), do: n < 0
+      end
+      """
+
+      cache = ast_cache("lib/uncov.ex", source)
+      scopes = [scope("lib/uncov.ex", Uncov)]
+      # Cover only line 2 (positive?); leave line 3 (negative?) uncovered.
+      covered = covered_lines("lib/uncov.ex", [2])
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      assert length(literal_sites) == 1,
+             "expected exactly one literal site (from line 2 only); got: #{inspect(literal_sites)}"
+
+      [site] = literal_sites
+      assert site.line == 2
+
+      # And no literal SKIP entry — the uncovered literal was filtered
+      # before validate, per r2.
+      literal_skips = Enum.filter(result.skipped, &(&1.mutator == :literal))
+      assert literal_skips == [],
+             "uncovered literal must be filtered, not skipped: #{inspect(literal_skips)}"
+    end
+
+    test "bare 0 in a case clause head inherits the clause head's line" do
+      # `0 -> :zero` parses to `{:->, [line: 3, ...], [[0], :zero]}` —
+      # the `0` is a bare child of a list child of the clause-head
+      # 3-tuple. The walker must thread `:->`s line through the list.
+      source = """
+      defmodule Cl do
+        def classify(n) do
+          case n do
+            0 -> :zero
+            1 -> :one
+            _ -> :other
+          end
+        end
+      end
+      """
+
+      cache = ast_cache("lib/cl.ex", source)
+      scopes = [scope("lib/cl.ex", Cl)]
+      covered = covered_lines("lib/cl.ex", Enum.to_list(1..10))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      # Two bare literal candidates: `0` on line 4 and `1` on line 5.
+      assert length(literal_sites) == 2
+
+      lines = literal_sites |> Enum.map(& &1.line) |> Enum.sort()
+      assert lines == [4, 5]
+    end
+
+    test "determinism: two consecutive runs with bare literals produce identical site lists" do
+      # r1 still holds with the new walker. The hand-rolled recursion
+      # must mirror `Macro.prewalk`'s left-to-right depth-first order.
+      source = """
+      defmodule Det do
+        def f(n), do: n > 0
+        def g(n), do: n < 1
+        def h(n), do: n == -1
+      end
+      """
+
+      cache = ast_cache("lib/det.ex", source)
+      scopes = [scope("lib/det.ex", Det)]
+      covered = covered_lines("lib/det.ex", Enum.to_list(1..6))
+
+      r1 = MutationEnumerator.enumerate(cache, scopes, covered)
+      r2 = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      assert r1 == r2
+
+      literal_ids =
+        r1.sites
+        |> Enum.filter(&(&1.mutator == :literal))
+        |> Enum.map(& &1.id)
+
+      # All three bare literals (0, 1, -1) are sited deterministically.
+      assert length(literal_ids) == 3
     end
   end
 end

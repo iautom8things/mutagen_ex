@@ -391,10 +391,25 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  # Replace the first AST node whose meta line/column matches `site.line`
-  # / `site.column` AND whose value equals `site.original_ast`. The dual
-  # check protects against `:erlang.phash2`-style hash collisions if a
-  # file has two identical sub-trees on the same line.
+  # Replace the first AST node whose positional metadata matches
+  # `site.line` / `site.column` AND whose value equals
+  # `site.original_ast`. The dual check protects against
+  # `:erlang.phash2`-style hash collisions if a file has two identical
+  # sub-trees on the same line.
+  #
+  # Two shapes are handled (bw mutagen-wrd.16):
+  #
+  #   1. 3-tuple `{form, meta, args}` — the common case. The match
+  #      keys directly off `meta`. Located via `Macro.prewalk/3`.
+  #   2. Bare atomic literal (`0`, `1`, `-1`, `true`, `false`) — the
+  #      literal mutator's bare-value clauses produce sites whose
+  #      `original_ast` is the bare value. The bare node carries no
+  #      metadata of its own; the enumerator attributes the site to
+  #      the *parent* operator / clause-head's `:line` and `:column`.
+  #      We locate these via a custom walker that threads ambient
+  #      `{line, column}` downward, mirroring the enumerator's
+  #      `walk_tree/6`. Run as a second pass only when shape (1)
+  #      didn't find a match — keeps the happy path cheap.
   defp build_mutated_file_ast(file_ast, %Site{} = site) do
     {ast, replaced?} =
       Macro.prewalk(file_ast, false, fn node, replaced ->
@@ -405,10 +420,15 @@ defmodule MutagenEx.MutationRunner do
         end
       end)
 
-    if replaced? do
-      {:ok, ast}
-    else
-      {:error, :site_not_found}
+    cond do
+      replaced? ->
+        {:ok, ast}
+
+      bare_literal_site?(site) ->
+        replace_bare_site(file_ast, site)
+
+      true ->
+        {:error, :site_not_found}
     end
   end
 
@@ -420,6 +440,101 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp node_matches_site?(_, _), do: false
+
+  # Bare-literal sites have no metadata on the node itself; their
+  # `original_ast` is a raw integer or boolean.
+  defp bare_literal_site?(%Site{original_ast: v}) when is_integer(v) or is_boolean(v), do: true
+  defp bare_literal_site?(_), do: false
+
+  # Find-and-swap the bare literal whose ambient (parent) line/column
+  # match site.line / site.column. Returns `{:ok, ast}` on success and
+  # `{:error, :site_not_found}` otherwise.
+  defp replace_bare_site(file_ast, %Site{} = site) do
+    {new_ast, _ambient, replaced?} =
+      walk_bare(file_ast, {nil, 1}, false, site)
+
+    if replaced?, do: {:ok, new_ast}, else: {:error, :site_not_found}
+  end
+
+  # Pre-order walker that mirrors the enumerator's `walk_tree/6`:
+  # threads `{ambient_line, ambient_column}` downward and short-circuits
+  # via the `replaced?` flag once the first bare-literal match is
+  # rewritten. Returns `{rewritten_node, ambient_for_next_sibling,
+  # replaced?}`. The ambient returned is the input ambient — siblings
+  # walk under the *parent's* ambient, not under any child's.
+  defp walk_bare(node, ambient, true, _site), do: {node, ambient, true}
+
+  defp walk_bare(node, ambient, false, %Site{} = site) do
+    cond do
+      bare_match?(node, ambient, site) ->
+        {site.mutated_ast, ambient, true}
+
+      true ->
+        descend_bare(node, ambient, site)
+    end
+  end
+
+  defp bare_match?(value, {ambient_line, ambient_column}, %Site{
+         line: line,
+         column: column,
+         original_ast: original
+       })
+       when is_integer(value) or is_boolean(value) do
+    ambient_line == line and ambient_column == column and value === original
+  end
+
+  defp bare_match?(_, _, _), do: false
+
+  # Descend into structured nodes. For 3-tuples we update ambient from
+  # the node's own metadata before walking children — exactly the rule
+  # the enumerator uses, so the site's line/column resolves identically
+  # at runner-time.
+  defp descend_bare({form, meta, args}, ambient, site) when is_list(meta) do
+    new_ambient = update_ambient_runner(meta, ambient)
+
+    {form2, _amb, replaced_form?} =
+      if is_atom(form), do: {form, new_ambient, false}, else: walk_bare(form, new_ambient, false, site)
+
+    case args do
+      children when is_list(children) ->
+        {children2, replaced_children?} =
+          walk_bare_list(children, new_ambient, replaced_form?, site)
+
+        {{form2, meta, children2}, ambient, replaced_children?}
+
+      _ ->
+        {{form2, meta, args}, ambient, replaced_form?}
+    end
+  end
+
+  defp descend_bare({a, b}, ambient, site) do
+    {a2, _amb, replaced_a?} = walk_bare(a, ambient, false, site)
+    {b2, _amb2, replaced_b?} = walk_bare(b, ambient, replaced_a?, site)
+    {{a2, b2}, ambient, replaced_a? or replaced_b?}
+  end
+
+  defp descend_bare(list, ambient, site) when is_list(list) do
+    {list2, replaced?} = walk_bare_list(list, ambient, false, site)
+    {list2, ambient, replaced?}
+  end
+
+  defp descend_bare(other, ambient, _site), do: {other, ambient, false}
+
+  defp walk_bare_list(children, ambient, replaced_in?, site) do
+    {rev, final_replaced?} =
+      Enum.reduce(children, {[], replaced_in?}, fn child, {acc, replaced_acc?} ->
+        {new_child, _amb, replaced_now?} = walk_bare(child, ambient, replaced_acc?, site)
+        {[new_child | acc], replaced_now? or replaced_acc?}
+      end)
+
+    {Enum.reverse(rev), final_replaced?}
+  end
+
+  defp update_ambient_runner(meta, {prior_line, prior_column}) when is_list(meta) do
+    line = Keyword.get(meta, :line, prior_line)
+    column = Keyword.get(meta, :column, prior_column)
+    {line, column}
+  end
 
   # ---------------------------------------------------------------------------
   # Code.Server settle (r4 hardening — `mutagen.decision.timeout_handling`)

@@ -189,38 +189,124 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  # Walk a module body AST. For each node, try each mutator in catalog
-  # order. `Macro.prewalk/3` gives us a deterministic traversal; the order
-  # of nested children matches Elixir's own ordering.
+  # Walk a module body AST.
+  #
+  # Implementation note (bw mutagen-wrd.16): we used to drive this with
+  # `Macro.prewalk/3`, which is deterministic and pleasant — but it has no
+  # mechanism for threading "ambient" parent state downward. The literal
+  # mutator surfaced the cost: Elixir 1.19's parser does NOT wrap atomic
+  # literals (e.g. the `0` in `n > 0`, the `1` in `do: 1`, bare booleans
+  # in boolean operands, case-clause-head literals) in
+  # `{:__block__, meta, [value]}` 3-tuples — those are children of their
+  # parent operator / clause-head 3-tuple and carry no metadata of their
+  # own. `node_line/1` returns nil for bare literals; the old
+  # `is_nil(line) -> acc` filter in `try_one_mutator/5` dropped every such
+  # site even when the parent operator's line was covered.
+  #
+  # We picked parent-line-inheritance over a pre-pass AST rewrite (the
+  # other resolution path the ticket listed) because:
+  #
+  #   1. It keeps the AST in the cache byte-identical to what the runner
+  #      will restore (r6's "same AST enumerated is the AST restored"
+  #      invariant). A pre-pass rewrite would mutate the cache value.
+  #   2. It's localised: one change in the walker, no churn through the
+  #      mutator catalog. Other mutators that match bare values in the
+  #      future automatically inherit the same line-coverage behaviour.
+  #   3. The literal mutator already handles both bare and `__block__`-
+  #      wrapped shapes (bw mutagen-wrd.15); adding a normaliser would be
+  #      redundant with that work.
+  #
+  # The walker is a hand-rolled pre-order recursion that mirrors
+  # `Macro.prewalk`'s left-to-right depth-first order (so determinism r1
+  # is preserved) but additionally threads an `ambient` `{line, column}`
+  # tuple downward. When `try_one_mutator/5` is consulted for a node, it
+  # uses the node's own positional metadata if present, else the ambient
+  # tuple from the nearest enclosing 3-tuple.
   defp walk_body(body, scope, covered, mutators, acc) do
-    {_, final} =
-      Macro.prewalk(body, acc, fn node, inner_acc ->
-        new_acc = try_mutators(node, scope, covered, mutators, inner_acc)
-        {node, new_acc}
-      end)
+    walk_tree(body, _ambient = {nil, 1}, scope, covered, mutators, acc)
+  end
 
-    final
+  # Pre-order recursion. The visit happens BEFORE descent, which matches
+  # `Macro.prewalk` semantics. `ambient` is `{ambient_line, ambient_column}`.
+  defp walk_tree(node, ambient, scope, covered, mutators, acc) do
+    acc = try_mutators(node, ambient, scope, covered, mutators, acc)
+
+    case node do
+      {form, meta, args} when is_list(meta) ->
+        # Update ambient from this node's own metadata (if any) before
+        # descending. Children that lack their own :line will inherit this
+        # node's line. Falls back to the prior ambient when meta is
+        # incomplete.
+        new_ambient = update_ambient(meta, ambient)
+        # The first element of a 3-tuple (`form`) is usually an atom
+        # (e.g. `:def`, `:+`) but can itself be a nested AST node for
+        # remote / dynamic calls. We recurse into both the form (when it
+        # is structured) and the args. Variables have shape
+        # `{name, meta, nil}` where `args` is `nil` (no children); list-
+        # valued args are children to walk.
+        acc = maybe_walk_node(form, new_ambient, scope, covered, mutators, acc)
+
+        case args do
+          children when is_list(children) ->
+            walk_children(children, new_ambient, scope, covered, mutators, acc)
+
+          _ ->
+            acc
+        end
+
+      {a, b} ->
+        # Two-tuples in AST (e.g. keyword tuples, do/else pairs). Walk
+        # both halves under the same ambient — no new positional info to
+        # propagate.
+        acc = walk_tree(a, ambient, scope, covered, mutators, acc)
+        walk_tree(b, ambient, scope, covered, mutators, acc)
+
+      list when is_list(list) ->
+        walk_children(list, ambient, scope, covered, mutators, acc)
+
+      _atom_or_literal ->
+        # Leaf — already visited above. Nothing to recurse into.
+        acc
+    end
+  end
+
+  # Walk a list of children left-to-right with a shared ambient.
+  defp walk_children(children, ambient, scope, covered, mutators, acc) when is_list(children) do
+    Enum.reduce(children, acc, fn child, child_acc ->
+      walk_tree(child, ambient, scope, covered, mutators, child_acc)
+    end)
+  end
+
+  # The `form` slot of a 3-tuple is usually an atom (e.g. `:def`, `:+`)
+  # but can itself be a nested AST node for remote / dynamic calls. Only
+  # recurse if it's a non-atom AST node — bare atoms have no further
+  # structure and `try_mutators` already had its shot during the parent
+  # visit (no mutator in the catalog matches a bare atom).
+  defp maybe_walk_node(form, _ambient, _scope, _covered, _mutators, acc) when is_atom(form),
+    do: acc
+
+  defp maybe_walk_node(form, ambient, scope, covered, mutators, acc) do
+    walk_tree(form, ambient, scope, covered, mutators, acc)
   end
 
   # Try each mutator on a single AST node. A node may match more than one
   # mutator; each matching mutator produces its own site (or skip).
-  defp try_mutators(node, scope, covered, mutators, acc) do
+  defp try_mutators(node, ambient, scope, covered, mutators, acc) do
     Enum.reduce(mutators, acc, fn mutator, inner_acc ->
-      try_one_mutator(mutator, node, scope, covered, inner_acc)
+      try_one_mutator(mutator, node, ambient, scope, covered, inner_acc)
     end)
   end
 
-  defp try_one_mutator(mutator, node, %Scope{file: file} = _scope, covered, acc) do
+  defp try_one_mutator(mutator, node, ambient, %Scope{file: file} = _scope, covered, acc) do
     if mutator.match?(node) do
-      line = node_line(node)
+      {line, column} = effective_position(node, ambient)
 
       cond do
         # Per r2: filter by covered_lines BEFORE consulting validate/1.
-        # A nil line means the node carries no positional metadata (rare —
-        # mostly small literal subterms). We treat absent line as
-        # "uncovered" so the enumerator stays honest: if we cannot
-        # attribute the node to a source line, we cannot claim a test
-        # exercises it.
+        # A nil line means neither the node nor any enclosing ancestor
+        # carried positional metadata — extremely rare in real ASTs, and
+        # the right behaviour is still "uncovered" (we cannot honestly
+        # attribute the site to a source line).
         is_nil(line) ->
           acc
 
@@ -228,14 +314,14 @@ defmodule MutagenEx.MutationEnumerator do
           acc
 
         true ->
-          run_mutator(mutator, node, file, line, acc)
+          run_mutator(mutator, node, file, line, column, acc)
       end
     else
       acc
     end
   end
 
-  defp run_mutator(mutator, node, file, line, acc) do
+  defp run_mutator(mutator, node, file, line, column, acc) do
     mutated = mutator.mutate(node)
     name = mutator.name()
     id = Mutators.site_id(file, node, name)
@@ -246,7 +332,7 @@ defmodule MutagenEx.MutationEnumerator do
           id: id,
           file: file,
           line: line,
-          column: node_column(node),
+          column: column,
           mutator: name,
           original_ast: node,
           mutated_ast: mutated
@@ -258,6 +344,26 @@ defmodule MutagenEx.MutationEnumerator do
         entry = %{site_id: id, reason: reason, mutator: name, file: file}
         %{acc | skipped: [entry | acc.skipped]}
     end
+  end
+
+  # Resolve a node's effective `{line, column}` for coverage filtering and
+  # for the Site's positional fields. The node's own metadata wins when
+  # present; otherwise inherit from the nearest enclosing 3-tuple
+  # (`ambient`).
+  defp effective_position(node, {ambient_line, ambient_column}) do
+    line = node_line(node) || ambient_line
+    column = node_column_or_nil(node) || ambient_column || 1
+    {line, column}
+  end
+
+  # Pull `{line, column}` out of a 3-tuple's metadata and slot them into
+  # the ambient tuple. Missing keys fall back to the prior ambient (we
+  # don't want a 3-tuple without `:column` to reset ambient_column to
+  # nil — the closest known column is still useful).
+  defp update_ambient(meta, {prior_line, prior_column}) when is_list(meta) do
+    line = Keyword.get(meta, :line, prior_line)
+    column = Keyword.get(meta, :column, prior_column)
+    {line, column}
   end
 
   # --- AST helpers ----------------------------------------------------------
@@ -295,6 +401,9 @@ defmodule MutagenEx.MutationEnumerator do
   defp node_line({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :line)
   defp node_line(_), do: nil
 
-  defp node_column({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :column, 1)
-  defp node_column(_), do: 1
+  # `nil` if the node has no `:column` metadata of its own. Used by
+  # `effective_position/2` so missing columns can fall back to the
+  # ambient column rather than masking it with `1`.
+  defp node_column_or_nil({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :column)
+  defp node_column_or_nil(_), do: nil
 end

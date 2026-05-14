@@ -410,22 +410,16 @@ defmodule MutagenEx.EndToEndTest do
     end
   end
 
-  describe "Scenario 2a (solo): decisions.ex `literal` mutator floor (pending bw mutagen-wrd.15)" do
-    # Skipped pending bw mutagen-wrd.15 (DISCOVERY-E: Literal mutator
-    # does not match parsed AST). The production
-    # `lib/mutagen_ex/mutators/literal.ex` `match?/1` only catches the
-    # BARE literal value (`0`, `1`, `true`, `false`, `-1`), but bare
-    # atomic literals carry no line metadata in the parsed AST — only
-    # their parent operator node does. The enumerator at
-    # `lib/mutagen_ex/mutation_enumerator.ex:224` filters nil-line
-    # nodes as "uncovered", so the `literal` mutator never produces a
-    # site or a skipped entry against any current fixture. The fix
-    # belongs in `lib/mutagen_ex/mutators/literal.ex` (match a
-    # `__block__`-wrapped literal AND/or have the enumerator inherit
-    # parent line metadata for atomic-literal nodes) — outside this
-    # ticket's Allowed touches.
+  describe "Scenario 2a (solo): decisions.ex `literal` mutator floor (bw mutagen-wrd.16)" do
+    # bw mutagen-wrd.16 fixed the literal-mutator floor: the enumerator
+    # now threads each AST node's ambient `:line` (the nearest enclosing
+    # 3-tuple's metadata) downward as it walks, so bare atomic literals
+    # — the `0` in `n > 0`, the `1` in `do: 1`, case-clause-head literals
+    # like `0 -> :zero` — are attributed to the parent operator/clause-
+    # head's source line. The `is_nil(line) -> acc` filter in
+    # `try_one_mutator/5` no longer drops them on lane fixtures where
+    # `Code.string_to_quoted/2` leaves the literals bare (Elixir 1.19.5).
     @tag :literal_floor_scenario
-    @tag :skip
     test "literal mutator lands at least one site on decisions.ex", _ctx do
       json =
         run_pipeline!([
