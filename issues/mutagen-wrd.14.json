@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-14T11:27:53Z",
   "created": "2026-05-13T23:08:29Z",
   "description": "Advances: mutagen.mutators\n\nDiscovered during S7 (mutagen-wrd.9) lane fixture authoring.\n\n## Problem\n\n`test/fixtures/lane_project/lib/lane_fixture/infinite_looper.ex` deliberately uses `:arith`-driven recursion (`count_down(n - 1)` → `count_down(n + 1)`) as the deterministic infinite-loop trigger, while the original mutagen-wrd.9 ticket's S7 risk note prescribed `:case_drop` on a recursive function's base case.\n\nThe reason for the deviation, documented at `infinite_looper.ex:18-27`:\n\n\u003e :case_drop on this module's `case` removes the BASE case (the last clause), which leaves the recursive clause whose guard rejects n=0 — that raises a CaseClauseError and the mutation classifies as :killed, not :timeout. The :arith trigger gives the same deterministic infinite recursion without the false signal.\n\nThis is a spec-level clarification: the mutators catalog promises that `:case_drop` against the recursive function's base case produces `:timeout`, but the actual runtime behavior is `:killed` via CaseClauseError.\n\n## Resolution\n\nEither:\n\n1. **Spec clarification**: Update `mutagen.mutators` / `mutagen.mutation_pipeline` to acknowledge that `:case_drop` on a guarded `case` head whose recursive clause's guard rejects the base value classifies as `:killed`, and document the correct trigger for deterministic timeout (e.g., `:arith` on the recursive descent).\n2. **Mutator refinement**: Refine `:case_drop`'s validate predicate to skip cases where dropping the base clause would produce an inevitable CaseClauseError, OR to also strip the recursive clause's guard so the recursion truly diverges.\n\nOption 1 is cheaper; option 2 is a behavioral change to the mutator catalog.\n\n## Related\n\n- mutagen-wrd.9 (S7 lane fixture, where this deviation was made)\n- mutagen-wrd.13 (MutationLoop brutal_kill — sister timeout-path bug)",
   "id": "mutagen-wrd.14",
@@ -30,7 +31,7 @@
     }
   ],
   "priority": 3,
-  "status": "in_progress",
+  "status": "closed",
   "title": "DISCOVERY: infinite_looper.ex uses :arith trigger, spec named :case_drop",
   "type": "task",
   "updated_at": "2026-05-14T11:27:53Z"
