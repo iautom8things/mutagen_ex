@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [
     "mutagen-wrd.9"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "S8: Docs + README + CHANGELOG",
   "type": "task",
-  "updated_at": "2026-05-13T13:33:17Z"
+  "updated_at": "2026-05-14T00:16:24Z"
 }
