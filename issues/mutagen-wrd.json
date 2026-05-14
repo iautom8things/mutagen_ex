@@ -19,11 +19,15 @@
     {
       "text": "ORCHESTRATOR: resuming epic.\n\nPrior run completed S1–S8 (mutagen-wrd.1–10) and delivered to main (epic-branch\ncontent squashed in via the human checkpoint). Five discovery tickets remain open\nand are children of this epic; this run drives them through the pipeline.\n\nState:\n- Epic worktree recreated: /Users/mz/dev/mz/mutagen_ex-mutagen-wrd\n- epic/mutagen-wrd fast-forwarded to main (ca1c2b6)\n- Smoke green: mix compile --warnings-as-errors + mix test → 305 tests, 0 failures\n- Concurrency cap: 3 active background agents\n- Bounce cap: 2 total per ticket\n- No remote; epic→main is a human checkpoint at the end (do NOT push or open PR)\n\nPlanned ordering (no explicit blocked_by between tickets, but file-overlap risk\non test/mutagen_ex/end_to_end_test.exs between .11 and .12 — running .11 first,\n.12 after; .13/.14/.15 are independent):\n- batch 1 (parallel, cap 3): .11, .13, .15\n- after .11 closes: .12\n- .14 (spec clarification or mutator refinement) joins when a slot opens",
       "timestamp": "2026-05-14T10:03:40Z"
+    },
+    {
+      "text": "ORCHESTRATOR: subticket added during pipeline.\n\nmutagen-wrd.15's implementer surfaced a follow-on issue while wiring up the\n__block__-wrapper resolution: the original ticket's hypothesis (parser wraps\natomic literals when token_metadata: true) does NOT hold in Elixir 1.19.5 for\ndecisions.ex (literals there are bare children of operator/clause-head tuples\nwith no metadata). The __block__-wrapper code .15 implemented is correct and\nverified end-to-end with a hand-built wrapped AST, but the decisions.ex floor\nneeds an enumerator-level parent-line-inheritance pass.\n\nFiled as mutagen-wrd.16 (DISCOVERY: Literal mutator floor on decisions.ex needs\nenumerator parent-line-inheritance) — Advances: mutagen.mutation_enumeration.\nThis is NOT a blocker for .15 (different file, different mechanism); the e2e\nScenario 2a @tag :skip remains until .16 lands.\n\nScope-expansion counter: 1/3 this run.",
+      "timestamp": "2026-05-14T10:18:45Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "mutagen_ex: mix mutagen pipeline",
   "type": "epic",
-  "updated_at": "2026-05-14T10:03:40Z"
+  "updated_at": "2026-05-14T10:18:45Z"
 }
