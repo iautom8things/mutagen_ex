@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: eb14f76b-662e-400e-ba6b-22e2f3772aea\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/eb14f76b-662e-400e-ba6b-22e2f3772aea.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage (4/4), full requirement\ncoverage for r1-r11 with concrete Would-fail-if lines pinning the cooperative-cancel\n+ Code.Server settle behaviour (mutation_runner_test.exs:541/:584/:615 are\nload-bearing for r4). Zero mechanical/intent scope violations; project verification\nclean (322 tests, 0 failures including --include e2e_slow). Two advisory Notes\nflagged (a tighter r4 wording option; one cosmetic comment) — neither is a Gap.\nNo auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-14T10:27:03Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-14T10:28:56Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "DISCOVERY: MutationLoop Task.shutdown(:brutal_kill) corrupts Code.Server load locks",
   "type": "bug",
-  "updated_at": "2026-05-14T10:27:03Z"
+  "updated_at": "2026-05-14T10:28:56Z"
 }
