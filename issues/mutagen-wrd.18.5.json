@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 81a13509-99b2-41c4-9907-6ad88ad2ede0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/81a13509-99b2-41c4-9907-6ad88ad2ede0.jsonl\n\nReasoning: VERIFY reported PASS with the strongest coverage state in the sub-epic: all 11 spec stubs (mutation_pipeline.v1..v6 + coverage.v1..v5) ran green, every must requirement across both subjects has a concrete `Would fail if` falsifiability line with no `NOT COVERED` entries, source-claim trace on README/CHANGELOG resolved every named module/function/path on HEAD (MutagenEx.Application, MutagenEx.Supervisor, MutagenEx.TaskSup, MutagenEx.MutationRunner.run/1, Mix.Tasks.Mutagen, .spec/decisions/supervision_tree.md), zero scope violations, mix compile + mix test green (362 tests). Spec/decision validation substitute (all execute:true stubs green) per .spec/AGENTS.md is satisfied. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-14T19:55:11Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-14T19:55:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S5: README + CHANGELOG + spec/decision validation",
   "type": "task",
-  "updated_at": "2026-05-14T19:55:11Z"
+  "updated_at": "2026-05-14T19:55:44Z"
 }
