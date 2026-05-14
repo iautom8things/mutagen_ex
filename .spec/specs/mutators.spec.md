@@ -31,7 +31,11 @@ Per the refined plan:
 3. `boolean` — `and ↔ or`, `&& ↔ ||`, drop `not`/`!`.
 4. `literal` — flip `true ↔ false`, swap small integer literals.
 5. `with_swap` — reorder `with` clauses.
-6. `case_drop` — drop a `case`/`cond` clause.
+6. `case_drop` — drop the last clause of a `case`/`cond`. See note below on
+   the *guarded-recursive-base-case* pattern: when the surviving clauses do
+   not cover every value reachable at runtime, the mutated module raises
+   `CaseClauseError` and the site classifies as `:killed`, not as a
+   silent no-op or a divergent loop. This is honest behaviour, not a bug.
 7. `pipeline` — reorder adjacent `|>` segments.
 8. `result_tuple` — flip `{:ok, x}` / `{:error, x}` shapes.
 9. `else_removal` — drop `else` branch of `if`/`with`.
@@ -132,6 +136,26 @@ decisions:
     The catalog is closed in v1: ten mutators, no plugin interface, no
     user-supplied addition. Adding a new mutator requires a code change and
     a spec revision.
+
+- id: mutagen.mutators.r8
+  priority: must
+  statement: |
+    `:case_drop`'s `validate/1` does NOT attempt to prove that the
+    surviving clauses cover every value reachable at runtime. When the
+    dropped clause was the only one that matched a value the program
+    actually produces (the *guarded-recursive-base-case* pattern is the
+    canonical example: a `case` with a guarded recursive clause plus an
+    unguarded base clause; dropping the base leaves only the guarded
+    clause), the mutated module raises `CaseClauseError` at runtime and
+    the mutation_pipeline classifies the site `:killed` per
+    mutagen.mutation_pipeline.r5. This is the honest classification: the
+    cited tests observably distinguished the dropped clause from the
+    survivors. `:case_drop` is therefore NOT a reliable trigger for
+    `:timeout` classification — authoring fixtures or test cases that
+    require deterministic `:timeout` (e.g., lane-project recursion that
+    must exceed `Config.timeout_ms`) should use `:arith` against the
+    recursive descent so the recursion truly diverges without
+    encountering a clause-miss.
 ```
 
 ```spec-scenarios
@@ -198,6 +222,32 @@ decisions:
     `validate/1` checks the surrounding context; if the call site of the
     enclosing function pattern-matches an explicit `else`-returning shape,
     it returns `{:skip, :structurally_invalid}`. Otherwise `:ok`.
+
+- id: mutagen.mutators.s7
+  covers: [mutagen.mutators.r8]
+  given: |
+    A module with a guarded-recursive-base-case pattern, e.g.
+
+        def count_down(n) when is_integer(n) do
+          case n do
+            n when n > 0 -> count_down(n - 1)
+            0 -> :done
+          end
+        end
+
+    and a test that calls `count_down(3)` expecting `:done`.
+  when: |
+    `:case_drop` drops the last clause (`0 -> :done`), the mutated
+    module compiles, and `MutationRunner` executes the cited test.
+  then: |
+    `validate/1` returns `:ok` (the catalog does not prove coverage).
+    At runtime the recursion reaches `count_down(0)` which fails the
+    `n > 0` guard on the surviving clause and raises `CaseClauseError`.
+    The cited test fails. The site is classified `:killed` per
+    mutagen.mutation_pipeline.r5. The site is NOT classified
+    `:timeout`. Tests requiring deterministic `:timeout` must trigger
+    divergence by another mechanism (e.g., `:arith` against the
+    recursive descent).
 ```
 
 ```spec-verification
@@ -223,5 +273,11 @@ decisions:
   covers: [mutagen.mutators.r2]
   kind: command
   command: mix test test/mutagen_ex/mutators/ --only validate
+  execute: true
+
+- id: mutagen.mutators.v5
+  covers: [mutagen.mutators.r8]
+  kind: command
+  command: mix test test/mutagen_ex/mutators/case_drop_classification_test.exs
   execute: true
 ```

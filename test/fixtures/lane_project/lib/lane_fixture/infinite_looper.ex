@@ -24,8 +24,11 @@ defmodule LaneFixture.InfiniteLooper do
   rejects n=0 — that raises a `CaseClauseError` and the mutation
   classifies as `:killed`, not `:timeout`. The `:arith` trigger gives
   the same deterministic infinite recursion without the false signal.
-  See bw mutagen-wrd.14 (DISCOVERY-D) for the spec-clarification
-  follow-up.
+
+  This is the documented contract, not a deviation: see
+  `mutagen.mutators.r8` and `mutagen.mutation_pipeline.r5` for the
+  classification rule, and `mutagen.mutators` catalog entry 6 for the
+  fixture-authoring guidance that points :case_drop fixtures at :arith.
   """
 
   def count_down(n) when is_integer(n) do

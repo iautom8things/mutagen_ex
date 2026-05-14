@@ -32,6 +32,21 @@ defmodule MutagenEx.Mutators.CaseDrop do
     runner's `:survived` count remains an honest upper bound. Users should
     interpret a surviving `case_drop` mutation as "test suite did not
     distinguish the dropped branch from the remaining branches".
+
+  ## Runtime classification
+
+  Per `mutagen.mutators.r8` / `mutagen.mutation_pipeline.r5`: when the
+  dropped clause was the only one matching a value the program actually
+  produces (the canonical *guarded-recursive-base-case* pattern is a
+  `case` with a guarded recursive clause plus an unguarded base clause;
+  dropping the base leaves only the guarded clause), the mutated module
+  raises `CaseClauseError` at runtime and the mutation pipeline
+  classifies the site `:killed`, not `:timeout`. `:case_drop` is
+  therefore NOT a reliable trigger for `:timeout`-classified mutations.
+  Fixtures requiring deterministic `:timeout` (e.g.,
+  `test/fixtures/lane_project/lib/lane_fixture/infinite_looper.ex`)
+  should use `:arith` against a recursive descent so the recursion truly
+  diverges without encountering a clause-miss.
   """
 
   @behaviour MutagenEx.Mutators

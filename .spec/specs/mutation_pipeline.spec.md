@@ -92,7 +92,19 @@ decisions:
     `:compile_error` (Code.compile_quoted/1 raised on the swapped AST),
     `:error` (uncaught exception or unexpected return from the test runner).
     `:compile_error` outcomes are NOT counted in the kill-rate denominator;
-    the others all are.
+    the others all are. A mutation whose surviving code raises an
+    uncaught runtime exception that causes a cited test to fail
+    classifies as `:killed`, not `:error` — `:error` is reserved for
+    crashes inside the test runner itself, not crashes in the mutated
+    user code that the test observably caught. (Canonical example: a
+    `:case_drop` mutation against a guarded-recursive-base-case `case`
+    raises `CaseClauseError` when recursion reaches the dropped value;
+    the cited test fails; classification is `:killed`. See
+    mutagen.mutators.r8.) The corollary: `:case_drop` is not a reliable
+    trigger for `:timeout`. Tests or fixtures that need deterministic
+    `:timeout` classification (per r4) must induce divergence by other
+    means — e.g., `:arith` flipping a recursive descent so the
+    recursion never approaches its base case.
 
 - id: mutagen.mutation_pipeline.r6
   priority: must
@@ -171,14 +183,20 @@ decisions:
 - id: mutagen.mutation_pipeline.s3
   covers: [mutagen.mutation_pipeline.r4, mutagen.mutation_pipeline.r5]
   given: |
-    A mutation creates an infinite loop in the mutated module.
+    A mutation creates a deterministic infinite loop in the mutated
+    module (e.g., `:arith` flipping `count_down(n - 1)` to
+    `count_down(n + 1)` so the recursion diverges from its base case).
     `Config.timeout_ms` is 1000.
   when: The mutation phase processes that site.
   then: |
     Approximately 1000ms after the test run begins, the site is classified
     `:timeout`. The next-iteration mutation result has
     `tainted_predecessors: true`. The runner continues to subsequent sites
-    rather than aborting.
+    rather than aborting. Note: a `:case_drop` mutation that drops a
+    recursion's base case does NOT produce `:timeout` in this scenario
+    — it raises `CaseClauseError` on the first iteration that reaches
+    the dropped value and classifies `:killed` (per r5 and
+    mutagen.mutators.r8).
 
 - id: mutagen.mutation_pipeline.s4
   covers: [mutagen.mutation_pipeline.r5]
