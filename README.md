@@ -5,20 +5,27 @@ cited test set against each mutation, and emits a single JSON document
 classifying every mutation as `killed`, `survived`, `timeout`, `error`, or
 `compile_error`.
 
-The CLI is the only entry point. The JSON document is the only output. Both
-are stable contracts as of v0.1.0.
+The CLI (`mix mutagen`) is the supported user-facing entry point;
+`MutagenEx.MutationRunner.run/1` is the equivalent library-caller entry
+point. The JSON document is the only output. Both are stable contracts
+as of v0.1.0.
 
 ## Install
 
-`mutagen_ex` is a dev-only Mix task. Add it to your `mix.exs`:
+`mutagen_ex` is a development-time Mix task. Add it to your `mix.exs`:
 
 ```elixir
 def deps do
   [
-    {:mutagen_ex, "~> 0.1", only: :dev, runtime: false}
+    {:mutagen_ex, "~> 0.1", only: [:dev, :test], runtime: false}
   ]
 end
 ```
+
+Scoping to `only: [:dev, :test]` is the recommended posture: `mutagen_ex`
+starts a supervision tree (`MutagenEx.Application` → `MutagenEx.Supervisor`
+→ `MutagenEx.TaskSup`) on application boot, and you do not want that tree
+pulled into a `:prod` release.
 
 Then:
 
@@ -26,6 +33,23 @@ Then:
 mix deps.get
 mix help mutagen
 ```
+
+## Entrypoints
+
+`mutagen_ex` boots `MutagenEx.Application` whenever the `:mutagen_ex`
+application starts. That supervisor is the program entrypoint; everything
+the tool runs lives under `MutagenEx.TaskSup`.
+
+User-facing entrypoint surfaces:
+
+- **CLI**: `mix mutagen` (the `Mix.Tasks.Mutagen` task). This is the
+  documented and supported route.
+- **Library**: `MutagenEx.MutationRunner.run/1` for callers depending on
+  `:mutagen_ex` directly. Same in-process pipeline, no CLI parsing.
+
+Only one concurrent MutagenEx mutation cycle per BEAM is supported;
+concurrent callers are refused with `{:error, :cover_already_running, _}`.
+See `.spec/decisions/supervision_tree.md`.
 
 ## What `mix mutagen` does
 
@@ -118,26 +142,20 @@ ticket; the v0.1.0 cut ships the surface and the contract, not the fix.
    mutation classifies as `survived`. End-to-end correctness today
    requires the test-side driver fork. *(mutagen-wrd.12)*
 
-3. **`Task.shutdown(:brutal_kill)` after a per-site timeout can poison
-   the BEAM Code.Server.** A mutation that times out mid-`:code.load_binary`
-   may leave an unreleased load lock; subsequent mutation sites in the
-   same run can hang. Re-run after a timeout-classified mutation if the
-   tail of the run looks wrong. *(mutagen-wrd.13)*
-
-4. **`:case_drop` on a guarded base case classifies `:killed`, not
+3. **`:case_drop` on a guarded base case classifies `:killed`, not
    `:timeout`.** When the dropped clause is the only non-recursing
    branch, the surviving recursive clause's guard rejects the base value
    and the BEAM raises `CaseClauseError` — the mutator catalog's
    stated `:timeout` outcome does not happen. *(mutagen-wrd.14)*
 
-5. **The `literal` mutator never fires.** The AST cache parses with
+4. **The `literal` mutator never fires.** The AST cache parses with
    `token_metadata: true`, which wraps atomic literals in
    `{:__block__, _, [value]}` tuples. `Literal.match?/1` only matches
    bare literals, so the mutator skips every candidate site. The other
    mutators (`compare`, `boolean`, `case_drop`, `else_removal`,
    `withblock_*`) are unaffected. *(mutagen-wrd.15)*
 
-In all five cases the JSON document is well-formed and the contract is
+In all four cases the JSON document is well-formed and the contract is
 honoured; the gap is in upstream classification fidelity, not in the
 output schema.
 

@@ -7,6 +7,27 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `MutagenEx.Application` — a one-for-one supervisor (`MutagenEx.Supervisor`)
+  whose only child is a named `Task.Supervisor` registered as
+  `MutagenEx.TaskSup`. Declared via `mod: {MutagenEx.Application, []}` in
+  `mix.exs`, so the supervision tree starts whenever `:mutagen_ex` boots —
+  for both the `mix mutagen` CLI path and library callers depending on
+  `:mutagen_ex` directly. New invariant:
+  `mutagen.mutation_pipeline.r13`. *(mutagen-wrd.18)*
+- `test/mutagen_ex/supervision_test.exs` exercising start_link / terminate
+  cycles, recursive-kill propagation across an OTP-supervised descendant
+  subtree and an untrapped linked grandchild, and concurrent-caller
+  rejection of `CoverageRunner.run/1`. Covers
+  `mutagen.mutation_pipeline.r13`, `mutagen.mutation_pipeline.r14`,
+  `mutagen.coverage.r1`, and `mutagen.coverage.r8`. *(mutagen-wrd.18)*
+- `.spec/decisions/supervision_tree.md` documenting the
+  Application + named `Task.Supervisor` choice, the singleton-ownership
+  contract for `:cover_server` / `ExUnit.Server`, and the v2 won't-haves
+  (out-of-process workers, `:cover.start/0` race arbiter).
+  *(mutagen-wrd.18)*
+
 ### Changed
 
 - `MutationRunner.run_one_site/3` now routes the loaded-mutation window
@@ -23,12 +44,50 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the original `:compile_error` message in `details.message`) instead
   of silently discarding it via `_ = restore(...)`. Per
   `mutagen.mutation_pipeline.r6`. *(mutagen-wrd.17)*
+- `MutationLoop.run/1` spawns its per-site task via
+  `Task.Supervisor.async_nolink(MutagenEx.TaskSup, ...)` instead of
+  `Task.async/1`. The two-phase cancel keeps `Task.shutdown(task,
+  cancel_grace_ms)` for the mailbox-drain window, then escalates to
+  `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task.pid)` —
+  which propagates `Process.exit(_, :shutdown)` through the task's
+  link tree, reaping untrapped linked grandchildren and OTP-supervised
+  descendant subtrees synchronously with respect to the direct task
+  pid and asynchronously for the descendant fan-out. A
+  `Process.demonitor(task.ref, [:flush])` follows to prevent stale
+  `:DOWN` messages accumulating in the runner's mailbox across timeout
+  sites. The `.13` `:code.purge/1` post-timeout settle pass is retained
+  on top. Per `mutagen.mutation_pipeline.r4` /
+  `mutagen.mutation_pipeline.r14`. *(mutagen-wrd.18)*
+- `CoverageRunner.run/1`'s `:cover_already_running` rejection message
+  now names `MutagenEx.TaskSup` as the documented singleton owner of
+  `:cover_server` and `ExUnit.Server` during a MutagenEx mutation cycle,
+  and points readers at `.spec/decisions/supervision_tree.md`. Per
+  `mutagen.coverage.r1` / `mutagen.coverage.r8`. *(mutagen-wrd.18)*
+
+### Notes
+
+- User-visible cancellation latency per timeout-classified site is
+  dominated by `cancel_grace_ms` (100 ms by default). The supervisor's
+  `:shutdown_timeout` (5_000 ms) bounds only a hypothetical scenario in
+  which the per-site task itself traps `:shutdown`; in practice the task
+  dies on the signal in microseconds and grandchild teardown is
+  asynchronous afterwards. *(mutagen-wrd.18)*
+- Closes F2-arch for the common grandchild classes (untrapped linked
+  processes, OTP-supervised subtrees). Hand-rolled trap-exit'd
+  GenServers that swallow `{:EXIT, _, :shutdown}` info messages remain
+  out of reach; the `r7` snapshot-delta machinery continues to detect
+  these as advisory growth signals.
 
 ### Removed
 
 - `lib/mutagen_ex.ex` and `test/mutagen_ex_test.exs` (`mix new`
   placeholders) are deleted. The `MutagenEx` namespace is owned by its
   submodules; no top-level module body is necessary. *(mutagen-wrd.17)*
+- The README's `.13` caveat ("re-run if the tail of the run looks
+  wrong" after a timeout-classified mutation) is removed. The `.18`
+  supervised teardown + `:code.purge` settle pass + recursive shutdown
+  through the link tree close the underlying Code.Server hang condition.
+  *(mutagen-wrd.18)*
 
 ## [0.1.0] — 2026-05-13
 
