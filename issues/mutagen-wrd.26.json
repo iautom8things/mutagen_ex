@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T16:35:46Z",
+  "description": "Advances: mutagen.json_schema, mutagen.mutation_pipeline\n\nCloses **F24 / CF9** (HIGH consensus from Security + Performance — Security H3, Performance F-PERF-11).\n\nStderr, exception messages, and `Macro.to_string/1` output flow verbatim into `warnings`, `compile_errors[].message`, abort-detail fields, and `before` / `after` / `before_source`. Compiler diagnostics include source slices and file paths. Combined with the lax `--json \u003cpath\u003e` write (.21), secrets archived in reports become file-system-resident. Plus: `Macro.to_string` is called twice on the same AST in mix.tasks.mutagen.ex:538-552.\n\n## Deliverable\n\n- Truncate captured stderr / compile-error / exception messages to a fixed cap (4 KiB). When truncated, append `... \u003cN bytes truncated\u003e` marker.\n- Add opt-in `redact: [pattern]` config knob (regex list); each match replaced with `[REDACTED]`.\n- Compute `Macro.to_string(r.original_ast)` once and alias the binary into both `before` and `before_source`. Per ast_cache.ex documented contract, `before_source` should be a verbatim source slice — implement that.\n- Revise `.spec/specs/json_schema.spec.md`: new requirements for truncation and optional redaction.\n\n## Allowed touches\n- lib/mutagen_ex/mutation_runner.ex (line 434)\n- lib/mutagen_ex/baseline.ex (line 108)\n- lib/mutagen_ex/ast_cache.ex (line 104-106)\n- lib/mix/tasks/mutagen.ex (line 538-552)\n- lib/mutagen_ex/json_reporter.ex (if truncation/redact lives here)\n- .spec/specs/json_schema.spec.md, mutation_pipeline.spec.md\n- Corresponding test files\n- README.md, CHANGELOG.md\n\n## Out of Scope\n- General PII detection / DLP scanning — `redact:` is an explicit user-supplied pattern list\n- Sanitize before logging (logs vs JSON report are separate concerns)\n\n## Merge gate\n- [ ] mix test green\n- [ ] Truncation test (build a \u003e4KiB stderr, assert truncation marker)\n- [ ] Redact test (provide pattern, assert replacement)\n- [ ] Macro.to_string call-count assertion (called once not twice per result)\n- [ ] Auditor APPROVE",
+  "id": "mutagen-wrd.26",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 3,
+  "status": "open",
+  "title": "Truncate stderr/exception output + add redact knob + cache Macro.to_string",
+  "type": "task",
+  "updated_at": "2026-05-14T16:35:46Z"
+}
