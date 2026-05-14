@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-13T23:08:15Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "DISCOVERY: MutationLoop Task.shutdown(:brutal_kill) corrupts Code.Server load locks",
   "type": "bug",
-  "updated_at": "2026-05-13T23:08:15Z"
+  "updated_at": "2026-05-14T10:05:35Z"
 }
