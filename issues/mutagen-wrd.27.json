@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T16:35:46Z",
+  "description": "Advances: mutagen.mutation_pipeline, mutagen.coverage\n\nCloses **F13** (HIGH, Testing reviewer). The r11 disk-write tests in mutation_runner_test.exs:729-753 + coverage_runner_test.exs:283-301 only hash `lib/**/*.ex` to assert no side-effect writes. They miss `_build`, `cover/`, `/tmp`, host project config files. The bytecode-identical-restore invariant is broader than file content.\n\n## Deliverable\n- Broaden the r11 disk-write assertions to cover:\n  - `_build/**` (compiled artifacts and dependency state)\n  - `cover/**` (coverage instrumentation output)\n  - `/tmp` writes via temp file enumeration before / after\n  - Host project config (mix.exs, mix.lock, .formatter.exs)\n- Add explicit allowed-write list with rationale per directory\n\n## Allowed touches\n- test/mutagen_ex/mutation_runner_test.exs\n- test/mutagen_ex/coverage_runner_test.exs\n- (possibly) test/support helpers for disk-snapshot diffing\n- .spec/specs/mutation_pipeline.spec.md, coverage.spec.md (r11 contract update)\n- README.md, CHANGELOG.md\n\n## Out of Scope\n- Block runtime disk writes via filesystem sandbox (not feasible in BEAM)\n- Add disk-write-tracking telemetry (.30 territory)\n\n## Merge gate\n- [ ] mix test green; r11 tests now cover broader surface\n- [ ] Auditor APPROVE",
+  "id": "mutagen-wrd.27",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 3,
+  "status": "open",
+  "title": "Broaden r11 disk-write tests beyond lib/**/*.ex",
+  "type": "task",
+  "updated_at": "2026-05-14T16:35:46Z"
+}
