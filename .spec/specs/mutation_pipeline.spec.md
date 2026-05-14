@@ -38,6 +38,7 @@ decisions:
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.mutation_loop_private
   - mutagen.decision.self_mutation_refused
+  - mutagen.decision.supervision_tree
 ```
 
 ```spec-requirements
@@ -69,17 +70,22 @@ decisions:
 - id: mutagen.mutation_pipeline.r4
   priority: must
   statement: |
-    Per-mutation execution wraps `ExUnit.run/1` in a structure that
-    enforces `Config.timeout_ms`. When the timeout fires, the test
-    process is cancelled via the two-phase path documented in
-    mutagen.decision.timeout_handling: a trappable `:shutdown` first,
-    escalating to `Process.exit(:kill)` only if the task does not
-    unwind inside a bounded grace window. The site is classified
-    `:timeout` regardless of which phase actually cleared the task,
-    and the next iteration's classification record carries
-    `tainted_predecessors: true`. After a `:timeout` outcome the
-    runner calls `:code.purge/1` on the site's scoped modules before
-    restore, so a brutal-killed task cannot leave the Code.Server
+    Per-mutation execution wraps `ExUnit.run/1` in a per-site task
+    spawned via `Task.Supervisor.async_nolink(MutagenEx.TaskSup, ...)`
+    that enforces `Config.timeout_ms`. When the timeout fires, the
+    task is cancelled via the two-phase path documented in
+    mutagen.decision.timeout_handling and
+    mutagen.decision.supervision_tree: a `Task.shutdown(task,
+    cancel_grace_ms)` mailbox-drain window first (default 100 ms),
+    followed by `Task.Supervisor.terminate_child(MutagenEx.TaskSup,
+    task.pid)` to escalate and update the supervisor's child table.
+    Both phases dispatch `Process.exit(_, :shutdown)`, which
+    propagates through the task's link tree to descendant processes.
+    The site is classified `:timeout` regardless of which phase
+    cleared the task, and the next iteration's classification record
+    carries `tainted_predecessors: true`. After a `:timeout` outcome
+    the runner calls `:code.purge/1` on the site's scoped modules
+    before restore, so a killed task cannot leave the Code.Server
     holding an orphaned per-module load lock for the next site.
 
 - id: mutagen.mutation_pipeline.r5
@@ -170,6 +176,43 @@ decisions:
     and MUST NOT mask the original cause. Equivalently, on the
     `:compile_error` branch, defensive restore failure surfaces as
     `:unrecoverable_restore_failure` (not silently discarded).
+
+- id: mutagen.mutation_pipeline.r13
+  priority: must
+  statement: |
+    The `:mutagen_ex` application starts a one-for-one supervisor
+    (`MutagenEx.Application` → `MutagenEx.Supervisor`) whose only
+    child is a named `Task.Supervisor` registered as
+    `MutagenEx.TaskSup`. Every per-site mutation task spawned by
+    `MutationLoop.run/1` is a child of `MutagenEx.TaskSup`. The
+    supervisor is started automatically when `:mutagen_ex` boots
+    (via `mod: {MutagenEx.Application, []}` in mix.exs), giving both
+    `mix mutagen` CLI invocations and library callers depending on
+    `:mutagen_ex` a supervision tree on application start. See
+    mutagen.decision.supervision_tree.
+
+- id: mutagen.mutation_pipeline.r14
+  priority: must
+  statement: |
+    When `MutationLoop.run/1` escalates a timed-out site to
+    `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task.pid)`,
+    the per-site task receives `Process.exit(_, :shutdown)`. Its
+    death propagates `:shutdown` through every linked descendant.
+    Descendants in two classes are reaped:
+      (a) untrapped linked grandchildren (`spawn_link`'d processes,
+          plain `Task.start_link`'d tasks);
+      (b) trap-exit'd descendants that are themselves OTP
+          supervisors or otherwise honor `:shutdown` by propagating
+          it to their own children (e.g. `Phoenix.PubSub`, `Ecto`
+          connection pools).
+    Reaping is initiated by `terminate_child/2`'s return but
+    completes asynchronously over the BEAM scheduler quantum that
+    follows; the call itself is synchronous only with respect to
+    the direct child task. Hand-rolled trap-exit'd descendants
+    that swallow `{:EXIT, _, :shutdown}` info messages (a known
+    test anti-pattern) remain leaked; snapshot-delta detection
+    (mutagen.mutation_pipeline.r7) continues to detect these as
+    advisory growth signals.
 ```
 
 ```spec-scenarios
@@ -293,6 +336,47 @@ decisions:
     ...}` whose `message` names both the restore failure and the
     original `:compile_error` cause. The failure is NOT silently
     discarded as it was prior to bw mutagen-wrd.17.
+
+- id: mutagen.mutation_pipeline.s11
+  covers: [mutagen.mutation_pipeline.r13]
+  given: |
+    The `:mutagen_ex` application is started via
+    `Application.ensure_all_started(:mutagen_ex)`.
+  when: We inspect the BEAM's named-process registry.
+  then: |
+    `Process.whereis(MutagenEx.TaskSup)` returns a pid and
+    `Process.whereis(MutagenEx.Supervisor)` returns a pid. Both
+    pids stay alive until the application stops.
+
+- id: mutagen.mutation_pipeline.s12
+  covers: [mutagen.mutation_pipeline.r14]
+  given: |
+    A `Task.Supervisor.start_child(MutagenEx.TaskSup, fun)` task
+    whose body `spawn_link`'s (a) a named GenServer that traps exits
+    and runs a 20 ms `Process.sleep/1` in its `terminate/2` callback,
+    and (b) an unnamed worker that does not trap exits.
+  when: |
+    The caller monitors all three pids, then calls
+    `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task_pid)`.
+  then: |
+    A `:DOWN` arrives for each monitored pid within the supervisor's
+    `:shutdown_timeout` (5_000 ms upper bound). After the trapped
+    GenServer's `:DOWN`, its registered name is released within a
+    bounded poll window.
+
+- id: mutagen.mutation_pipeline.s13
+  covers: [mutagen.mutation_pipeline.r14, mutagen.mutation_pipeline.r7]
+  given: |
+    A `MutationLoop.run/1` site whose task body `spawn_link`'s a
+    named GenServer (class (a)/(b) descendant per r14) and then
+    blocks forever, forcing `Config.timeout_ms` to fire.
+  when: The runner snapshots before and after that mutation.
+  then: |
+    The outcome is `{:timeout, _meta}`. The post-mutation
+    snapshot delta against pre-mutation snapshot is empty for
+    `Process.registered()`, `:ets.all()`, and
+    `:persistent_term.info().count` — the linked descendant was
+    reaped by `terminate_child/2`'s recursive shutdown.
 ```
 
 ```spec-verification
@@ -336,4 +420,12 @@ decisions:
   kind: command
   command: mix test test/mutagen_ex/mutation_runner_raise_test.exs
   execute: true
+
+- id: mutagen.mutation_pipeline.v6
+  covers:
+    - mutagen.mutation_pipeline.r13
+    - mutagen.mutation_pipeline.r14
+  kind: command
+  command: mix test test/mutagen_ex/supervision_test.exs
+  execute: false
 ```

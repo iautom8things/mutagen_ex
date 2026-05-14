@@ -36,6 +36,7 @@ surface:
 decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
+  - mutagen.decision.supervision_tree
 ```
 
 ```spec-requirements
@@ -43,10 +44,12 @@ decisions:
   priority: must
   statement: |
     `CoverageRunner.run/1` checks for an already-running `:cover` server
-    before starting. If `Process.whereis(:cover_server)` returns a pid owned
-    by another process, the run aborts with a structured error
-    `{:error, :cover_already_running}`. The pipeline halts and emits the
-    error-shaped JSON.
+    before starting. If `Process.whereis(:cover_server)` returns a pid, the
+    run aborts with a structured error
+    `{:error, :cover_already_running, %{message: msg}}` whose `msg` names
+    `MutagenEx.TaskSup` as the documented singleton owner during a MutagenEx
+    mutation cycle and points to `.spec/decisions/supervision_tree.md`. The
+    pipeline halts and emits the error-shaped JSON.
 
 - id: mutagen.coverage.r2
   priority: must
@@ -99,6 +102,22 @@ decisions:
     Neither `CoverageRunner.run/1` nor `AstCache.load/1` modifies any file
     on disk. The working tree is byte-identical before and after both
     complete.
+
+- id: mutagen.coverage.r8
+  priority: must
+  statement: |
+    `MutagenEx.TaskSup` is the documented singleton owner of two
+    BEAM-global named processes (`:cover_server` and `ExUnit.Server`)
+    during a MutagenEx mutation cycle. A second concurrent caller in
+    the same BEAM is refused per mutagen.coverage.r1 once the first
+    caller has registered `:cover_server`. The window between the
+    first caller's `cover_already_running?/1` check and its
+    `:cover.start/0` is not guarded by this contract; concurrent
+    callers entering during that window collide on `:cover.start/0`
+    and fall back to the existing
+    `{:error, {:already_started, _pid}} -> :ok` path. Closing this
+    window is a v2 mitigation target (see
+    `.spec/decisions/supervision_tree.md` §"Won't-Have").
 ```
 
 ```spec-scenarios
@@ -170,6 +189,21 @@ decisions:
   then: |
     The hash is unchanged. No file under `cover/`, `_build/`, or `lib/` was
     written by these phases.
+
+- id: mutagen.coverage.s8
+  covers: [mutagen.coverage.r1, mutagen.coverage.r8]
+  given: |
+    `:cover_server` is registered on the BEAM (simulating an
+    in-flight MutagenEx mutation cycle).
+  when: |
+    A caller invokes `MutagenEx.CoverageRunner.run/1` with a
+    well-formed input
+    (`%{seed: 0, in_scope_modules: [],
+       test_filter: %TestFilter{include: [], exclude: [], files: []}}`).
+  then: |
+    The call returns `{:error, :cover_already_running, %{message: msg}}`
+    immediately, without entering the cover lifecycle. `msg` names
+    `MutagenEx.TaskSup` as the singleton owner.
 ```
 
 ```spec-verification
@@ -196,4 +230,10 @@ decisions:
   kind: command
   command: mix test test/mutagen_ex/integration/c1_test.exs
   execute: true
+
+- id: mutagen.coverage.v5
+  covers: [mutagen.coverage.r1, mutagen.coverage.r8]
+  kind: command
+  command: mix test test/mutagen_ex/supervision_test.exs
+  execute: false
 ```
