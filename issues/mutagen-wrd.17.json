@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-14T16:32:07Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "S9a: try/rescue around mutation window + delete mix-new placeholder + surface :compile_error restore failure",
   "type": "task",
-  "updated_at": "2026-05-14T16:32:07Z"
+  "updated_at": "2026-05-14T16:38:51Z"
 }
