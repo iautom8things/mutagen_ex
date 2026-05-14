@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-wrd.25"
+  ],
   "blocks": [],
   "created": "2026-05-14T16:35:46Z",
   "description": "Advances: mutagen.coverage, mutagen.mutation_pipeline\n\nCloses **F23** (HIGH, Performance F-PERF-20). Baseline (lib/mutagen_ex/baseline.ex:114-127) runs the full test suite once; coverage_runner.ex:236-287 then runs it again under `:cover`. Two full suite runs pre-mutation. `:cover` overhead is 10-50% on top. Combine into one instrumented run.\n\n**Dependencies**: This ticket likely depends on .25 (extended AST cache + facade clean-up makes the merge tractable) and possibly on the outcome of .19 (if Option A — fold ecto into here).\n\n## Deliverable\n- Combine baseline + coverage into one `:cover`-instrumented test run. Capture coverage data AND baseline failures from the same execution.\n- If baseline fails (any test fails not because of mutation), surface as `:baseline_red` per existing r? contract. Coverage data still useful for diagnosis even when baseline is red — preserve it.\n- Update relevant specs: coverage.spec.md, mutation_pipeline.spec.md.\n\n## Allowed touches\n- lib/mutagen_ex/baseline.ex\n- lib/mutagen_ex/coverage_runner.ex\n- lib/mix/tasks/mutagen.ex (orchestration sites)\n- .spec/specs/coverage.spec.md, mutation_pipeline.spec.md\n- Corresponding test files\n- README.md, CHANGELOG.md\n\n## Out of Scope\n- Replace `:cover` with `:ex_cover` or any alternate library — `:cover` is the project standard\n- Skip baseline entirely under coverage — baseline-red protection (r? in mutation_pipeline spec) must remain\n\n## Merge gate\n- [ ] mix test green\n- [ ] Pre-mutation wall-clock halves (or measurably less) on representative scope\n- [ ] Baseline-red protection still triggers\n- [ ] Coverage map still byte-identical for legitimate cases (determinism)\n- [ ] Auditor APPROVE",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Combine baseline + coverage into one instrumented run",
   "type": "task",
-  "updated_at": "2026-05-14T16:35:46Z"
+  "updated_at": "2026-05-14T16:36:34Z"
 }
