@@ -1,8 +1,7 @@
 {
-  "assignee": "Manuel Zubieta",
+  "assignee": "",
   "blocked_by": [],
   "blocks": [],
-  "closed_at": "2026-05-14T00:27:49Z",
   "created": "2026-05-13T13:30:17Z",
   "description": "No spec subject (epic groups stages; each stage carries its own Advances:)\n\nJira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nDistilled from mega-plan run 20260513-083104-claude.\nPlan source: ~/Documents/my-vault/LLMs/plans/-Users-mz-dev-mz-my_ai/2026-05-13-test-faithfulness-verifier/runs/20260513-083104-claude/05-refined-plan.md\nSpec dir: .spec/\n\nThe library was renamed from the plan-era `verify_tests` to `mutagen_ex`. All\nmodule paths, mix task names, and test paths in the stage tickets use the new\nnaming:\n- `mix verify_tests` → `mix mutagen`\n- `VerifyTests.*` → `MutagenEx.*`\n- `Mix.Tasks.VerifyTests` → `Mix.Tasks.Mutagen`\n- `lib/verify_tests/` → `lib/mutagen_ex/`\n- `test/verify_tests/` → `test/mutagen_ex/`\n\nThe S2 spike is GATING: a negative outcome on any of the 4 fixture modules\nor the 100-iteration loop escalates to the user (fallback architecture\ndecision needed). Do not silently pivot.\n\nVerification command: `mix test` (strict pre-merge: `mix compile --warnings-as-errors \u0026\u0026 mix test`).\n\nStage children correspond to the refined plan's S1-S8 (S0 is planning-side\nand not actionable in this repo). Parallelism notes are in each stage's\n\"Depends on\" field.",
   "id": "mutagen-wrd",
@@ -30,8 +29,8 @@
     }
   ],
   "priority": 2,
-  "status": "closed",
+  "status": "open",
   "title": "mutagen_ex: mix mutagen pipeline",
   "type": "epic",
-  "updated_at": "2026-05-14T11:30:57Z"
+  "updated_at": "2026-05-14T16:31:19Z"
 }
