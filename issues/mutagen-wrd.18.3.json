@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-14T18:20:19Z",
+  "description": "Jira: TBD (inherits from parent epic mutagen-wrd)\n\nAdvances: mutagen.coverage\n\nDeliverable:\n- lib/mutagen_ex/coverage_runner.ex L101-106: replace the existing `{:error, :cover_already_running, %{message: ...}}` rejection message with the enriched message:\n  \":cover_server is already registered. MutagenEx.TaskSup is the documented singleton owner of :cover_server and ExUnit.Server during a MutagenEx mutation cycle; a competing session is refused to prevent state corruption. See .spec/decisions/supervision_tree.md.\"\n- The check itself stays as it is at L155-160 — single `Process.whereis(:cover_server)` lookup. NO new helper function (no `ex_unit_in_progress?/0`).\n- Extend one existing rejection-path assertion in test/mutagen_ex/coverage_runner_test.exs (around L99-130) to additionally assert `assert msg =~ \"MutagenEx.TaskSup\"`. Use the existing test's setup pattern (sentinel pid registered as `:cover_server`).\n\nVerification:\n- Tests to pass:\n  - v1 of mutagen.coverage (mix test test/mutagen_ex/coverage_runner_test.exs) green, including the extended rejection-message assertion\n  - mix compile --warnings-as-errors green\n- Behaviors to demonstrate:\n  - r1 (revised) holds: the rejection tuple's message names `MutagenEx.TaskSup`\n  - r8 partially holds (the rejection mechanism — the doctrine prose lives in the decision file; the unguarded coverage-phase window is honestly named as a Won't-Have in the decision file's §Won't-Have)\n\nOut of Scope (files):\n- lib/mutagen_ex/application.ex (that is S1)\n- lib/mutagen_ex/mutation_runner/mutation_loop.ex (that is S2)\n- test/mutagen_ex/supervision_test.exs (that is S4)\n- README.md, CHANGELOG.md (that is S5)\n- everything else under lib/mutagen_ex/\n\nAllowed touches:\n- lib/mutagen_ex/coverage_runner.ex (only the message at L101-106)\n- test/mutagen_ex/coverage_runner_test.exs (extend one existing assertion only)\n\nOut of Scope (intent):\n- Do not add an `ex_unit_in_progress?/0` helper. The architecture's invented second in-flight signal was cut per refined plan SA-1.\n- Do not change the rejection-path control flow (the `cover_already_running?/1` check still returns boolean; the caller still pattern-matches it).\n- Do not claim atomic exclusion in the message — the multi-second race window during the coverage phase is acknowledged in r8 and supervision_tree.md.\n\nMerge gate:\n- [ ] mix compile --warnings-as-errors green\n- [ ] mix test test/mutagen_ex/coverage_runner_test.exs green\n- [ ] New assertion exercises the enriched message (msg =~ \"MutagenEx.TaskSup\")\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
+  "id": "mutagen-wrd.18.3",
+  "labels": [],
+  "parent": "mutagen-wrd.18",
+  "priority": 2,
+  "status": "open",
+  "title": "S3: coverage_runner.ex singleton-ownership message enrichment",
+  "type": "task",
+  "updated_at": "2026-05-14T18:20:19Z"
+}
