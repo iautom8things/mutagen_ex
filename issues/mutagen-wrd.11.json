@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: eb14f76b-662e-400e-ba6b-22e2f3772aea\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/eb14f76b-662e-400e-ba6b-22e2f3772aea.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage (3/3), full requirement\ncoverage for r1-r6 with concrete Would-fail-if lines including a direct\nregression guard for r1's bare-file exclude=[] contract, zero mechanical or\nintent-level scope violations, and passing project verification. No auditor\nwas spawned per selective-audit policy.",
       "timestamp": "2026-05-14T10:21:17Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-14T10:21:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "DISCOVERY: TestSelector emits exclude: [:test] for file-cited targets",
   "type": "bug",
-  "updated_at": "2026-05-14T10:21:17Z"
+  "updated_at": "2026-05-14T10:21:59Z"
 }
