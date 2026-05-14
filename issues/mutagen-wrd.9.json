@@ -6,6 +6,7 @@
   "blocks": [
     "mutagen-wrd.10"
   ],
+  "closed_at": "2026-05-14T00:15:22Z",
   "created": "2026-05-13T13:32:53Z",
   "description": "Advances: mutagen.mutation_pipeline, mutagen.json_schema\n\nDeliverable:\n- Fixture project at `test/fixtures/lane_project/` with its own `mix.exs`\n  and the module set named by the testability red team:\n  `lib/lane_fixture/{arith,decisions,guarded,pipelined,result_tuples,\n  macro_holder,struct_holder,no_defs,infinite_looper,ecto_user}.ex`.\n- Per-module test files at `test/fixtures/lane_project/test/lane_fixture/`\n  (one \"tight\" and one \"toothless\" test per module, plus\n  `red_baseline_test.exs`).\n- `test/mutagen_ex/end_to_end_test.exs` invokes the pipeline via\n  `Mix.Task.rerun(\"mutagen\", [...])` against the lane_project for each spec\n  scenario (1-4) plus baseline-red and zero-coverage-zero-mutation.\n- Output JSON diffed against the golden fixtures from S6.\n\nVerification:\n- Tests to pass: `mix test --include integration test/mutagen_ex/end_to_end_test.exs`.\n- All four \"simple\" mutator categories (arithmetic, comparison, boolean,\n  literal) produce mutations on `arith.ex` and `decisions.ex`.\n- The six \"Elixir-flavored\" mutators (`with`-swap, `case`-drop, pipeline-flip,\n  result-tuple-flip, `else` removal, guard-drop) produce mutations on their\n  respective modules and EITHER kill cleanly OR record as `:skipped` with\n  reason — never `:compile_error` flakes.\n- `infinite_looper.ex` mutation classifies as `:timeout`.\n- `ecto_user.ex` (the C1 fixture analogue) survives a full mutation pass\n  with bytecode-identical restore (Spike I invariants re-run as part of\n  this test file).\n- Covers spec-verification stubs covered indirectly: `mutagen.mutation_pipeline.v1`\n  through `.v4`, `mutagen.json_schema.v3` (goldens).\n\nOut of Scope (files):\n- `lib/mutagen_ex/**` (this stage is fixture + end-to-end only)\n- `test/mutagen_ex/integration/c1_test.exs`, `c2_test.exs` (S2; this stage\n  may RE-RUN them but does not modify them)\n- `lib/mix/tasks/mutagen.ex` (S6)\n\nAllowed touches (this stage may modify):\n- `test/fixtures/lane_project/**`\n- `test/mutagen_ex/end_to_end_test.exs`\n\nOut of Scope (intent):\n- Do not silently weaken the lane fixture to make tests pass. If a scenario\n  fails on a real implementation gap, that's a discovery — file a separate\n  ticket and fix in `lib/`, not by editing the fixture.\n- `infinite_looper.ex`'s deterministic infinite-loop mutation is a `case`\n  clause drop on a recursive function's base case (per the refined plan's\n  S7 risk note). Do not pick a non-deterministic trigger.\n\nMerge gate:\n- [ ] Code compiles cleanly with `--warnings-as-errors`\n- [ ] End-to-end suite passes\n- [ ] Each scenario maps to a golden fixture and matches byte-for-byte\n- [ ] Scope check: diff touches only Allowed globs (mechanical)\n- [ ] Auditor APPROVE comment on the ticket",
   "id": "mutagen-wrd.9",
@@ -42,7 +43,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "S7: Lane fixture + end-to-end integration tests",
   "type": "task",
   "updated_at": "2026-05-14T00:15:22Z"
