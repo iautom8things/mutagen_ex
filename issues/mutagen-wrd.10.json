@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: fa1552c1-29af-4847-9fbc-5065c95d3be9\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/fa1552c1-29af-4847-9fbc-5065c95d3be9.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage, zero mechanical or intent-level scope violations, passing project verification, and accurate cross-checks of the README flag table against the CLI option switches, exit-code table against reporter reason atoms, and JSON Schema Pointer paths against actual golden files. The five discovery tickets (mutagen-wrd.11-.15) are framed as known limitations, not as fixed. One non-blocking Note: docs describe scenario_5_baseline_red.json's baseline.failures block as \"populated\" — the counters are populated but the failures sub-array is empty; verifier categorized this as an upstream gap (baseline_red fires before per-test failures populate), not a docs error. Not Gap-worthy. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-14T00:26:19Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off. Clean ff-merge. Post-merge gates: mix compile --warnings-as-errors ✓, mix test 305+1 doctest 0 failures ✓, mix format ✓. Final stage of the epic — all children closed.",
+      "timestamp": "2026-05-14T00:26:49Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S8: Docs + README + CHANGELOG",
   "type": "task",
-  "updated_at": "2026-05-14T00:26:19Z"
+  "updated_at": "2026-05-14T00:26:49Z"
 }
