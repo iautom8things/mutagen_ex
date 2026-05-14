@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [
     "mutagen-wrd.18.1"
   ],
@@ -12,8 +12,8 @@
   "labels": [],
   "parent": "mutagen-wrd.18",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "S3: coverage_runner.ex singleton-ownership message enrichment",
   "type": "task",
-  "updated_at": "2026-05-14T18:21:10Z"
+  "updated_at": "2026-05-14T19:06:05Z"
 }
