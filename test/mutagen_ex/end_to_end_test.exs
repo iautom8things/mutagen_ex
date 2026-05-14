@@ -873,7 +873,11 @@ defmodule MutagenEx.EndToEndTest do
 
     dispatch = %{
       io: {__MODULE__, :capture_io_collaborator},
-      tests: {__MODULE__, :tests_collaborator},
+      # `mutagen-wrd.11` fixed `TestSelector.resolve/2` to emit `exclude:
+      # []` for bare-file targets, so the e2e suite now consumes the
+      # production resolver directly. The `tests_collaborator` fork was
+      # retired in the same commit.
+      tests: {MutagenEx.TestSelector, :resolve},
       baseline: {__MODULE__, :baseline_collaborator},
       coverage: {__MODULE__, :coverage_collaborator},
       mutation: {__MODULE__, :mutation_collaborator}
@@ -931,41 +935,6 @@ defmodule MutagenEx.EndToEndTest do
 
       _ ->
         IO.write(iodata)
-    end
-  end
-
-  @doc false
-  # The production `TestSelector.resolve/2` produces an `exclude: [:test]`
-  # filter for file-cited targets, which causes ExUnit's tag rule to
-  # exclude every test from the run. The e2e test overrides this to a
-  # permissive `exclude: []` for file targets so the cited tests
-  # actually run.
-  # TODO(bw mutagen-wrd.11): retire this fork once `TestSelector.resolve/2`
-  # emits `exclude: []` (or the resolved file-cited semantics) for file
-  # targets in production.
-  def tests_collaborator(target, opts) when is_binary(target) do
-    if String.ends_with?(target, "_test.exs") do
-      {:ok,
-       %MutagenEx.TestSelector.TestFilter{
-         include: [],
-         exclude: [],
-         files: [target]
-       }}
-    else
-      MutagenEx.TestSelector.resolve(target, opts)
-    end
-  end
-
-  def tests_collaborator(targets, opts) when is_list(targets) do
-    if Enum.all?(targets, &(is_binary(&1) and String.ends_with?(&1, "_test.exs"))) do
-      {:ok,
-       %MutagenEx.TestSelector.TestFilter{
-         include: [],
-         exclude: [],
-         files: targets
-       }}
-    else
-      MutagenEx.TestSelector.resolve(targets, opts)
     end
   end
 

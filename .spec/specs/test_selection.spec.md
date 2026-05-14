@@ -37,15 +37,20 @@ decisions: []
   priority: must
   statement: |
     A target of shape `<path>_test.exs` resolves to `{include: [], exclude:
-    [:test], files: [<path>_test.exs]}`. ExUnit's "include + exclude :test"
-    pattern is the documented way to run only the files named.
+    [], files: [<path>_test.exs]}`. ExUnit's filter eval requires a
+    non-empty `include` for the "include + exclude :test" pattern to admit
+    any tests — for a bare-file target there is no include, so the filter
+    must be empty (matching what `mix test test/foo_test.exs` produces via
+    `ExUnit.Filters.parse_paths/1`).
 
 - id: mutagen.test_selection.r2
   priority: must
   statement: |
     A target of shape `<path>_test.exs:<line>` resolves to `{include:
     [{:location, {<path>_test.exs, <line>}}], exclude: [:test], files:
-    [<path>_test.exs]}`.
+    [<path>_test.exs]}`. The `:test` exclude is load-bearing here: it pairs
+    with the non-empty `:location` include to keep only the cited line
+    while running, mirroring `ExUnit.Filters.parse_paths/1`.
 
 - id: mutagen.test_selection.r3
   priority: must
@@ -54,7 +59,9 @@ decisions: []
     [:test], files: <walk_of_test_dir>}` where `<walk_of_test_dir>` is the
     list of test files determined by AST-walking `test/**/*_test.exs` and
     keeping those that contain at least one `@tag :<name>` attribute on a
-    `test` or `describe` block.
+    `test` or `describe` block. The `:test` exclude is load-bearing here:
+    paired with the non-empty `:<name>` include it restricts the run to
+    tests carrying the tag.
 
 - id: mutagen.test_selection.r4
   priority: must
@@ -77,7 +84,13 @@ decisions: []
   statement: |
     Multiple `--tests` targets compose by union: the final filter's `files`
     list and `include` list are the union of each target's contribution.
-    Duplicates are deduplicated.
+    Duplicates are deduplicated. The final `exclude` is `[]` if any
+    contributor was a bare-file target (r1) — admitting all tests in that
+    file — otherwise it is `[:test]` (preserving the file:line / tag
+    restriction). Union semantics deliberately broaden coverage: a user
+    combining `test/foo_test.exs` with `tag:slow` gets every test in
+    `foo_test.exs` plus every tagged test in the tag-walk, not the
+    intersection.
 ```
 
 ```spec-scenarios
@@ -86,8 +99,11 @@ decisions: []
   given: A target `test/foo_test.exs`.
   when: The selector resolves it.
   then: |
-    Result is `%TestFilter{include: [], exclude: [:test], files:
-    ["test/foo_test.exs"]}`.
+    Result is `%TestFilter{include: [], exclude: [], files:
+    ["test/foo_test.exs"]}`. With this filter every test in
+    `foo_test.exs` runs — the regression in mutagen-wrd.11 was that
+    `exclude: [:test]` paired with an empty include silently excluded
+    every test from baseline + coverage + mutation passes.
 
 - id: mutagen.test_selection.s2
   covers: [mutagen.test_selection.r2]
@@ -124,7 +140,18 @@ decisions: []
   then: |
     Result `files` is `["test/a_test.exs", "test/b_test.exs"]` (order
     irrelevant for the contract; deduplicated if user passed the same target
-    twice).
+    twice). Both contributors are bare-file targets so `exclude` is `[]`.
+
+- id: mutagen.test_selection.s6
+  covers: [mutagen.test_selection.r6]
+  given: |
+    A bare-file target `test/a_test.exs` and a tag target `tag:slow`.
+  when: The selector resolves both.
+  then: |
+    Result `exclude` is `[]` (the bare-file contributor takes precedence
+    under union semantics — admitting all tests in `a_test.exs`). Result
+    `include` contains `:slow`; result `files` is the union of the file
+    and the tag walk.
 ```
 
 ```spec-verification

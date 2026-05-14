@@ -26,9 +26,26 @@ defmodule MutagenEx.TestSelector do
   Successful resolution returns `{:ok, %TestFilter{include, exclude, files}}`.
 
   Multiple targets compose by union: `files` and `include` are the
-  deduplicated union of each target's contribution. `exclude` is always
-  `[:test]`, matching ExUnit's documented "include + exclude :test" pattern
-  for running only the named files / tags.
+  deduplicated union of each target's contribution. `exclude` differs by
+  target shape:
+
+    * bare-file targets (`<path>_test.exs`) — `exclude: []`. The filter
+      degenerates to "load these files and run everything," matching what
+      `ExUnit's path-parse helper` produces for a path with no `:line`.
+      The earlier (broken) shape was `exclude: [:test]`, which paired with
+      an empty `include` silently excluded every test (mutagen-wrd.11 —
+      ExUnit's filter eval admits a test only when an `include` tag matches
+      *or* no `exclude` tag matches; with `include: []` and `exclude:
+      [:test]` neither holds, so every test fails the filter).
+    * `file:line` and `tag:` targets — `exclude: [:test]`. The non-empty
+      `include` (a `{:location, …}` or a tag atom) supplies the admit
+      side; `[:test]` makes the filter restrictive by excluding everything
+      else.
+
+  Union (`r6`): if any contributor is a bare-file target, the merged
+  `exclude` is `[]` (the bare-file is admitting all its tests; tag-style
+  restriction would re-suppress them). Otherwise the merged `exclude`
+  stays `[:test]`.
   """
 
   alias MutagenEx.TestSelector.TestFilter
@@ -44,7 +61,7 @@ defmodule MutagenEx.TestSelector do
     """
 
     @enforce_keys [:include, :exclude, :files]
-    defstruct include: [], exclude: [:test], files: []
+    defstruct include: [], exclude: [], files: []
 
     @type t :: %__MODULE__{
             include: [atom() | {:location, {String.t(), pos_integer()}}],
@@ -89,13 +106,19 @@ defmodule MutagenEx.TestSelector do
   def resolve(targets, opts) when is_list(targets) do
     test_root = Keyword.get(opts, :test_root, "test")
 
-    Enum.reduce_while(targets, {:ok, %TestFilter{include: [], exclude: [:test], files: []}}, fn
-      target, {:ok, acc} ->
+    # Seed accumulator with exclude: [] — merge/2 widens to whichever
+    # contributor's shape best matches the user's intent (see r6 / merge).
+    Enum.reduce_while(targets, {:ok, %TestFilter{include: [], exclude: [], files: []}, _seed = true}, fn
+      target, {:ok, acc, seed?} ->
         case resolve_one(target, test_root) do
-          {:ok, %TestFilter{} = filter} -> {:cont, {:ok, merge(acc, filter)}}
+          {:ok, %TestFilter{} = filter} -> {:cont, {:ok, merge(acc, filter, seed?), false}}
           {:error, _} = err -> {:halt, err}
         end
     end)
+    |> case do
+      {:ok, %TestFilter{} = filter, _seed} -> {:ok, filter}
+      other -> other
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -125,9 +148,15 @@ defmodule MutagenEx.TestSelector do
     {:error, %{reason: :invalid_target, target: target}}
   end
 
-  # `<path>_test.exs`
+  # `<path>_test.exs` — bare-file target. exclude must be `[]`: ExUnit's
+  # filter eval, given `include: []` and `exclude: [:test]`, excludes
+  # every test (every test carries the implicit `:test` tag). Empty
+  # exclude is what `ExUnit's path-parse helper` returns for a pathy
+  # target without a `:line` suffix and is the only shape that lets
+  # baseline / coverage / mutation passes actually run the file. The
+  # earlier `[:test]` here was the root cause of mutagen-wrd.11.
   defp resolve_file(path) do
-    {:ok, %TestFilter{include: [], exclude: [:test], files: [path]}}
+    {:ok, %TestFilter{include: [], exclude: [], files: [path]}}
   end
 
   # `<path>_test.exs:<line>`
@@ -373,14 +402,25 @@ defmodule MutagenEx.TestSelector do
   # Merge / dedup
   # ---------------------------------------------------------------------------
 
-  @spec merge(TestFilter.t(), TestFilter.t()) :: TestFilter.t()
-  defp merge(%TestFilter{} = a, %TestFilter{} = b) do
+  # Merge `b` into `a`. When `a` is the seed accumulator (`seed?` is
+  # true on the first contributor), b's exclude wins outright. After
+  # that, union under the r6 rule: if either side's exclude is empty,
+  # the merged exclude is empty (a bare-file contributor admitting all
+  # its tests overrides a tag/line restriction). Otherwise both sides
+  # are restrictive and we keep `[:test]`.
+  @spec merge(TestFilter.t(), TestFilter.t(), boolean()) :: TestFilter.t()
+  defp merge(%TestFilter{} = a, %TestFilter{} = b, seed?) do
     %TestFilter{
       include: dedup_preserve_order(a.include ++ b.include),
-      exclude: a.exclude,
+      exclude: merge_exclude(a.exclude, b.exclude, seed?),
       files: dedup_preserve_order(a.files ++ b.files)
     }
   end
+
+  defp merge_exclude(_a, b, true), do: b
+  defp merge_exclude([], _b, false), do: []
+  defp merge_exclude(_a, [], false), do: []
+  defp merge_exclude(a, b, false), do: dedup_preserve_order(a ++ b)
 
   defp dedup_preserve_order(list) do
     {result, _} =

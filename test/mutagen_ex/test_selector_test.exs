@@ -65,15 +65,21 @@ defmodule MutagenEx.TestSelectorTest do
   # ---------------------------------------------------------------------------
 
   describe "resolve/2 — file target (mutagen.test_selection.s1, r1)" do
-    test "file-only target returns include=[], exclude=[:test], files=[path]" do
+    test "file-only target returns include=[], exclude=[], files=[path]" do
+      # mutagen-wrd.11 regression guard: exclude must be `[]` for bare-file
+      # targets. ExUnit's filter eval, given include=[] and exclude=[:test],
+      # excludes every test (every test carries the implicit `:test` tag).
+      # The earlier `exclude: [:test]` here caused baseline / coverage /
+      # mutation passes to see zero tests, classifying every mutation as
+      # `:survived`.
       assert {:ok, %TestFilter{} = filter} = TestSelector.resolve("test/foo_test.exs")
       assert filter.include == []
-      assert filter.exclude == [:test]
+      assert filter.exclude == []
       assert filter.files == ["test/foo_test.exs"]
     end
 
     test "non-standard nested path still resolves" do
-      assert {:ok, %TestFilter{files: ["test/nested/dir/foo_test.exs"]}} =
+      assert {:ok, %TestFilter{files: ["test/nested/dir/foo_test.exs"], exclude: []}} =
                TestSelector.resolve("test/nested/dir/foo_test.exs")
     end
 
@@ -272,15 +278,15 @@ defmodule MutagenEx.TestSelectorTest do
   # ---------------------------------------------------------------------------
 
   describe "resolve/2 — composing multiple targets (mutagen.test_selection.s5, r6)" do
-    test "file + file targets union into files list" do
-      assert {:ok, %TestFilter{files: files, include: []}} =
+    test "file + file targets union into files list with exclude=[]" do
+      assert {:ok, %TestFilter{files: files, include: [], exclude: []}} =
                TestSelector.resolve(["test/a_test.exs", "test/b_test.exs"])
 
       assert Enum.sort(files) == ["test/a_test.exs", "test/b_test.exs"]
     end
 
     test "duplicate file targets deduplicate" do
-      assert {:ok, %TestFilter{files: files}} =
+      assert {:ok, %TestFilter{files: files, exclude: []}} =
                TestSelector.resolve(["test/a_test.exs", "test/a_test.exs"])
 
       assert files == ["test/a_test.exs"]
@@ -290,13 +296,32 @@ defmodule MutagenEx.TestSelectorTest do
          %{fixture_dir: dir} do
       a = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :slow", "A"))
 
-      assert {:ok, %TestFilter{include: include, files: files}} =
+      assert {:ok, %TestFilter{include: include, files: files, exclude: exclude}} =
                TestSelector.resolve([a, "tag:slow"], test_root: dir)
 
       assert :slow in include
       # `a` contributes the file directly; tag:slow also resolves to `a`.
       # The deduplication contract from r6 says the file appears once.
       assert files |> Enum.frequencies() |> Map.get(a) == 1
+
+      # r6 union rule: bare-file contributor takes precedence — exclude
+      # collapses to [] so every test in `a` runs (not just tagged ones).
+      assert exclude == []
+    end
+
+    test "tag + tag targets keep restrictive exclude=[:test]",
+         %{fixture_dir: dir} do
+      _a = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :slow", "A"))
+      _b = write_test_file(dir, "b_test.exs", tagged_test_module("@tag :fast", "B"))
+
+      assert {:ok, %TestFilter{include: include, exclude: [:test]}} =
+               TestSelector.resolve(["tag:slow", "tag:fast"], test_root: dir)
+
+      # Both contributors are tag-restrictive, so the union keeps [:test]
+      # — only tagged tests run, which is the safe interpretation when no
+      # bare-file contributor exists to broaden the filter.
+      assert :slow in include
+      assert :fast in include
     end
 
     test "first failing target halts and is reported" do
@@ -306,20 +331,38 @@ defmodule MutagenEx.TestSelectorTest do
   end
 
   # ---------------------------------------------------------------------------
-  # exclude is always [:test]
+  # exclude semantics by target shape (mutagen-wrd.11 regression guard)
   # ---------------------------------------------------------------------------
 
   describe "exclude convention" do
-    test "every successful resolution sets exclude to [:test]", %{fixture_dir: dir} do
-      tagged = write_test_file(dir, "x_test.exs", tagged_test_module("@tag :foo", "X"))
+    test "bare-file target sets exclude=[] (mutagen-wrd.11)" do
+      # The original bug: file-cited targets emitted exclude=[:test],
+      # which excluded every test from baseline / coverage / mutation.
+      assert {:ok, %TestFilter{exclude: []}} =
+               TestSelector.resolve("test/foo_test.exs")
+    end
 
-      for {result, _} <- [
-            {TestSelector.resolve("test/foo_test.exs"), "file"},
-            {TestSelector.resolve("tag:foo", test_root: dir), "tag"},
-            {TestSelector.resolve([tagged, "test/foo_test.exs"], test_root: dir), "union"}
-          ] do
-        assert {:ok, %TestFilter{exclude: [:test]}} = result
-      end
+    test "file:line target sets exclude=[:test]", %{fixture_dir: dir} do
+      # file:line is paired with a non-empty :location include, so the
+      # include side admits the cited line while [:test] excludes the
+      # rest — restrictive semantics are intentional here.
+      path =
+        write_test_file(dir, "with_line_test.exs", """
+        defmodule WithLineExcludeTest do
+          use ExUnit.Case
+
+          test "first" do
+            assert true
+          end
+        end
+        """)
+
+      assert {:ok, %TestFilter{exclude: [:test]}} = TestSelector.resolve("#{path}:5")
+    end
+
+    test "tag target sets exclude=[:test]", %{fixture_dir: dir} do
+      _tagged = write_test_file(dir, "x_test.exs", tagged_test_module("@tag :foo", "X"))
+      assert {:ok, %TestFilter{exclude: [:test]}} = TestSelector.resolve("tag:foo", test_root: dir)
     end
   end
 end
