@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.23",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: agent-a379cb31e5e31a12b (sub-agent of 866c9970-ee52-41f7-b573-aa2ec26231c0)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0/subagents/agent-a379cb31e5e31a12b.jsonl\n\nCommit: 0044339e981c66950a71057dba937188e77470dd\nBranch: mutagen-wrd.23/capture-io-with-io (worktree: /Users/mz/dev/mz/mutagen_ex-capture-io-with-io)\nFiles touched:\n  - lib/mutagen_ex/mutation_runner.ex\n  - lib/mutagen_ex/mutation_runner/mutation_loop.ex\n  - test/mutagen_ex/mutation_runner_test.exs\n  - test/mutagen_ex/mutation_runner_raise_test.exs\n  - .spec/specs/mutation_pipeline.spec.md\n  - CHANGELOG.md\nTests added: none (no new tests — existing tests prove behavioral equivalence per the ticket's \"tests should be black-box\" framing; CaptureIoStub and RaisingCaptureIO updated in lock-step so the existing r9 and r12 coverage continues to exercise the new seam)\nVerification stubs flipped: none (all stubs covering the affected requirements — v2 for r9, v5 for r12 — were already `execute: true`; no flipping needed)\nAudit-expanded scope: n/a (iteration 1)\nDeferred must requirements: none\n\nSummary: Replaced the `ExUnit.CaptureIO.capture_io/2` + `make_ref`/`Process.put`/`Process.get`/`Process.delete` smuggle pattern at both call sites (`MutationRunner.safe_compile_quoted/3` and `MutationLoop.capture_stderr/2`) with `ExUnit.CaptureIO.with_io/3`, which returns `{closure_result, captured_io}` directly. The seam contract for the `:capture_io` config key now requires `with_io/3` instead of `capture_io/2`; `CaptureIoStub` (delegate to the real ExUnit.CaptureIO) and `RaisingCaptureIO` (call-counting fault injector — still fires on call #2, the inside-window capture) were updated in lock-step. Spec `mutagen.mutation_pipeline.r9` was updated to name `with_io/3`; the s9 example phrase referencing \"MutationLoop.run/1's internal smuggle pattern failing\" was reworded (the pattern no longer exists). `mix compile --warnings-as-errors` clean, `mix test` green (360/360, 15 excluded), `mix test --only spike` green (2/2, 373 excluded). LOC delta on production+test code: -13 (28 ins, 41 del); total commit -2 (46 ins, 46 del) once spec wording and CHANGELOG entry are included.",
+      "timestamp": "2026-05-15T01:18:57Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Replace Process.put smuggle with ExUnit.CaptureIO.with_io/3",
   "type": "task",
-  "updated_at": "2026-05-15T01:13:18Z"
+  "updated_at": "2026-05-15T01:18:57Z"
 }
