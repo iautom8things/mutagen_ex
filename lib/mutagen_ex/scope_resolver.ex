@@ -47,6 +47,25 @@ defmodule MutagenEx.ScopeResolver do
   `Code.string_to_quoted/2` requesting line/column metadata. No compile is
   ever invoked; no file on disk is modified (`r6`).
 
+  ## Atom safety (`r8`, mutagen-wrd.20)
+
+  Module-shaped and MFA-shaped targets carry user-controlled strings (e.g.
+  `Foo.Bar`, `Foo.bar/1`). The resolver does NOT call `String.to_atom/1` on
+  any segment of these targets. Module matching against the source's
+  `defmodule` blocks is performed via string comparison: the user's
+  canonical form (e.g. `"Elixir.Foo.Bar"`) is compared against
+  `Atom.to_string/1` of each AST-derived `defmodule` atom. The matched atom
+  populates `%Scope{module: ...}` so downstream code keeps an atom-typed
+  identifier — but that atom comes from the AST (legitimate; created during
+  the parse of source files on disk), never from the user's input.
+
+  Function-name segments use `String.to_existing_atom/1`: the function-name
+  atom (`bar` in `Foo.bar/1`) is compared against atoms produced by parsing
+  source `def`s. If the function name is not a registered atom anywhere,
+  `String.to_existing_atom/1` raises `ArgumentError`, which the resolver
+  converts to `:function_not_found`. This keeps the atom table bounded by
+  the project's source corpus, not by the cardinality of attacker input.
+
   ## Opts
 
     * `:loader` — `(file :: String.t() -> String.t())`. Default
@@ -151,14 +170,23 @@ defmodule MutagenEx.ScopeResolver do
     end
   end
 
-  # `Foo.Bar.baz/1` → `{Foo.Bar, :baz}`. The head must have at least two
-  # dotted segments (module + function).
+  # `Foo.Bar.baz/1` → `{"Elixir.Foo.Bar", "baz"}`. The head must have at
+  # least two dotted segments (module + function). Atom safety (`r8`):
+  # BOTH the module portion AND the function segment are returned as
+  # strings, not atoms. Downstream matching compares these against
+  # `Atom.to_string/1` of AST atoms — `String.to_atom/1` is never called
+  # on user input. The matched function atom (which DOES end up on the
+  # %Scope{} record indirectly via the AST line range) comes from the
+  # parsed `def` heads, never from the user's string.
   defp split_mfa(target, head) do
     case head |> String.split(".") |> Enum.reverse() do
       [fun_seg | mod_rev] when mod_rev != [] ->
-        mod = mod_rev |> Enum.reverse() |> Enum.join(".") |> string_to_module()
+        mod_str = mod_rev |> Enum.reverse() |> Enum.join(".") |> canonical_module_string()
 
-        case lowercase_atom_segment(fun_seg) do
+        case validate_function_segment(fun_seg) do
+          :ok ->
+            {:ok, mod_str, fun_seg}
+
           :error ->
             {:error, :unrecognised_target,
              %{
@@ -166,9 +194,6 @@ defmodule MutagenEx.ScopeResolver do
                message:
                  "scope target #{inspect(target)} has function segment #{inspect(fun_seg)} that is not a valid lowercase atom"
              }}
-
-          {:ok, fun} ->
-            {:ok, mod, fun}
         end
 
       _ ->
@@ -202,8 +227,8 @@ defmodule MutagenEx.ScopeResolver do
          }}
 
       Enum.all?(segments, &starts_uppercase?/1) ->
-        mod = string_to_module(target)
-        resolve_module(target, mod, loader, opts)
+        mod_str = canonical_module_string(target)
+        resolve_module(target, mod_str, loader, opts)
 
       true ->
         {:error, :unrecognised_target,
@@ -215,16 +240,22 @@ defmodule MutagenEx.ScopeResolver do
     end
   end
 
-  # `String.to_atom/1` to skirt the `String.to_existing_atom/1` problem: the
-  # user's target may name a module that isn't loaded yet (we resolve via
-  # AST, not via the code server).
-  defp string_to_module(name) do
-    String.to_atom("Elixir." <> name)
+  # Canonical string form of a module-shaped user input. NEVER calls
+  # `String.to_atom/1` (`r8`, mutagen-wrd.20). Downstream matching compares
+  # this string to `Atom.to_string/1` of AST atoms.
+  defp canonical_module_string(name) do
+    "Elixir." <> name
   end
 
-  defp lowercase_atom_segment(seg) do
+  # Validate the shape of a user-supplied function-name segment WITHOUT
+  # materializing an atom. The segment is kept as a string and compared
+  # against `Atom.to_string/1` of AST `def` atoms during walk (`r8`,
+  # mutagen-wrd.20). If the source genuinely defines `def fun_seg`, the
+  # AST atom matches; if not, we return `:function_not_found` from the
+  # caller — without ever growing the atom table.
+  defp validate_function_segment(seg) do
     if seg != "" and starts_lowercase?(seg) and valid_atom_segment?(seg) do
-      {:ok, String.to_atom(seg)}
+      :ok
     else
       :error
     end
@@ -247,6 +278,13 @@ defmodule MutagenEx.ScopeResolver do
   defp starts_lowercase?(<<c, _::binary>>) when c in ?a..?z, do: true
   defp starts_lowercase?(_), do: false
 
+  # Pretty-print a canonical `"Elixir.Foo.Bar"` form for error messages,
+  # without ever materializing an atom. Strips the `"Elixir."` prefix so
+  # the message reads as a user would write it (`Foo.Bar`, not
+  # `:"Elixir.Foo.Bar"`).
+  defp inspect_module_str("Elixir." <> rest), do: rest
+  defp inspect_module_str(other), do: other
+
   defp starts_uppercase?(<<c, _::binary>>) when c in ?A..?Z, do: true
   defp starts_uppercase?(_), do: false
 
@@ -268,19 +306,24 @@ defmodule MutagenEx.ScopeResolver do
 
   # --- module-target resolution ----------------------------------------------
 
-  defp resolve_module(target, mod, loader, opts) do
+  # `mod_str` is the canonical `"Elixir.Foo.Bar"` form. We compare it
+  # against `Atom.to_string/1` of each AST atom — never `String.to_atom/1`
+  # of `mod_str` (`r8`, mutagen-wrd.20). The matched atom flows into
+  # `%Scope{module: ...}` from the AST.
+  defp resolve_module(target, mod_str, loader, opts) do
     files = source_files(opts)
 
-    case search_for_module(files, mod, loader) do
-      {:ok, file, range} ->
-        {:ok, [%Scope{file: file, line_range: range, module: mod}]}
+    case search_for_module(files, mod_str, loader) do
+      {:ok, file, range, mod_atom} ->
+        {:ok, [%Scope{file: file, line_range: range, module: mod_atom}]}
 
       :not_found ->
         {:error, :module_not_found,
          %{
            target: target,
-           module: mod,
-           message: "no `defmodule #{inspect(mod)}` found in any project source file"
+           module: mod_str,
+           message:
+             "no `defmodule #{inspect_module_str(mod_str)}` found in any project source file"
          }}
 
       {:error, _reason, _details} = err ->
@@ -288,18 +331,20 @@ defmodule MutagenEx.ScopeResolver do
     end
   end
 
-  defp search_for_module([], _mod, _loader), do: :not_found
+  defp search_for_module([], _mod_str, _loader), do: :not_found
 
-  defp search_for_module([file | rest], mod, loader) do
+  defp search_for_module([file | rest], mod_str, loader) do
     case load_and_parse(file, loader) do
       {:ok, ast} ->
-        case Enum.find(find_defmodules(ast), fn {m, _range} -> m == mod end) do
-          {^mod, range} -> {:ok, file, range}
-          nil -> search_for_module(rest, mod, loader)
+        case Enum.find(find_defmodules(ast), fn {m, _range} ->
+               Atom.to_string(m) == mod_str
+             end) do
+          {m, range} when is_atom(m) -> {:ok, file, range, m}
+          nil -> search_for_module(rest, mod_str, loader)
         end
 
       {:soft_skip, _err} ->
-        search_for_module(rest, mod, loader)
+        search_for_module(rest, mod_str, loader)
 
       {:hard_error, err} ->
         err
@@ -308,35 +353,40 @@ defmodule MutagenEx.ScopeResolver do
 
   # --- MFA-target resolution -------------------------------------------------
 
-  defp resolve_mfa(target, mod, fun, arity, loader, opts) do
+  # `mod_str` is the canonical `"Elixir.Foo.Bar"` form; `fun_str` is the
+  # raw function-name string from the user (`r8`, mutagen-wrd.20). Neither
+  # is passed through `String.to_atom/1`. The matched module and function
+  # atoms come from the AST.
+  defp resolve_mfa(target, mod_str, fun_str, arity, loader, opts) do
     files = source_files(opts)
 
-    case search_for_module_full(files, mod, loader) do
-      {:ok, file, mod_range, body_ast} ->
-        case find_function_clauses(body_ast, fun, arity) do
+    case search_for_module_full(files, mod_str, loader) do
+      {:ok, file, mod_range, body_ast, mod_atom} ->
+        case find_function_clauses(body_ast, fun_str, arity) do
           [] ->
             {:error, :function_not_found,
              %{
                target: target,
-               module: mod,
-               function: fun,
+               module: mod_atom,
+               function: fun_str,
                arity: arity,
                message:
-                 "no `def #{fun}/#{arity}` found in `defmodule #{inspect(mod)}` (#{file})"
+                 "no `def #{fun_str}/#{arity}` found in `defmodule #{inspect(mod_atom)}` (#{file})"
              }}
 
           ranges ->
             merged = merge_ranges(ranges)
             constrained = constrain(merged, mod_range)
-            {:ok, [%Scope{file: file, line_range: constrained, module: mod}]}
+            {:ok, [%Scope{file: file, line_range: constrained, module: mod_atom}]}
         end
 
       :not_found ->
         {:error, :module_not_found,
          %{
            target: target,
-           module: mod,
-           message: "no `defmodule #{inspect(mod)}` found in any project source file"
+           module: mod_str,
+           message:
+             "no `defmodule #{inspect_module_str(mod_str)}` found in any project source file"
          }}
 
       {:error, _, _} = err ->
@@ -344,18 +394,18 @@ defmodule MutagenEx.ScopeResolver do
     end
   end
 
-  defp search_for_module_full([], _mod, _loader), do: :not_found
+  defp search_for_module_full([], _mod_str, _loader), do: :not_found
 
-  defp search_for_module_full([file | rest], mod, loader) do
+  defp search_for_module_full([file | rest], mod_str, loader) do
     case load_and_parse(file, loader) do
       {:ok, ast} ->
-        case find_defmodule_block(ast, mod) do
-          {:ok, range, body} -> {:ok, file, range, body}
-          :not_found -> search_for_module_full(rest, mod, loader)
+        case find_defmodule_block(ast, mod_str) do
+          {:ok, range, body, mod_atom} -> {:ok, file, range, body, mod_atom}
+          :not_found -> search_for_module_full(rest, mod_str, loader)
         end
 
       {:soft_skip, _err} ->
-        search_for_module_full(rest, mod, loader)
+        search_for_module_full(rest, mod_str, loader)
 
       {:hard_error, err} ->
         err
@@ -417,18 +467,26 @@ defmodule MutagenEx.ScopeResolver do
   defp alias_to_module(mod) when is_atom(mod), do: mod
   defp alias_to_module(_), do: nil
 
-  # Locate the `defmodule mod` block specifically, returning its line range
-  # AND its inner body AST (the AST under `[do: ...]`).
-  defp find_defmodule_block(ast, target_mod) do
+  # Locate the `defmodule mod` block specifically, returning its line range,
+  # its inner body AST (the AST under `[do: ...]`), AND the matched module
+  # atom (which comes from the AST — `r8`, mutagen-wrd.20). `target_mod_str`
+  # is compared against `Atom.to_string/1` of each `:__aliases__`-derived
+  # module atom, so the user's input is never passed through
+  # `String.to_atom/1`.
+  defp find_defmodule_block(ast, target_mod_str) do
     {_ast, acc} =
       Macro.prewalk(ast, :not_found, fn
         {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
           case alias_to_module(alias_ast) do
-            ^target_mod ->
-              {node, {:ok, node_line_range(node), body}}
-
-            _ ->
+            nil ->
               {node, :not_found}
+
+            mod_atom ->
+              if Atom.to_string(mod_atom) == target_mod_str do
+                {node, {:ok, node_line_range(node), body, mod_atom}}
+              else
+                {node, :not_found}
+              end
           end
 
         node, acc ->
@@ -440,13 +498,23 @@ defmodule MutagenEx.ScopeResolver do
 
   # Find every `def`/`defp`/`defmacro`/`defmacrop` clause matching the given
   # function name and arity. Returns the list of line ranges (one per
-  # clause) in source order.
-  defp find_function_clauses(body, fun, arity) do
+  # clause) in source order. Atom safety (`r8`, mutagen-wrd.20):
+  # `fun_str` is a string; we compare it against `Atom.to_string/1` of
+  # each AST `def`-head atom, so the user's function-name input is never
+  # passed through `String.to_atom/1`.
+  defp find_function_clauses(body, fun_str, arity) do
     {_, acc} =
       Macro.prewalk(body, [], fn node, acc ->
         case extract_def(node) do
-          {:ok, ^fun, ^arity, range} -> {node, [range | acc]}
-          _ -> {node, acc}
+          {:ok, fun_atom, ^arity, range} ->
+            if is_atom(fun_atom) and Atom.to_string(fun_atom) == fun_str do
+              {node, [range | acc]}
+            else
+              {node, acc}
+            end
+
+          _ ->
+            {node, acc}
         end
       end)
 

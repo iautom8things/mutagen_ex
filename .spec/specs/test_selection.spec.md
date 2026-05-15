@@ -91,6 +91,21 @@ decisions: []
     combining `test/foo_test.exs` with `tag:slow` gets every test in
     `foo_test.exs` plus every tagged test in the tag-walk, not the
     intersection.
+
+- id: mutagen.test_selection.r7
+  priority: must
+  statement: |
+    Tag resolution does NOT materialize a fresh atom for the user-supplied
+    `tag:NAME` name. The resolver walks `test/**/*_test.exs`, comparing the
+    string `NAME` against `Atom.to_string/1` of each `@tag :ATOM` literal
+    found in the AST; the result's `include` carries the AST-derived atom,
+    not a `String.to_atom/1` of the user input. A target whose `NAME` does
+    not match any registered tag atom returns `{:error, %{reason:
+    :no_tests_match}}` per r5 — `:erlang.system_info(:atom_count)` is
+    unchanged across N calls to `resolve("tag:#{n}")` for N distinct
+    never-registered names. This is the atom-table-DOS bound (mutagen-wrd.20):
+    CI loops like `mix mutagen --tests tag:$(uuidgen)` cannot grow the atom
+    table.
 ```
 
 ```spec-scenarios
@@ -152,6 +167,22 @@ decisions: []
     under union semantics — admitting all tests in `a_test.exs`). Result
     `include` contains `:slow`; result `files` is the union of the file
     and the tag walk.
+
+- id: mutagen.test_selection.s7
+  covers: [mutagen.test_selection.r7]
+  given: |
+    The atom `:never_registered_tag_for_mutagen_wrd_20` does not exist in
+    the BEAM atom table (no source code references it).
+  when: |
+    The selector resolves `tag:never_registered_tag_for_mutagen_wrd_20`
+    against a `test_root` containing only files with unrelated tags.
+  then: |
+    The call returns `{:error, %{reason: :no_tests_match, target:
+    "tag:never_registered_tag_for_mutagen_wrd_20"}}` AND
+    `:erlang.system_info(:atom_count)` is unchanged across the call.
+    Looping the call with N freshly-generated never-registered names
+    (e.g. `tag:#{System.unique_integer()}`) keeps `atom_count` constant
+    — no atom is created from the user-supplied `NAME` segment.
 ```
 
 ```spec-verification
@@ -171,5 +202,11 @@ decisions: []
   covers: [mutagen.test_selection.r5]
   kind: command
   command: mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases
+  execute: true
+
+- id: mutagen.test_selection.v4
+  covers: [mutagen.test_selection.r7]
+  kind: command
+  command: mix test test/mutagen_ex/test_selector_test.exs --only atom_safety
   execute: true
 ```

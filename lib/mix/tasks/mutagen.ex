@@ -115,6 +115,13 @@ defmodule Mix.Tasks.Mutagen do
       outside the project root must pass `--unsafe-json-outside-project`
       explicitly; a one-shot stderr warning then names the resolved
       target.
+    * **`tag:NAME` charset is bounded.** `--tests tag:NAME` must match
+      `~r/\\A[a-z][a-z_0-9]{0,63}\\z/` — lowercase ASCII, digits, or `_`,
+      up to 64 chars, with a lowercase first character. Targets outside
+      this charset are refused with `reason: :invalid_tag_name` before any
+      test resolution runs. This is the atom-table-DOS bound (see
+      `mutagen.cli.r11`, mutagen-wrd.20): CI loops like
+      `mix mutagen --tests tag:$(uuidgen)` cannot grow the BEAM atom table.
   """
 
   use Mix.Task

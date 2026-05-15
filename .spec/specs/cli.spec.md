@@ -111,7 +111,8 @@ decisions:
     enumerates: state drift on `use SomeModule`, macro mutation slowdown,
     equivalent mutants, mix-format ID-stability via content-addressed IDs,
     no `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon
-    syntax dropped, and self-mutation refused.
+    syntax dropped, self-mutation refused, the `--json` path-safety
+    contract (r10), and the `tag:NAME` charset gate (r11).
 
 - id: mutagen.cli.r10
   priority: must
@@ -139,6 +140,22 @@ decisions:
     emits a one-shot warning to stderr at startup naming the resolved
     target path. `Config.unsafe_json_outside_project` is `true` iff the
     flag was passed.
+
+- id: mutagen.cli.r11
+  priority: must
+  statement: |
+    `--tests tag:NAME` targets are validated at parse time against the
+    charset `~r/\A[a-z][a-z_0-9]{0,63}\z/`: NAME must start with `a-z` and
+    consist of `a-z`, `0-9`, or `_` thereafter, up to 64 characters total.
+    Targets that fail the regex return `{:error, :invalid_tag_name, %{flag:
+    "--tests", target: "tag:<bad>", message: ...}}` from `CLI.parse/1`
+    before any test selector resolution runs. This is the front-door bound
+    for the atom-table-DOS risk (mutagen-wrd.20): even with a downstream
+    string-comparison fallback in `mutagen.test_selection` (r7), the
+    charset gate keeps adversarial CI loops (`mix mutagen --tests
+    tag:$(uuidgen)`) from reaching the resolver at all. Non-`tag:` `--tests`
+    targets (file paths, `file:line`) are not gated by this rule — they
+    don't feed atom resolution.
 ```
 
 ```spec-scenarios
@@ -275,6 +292,24 @@ decisions:
     `{:ok, "/tmp/ci-artifacts/report.json"}` even though the path is
     outside the project root. A warning naming the resolved path is
     written to stderr exactly once.
+
+- id: mutagen.cli.s11
+  covers: [mutagen.cli.r11]
+  given: A user invokes `mix mutagen --scope lib/foo.ex --tests tag:$(uuidgen)`.
+  when: The CLI parses these flags.
+  then: |
+    The UUID's `-` characters (and possible uppercase hex) violate the
+    `~r/\A[a-z][a-z_0-9]{0,63}\z/` charset. `CLI.parse/1` returns
+    `{:error, :invalid_tag_name, _}` before the test selector runs.
+    `Config` is not constructed; no atom is created from the UUID string.
+
+- id: mutagen.cli.s12
+  covers: [mutagen.cli.r11]
+  given: A user invokes `mix mutagen --scope lib/foo.ex --tests tag:slow`.
+  when: The CLI parses these flags.
+  then: |
+    `Config.tests` is `["tag:slow"]`. `slow` matches the charset and
+    flows through to test selection unchanged.
 ```
 
 ```spec-verification
@@ -306,5 +341,11 @@ decisions:
   covers: [mutagen.cli.r10]
   kind: command
   command: mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs
+  execute: true
+
+- id: mutagen.cli.v6
+  covers: [mutagen.cli.r11]
+  kind: command
+  command: mix test test/mutagen_ex/cli_test.exs --only tag_charset
   execute: true
 ```

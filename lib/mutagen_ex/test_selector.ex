@@ -16,6 +16,20 @@ defmodule MutagenEx.TestSelector do
   hygiene contract carried by `mutagen.mutation_pipeline`. The selector
   therefore remains usable from any process without ExUnit being running.
 
+  ### Atom safety (`mutagen.test_selection.r7`)
+
+  Tag resolution never calls `String.to_atom/1` on the user-supplied
+  `tag:NAME`. Instead it walks the test corpus and compares `NAME` (a
+  string) against `Atom.to_string/1` of each `@tag :ATOM` literal found in
+  the parsed AST; the matched atom that flows into `include:` is the
+  AST-derived one. For a tag with no matching `@tag` anywhere, the walk
+  produces zero matches and the selector returns `:no_tests_match` — with
+  `:erlang.system_info(:atom_count)` unchanged across N invocations with
+  N distinct never-registered names. The mutagen-wrd.20 bound: CI loops
+  like `mix mutagen --tests tag:$(uuidgen)` cannot grow the atom table
+  through this path (and the upstream `mutagen.cli.r10` charset gate
+  rejects most adversarial inputs before they even reach here).
+
   A target that resolves to zero matching tests (e.g. `tag:unused` with no
   matching `@tag :unused` anywhere, or a `:line` that points outside every
   test block in the named file) returns a structured `{:error, ...}` tuple
@@ -273,15 +287,25 @@ defmodule MutagenEx.TestSelector do
 
   # `tag:<name>` — AST-walk test_root for files containing `@tag :<name>` on a
   # `test` or `describe` block.
+  #
+  # Atom safety (`mutagen.test_selection.r7`, mutagen-wrd.20): we do NOT
+  # call `String.to_atom(name)`. Instead we walk the test corpus comparing
+  # `name` (a string) against `Atom.to_string/1` of each `@tag :ATOM` literal
+  # found in the parsed AST. The matched atom comes from the AST (legitimate
+  # — `Code.string_to_quoted/2` already created it during parsing of the
+  # test file) and is what populates `include`. For a `tag:NAME` whose NAME
+  # has no matching `@tag` anywhere, the walk produces zero matches and we
+  # return `:no_tests_match` without ever materializing an atom from the
+  # user's input — `:erlang.system_info(:atom_count)` stays constant across
+  # N invocations with N distinct never-registered names.
   defp resolve_tag(name, test_root) do
-    tag_atom = String.to_atom(name)
     target = "tag:" <> name
 
-    case scan_for_tag(test_root, tag_atom) do
+    case scan_for_tag(test_root, name) do
       {:ok, []} ->
         {:error, %{reason: :no_tests_match, target: target}}
 
-      {:ok, files} ->
+      {:ok, {tag_atom, files}} ->
         {:ok,
          %TestFilter{
            include: [tag_atom],
@@ -298,19 +322,39 @@ defmodule MutagenEx.TestSelector do
   # AST walking
   # ---------------------------------------------------------------------------
 
-  @spec scan_for_tag(String.t(), atom()) :: {:ok, [String.t()]} | {:error, error_reason()}
-  defp scan_for_tag(test_root, tag_atom) do
+  # Returns either:
+  #   * `{:ok, []}`              — no file contained `@tag :name`
+  #   * `{:ok, {atom, files}}`   — the AST-derived atom that matched, plus
+  #                                the list of files containing it. The atom
+  #                                comes from `Code.string_to_quoted/2`'s
+  #                                parse of the test files — NEVER from
+  #                                `String.to_atom(name)`.
+  #   * `{:error, reason}`       — directory missing, etc.
+  @spec scan_for_tag(String.t(), String.t()) ::
+          {:ok, []} | {:ok, {atom(), [String.t()]}} | {:error, error_reason()}
+  defp scan_for_tag(test_root, name) do
     case File.dir?(test_root) do
       false ->
         {:error, :file_not_found}
 
       true ->
-        files =
+        {matched_atom, files} =
           test_root
           |> walk_test_files()
-          |> Enum.filter(&file_contains_tag?(&1, tag_atom))
+          |> Enum.reduce({nil, []}, fn path, {atom_acc, files_acc} ->
+            case file_match_for_tag(path, name) do
+              :no_match ->
+                {atom_acc, files_acc}
 
-        {:ok, files}
+              {:match, atom} ->
+                {atom_acc || atom, [path | files_acc]}
+            end
+          end)
+
+        case files do
+          [] -> {:ok, []}
+          _ -> {:ok, {matched_atom, Enum.reverse(files)}}
+        end
     end
   end
 
@@ -347,56 +391,81 @@ defmodule MutagenEx.TestSelector do
   end
 
   # Loads `path`'s source, parses with `Code.string_to_quoted/2`, and walks
-  # the resulting quoted form looking for any `@tag :<tag_atom>` attribute.
-  # Returns `false` (do not include) for files that cannot be read or parsed
-  # — those are not crashes of the selector, they're just files that don't
-  # contribute to the tag set.
-  @spec file_contains_tag?(String.t(), atom()) :: boolean()
-  defp file_contains_tag?(path, tag_atom) do
+  # the resulting quoted form looking for any `@tag :ATOM` whose
+  # `Atom.to_string(ATOM) == name`. Returns:
+  #
+  #   * `{:match, atom}` — found a matching AST-derived atom in this file.
+  #   * `:no_match`      — no matching `@tag` in this file (or the file
+  #                        could not be read / parsed; both are silent for
+  #                        the same reason as the prior implementation —
+  #                        broken files are not crashes of the selector,
+  #                        they just don't contribute to the tag set).
+  #
+  # We compare on `Atom.to_string/1` of each candidate atom because that
+  # avoids `String.to_existing_atom/1`-on-the-name (which would only work
+  # if the atom were already registered globally — but registration only
+  # happens during parsing of the test files in this very walk, leaving a
+  # chicken-and-egg). The AST-walk-and-compare pattern is the same as the
+  # scope resolver's module matching (`mutagen.scope_resolution.r8`).
+  @spec file_match_for_tag(String.t(), String.t()) :: {:match, atom()} | :no_match
+  defp file_match_for_tag(path, name) do
     with {:ok, source} <- File.read(path),
          {:ok, quoted} <- Code.string_to_quoted(source) do
-      ast_contains_tag?(quoted, tag_atom)
+      ast_match_for_tag(quoted, name)
     else
-      _ -> false
+      _ -> :no_match
     end
   end
 
-  # Walks an AST node looking for an `@tag :<tag_atom>` attribute. Recognises
-  # both `@tag :name` and `@tag name: value` forms (the latter is matched
-  # only when `name == tag_atom`, since ExUnit treats keyword-style tags
+  # Walks an AST node looking for an `@tag :ATOM` attribute whose
+  # `Atom.to_string(ATOM) == name`. Recognises both `@tag :name` and
+  # `@tag name: value` forms (the latter is matched only when the keyword
+  # key string-equals `name`, since ExUnit treats keyword-style tags
   # equivalently for filtering).
-  defp ast_contains_tag?(ast, tag_atom) do
-    {_, found} =
-      Macro.prewalk(ast, false, fn
-        _node, true = acc ->
+  defp ast_match_for_tag(ast, name) do
+    {_, result} =
+      Macro.prewalk(ast, :no_match, fn
+        _node, {:match, _} = acc ->
           {nil, acc}
 
         {:@, _, [{:tag, _, [arg]}]} = node, _acc ->
-          if tag_matches?(arg, tag_atom) do
-            {node, true}
-          else
-            {node, false}
+          case tag_match(arg, name) do
+            {:match, atom} -> {node, {:match, atom}}
+            :no_match -> {node, :no_match}
           end
 
         node, acc ->
           {node, acc}
       end)
 
-    found
+    result
   end
 
-  # `@tag :foo` → arg is the atom `:foo`
-  defp tag_matches?(arg, tag_atom) when is_atom(arg), do: arg == tag_atom
+  # `@tag :foo` → arg is the atom `:foo`. We compare via Atom.to_string/1
+  # so the user-supplied `name` (a string) never becomes the input to
+  # `String.to_atom/1`.
+  defp tag_match(arg, name) when is_atom(arg) do
+    if Atom.to_string(arg) == name, do: {:match, arg}, else: :no_match
+  end
 
-  # `@tag foo: true` → arg is `[foo: true]`
-  defp tag_matches?(arg, tag_atom) when is_list(arg) do
-    Enum.any?(arg, fn
-      {^tag_atom, _} -> true
-      _ -> false
+  # `@tag foo: true` → arg is `[foo: true]`. Likewise: compare keys via
+  # `Atom.to_string/1` and return the AST-derived atom on match.
+  defp tag_match(arg, name) when is_list(arg) do
+    Enum.find_value(arg, :no_match, fn
+      {key, _} when is_atom(key) ->
+        if Atom.to_string(key) == name, do: {:match, key}, else: false
+
+      _ ->
+        false
     end)
+    |> case do
+      false -> :no_match
+      :no_match -> :no_match
+      {:match, _atom} = m -> m
+    end
   end
 
-  defp tag_matches?(_arg, _tag_atom), do: false
+  defp tag_match(_arg, _name), do: :no_match
 
   # ---------------------------------------------------------------------------
   # Merge / dedup

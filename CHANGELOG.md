@@ -7,6 +7,35 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Bound atom creation on CLI input.** Three call sites converted
+  attacker- or typo-controlled strings to atoms with no upper bound,
+  making CI loops like `mix mutagen --tests tag:$(uuidgen)` a fast
+  atom-table sink (atoms are not GC'd; the default cap is ~1M). Fixed
+  by:
+  - `MutagenEx.CLI` now applies a `tag:NAME` charset gate at the front
+    door (`~r/\A[a-z][a-z_0-9]{0,63}\z/`); inputs outside the charset
+    return `{:error, :invalid_tag_name, _}` before any test resolution
+    runs. New requirement: `mutagen.cli.r11`.
+  - `MutagenEx.TestSelector.resolve/2` for `tag:NAME` no longer calls
+    `String.to_atom(name)`. Instead it walks the test corpus and
+    compares the user's `NAME` string against `Atom.to_string/1` of each
+    `@tag :ATOM` literal found in the parsed AST; the matched
+    AST-derived atom flows into `include:`. New requirement:
+    `mutagen.test_selection.r7`.
+  - `MutagenEx.ScopeResolver.resolve/2` for `Module.Name` and
+    `Module.Name.fun/arity` targets no longer calls `String.to_atom` on
+    user input. Module matching uses canonical-string comparison
+    (`"Elixir.Foo.Bar"` vs. `Atom.to_string/1` of each AST `defmodule`
+    atom); function-name matching uses string comparison against
+    AST-derived `def`-head atoms. The matched module atom comes from
+    the AST. `details.module` on `:module_not_found` is now the
+    canonical string (e.g. `"Elixir.Nope"`); `details.function` on
+    `:function_not_found` is the user's string segment. New
+    requirement: `mutagen.scope_resolution.r8`. *(mutagen-wrd.20,
+    closes F6 from the consolidated security review.)*
+
 ### Fixed
 
 - **Scenario 7 (`:ecto_user_scenario`) un-skipped.** The end-to-end

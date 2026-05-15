@@ -86,6 +86,23 @@ decisions:
   statement: |
     The resolver accepts an injectable source-loader function so unit tests
     do not need on-disk fixtures. The default loader is `&File.read!/1`.
+
+- id: mutagen.scope_resolution.r8
+  priority: must
+  statement: |
+    Resolution of a user-supplied `Module.Name` or `Module.Name.fun/arity`
+    target does NOT materialize a fresh atom from the user's input via
+    `String.to_atom/1`. Module matching against source-file `defmodule`
+    blocks is performed via string comparison (the user's canonical form vs.
+    `Atom.to_string/1` of each AST-derived module atom); the matched
+    `%Scope{module: mod}` carries the AST-derived atom, never an atom built
+    from the user's target. Function-name matching similarly uses
+    `String.to_existing_atom/1` (function name atoms exist on defs found in
+    the parsed AST; if the lookup raises `ArgumentError` the resolver
+    returns `:function_not_found`). This is the atom-table-DOS bound
+    (mutagen-wrd.20): `:erlang.system_info(:atom_count)` is unchanged across
+    N calls to `resolve/2` with N distinct never-registered module-shaped or
+    MFA-shaped targets (e.g. `Nope.#{n}`, `Nope.#{n}.bar/1`).
 ```
 
 ```spec-scenarios
@@ -149,6 +166,21 @@ decisions:
     Comparing each affected source file's bytes before and after the
     resolver call shows zero changes. `cover/` is not created by the
     resolver. The `.beam` files in `_build/` are unchanged.
+
+- id: mutagen.scope_resolution.s8
+  covers: [mutagen.scope_resolution.r8]
+  given: |
+    A loader returning a fixed `defmodule Foo do end` and N distinct
+    never-registered module-shaped targets (`Nope1`, `Nope2`, ...,
+    `NopeN`).
+  when: The resolver is called once per target.
+  then: |
+    Every call returns `{:error, :module_not_found, _}`.
+    `:erlang.system_info(:atom_count)` is identical before and after the N
+    calls — no atom is created from any of the `NopeN` strings. The same
+    invariant holds for MFA-shaped targets (`NopeN.bar/1`): no atom is
+    created from `NopeN` or from the function-name segment `bar` when
+    `bar` is not already a registered atom.
 ```
 
 ```spec-verification
@@ -168,5 +200,11 @@ decisions:
   covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2]
   kind: command
   command: mix test test/mutagen_ex/scope_resolver_property_test.exs
+  execute: true
+
+- id: mutagen.scope_resolution.v4
+  covers: [mutagen.scope_resolution.r8]
+  kind: command
+  command: mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety
   execute: true
 ```

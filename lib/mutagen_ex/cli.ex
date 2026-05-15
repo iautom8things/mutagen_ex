@@ -44,6 +44,14 @@ defmodule MutagenEx.CLI do
       refused at parse time per `mutagen.decision.self_mutation_refused`. This
       is a defence-in-depth heuristic; full resolution-based refusal lives in
       `MutagenEx.ScopeResolver` (S3a) and ultimately at pipeline entry (S6).
+    * `--tests tag:NAME` where `NAME` falls outside the charset
+      `~r/\A[a-z][a-z_0-9]{0,63}\z/`. This is the front-door bound on the
+      atom-table-DOS risk (`mutagen.cli.r11`, mutagen-wrd.20): even though
+      `MutagenEx.TestSelector` uses string comparison and never materializes
+      an atom from the user-supplied tag name, the charset gate keeps
+      adversarial inputs (`tag:$(uuidgen)`-style loops) from reaching the
+      selector at all. Non-`tag:` `--tests` targets (file paths, file:line)
+      are not gated by this rule — they don't feed atom resolution.
   """
 
   alias MutagenEx.Config
@@ -58,6 +66,7 @@ defmodule MutagenEx.CLI do
           | :unknown_flag
           | :self_mutation_refused
           | :unsafe_json_path
+          | :invalid_tag_name
 
   @typedoc "Structured error returned by `parse/1`."
   @type error :: {:error, reason, map()}
@@ -88,6 +97,7 @@ defmodule MutagenEx.CLI do
            require_nonempty(scopes, :missing_scope, "at least one --scope target is required"),
          :ok <- require_nonempty(tests, :missing_tests, "at least one --tests target is required"),
          :ok <- refuse_self_mutation(scopes),
+         :ok <- validate_tag_charset(tests),
          {:ok, timeout_ms} <- pick_timeout(parsed),
          {:ok, seed} <- pick_seed(parsed),
          {:ok, json_path} <- pick_json_path(parsed),
@@ -246,6 +256,51 @@ defmodule MutagenEx.CLI do
       {:unsafe_json_outside_project, value} when is_boolean(value) -> value
     end
   end
+
+  # --- tag-charset gate (atom-table-DOS bound, r10) ---------------------------
+
+  # The downstream selector (`MutagenEx.TestSelector`) uses string comparison
+  # against atoms found in test files' parsed AST — it never materializes a
+  # fresh atom from the user's `tag:NAME` input. The charset gate is the
+  # front-line bound: even with the safe selector, this keeps adversarial
+  # inputs (`tag:$(uuidgen)`-style loops) from reaching the selector and
+  # spending walk-time on guaranteed-no-match strings.
+  #
+  # Charset: `~r/\A[a-z][a-z_0-9]{0,63}\z/`. Lowercase-first, then lowercase
+  # ASCII / digit / underscore, up to 64 chars total. Matches Elixir's
+  # idiomatic atom-naming convention for tag literals (`@tag :slow`,
+  # `@tag :integration_smoke`). Tags that need other shapes (e.g. with `?`
+  # or `!` suffixes, or uppercase) are out of scope for `mix mutagen`'s
+  # `tag:NAME` shorthand in v1 — the user can still cite tests by
+  # `path` or `path:line`.
+  @tag_name_regex ~r/\A[a-z][a-z_0-9]{0,63}\z/
+
+  defp validate_tag_charset(tests) do
+    case Enum.find(tests, &invalid_tag_target?/1) do
+      nil ->
+        :ok
+
+      bad ->
+        "tag:" <> name = bad
+
+        {:error, :invalid_tag_name,
+         %{
+           flag: "--tests",
+           target: bad,
+           name: name,
+           message:
+             "--tests #{inspect(bad)} fails the tag-name charset gate " <>
+               "(must match ~r/\\A[a-z][a-z_0-9]{0,63}\\z/); " <>
+               "this is the atom-table-DOS bound (mutagen.cli.r11)"
+         }}
+    end
+  end
+
+  defp invalid_tag_target?("tag:" <> name) do
+    not Regex.match?(@tag_name_regex, name)
+  end
+
+  defp invalid_tag_target?(_), do: false
 
   # --- self-mutation guard (heuristic, raw-string only) -----------------------
 

@@ -181,7 +181,12 @@ defmodule MutagenEx.ScopeResolverTest do
                )
 
       assert details.target == "Nope.Missing"
-      assert details.module == Nope.Missing
+      # Atom safety (`mutagen.scope_resolution.r8`, mutagen-wrd.20): we
+      # report the user's canonical module string, NEVER an atom built
+      # from their input. `details.module` is the `"Elixir.Nope.Missing"`
+      # canonical form so callers can render the error without
+      # round-tripping through `String.to_atom/1`.
+      assert details.module == "Elixir.Nope.Missing"
       assert is_binary(details.message)
     end
   end
@@ -250,8 +255,12 @@ defmodule MutagenEx.ScopeResolverTest do
                )
 
       assert details.target == "Foo.bar/7"
+      # Module came from the AST (legitimate atom from parsing source).
       assert details.module == Foo
-      assert details.function == :bar
+      # Function is reported as the user's string per atom safety
+      # (`mutagen.scope_resolution.r8`, mutagen-wrd.20). We never
+      # round-trip user input through `String.to_atom/1`.
+      assert details.function == "bar"
       assert details.arity == 7
     end
 
@@ -366,6 +375,226 @@ defmodule MutagenEx.ScopeResolverTest do
       assert {:ok, _} = ScopeResolver.resolve("Foo", loader: loader, source_files: ["lib/foo.ex"])
       refute Process.whereis(:cover_server)
       refute File.exists?("cover")
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # mutagen.scope_resolution.s8 — atom safety (r8, mutagen-wrd.20)
+  # ---------------------------------------------------------------------------
+
+  describe "atom safety (mutagen.scope_resolution.r8, s8)" do
+    @describetag :atom_safety
+
+    setup do
+      # Warmup: parse the canonical fixture once so any AST-walk atoms it
+      # *would* register (e.g. `:def`, `:bar`, `:"Elixir.Foo"`) are already
+      # registered. After warmup, the only path that could move the counter
+      # for the probes below is `String.to_atom/1` on user input — which we
+      # are falsifying.
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\n  def bar(x), do: x\nend\n"})
+      _ = ScopeResolver.resolve("Foo", loader: loader, source_files: ["lib/foo.ex"])
+      _ = ScopeResolver.resolve("Foo.bar/1", loader: loader, source_files: ["lib/foo.ex"])
+      :ok
+    end
+
+    # Helper: assert that a never-registered atom string did NOT get
+    # registered as an atom by the BEAM during a call. Uses
+    # `:erlang.binary_to_existing_atom/1` which raises `ArgumentError`
+    # when the atom doesn't exist — a structural falsification that
+    # doesn't suffer from the async-test atom_count noise that
+    # measurements over `:erlang.system_info(:atom_count)` do.
+    defp refute_atom_registered(name) when is_binary(name) do
+      try do
+        existing = :erlang.binary_to_existing_atom(name, :utf8)
+
+        flunk(
+          "atom #{inspect(existing)} was registered after the call (string: #{inspect(name)}); " <>
+            "the resolver leaked user input through String.to_atom/1"
+        )
+      rescue
+        ArgumentError -> :ok
+      end
+    end
+
+    test "module target with never-registered name does not register the atom" do
+      # Pre-fix: `string_to_module(target)` did `String.to_atom("Elixir." <> target)`
+      # — after the call, `binary_to_existing_atom("Elixir." <> target)` would succeed.
+      # Post-fix: `canonical_module_string/1` only builds a binary; no atom is
+      # ever materialized from the user's input.
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\nend\n"})
+
+      probe = "NeverRegisteredModule_#{System.unique_integer([:positive])}"
+      expected_atom_string = "Elixir." <> probe
+
+      # Sanity: the probe is genuinely unregistered before the call.
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(expected_atom_string, :utf8)
+      end
+
+      assert {:error, :module_not_found, _details} =
+               ScopeResolver.resolve(probe,
+                 loader: loader,
+                 source_files: ["lib/foo.ex"]
+               )
+
+      # The structural check: after the call, the canonical atom for the
+      # user's input is STILL not registered.
+      refute_atom_registered(expected_atom_string)
+    end
+
+    test "MFA target's module segment is not materialized as an atom" do
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\nend\n"})
+
+      mod_seg = "NeverRegisteredForMFA_#{System.unique_integer([:positive])}"
+      probe = mod_seg <> ".bar/1"
+      expected_atom_string = "Elixir." <> mod_seg
+
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(expected_atom_string, :utf8)
+      end
+
+      assert {:error, :module_not_found, _details} =
+               ScopeResolver.resolve(probe,
+                 loader: loader,
+                 source_files: ["lib/foo.ex"]
+               )
+
+      refute_atom_registered(expected_atom_string)
+    end
+
+    test "MFA target's function-name segment is not materialized as an atom" do
+      # The function-name segment is kept as a string and compared
+      # against `Atom.to_string/1` of AST `def`-head atoms. If no
+      # matching `def` exists in source, we return `:function_not_found`
+      # — never growing the atom table from user input. (Function names
+      # that DO appear in source are already AST atoms from parsing, so
+      # `:function_not_found` only fires when the source has no
+      # corresponding `def`.)
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\n  def bar(x), do: x\nend\n"})
+
+      fn_seg = "never_registered_fn_#{System.unique_integer([:positive])}"
+      probe = "Foo." <> fn_seg <> "/1"
+
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(fn_seg, :utf8)
+      end
+
+      assert {:error, :function_not_found, details} =
+               ScopeResolver.resolve(probe,
+                 loader: loader,
+                 source_files: ["lib/foo.ex"]
+               )
+
+      assert details.target == probe
+      # `details.function` carries the user's string, not an atom.
+      assert details.function == fn_seg
+      assert is_binary(details.message)
+
+      # Falsification: after the call, the function-name atom is still
+      # NOT registered — even though the source has no matching `def`,
+      # the resolver did not try to `String.to_atom/1` the user's segment
+      # to "see" if a def matched.
+      refute_atom_registered(fn_seg)
+    end
+
+    test "MFA target's function-name segment matches AST atoms by string (not atom)" do
+      # The function-name string is compared against `Atom.to_string/1`
+      # of each AST `def`-head atom. The source defines `:world` as a
+      # `def` head — the AST atom is created by `Code.string_to_quoted/2`
+      # during parsing of source on disk (a trusted, bounded corpus),
+      # never from the user's `world` string.
+      loader = loader_for(%{"lib/multi.ex" => multi_module_source()})
+
+      # `world` IS in source as `def world(x), do: x` in module B.
+      assert {:ok, [%Scope{module: B} = b_world]} =
+               ScopeResolver.resolve("B.world/1",
+                 loader: loader,
+                 source_files: ["lib/multi.ex"]
+               )
+
+      assert b_world.line_range.first >= 12
+      assert b_world.line_range.last <= 25
+    end
+
+    test "looping N distinct never-registered module targets registers zero of them" do
+      # DOS shape (mutagen-wrd.20): a CI loop running
+      # `mix mutagen --scope NeverRegisteredN`. Pre-fix, this grew the
+      # atom table by exactly N (one fresh atom per call). Post-fix, the
+      # falsification is structural: after the loop, NONE of the N
+      # canonical atom strings are registered.
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\nend\n"})
+
+      n = 50
+
+      probes =
+        for i <- 1..n do
+          mod_str = "AtomSafeLoop_#{System.unique_integer([:positive])}_#{i}"
+          {mod_str, "Elixir." <> mod_str}
+        end
+
+      for {probe, _expected_atom_string} <- probes do
+        assert {:error, :module_not_found, _} =
+                 ScopeResolver.resolve(probe,
+                   loader: loader,
+                   source_files: ["lib/foo.ex"]
+                 )
+      end
+
+      # None of the N expected canonical atoms were registered. Pre-fix
+      # this would fail on iteration 1.
+      for {_probe, expected_atom_string} <- probes do
+        refute_atom_registered(expected_atom_string)
+      end
+    end
+
+    test "module_not_found details carry the canonical string form, not an atom" do
+      # The error report exposes the module name to callers (JSON
+      # reporter, etc.). For atom safety we expose the canonical
+      # `"Elixir.X"` string; only when a real `defmodule` matched does an
+      # atom appear (from the AST).
+      loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\nend\n"})
+
+      assert {:error, :module_not_found, details} =
+               ScopeResolver.resolve("DoesNotExist.AnywhereSpecial",
+                 loader: loader,
+                 source_files: ["lib/foo.ex"]
+               )
+
+      assert details.module == "Elixir.DoesNotExist.AnywhereSpecial"
+      assert is_binary(details.message)
+    end
+
+    test "successful resolution still returns an atom on %Scope{module: ...}" do
+      # Atom safety isn't "never return any atom" — it's "never create one
+      # from user input." Successful resolution finds an atom in the AST
+      # (legitimate, created during source parsing) and exposes it on the
+      # `%Scope{}` record.
+      loader = loader_for(%{"lib/foo.ex" => mfa_source()})
+
+      assert {:ok, [%Scope{module: mod}]} =
+               ScopeResolver.resolve("Foo.bar/1",
+                 loader: loader,
+                 source_files: ["lib/foo.ex"]
+               )
+
+      assert is_atom(mod)
+      assert Atom.to_string(mod) == "Elixir.Foo"
+    end
+
+    test "source no longer references String.to_atom (structural)" do
+      # Provenance check (`mutagen.scope_resolution.r8`): the
+      # implementation must not call `String.to_atom/1` on any path that
+      # could see user input. Strip comment lines so commentary about the
+      # forbidden call doesn't false-positive — only an actual call site
+      # falsifies.
+      non_comment_source =
+        File.read!("lib/mutagen_ex/scope_resolver.ex")
+        |> String.split("\n")
+        |> Enum.reject(&String.match?(&1, ~r/^\s*#/))
+        |> Enum.join("\n")
+
+      refute non_comment_source =~ ~r/String\.to_atom\(/,
+             "scope_resolver.ex must not call String.to_atom/1 — user input drives the inputs (mutagen.scope_resolution.r8)"
     end
   end
 

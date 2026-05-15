@@ -334,6 +334,135 @@ defmodule MutagenEx.TestSelectorTest do
   # exclude semantics by target shape (mutagen-wrd.11 regression guard)
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # mutagen.test_selection.s7 — atom safety (r7, mutagen-wrd.20)
+  # ---------------------------------------------------------------------------
+
+  describe "tag resolution atom safety (mutagen.test_selection.r7, s7)" do
+    @describetag :atom_safety
+
+    # Helper: structurally falsify atom registration. Uses
+    # `:erlang.binary_to_existing_atom/1` which raises `ArgumentError`
+    # when the atom doesn't exist. This avoids the async-test
+    # `:erlang.system_info(:atom_count)` noise — we don't measure how
+    # many atoms moved; we ask the specific question "did the user's
+    # input get registered as an atom?" The answer must be NO.
+    defp refute_atom_registered(name) when is_binary(name) do
+      try do
+        existing = :erlang.binary_to_existing_atom(name, :utf8)
+
+        flunk(
+          "atom #{inspect(existing)} was registered after the call (string: #{inspect(name)}); " <>
+            "the resolver leaked user input through String.to_atom/1"
+        )
+      rescue
+        ArgumentError -> :ok
+      end
+    end
+
+    test "tag with no matching @tag in test corpus does not register the atom",
+         %{fixture_dir: dir} do
+      _ = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :unrelated", "A"))
+
+      # Generate a name unique to this test run. The probe is in a local
+      # binding (not a source literal), so it does not pre-register via
+      # test-file parsing.
+      probe_name = "never_registered_#{System.unique_integer([:positive])}"
+      probe = "tag:" <> probe_name
+
+      # Sanity: the probe atom is genuinely unregistered before the call.
+      assert_raise ArgumentError, fn ->
+        :erlang.binary_to_existing_atom(probe_name, :utf8)
+      end
+
+      assert {:error, %{reason: :no_tests_match, target: ^probe}} =
+               TestSelector.resolve(probe, test_root: dir)
+
+      # Pre-fix: `String.to_atom(name)` at the head of `resolve_tag/2`
+      # registered the atom unconditionally — `binary_to_existing_atom`
+      # would have succeeded. Post-fix: the selector compares strings
+      # against `Atom.to_string/1` of AST atoms; no atom is materialized
+      # from the user's input.
+      refute_atom_registered(probe_name)
+    end
+
+    test "looping N distinct never-registered tag names registers zero of them",
+         %{fixture_dir: dir} do
+      # The DOS-attack shape (mutagen-wrd.20): CI loop running
+      # `mix mutagen --tests tag:$(uuidgen)`. Pre-fix, this would
+      # register exactly N fresh atoms (one per call). Post-fix, the
+      # falsification is structural: AFTER the loop, NONE of the N
+      # probe strings are registered atoms.
+      _ = write_test_file(dir, "x_test.exs", tagged_test_module("@tag :other", "X"))
+
+      n = 50
+
+      probes =
+        for i <- 1..n do
+          "atomsafe_loop_#{System.unique_integer([:positive])}_#{i}"
+        end
+
+      for probe_name <- probes do
+        probe = "tag:" <> probe_name
+
+        assert {:error, %{reason: :no_tests_match, target: ^probe}} =
+                 TestSelector.resolve(probe, test_root: dir)
+      end
+
+      # None of the N user-supplied tag names became atoms. Pre-fix this
+      # would have failed on iteration 1.
+      for probe_name <- probes do
+        refute_atom_registered(probe_name)
+      end
+    end
+
+    test "matching tag returns the AST-derived atom (not a freshly minted one)",
+         %{fixture_dir: dir} do
+      # The atom that lands in `include` must be the one parsed from the
+      # test file's source — not one synthesized from the user input. We
+      # confirm this structurally by:
+      #   1. Loading source that registers `:slow_for_atom_safety_test`.
+      #   2. Calling resolve and asserting the matched atom round-trips
+      #      cleanly via `Atom.to_string/1`. (The function would fail
+      #      identically whether the atom came from the AST or from
+      #      `String.to_atom/1`, but the no-growth tests above prove the
+      #      latter path is dead.)
+      content = """
+      defmodule MatchTagTest do
+        use ExUnit.Case
+
+        @tag :slow_for_atom_safety_test
+        test "tagged" do
+          assert true
+        end
+      end
+      """
+
+      _ = write_test_file(dir, "match_tag_test.exs", content)
+
+      assert {:ok, %TestFilter{include: include}} =
+               TestSelector.resolve("tag:slow_for_atom_safety_test", test_root: dir)
+
+      assert include == [:slow_for_atom_safety_test]
+    end
+
+    test "source no longer references String.to_atom on user input (structural)" do
+      # Provenance check (`mutagen.test_selection.r7`): the implementation
+      # source must not call `String.to_atom/1`. We strip comment lines so
+      # commentary referencing the function (e.g. "we no longer call
+      # String.to_atom(name)") doesn't false-positive — only an actual call
+      # site falsifies.
+      non_comment_source =
+        File.read!("lib/mutagen_ex/test_selector.ex")
+        |> String.split("\n")
+        |> Enum.reject(&String.match?(&1, ~r/^\s*#/))
+        |> Enum.join("\n")
+
+      refute non_comment_source =~ ~r/String\.to_atom\(/,
+             "test_selector.ex must not call String.to_atom/1 — it would allow user-driven atom growth (mutagen.test_selection.r7)"
+    end
+  end
+
   describe "exclude convention" do
     test "bare-file target sets exclude=[] (mutagen-wrd.11)" do
       # The original bug: file-cited targets emitted exclude=[:test],

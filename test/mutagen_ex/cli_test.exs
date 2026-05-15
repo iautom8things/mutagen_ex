@@ -392,6 +392,120 @@ defmodule MutagenEx.CLITest do
     end
   end
 
+  describe "parse/1 — tag:NAME charset gate (mutagen.cli.r11, s11, s12)" do
+    @describetag :tag_charset
+
+    test "tag:slow is accepted (canonical lowercase atom name, s12)" do
+      # `slow` matches the charset and flows through unchanged.
+      assert {:ok, %Config{tests: ["tag:slow"]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:slow"])
+    end
+
+    test "tag:integration_smoke is accepted (underscores and digits allowed)" do
+      assert {:ok, %Config{tests: ["tag:integration_smoke"]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:integration_smoke"])
+
+      assert {:ok, %Config{tests: ["tag:slow_1"]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:slow_1"])
+    end
+
+    test "tag:$(uuidgen)-shaped target is rejected (s11)" do
+      # UUIDs contain `-` which the charset does not admit.
+      uuid_like = "tag:550e8400-e29b-41d4-a716-446655440000"
+
+      assert {:error, :invalid_tag_name, details} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", uuid_like])
+
+      assert details.target == uuid_like
+      assert details.flag == "--tests"
+      assert is_binary(details.message)
+    end
+
+    test "tag with leading uppercase is rejected" do
+      assert {:error, :invalid_tag_name, _} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:Slow"])
+    end
+
+    test "tag starting with a digit is rejected" do
+      assert {:error, :invalid_tag_name, _} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:1slow"])
+    end
+
+    test "tag with `?` suffix is rejected (charset doesn't admit it)" do
+      assert {:error, :invalid_tag_name, _} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:slow?"])
+    end
+
+    test "tag longer than 64 chars is rejected" do
+      too_long = "tag:" <> String.duplicate("a", 65)
+
+      assert {:error, :invalid_tag_name, _} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", too_long])
+    end
+
+    test "tag exactly 64 chars is accepted (boundary)" do
+      sixty_four = "tag:" <> String.duplicate("a", 64)
+
+      assert {:ok, %Config{tests: [^sixty_four]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", sixty_four])
+    end
+
+    test "empty tag (tag:) does not match the file-path branch and is rejected" do
+      # "tag:" with empty name does not match the regex (must start with [a-z]).
+      assert {:error, :invalid_tag_name, _} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "tag:"])
+    end
+
+    test "non-tag --tests targets are NOT gated by the charset" do
+      # File paths and file:line targets bypass the gate entirely.
+      assert {:ok, %Config{tests: ["test/foo_test.exs"]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+
+      assert {:ok, %Config{tests: ["test/Foo-Bar_test.exs:42"]}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/Foo-Bar_test.exs:42"])
+    end
+
+    test "charset rejection fires before any atom path (none of the rejected names become atoms)" do
+      # The fundamental contract of r11: a rejected tag target must not
+      # cause atom registration. Pre-fix, the downstream selector would
+      # `String.to_atom/1` each rejected name; with the gate in place,
+      # parsing stops before any atom path. The falsification is
+      # structural: AFTER the loop, NONE of the N rejected name parts
+      # are registered atoms.
+      n = 50
+
+      probes =
+        for i <- 1..n do
+          # Embed `-` so the charset gate rejects it (the regex doesn't
+          # admit `-`). The integer keeps each name distinct.
+          part = "bad_for_charset_#{System.unique_integer([:positive])}_#{i}"
+          name_with_dash = "x-" <> part
+          {name_with_dash, "tag:" <> name_with_dash}
+        end
+
+      for {_name, full_target} <- probes do
+        assert {:error, :invalid_tag_name, _} =
+                 CLI.parse(["--scope", "lib/foo.ex", "--tests", full_target])
+      end
+
+      # Falsification: none of the N rejected `tag:NAME` parts became
+      # atoms. Pre-fix code would have called `String.to_atom(name)`
+      # downstream and registered all N.
+      for {name, _full} <- probes do
+        try do
+          existing = :erlang.binary_to_existing_atom(name, :utf8)
+
+          flunk(
+            "rejected tag name #{inspect(name)} became registered atom " <>
+              "#{inspect(existing)} — gate must short-circuit before atom resolution"
+          )
+        rescue
+          ArgumentError -> :ok
+        end
+      end
+    end
+  end
+
   describe "parse/1 — unknown flags and stray args" do
     test "unknown long flag yields :unknown_flag" do
       assert {:error, :unknown_flag, details} =
@@ -600,7 +714,7 @@ defmodule MutagenEx.CLITest do
     end
 
     test "Caveats enumerate every required caveat from mutagen.cli.r9", %{moduledoc: doc} do
-      # The r9 spec names eight required caveats; assert each one's keyword
+      # The r9 spec names the required caveats; assert each one's keyword
       # appears in the moduledoc. We assert on the salient keyword rather
       # than full phrasing to keep the doc readable while still falsifying
       # if a caveat goes missing.
@@ -612,7 +726,9 @@ defmodule MutagenEx.CLITest do
         "--no-json",
         "ExUnit ordering",
         "colon syntax",
-        "Self-mutation"
+        "Self-mutation",
+        # mutagen.cli.r11 — tag:NAME charset gate
+        "tag:NAME"
       ]
 
       for keyword <- caveats do
