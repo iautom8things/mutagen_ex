@@ -550,8 +550,7 @@ defmodule MutagenEx.MutationRunnerTest do
       # via the graceful path. r4 classification is :timeout (the
       # wall-clock budget elapsed regardless of the unwind mechanism).
       ExUnitFake.set_results([
-        {:trap_then_yield_on_shutdown,
-         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+        {:trap_then_yield_on_shutdown, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])
 
       start_ms = System.monotonic_time(:millisecond)
@@ -592,8 +591,7 @@ defmodule MutagenEx.MutationRunnerTest do
       # finish; the loop must escalate to brutal_kill — that's the
       # only path that actually clears the task.
       ExUnitFake.set_results([
-        {:trap_and_ignore_shutdown, 1_000,
-         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+        {:trap_and_ignore_shutdown, 1_000, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])
 
       start_ms = System.monotonic_time(:millisecond)
@@ -640,8 +638,7 @@ defmodule MutagenEx.MutationRunnerTest do
       ExUnitFake.set_results([
         # Force a brutal-kill path so we KNOW the timeout actually
         # fired with the cancel_mode that justifies the purge.
-        {:trap_and_ignore_shutdown, 1_000,
-         %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+        {:trap_and_ignore_shutdown, 1_000, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])
 
       assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
@@ -757,8 +754,7 @@ defmodule MutagenEx.MutationRunnerTest do
         # Site 1: complete normally AND leak a named process before
         # returning. Status will classify as `:survived` (failures == 0),
         # NOT `:timeout`.
-        {:leak_proc, leaked_name,
-         %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        {:leak_proc, leaked_name, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
         # Site 2: normal pass.
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])

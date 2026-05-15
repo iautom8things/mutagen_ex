@@ -560,7 +560,9 @@ defmodule MutagenEx.MutationRunner do
     new_ambient = update_ambient_runner(meta, ambient)
 
     {form2, _amb, replaced_form?} =
-      if is_atom(form), do: {form, new_ambient, false}, else: walk_bare(form, new_ambient, false, site)
+      if is_atom(form),
+        do: {form, new_ambient, false},
+        else: walk_bare(form, new_ambient, false, site)
 
     case args do
       children when is_list(children) ->

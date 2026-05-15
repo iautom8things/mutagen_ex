@@ -175,8 +175,7 @@ defmodule MutagenEx.ScopeResolver do
         {:error, :unrecognised_target,
          %{
            target: target,
-           message:
-             "scope target #{inspect(target)} has `/arity` but no `Module.function` head"
+           message: "scope target #{inspect(target)} has `/arity` but no `Module.function` head"
          }}
     end
   end
@@ -190,8 +189,7 @@ defmodule MutagenEx.ScopeResolver do
 
     cond do
       segments == [] or last == "" ->
-        {:error, :unrecognised_target,
-         %{target: target, message: "empty scope target"}}
+        {:error, :unrecognised_target, %{target: target, message: "empty scope target"}}
 
       starts_lowercase?(last) ->
         {:error, :arity_required,
@@ -321,8 +319,7 @@ defmodule MutagenEx.ScopeResolver do
                module: mod,
                function: fun,
                arity: arity,
-               message:
-                 "no `def #{fun}/#{arity}` found in `defmodule #{inspect(mod)}` (#{file})"
+               message: "no `def #{fun}/#{arity}` found in `defmodule #{inspect(mod)}` (#{file})"
              }}
 
           ranges ->
@@ -568,16 +565,14 @@ defmodule MutagenEx.ScopeResolver do
         {:error, :file_not_found,
          %{
            file: file,
-           message:
-             "could not read source file #{inspect(file)}: #{Exception.message(e)}"
+           message: "could not read source file #{inspect(file)}: #{Exception.message(e)}"
          }}
 
       e ->
         {:error, :file_read_failed,
          %{
            file: file,
-           message:
-             "could not read source file #{inspect(file)}: #{Exception.message(e)}"
+           message: "could not read source file #{inspect(file)}: #{Exception.message(e)}"
          }}
     end
   end

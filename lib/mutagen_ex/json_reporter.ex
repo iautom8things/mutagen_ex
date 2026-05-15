@@ -297,10 +297,8 @@ defmodule MutagenEx.JsonReporter do
       "kill_rate" => Map.get(m, :kill_rate, nil),
       "results" => Enum.map(Map.get(m, :results, []), &result_to_wire/1),
       "skipped" => Enum.map(Map.get(m, :skipped, []), &skipped_to_wire/1),
-      "compile_errors" =>
-        Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire/1),
-      "state_drift_warning" =>
-        state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
+      "compile_errors" => Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire/1),
+      "state_drift_warning" => state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
     }
   end
 

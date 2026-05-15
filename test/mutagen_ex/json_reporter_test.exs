@@ -339,7 +339,8 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
       decoded = decode(iodata)
 
-      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason) do
+      for key <-
+            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason) do
         assert Map.has_key?(decoded, key), "abort doc missing top-level key #{key}"
       end
     end
@@ -548,8 +549,7 @@ defmodule MutagenEx.JsonReporterTest do
       dispatch =
         capture_dispatch(
           scope: fn target, _opts ->
-            {:error, :module_not_found,
-             %{target: target, message: "no module named #{target}"}}
+            {:error, :module_not_found, %{target: target, message: "no module named #{target}"}}
           end
         )
 
@@ -774,11 +774,11 @@ defmodule MutagenEx.JsonReporterTest do
       # group: nil, parameterize: nil}`). Each of these would have been
       # false before mutagen-wrd.12 fixed phase_mutation/7.
       assert is_list(mutation_input.test_modules)
+
       refute mutation_input.test_modules == [],
              "test_modules must be derived from test_filter.files, not hardcoded to []"
 
-      assert {Mutagen.Phase.MutationCaptureTest,
-              %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
+      assert {Mutagen.Phase.MutationCaptureTest, %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
     end
   end
 
@@ -816,10 +816,12 @@ defmodule MutagenEx.JsonReporterTest do
   def __phase_scope__(target, opts), do: apply(Process.get({:phase_fun, :scope}), [target, opts])
 
   @doc false
-  def __phase_tests__(targets, opts), do: apply(Process.get({:phase_fun, :tests}), [targets, opts])
+  def __phase_tests__(targets, opts),
+    do: apply(Process.get({:phase_fun, :tests}), [targets, opts])
 
   @doc false
-  def __phase_ast_cache__(files, opts), do: apply(Process.get({:phase_fun, :ast_cache}), [files, opts])
+  def __phase_ast_cache__(files, opts),
+    do: apply(Process.get({:phase_fun, :ast_cache}), [files, opts])
 
   @doc false
   def __phase_coverage__(input), do: apply(Process.get({:phase_fun, :coverage}), [input])

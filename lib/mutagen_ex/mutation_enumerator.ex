@@ -156,7 +156,13 @@ defmodule MutagenEx.MutationEnumerator do
   # cache, narrows to the matching `defmodule` body (r4), runs each
   # qualifying node through the mutator catalog. If the walk produces no
   # sites AND no skips, emit the no-mutation-candidates warning (r5).
-  defp enumerate_scope(%Scope{file: file, module: module} = scope, ast_cache, covered_lines, mutators, acc) do
+  defp enumerate_scope(
+         %Scope{file: file, module: module} = scope,
+         ast_cache,
+         covered_lines,
+         mutators,
+         acc
+       ) do
     case Map.fetch(ast_cache, file) do
       :error ->
         # No AST entry for this file in the cache. We surface this as a

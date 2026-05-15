@@ -316,8 +316,7 @@ defmodule Mix.Tasks.Mutagen do
         {:error, reason, details} ->
           partial = %Report{report | scope: acc}
 
-          {:halt,
-           {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
+          {:halt, {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
       end
     end)
   end
@@ -394,8 +393,7 @@ defmodule Mix.Tasks.Mutagen do
         # r1: baseline failures populate `baseline` on the abort report.
         partial_baseline = %{
           "passed" => Map.get(details, :passed, 0),
-          "failed" =>
-            Map.get(details, :failed, length(Map.get(details, :failures, []))),
+          "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
           "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1)
         }
 
@@ -596,8 +594,7 @@ defmodule Mix.Tasks.Mutagen do
     {io_mod, io_fun} = Map.fetch!(dispatch, :io)
     apply(io_mod, io_fun, [iodata, code, config])
 
-    {:aborted, reason,
-     %Report{report | aborted: true, abort_reason: Atom.to_string(reason)}}
+    {:aborted, reason, %Report{report | aborted: true, abort_reason: Atom.to_string(reason)}}
   end
 
   # ---------------------------------------------------------------------------

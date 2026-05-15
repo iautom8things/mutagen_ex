@@ -96,6 +96,7 @@ defmodule MutagenEx.MutatorsTest do
       assert MutagenEx.Mutators.WithSwap.match?(ast)
       swapped = MutagenEx.Mutators.WithSwap.mutate(ast)
       assert {:with, _, [{:<-, _, _}, {:<-, _, _} | _]} = swapped
+
       assert MutagenEx.Mutators.WithSwap.validate(swapped) ==
                {:skip, :bound_var_used_before_binding}
     end

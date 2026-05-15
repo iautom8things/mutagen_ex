@@ -108,13 +108,17 @@ defmodule MutagenEx.TestSelector do
 
     # Seed accumulator with exclude: [] — merge/2 widens to whichever
     # contributor's shape best matches the user's intent (see r6 / merge).
-    Enum.reduce_while(targets, {:ok, %TestFilter{include: [], exclude: [], files: []}, _seed = true}, fn
-      target, {:ok, acc, seed?} ->
-        case resolve_one(target, test_root) do
-          {:ok, %TestFilter{} = filter} -> {:cont, {:ok, merge(acc, filter, seed?), false}}
-          {:error, _} = err -> {:halt, err}
-        end
-    end)
+    Enum.reduce_while(
+      targets,
+      {:ok, %TestFilter{include: [], exclude: [], files: []}, _seed = true},
+      fn
+        target, {:ok, acc, seed?} ->
+          case resolve_one(target, test_root) do
+            {:ok, %TestFilter{} = filter} -> {:cont, {:ok, merge(acc, filter, seed?), false}}
+            {:error, _} = err -> {:halt, err}
+          end
+      end
+    )
     |> case do
       {:ok, %TestFilter{} = filter, _seed} -> {:ok, filter}
       other -> other
@@ -234,7 +238,8 @@ defmodule MutagenEx.TestSelector do
   defp extract_end_line([{:do, body} | _]) do
     case body do
       {_, meta, _} ->
-        Keyword.get(meta, :end, []) |> case do
+        Keyword.get(meta, :end, [])
+        |> case do
           [{:line, line} | _] -> line
           _ -> last_line_of(body)
         end

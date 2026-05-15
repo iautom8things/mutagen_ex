@@ -54,9 +54,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
             content
 
           {:error, :enoent} ->
-            flunk(
-              "missing golden fixture #{path}. Generate with REGEN=1 mix test"
-            )
+            flunk("missing golden fixture #{path}. Generate with REGEN=1 mix test")
         end
 
       if expected != actual do
@@ -185,8 +183,24 @@ defmodule MutagenEx.JsonReporterGoldenTest do
           fixture_result("lib/foo.ex:101:arith", :arith, 2, 5, "a + b", "a - b", :killed),
           fixture_result("lib/foo.ex:102:arith", :arith, 3, 5, "a * b", "a / b", :killed),
           fixture_result("lib/foo.ex:103:bool", :bool, 7, 8, "x and y", "x or y", :survived),
-          fixture_result("lib/foo.ex:104:case_drop", :case_drop, 9, 3, "case x do\n  :a -> 1\n  _ -> 2\nend", "1", :killed),
-          fixture_result("lib/foo.ex:105:arith", :arith, 15, 6, "loop()", "infinite_loop()", :timeout)
+          fixture_result(
+            "lib/foo.ex:104:case_drop",
+            :case_drop,
+            9,
+            3,
+            "case x do\n  :a -> 1\n  _ -> 2\nend",
+            "1",
+            :killed
+          ),
+          fixture_result(
+            "lib/foo.ex:105:arith",
+            :arith,
+            15,
+            6,
+            "loop()",
+            "infinite_loop()",
+            :timeout
+          )
         ],
         skipped: [],
         compile_errors: [],
