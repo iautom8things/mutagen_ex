@@ -23,11 +23,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: This is a SPIKE/DISCOVERY ticket with no spec-advancement (no new must requirements; the spike validates whether an existing requirement holds in the macro-DSL case). VERIFY reported PASS with all spike merge-gate items met: Option B decision recorded as a comment; README \"Known limitations\" entry 5 updated with corrected root cause and deferral pointer to mutagen-wrd.32; mutagen-wrd.32 opened with a concrete fix plan (named file/line, named root cause, named fix shapes); both helper scripts in priv/helper_scripts/ faithfully reproduce the spike's evidence chain (cover lifecycle byte-faithful; persisted-attribute Keyword.get_values shape reproduced standalone). Zero mechanical or intent-level scope violations (4 files touched, all within Allowed; no lib/, no fixture-test, no .spec/ touches). Project verification passes (mix compile clean; 362 tests, 0 failures). One advisory Note (timeout_handling.md framing correction) is correctly deferred to .32 as out-of-Allowed for this ticket. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-15T00:53:48Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd at d2e5161. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-15T00:54:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "DISCOVERY: :ecto_user_scenario @tag :skip — spike root cause, decide deferral or fix path",
   "type": "task",
-  "updated_at": "2026-05-15T00:53:48Z"
+  "updated_at": "2026-05-15T00:54:26Z"
 }
