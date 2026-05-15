@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T00:54:26Z",
   "created": "2026-05-14T16:33:04Z",
   "description": "Advances: mutagen.coverage, mutagen.mutation_pipeline\n\n**SPIKE** (time-boxed: half-day). Decide the disposition of test/mutagen_ex/end_to_end_test.exs Scenario 7 (`:ecto_user_scenario`), which is currently `@tag :skip` with a fresh note from `.13` (\"cover-instrumentation issue unrelated to this tickets Code.Server-lock fix\").\n\nCloses:\n- **F12** (HIGH, second half — `:literal_floor_scenario` already un-skipped by `.16`)\n\nThe scenario gates the Spike-I bytecode-identical-restore invariant against macro-heavy DSLs (Ecto, Phoenix). Without it, the project ships v1 with no green coverage on its most load-bearing claim.\n\n## Spike output\n\nThis is an investigation ticket, not a fix ticket. Half-day time box. Output is one of:\n\n**Option A — fold into `.29` (F23 combine baseline+coverage instrumented run):**\nThe root cause is `:cover.compile_beam` not producing bytecode-identical output for Ecto-style schema macros. Document the deferral target; close `.19` as decided. The un-skip happens in `.29`.\n\n**Option B — open `.19b` as a concrete fix ticket:**\nThe root cause is standalone (e.g. ExUnit setup ordering, fixture pollution, an EctoUser-specific macro that needs special handling). Open `.19b` with a focused fix plan; un-skip during `.19b` implementation.\n\n**Option C — write a non-:cover parallel scenario:**\nExercise bytecode-identity restore against a macro-heavy module without going through :cover. Document the :cover + Ecto interaction as a known limitation but unblock the Spike-I evidence at .19s scope. ~2 hours work.\n\nAny output updates README \"Known caveats\" with the actual root cause and a concrete deferral target — not the current vague \"cover-instrumentation issue unrelated.\"\n\n## Verification\n\nInvestigation completes with one of A/B/C decided. Decision recorded as a comment on this ticket. README caveats updated. `.19b` opened if Option B.\n\n## Allowed touches\n\n- README.md, CHANGELOG.md (caveat language)\n- test/mutagen_ex/end_to_end_test.exs (only if Option C; minimal scope)\n- New scratch directory under priv/helper_scripts/ if needed for investigation\n\n## Out of Scope\n\n- Fixing the `:cover` + Ecto interaction in lib/ source — that lives in `.19b` (if Option B) or `.29` (if Option A)\n- Refactoring the e2e suite beyond un-skipping if Option C\n\n## Time budget\n\nHard cap: 4 hours. If no clear root cause emerges in 4 hours, default to Option A (fold into `.29`) and document the unknown as a deferred investigation. Set a timer.\n\n## Merge gate\n\n- [ ] Investigation conclusion recorded as a ticket comment\n- [ ] README updated with root cause + deferral target\n- [ ] `.19b` opened if Option B; otherwise this ticket is the terminal node\n- [ ] Auditor APPROVE",
   "id": "mutagen-wrd.19",
@@ -30,7 +31,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "DISCOVERY: :ecto_user_scenario @tag :skip — spike root cause, decide deferral or fix path",
   "type": "task",
   "updated_at": "2026-05-15T00:54:26Z"
