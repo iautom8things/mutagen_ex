@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: agent-a3d1b84ca70a21874\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0/subagents/agent-a3d1b84ca70a21874.jsonl\n\nReasoning: Re-ran all 11 spec stubs at HEAD (fea27e4) — every one passes with the counts the verifier claimed (mutation_pipeline v1=8, v2=22, v3=1, v4=1, v5=7, v6=5; coverage v1=12, v2=2, v3=10, v4=1, v5=5; new facades_test=13). `mix compile --warnings-as-errors` exits 0. Inspected the diff against base 338c534: 16 files touched, all within Allowed; `lib/mix/tasks/mutagen.ex` is NOT in the diff (15 apply/3 sites untouched, as the implementer claims) and is deferred to bw mutagen-wrd.33 (filed with full architectural context: 11 heterogeneous-arity dispatch keys + json_reporter_test.exs's `{__MODULE__, :__phase_X__}` + `Process.put`-backed closures that violate .24's \"swap modules without changes\" contract).\n\nThe scope split is HONEST: the Deliverable section enumerates exactly 3 facade categories (ExUnit / Compiler / Cover) and the implementer delivered all 3 plus 2 cleanly-needed extras (ExUnitServer, CaptureIO) — a net expansion of the call-site coverage, not a reduction. Every default impl declares `@behaviour` and tags every callback `@impl`, so callback drift will fail `--warnings-as-errors` (Dialyzer surrogate). The only `apply/3` remaining in the 4 target files is the documented `{mod, fun}` legacy branch in MutationRunner.compiler_call/1:713, which facades_test.exs pins with both shapes (module-atom + legacy tuple) in falsifiable tests. The Allowed-touches line does list `lib/mix/tasks/mutagen.ex (dispatch table replacement)` which a strict reader could read as prescriptive, but the architectural rationale + transparent .33 deferral makes the split defensible — the F9 finding will fully close once .33 lands.",
       "timestamp": "2026-05-15T01:58:57Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off (auditor APPROVE; scope-reduction to mutagen-wrd.33 acknowledged as honest).",
+      "timestamp": "2026-05-15T02:01:32Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Replace apply/3 test seams with behaviour-backed facades",
   "type": "task",
-  "updated_at": "2026-05-15T01:58:57Z"
+  "updated_at": "2026-05-15T02:01:32Z"
 }
