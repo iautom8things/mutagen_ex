@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: VERIFY reported PASS with strong falsifiability — slice-path test uses `a  +  b` source vs `a + b` Macro.to_string contrast (would fail under silent fallback); fallback path pinned by `:erts_debug.same/2` reference equality (regression to recompute Macro.to_string would break it). 14 files all Allowed. 9 spec stubs pass (json_schema.v1-v6, mutation_enumeration.v1-v3). Project verification green (492/0; with e2e_slow: 505/0). 2*R Macro.to_string cap from .26 r12 holds (slice path uses byte indexing, only 2 call sites). Source-claim traced: Site gains optional end_line/end_column; MutationRunner.record_outcome threads source_text + end positions; render_before_source/2 correctly fans out to fallback. 6 golden fixtures regenerated — drift is intended improvement (verbatim slice preserves source indentation). No Gaps, no intent concerns. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-15T03:16:48Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd at 93d990f. Closing per orchestrator sign-off. NOTE: rebase worker flagged a pre-existing NDJSON streaming gap — JsonStreamer.result_to_wire/1 still uses Macro.to_string for before_source in the NDJSON variant (the slice path is only in render_result for the single-document mode). If the json_schema.r4/r12 contract should apply to both wire variants, a follow-up ticket is warranted.",
+      "timestamp": "2026-05-15T03:21:54Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Verbatim source slice for mutation.results[].before_source",
   "type": "task",
-  "updated_at": "2026-05-15T03:16:48Z"
+  "updated_at": "2026-05-15T03:21:54Z"
 }
