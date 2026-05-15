@@ -31,11 +31,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: VERIFY-3 (iteration 2 after AUDIT-1 BOUNCE → implementer) reported PASS with all three audit-mandated edits in place on .spec/specs/json_schema.spec.md per AUDIT-1's option-a instructions: (1) `truncated` added to top-level keys inventory with cross-refs to r10 + mutagen.cli.r12; (2) both r2 broadened AND new r10 added (over-delivery on the either-or); (3) no new stub (golden + json_schema.v3 already cover wire presence). All 4 spec stubs pass (cli.v6 83/0, cli.v7 85/0, mutation_enumeration.v4 23/0, json_schema.v3 6/0). Iteration-1 structural scope expansion on config.ex / mutation_runner.ex / json_reporter.ex / mix_task_phase_scope_test.exs reaffirmed. Iteration-2 added file (.spec/specs/json_schema.spec.md) is audit-expanded scope per AUDIT-1 at 2026-05-15T02:23:15Z. Mechanical clean, no Out-of-Scope (streaming/NDJSON) violations. Project verification green: 419 tests, 0 failures. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-15T02:30:43Z"
+    },
+    {
+      "text": "MERGE_CONFLICT: lib/mix/tasks/mutagen.ex, lib/mutagen_ex/cli.ex (real code conflicts outside narrow rebase authority — both stages touched arg parsing / option dispatch). cli.spec.md also conflicted but is in authority for renumbering. Rebase aborted; escalating to human.",
+      "timestamp": "2026-05-15T02:31:42Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
-  "updated_at": "2026-05-15T02:30:43Z"
+  "updated_at": "2026-05-15T02:31:42Z"
 }
