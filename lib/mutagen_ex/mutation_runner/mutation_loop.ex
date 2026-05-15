@@ -325,22 +325,12 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   defp capture_stderr(input, fun) do
     capture_io = Map.get(input, :capture_io, ExUnit.CaptureIO)
 
-    # ExUnit.CaptureIO captures only what's written via the configured
-    # device. The function we pass returns the body result; we wrap it
-    # in `Process.put`/`get` to read it back outside the capture closure.
-    ref = make_ref()
-
-    output =
-      apply(capture_io, :capture_io, [
-        :stderr,
-        fn ->
-          result = fun.()
-          Process.put({__MODULE__, ref}, result)
-        end
-      ])
-
-    body_result = Process.get({__MODULE__, ref})
-    Process.delete({__MODULE__, ref})
+    # `with_io/3` returns `{closure_result, captured_io}` directly. Per
+    # `mutagen-wrd.23` this replaces the older
+    # `make_ref/Process.put/Process.get` smuggle that relied on the
+    # (undocumented) fact that `capture_io/2` runs its closure in the
+    # calling process.
+    {body_result, output} = apply(capture_io, :with_io, [:stderr, fun])
 
     {output, body_result}
   end

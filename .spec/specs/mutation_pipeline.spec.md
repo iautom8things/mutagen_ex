@@ -145,7 +145,7 @@ decisions:
   priority: must
   statement: |
     Stderr written during per-mutation runs (e.g. compiler warnings) is
-    captured via `ExUnit.CaptureIO.capture_io(:stderr, ...)` and attached
+    captured via `ExUnit.CaptureIO.with_io(:stderr, ...)` and attached
     to that mutation's `results[i].warnings` field. Stderr never leaks to
     the user's terminal during the run.
 
@@ -326,10 +326,9 @@ decisions:
   covers: [mutagen.mutation_pipeline.r12]
   given: |
     A mutated module is loaded for a site, and a fault inside the
-    loaded-mutation window (e.g. a misbehaving `:capture_io` seam,
-    `MutationLoop.run/1`'s internal smuggle pattern failing, or any
-    runtime error in the window) raises an exception before the runner
-    can call `restore/3` itself.
+    loaded-mutation window (e.g. a misbehaving `:capture_io` seam, or
+    any runtime error in the window) raises an exception before the
+    runner can call `restore/3` itself.
   when: The exception propagates out of `MutationLoop.run/1`.
   then: |
     The runner runs restore (best-effort via `safe_restore/3`) before

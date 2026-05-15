@@ -663,33 +663,30 @@ defmodule MutagenEx.MutationRunner do
     {compiler_mod, compiler_fun} = Map.get(cfg, :compiler, {Code, :compile_quoted})
     capture_io = Map.get(cfg, :capture_io, ExUnit.CaptureIO)
 
-    ref = make_ref()
-
-    stderr =
-      apply(capture_io, :capture_io, [
+    # `with_io/3` returns `{closure_result, captured_io}` synchronously —
+    # no process-dictionary smuggle needed. Per `mutagen-wrd.23` this
+    # replaces the older `make_ref/Process.put/Process.get` pattern that
+    # relied on the (undocumented) fact that `capture_io/2` runs its
+    # closure in the calling process.
+    {body_result, stderr} =
+      apply(capture_io, :with_io, [
         :stderr,
         fn ->
           try do
-            result = apply(compiler_mod, compiler_fun, [ast, file])
-            Process.put({__MODULE__, ref}, {:ok, result})
+            {:ok, apply(compiler_mod, compiler_fun, [ast, file])}
           rescue
-            e ->
-              Process.put({__MODULE__, ref}, {:error, Exception.message(e)})
+            e -> {:error, Exception.message(e)}
           catch
-            kind, value ->
-              Process.put({__MODULE__, ref}, {:error, "#{kind}: #{inspect(value)}"})
+            kind, value -> {:error, "#{kind}: #{inspect(value)}"}
           end
         end
       ])
 
-    case Process.get({__MODULE__, ref}) do
+    case body_result do
       {:ok, modules} ->
-        Process.delete({__MODULE__, ref})
         {:ok, modules, stderr}
 
       {:error, message} ->
-        Process.delete({__MODULE__, ref})
-
         {:error, :compile_error,
          message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)}
     end

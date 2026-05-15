@@ -39,7 +39,7 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
   # mid-flight inside the protected window, and a fault on the way back
   # out makes the exception propagate.
   #
-  # Per site, `safe_compile_quoted` invokes `capture_io` three times:
+  # Per site, `safe_compile_quoted` invokes `with_io` three times:
   #
   #   1. Mutated-AST compile (BEFORE the protected window opens)
   #   2. `MutationLoop.capture_stderr` (INSIDE the window — the
@@ -59,8 +59,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
   defmodule RaisingCaptureIO do
     @moduledoc false
 
-    def capture_io(device, fun) do
-      output = ExUnit.CaptureIO.capture_io(device, fun)
+    def with_io(device, fun) do
+      {result, output} = ExUnit.CaptureIO.with_io(device, fun)
 
       call_n = (Process.get(:raising_capture_io_call_n) || 0) + 1
       Process.put(:raising_capture_io_call_n, call_n)
@@ -70,10 +70,10 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
 
       cond do
         is_nil(fault) ->
-          output
+          {result, output}
 
         call_n != fire_on ->
-          output
+          {result, output}
 
         true ->
           case fault do

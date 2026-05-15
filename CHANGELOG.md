@@ -61,6 +61,20 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `MutationRunner.safe_compile_quoted/3` and
+  `MutationLoop.capture_stderr/2` now use
+  `ExUnit.CaptureIO.with_io/3` — which returns `{closure_result,
+  captured_io}` directly — instead of `capture_io/2` paired with a
+  `make_ref/Process.put/Process.get` smuggle to extract the closure's
+  return value. Removes the dependency on the (undocumented) fact that
+  `capture_io/2` runs its closure in the calling process and deletes
+  the per-call process-dictionary lifetime bookkeeping. Spec
+  `mutagen.mutation_pipeline.r9` updated to name `with_io/3`; behavior
+  is byte-identical (same stderr capture, same suppression, same
+  warning attachment). The `:capture_io` seam used by tests now
+  requires `with_io/3` (test stubs `CaptureIoStub` and
+  `RaisingCaptureIO` updated in lock-step). *(mutagen-wrd.23)*
+
 - The r11 disk-write test in `mutation_runner_test.exs` and the r7
   disk-write test in `coverage_runner_test.exs` now assert byte-identity
   across `lib/`, `_build/`, `cover/`, host project config, and

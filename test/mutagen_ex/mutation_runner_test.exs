@@ -227,12 +227,12 @@ defmodule MutagenEx.MutationRunnerTest do
 
   defmodule CaptureIoStub do
     @moduledoc false
-    # ExUnit.CaptureIO.capture_io(:stderr, fn -> ... end) returns the
-    # captured stderr string. We delegate to the real ExUnit.CaptureIO so
-    # tests that don't care about capture get the real shape; tests
-    # asserting against captured-stderr content also work because the
-    # real capture suppresses + returns.
-    defdelegate capture_io(device, fun), to: ExUnit.CaptureIO
+    # `ExUnit.CaptureIO.with_io(:stderr, fn -> ... end)` returns
+    # `{closure_result, captured_stderr}`. We delegate to the real
+    # ExUnit.CaptureIO so tests that don't care about capture get the
+    # real shape; tests asserting against captured-stderr content also
+    # work because the real capture suppresses + returns.
+    defdelegate with_io(device, fun), to: ExUnit.CaptureIO
   end
 
   defmodule CompilerStub do
