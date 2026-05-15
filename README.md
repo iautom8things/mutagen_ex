@@ -209,3 +209,28 @@ mix test
 ```
 
 No third-party dependencies. Elixir `~> 1.19`, stdlib only.
+
+### Test suite gates
+
+The default `mix test` run excludes two tag families to keep wall-clock
+under ~60s for the smoke gate:
+
+| Tag | What it covers | How to run |
+|---|---|---|
+| `:e2e_slow` | Full `mix mutagen` pipeline against the lane fixture; takes minutes per scenario. | `mix test --only e2e_slow` |
+| `:spike` | C1/C2 integration spikes under `test/mutagen_ex/integration/` — ~500 cover lifecycles per default run. These are the gating decision artifact for the in-process pipeline (`mutagen.decision.in_process_pipeline`); they must stay runnable, just not on every default invocation. | `mix test --only spike` |
+
+The C2 spike accepts `MUTAGEN_SPIKE_ITERATIONS=<n>` to override the loop
+count. Default is `10`; the original gating run used `100`:
+
+```bash
+# Quick smoke (10 iterations)
+mix test --only spike
+
+# Full gating run (100 iterations, ~as long as the original spike)
+MUTAGEN_SPIKE_ITERATIONS=100 mix test --only spike
+```
+
+C1 retains a fixed 100-iteration count — its loop measures restore
+contract fidelity across module shapes, where the cycle count is the
+contract.

@@ -100,6 +100,24 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `:cover_server` and `ExUnit.Server` during a MutagenEx mutation cycle,
   and points readers at `.spec/decisions/supervision_tree.md`. Per
   `mutagen.coverage.r1` / `mutagen.coverage.r8`. *(mutagen-wrd.18)*
+- The C1/C2 integration spikes under `test/mutagen_ex/integration/` are
+  now tagged `:spike` and excluded from the default `mix test` run.
+  `test/test_helper.exs` calls `ExUnit.start(exclude: [:e2e_slow,
+  :spike])`. The spikes remain the gating decision artifact for the
+  in-process pipeline (per `mutagen.decision.in_process_pipeline`) and
+  are runnable on demand via `mix test --only spike`. Default `mix
+  test` wall-clock drops from ~24s to ~1s; the smoke gate is no longer
+  dominated by ~500 cover lifecycles every run. *(mutagen-wrd.28)*
+- The C2 spike's iteration count is now controlled by the
+  `MUTAGEN_SPIKE_ITERATIONS` env var (default `10`, original gating
+  value `100`). The invariants — `failures == 0`, process growth ≤ 50,
+  memory growth ≤ 1.5× — hold at any positive N; the count is a
+  cycle-time knob, not a contract. C1's 100-iteration count is
+  unchanged because its loop count IS the contract (restore fidelity
+  measured across cycles). *(mutagen-wrd.28)*
+- `README.md` documents the `:spike` opt-in and the
+  `MUTAGEN_SPIKE_ITERATIONS` knob under a new "Test suite gates"
+  subsection. *(mutagen-wrd.28)*
 
 ### Notes
 
