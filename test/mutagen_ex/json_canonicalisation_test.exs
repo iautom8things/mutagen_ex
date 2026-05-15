@@ -268,30 +268,45 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   end
 
   # --- helpers ----------------------------------------------------------------
+  #
+  # Per bw mutagen-wrd.33, the Mix task dispatches via plain module
+  # atoms — tests swap modules, not `{module, function}` tuples. The
+  # phase stubs read their per-test bodies from the process dictionary
+  # so individual tests can swap closures without minting new modules.
+
+  defmodule PhaseStubs.Scope do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.ScopeFacade
+
+    @impl MutagenEx.Pipeline.ScopeFacade
+    def resolve(target, opts) do
+      apply(Process.get({:phase_fun, :scope}), [target, opts])
+    end
+  end
+
+  defmodule PhaseStubs.Io do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.IoFacade
+
+    @impl MutagenEx.Pipeline.IoFacade
+    def emit(iodata, code, config) do
+      send(Process.get(:capture_target), {:io, iodata, code, config})
+      :ok
+    end
+  end
 
   defp capture_full_dispatch(overrides) do
     scope_fun = Keyword.get(overrides, :scope, &fail_scope/2)
     Process.put({:phase_fun, :scope}, scope_fun)
 
     %{
-      scope: {__MODULE__, :__phase_scope__},
-      io: {__MODULE__, :__phase_io__}
+      scope: PhaseStubs.Scope,
+      io: PhaseStubs.Io
     }
   end
 
-  @doc false
-  def __phase_scope__(target, opts),
-    do: apply(Process.get({:phase_fun, :scope}), [target, opts])
-
-  @doc false
-  def __phase_io__(iodata, code, config) do
-    send(Process.get(:capture_target), {:io, iodata, code, config})
-    :ok
-  end
-
   defp fail_scope(target, _opts) do
-    {:error, :module_not_found,
-     %{target: target, message: "fake-scope refusal (test harness)"}}
+    {:error, :module_not_found, %{target: target, message: "fake-scope refusal (test harness)"}}
   end
 
   defp isolated_project_root do

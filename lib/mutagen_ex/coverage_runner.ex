@@ -64,6 +64,8 @@ defmodule MutagenEx.CoverageRunner do
 
   alias MutagenEx.TestSelector.TestFilter
 
+  @behaviour MutagenEx.Pipeline.CoverageFacade
+
   @typedoc "Reasons the runner can return as the second element of `{:error, _, _}`."
   @type error_reason ::
           :cover_already_running
@@ -85,6 +87,7 @@ defmodule MutagenEx.CoverageRunner do
 
   See module doc for input/output shape and lifecycle invariants.
   """
+  @impl MutagenEx.Pipeline.CoverageFacade
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, normalised} <- normalise(input) do

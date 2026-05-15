@@ -339,7 +339,8 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
       decoded = decode(iodata)
 
-      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason) do
+      for key <-
+            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason) do
         assert Map.has_key?(decoded, key), "abort doc missing top-level key #{key}"
       end
     end
@@ -548,8 +549,7 @@ defmodule MutagenEx.JsonReporterTest do
       dispatch =
         capture_dispatch(
           scope: fn target, _opts ->
-            {:error, :module_not_found,
-             %{target: target, message: "no module named #{target}"}}
+            {:error, :module_not_found, %{target: target, message: "no module named #{target}"}}
           end
         )
 
@@ -774,71 +774,131 @@ defmodule MutagenEx.JsonReporterTest do
       # group: nil, parameterize: nil}`). Each of these would have been
       # false before mutagen-wrd.12 fixed phase_mutation/7.
       assert is_list(mutation_input.test_modules)
+
       refute mutation_input.test_modules == [],
              "test_modules must be derived from test_filter.files, not hardcoded to []"
 
-      assert {Mutagen.Phase.MutationCaptureTest,
-              %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
+      assert {Mutagen.Phase.MutationCaptureTest, %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
     end
   end
 
   # ---------------------------------------------------------------------------
   # Fake phase implementations for state-machine tests
   # ---------------------------------------------------------------------------
+  #
+  # Each phase stub is a dedicated module that implements the phase's
+  # `MutagenEx.Pipeline.*Facade` behaviour. The Mix task's dispatch table
+  # carries plain module atoms (bw mutagen-wrd.33) — tests swap modules,
+  # they no longer swap function names.
+  #
+  # The closure-injection power that the pre-.33 trampolines provided is
+  # preserved: each stub reads its body from `Process.get({:phase_fun,
+  # :phase})` so individual tests can plant per-phase closures without
+  # defining a new module per test.
+
+  defmodule PhaseStubs.Scope do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.ScopeFacade
+
+    @impl MutagenEx.Pipeline.ScopeFacade
+    def resolve(target, opts) do
+      apply(Process.get({:phase_fun, :scope}), [target, opts])
+    end
+  end
+
+  defmodule PhaseStubs.Tests do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.TestsFacade
+
+    @impl MutagenEx.Pipeline.TestsFacade
+    def resolve(targets, opts) do
+      apply(Process.get({:phase_fun, :tests}), [targets, opts])
+    end
+  end
+
+  defmodule PhaseStubs.AstCache do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.AstCacheFacade
+
+    @impl MutagenEx.Pipeline.AstCacheFacade
+    def load(files, opts) do
+      apply(Process.get({:phase_fun, :ast_cache}), [files, opts])
+    end
+  end
+
+  defmodule PhaseStubs.Coverage do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.CoverageFacade
+
+    @impl MutagenEx.Pipeline.CoverageFacade
+    def run(input) do
+      apply(Process.get({:phase_fun, :coverage}), [input])
+    end
+  end
+
+  defmodule PhaseStubs.Enumerator do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.EnumeratorFacade
+
+    @impl MutagenEx.Pipeline.EnumeratorFacade
+    def enumerate(cache, scope, covered, opts) do
+      apply(Process.get({:phase_fun, :enumerator}), [cache, scope, covered, opts])
+    end
+  end
+
+  defmodule PhaseStubs.Baseline do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.BaselineFacade
+
+    @impl MutagenEx.Pipeline.BaselineFacade
+    def run(input) do
+      apply(Process.get({:phase_fun, :baseline}), [input])
+    end
+  end
+
+  defmodule PhaseStubs.Mutation do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.MutationFacade
+
+    @impl MutagenEx.Pipeline.MutationFacade
+    def run(input) do
+      apply(Process.get({:phase_fun, :mutation}), [input])
+    end
+  end
+
+  defmodule PhaseStubs.Io do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.IoFacade
+
+    @impl MutagenEx.Pipeline.IoFacade
+    def emit(iodata, code, config) do
+      send(Process.get(:capture_target), {:io, iodata, code, config})
+      :ok
+    end
+  end
 
   defp capture_dispatch(overrides \\ []) do
-    # Each phase has a different arity, so we keep one process-dict slot
-    # per *phase* keyed by the dispatch key. The trampoline functions
-    # below pick the right slot.
+    # The closure-injection slot is keyed by phase atom; tests plant
+    # per-phase bodies via `overrides`, the corresponding PhaseStubs.*
+    # module reads them back at dispatch time.
     Enum.each(overrides, fn {k, fun} -> Process.put({:phase_fun, k}, fun) end)
 
-    base = %{
-      io: {__MODULE__, :capture_io}
-    }
+    base = %{io: PhaseStubs.Io}
 
     Enum.reduce(overrides, base, fn {k, _fun}, acc ->
-      Map.put(acc, k, phase_mfa(k))
+      Map.put(acc, k, phase_stub(k))
     end)
   end
 
-  # Map a phase key to a {module, function} pair the dispatch table
-  # expects. Each phase has a dedicated trampoline that knows the right
-  # phase key to read from the process dictionary.
-  defp phase_mfa(:scope), do: {__MODULE__, :__phase_scope__}
-  defp phase_mfa(:tests), do: {__MODULE__, :__phase_tests__}
-  defp phase_mfa(:ast_cache), do: {__MODULE__, :__phase_ast_cache__}
-  defp phase_mfa(:coverage), do: {__MODULE__, :__phase_coverage__}
-  defp phase_mfa(:enumerator), do: {__MODULE__, :__phase_enumerator__}
-  defp phase_mfa(:baseline), do: {__MODULE__, :__phase_baseline__}
-  defp phase_mfa(:mutation), do: {__MODULE__, :__phase_mutation__}
-
-  @doc false
-  def __phase_scope__(target, opts), do: apply(Process.get({:phase_fun, :scope}), [target, opts])
-
-  @doc false
-  def __phase_tests__(targets, opts), do: apply(Process.get({:phase_fun, :tests}), [targets, opts])
-
-  @doc false
-  def __phase_ast_cache__(files, opts), do: apply(Process.get({:phase_fun, :ast_cache}), [files, opts])
-
-  @doc false
-  def __phase_coverage__(input), do: apply(Process.get({:phase_fun, :coverage}), [input])
-
-  @doc false
-  def __phase_enumerator__(cache, scope, covered, opts),
-    do: apply(Process.get({:phase_fun, :enumerator}), [cache, scope, covered, opts])
-
-  @doc false
-  def __phase_baseline__(input), do: apply(Process.get({:phase_fun, :baseline}), [input])
-
-  @doc false
-  def __phase_mutation__(input), do: apply(Process.get({:phase_fun, :mutation}), [input])
-
-  @doc false
-  def capture_io(iodata, code, config) do
-    send(Process.get(:capture_target), {:io, iodata, code, config})
-    :ok
-  end
+  # Map a phase key to the module that implements its facade
+  # behaviour. Each stub delegates to the per-phase Process.put closure.
+  defp phase_stub(:scope), do: PhaseStubs.Scope
+  defp phase_stub(:tests), do: PhaseStubs.Tests
+  defp phase_stub(:ast_cache), do: PhaseStubs.AstCache
+  defp phase_stub(:coverage), do: PhaseStubs.Coverage
+  defp phase_stub(:enumerator), do: PhaseStubs.Enumerator
+  defp phase_stub(:baseline), do: PhaseStubs.Baseline
+  defp phase_stub(:mutation), do: PhaseStubs.Mutation
 
   # --- Fake phase return shapes -----------------------------------------------
 

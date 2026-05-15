@@ -131,6 +131,8 @@ defmodule MutagenEx.MutationEnumerator do
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.ScopeResolver.Scope
 
+  @behaviour MutagenEx.Pipeline.EnumeratorFacade
+
   @typedoc "Skip-tracked site: see r3 and `mutagen.decision.validate_predicates`."
   @type skipped_entry :: %{
           site_id: String.t(),
@@ -169,6 +171,7 @@ defmodule MutagenEx.MutationEnumerator do
       (callers that want the cap MUST pass it; the Mix task threads
       `Config.max_sites` in).
   """
+  @impl MutagenEx.Pipeline.EnumeratorFacade
   @spec enumerate(map(), [Scope.t()], map(), keyword) :: result | error
   def enumerate(ast_cache, scope_records, covered_lines, opts \\ [])
       when is_map(ast_cache) and is_list(scope_records) and is_map(covered_lines) do
@@ -211,7 +214,13 @@ defmodule MutagenEx.MutationEnumerator do
   # cache, narrows to the matching `defmodule` body (r4), runs each
   # qualifying node through the mutator catalog. If the walk produces no
   # sites AND no skips, emit the no-mutation-candidates warning (r5).
-  defp enumerate_scope(%Scope{file: file, module: module} = scope, ast_cache, covered_lines, mutators, acc) do
+  defp enumerate_scope(
+         %Scope{file: file, module: module} = scope,
+         ast_cache,
+         covered_lines,
+         mutators,
+         acc
+       ) do
     case Map.fetch(ast_cache, file) do
       :error ->
         # No AST entry for this file in the cache. We surface this as a

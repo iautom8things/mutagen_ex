@@ -302,6 +302,9 @@ defmodule MutagenEx.JsonReporter do
 
   alias MutagenEx.JsonReporter.Report
 
+  @behaviour MutagenEx.Pipeline.ReporterOkFacade
+  @behaviour MutagenEx.Pipeline.ReporterErrorFacade
+
   @schema_version "1"
 
   @typedoc """
@@ -349,6 +352,7 @@ defmodule MutagenEx.JsonReporter do
   given an aborted report but the caller should be using `emit_error/2` in
   that case. The exit code is always `0`.
   """
+  @impl MutagenEx.Pipeline.ReporterOkFacade
   @spec emit_report(Report.t()) :: {iodata(), 0}
   def emit_report(%Report{} = report) do
     {encode(report), 0}
@@ -366,6 +370,7 @@ defmodule MutagenEx.JsonReporter do
   carries that signal); we use `2` to distinguish from the conventional
   `1` ExUnit failure exit and from `0` success.
   """
+  @impl MutagenEx.Pipeline.ReporterErrorFacade
   @spec emit_error(Report.t(), abort_reason()) :: {iodata(), pos_integer()}
   def emit_error(%Report{} = report, abort_reason) when is_atom(abort_reason) do
     aborted_report = %Report{
@@ -507,10 +512,8 @@ defmodule MutagenEx.JsonReporter do
       "kill_rate" => Map.get(m, :kill_rate, nil),
       "results" => Enum.map(Map.get(m, :results, []), &result_to_wire/1),
       "skipped" => Enum.map(Map.get(m, :skipped, []), &skipped_to_wire/1),
-      "compile_errors" =>
-        Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire/1),
-      "state_drift_warning" =>
-        state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
+      "compile_errors" => Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire/1),
+      "state_drift_warning" => state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
     }
   end
 

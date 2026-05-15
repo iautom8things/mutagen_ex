@@ -90,6 +90,8 @@ defmodule MutagenEx.CLI do
 
   alias MutagenEx.Config
 
+  @behaviour MutagenEx.Pipeline.CliFacade
+
   @typedoc "Atom-shaped reason for a parse failure (see `mutagen.json_schema.abort_reason`)."
   @type reason ::
           :missing_scope
@@ -123,6 +125,7 @@ defmodule MutagenEx.CLI do
   any reason-specific fields (e.g. `:flag` for `:unknown_flag`, `:value` for
   `:invalid_timeout`).
   """
+  @impl MutagenEx.Pipeline.CliFacade
   @spec parse([String.t()]) :: {:ok, Config.t()} | error()
   def parse(argv) when is_list(argv) do
     with :ok <- refuse_unsupported(argv),
@@ -285,8 +288,7 @@ defmodule MutagenEx.CLI do
          kind: kind,
          cap: @target_cap,
          count: count,
-         message:
-           "#{flag} accepts at most #{@target_cap} occurrences; got #{count}"
+         message: "#{flag} accepts at most #{@target_cap} occurrences; got #{count}"
        }}
     end
   end

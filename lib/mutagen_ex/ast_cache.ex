@@ -41,6 +41,8 @@ defmodule MutagenEx.AstCache do
   enforcement of "the cache is immutable after the first build" (r6).
   """
 
+  @behaviour MutagenEx.Pipeline.AstCacheFacade
+
   @typedoc "An entry in the cache. AST is whatever `Code.string_to_quoted/2` returns."
   @type entry :: {Macro.t(), String.t()}
 
@@ -67,6 +69,7 @@ defmodule MutagenEx.AstCache do
       module: the cache is purely about source bytes + parsed AST and is
       tested against in-memory strings without touching disk.
   """
+  @impl MutagenEx.Pipeline.AstCacheFacade
   @spec load([String.t()], keyword) ::
           {:ok, t()} | {:error, load_reason(), map()}
   def load(files, opts \\ []) when is_list(files) do

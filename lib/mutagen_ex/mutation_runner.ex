@@ -129,6 +129,8 @@ defmodule MutagenEx.MutationRunner do
   alias MutagenEx.ScopeResolver.Scope
   alias MutagenEx.TestSelector.TestFilter
 
+  @behaviour MutagenEx.Pipeline.MutationFacade
+
   @self_mutation_prefix "Elixir.MutagenEx."
   @self_mutation_task "Elixir.Mix.Tasks.Mutagen"
 
@@ -176,6 +178,7 @@ defmodule MutagenEx.MutationRunner do
   @doc """
   Runs the mutation phase. See module doc for input shape.
   """
+  @impl MutagenEx.Pipeline.MutationFacade
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
@@ -499,14 +502,28 @@ defmodule MutagenEx.MutationRunner do
   defp process_site_task(%Site{} = site, idx, total, cfg) do
     MutagenEx.Telemetry.span(
       :site,
-      %{site_id: site.id, file: site.file, line: site.line, mutator: site.mutator,
-        index: idx, total: total},
+      %{
+        site_id: site.id,
+        file: site.file,
+        line: site.line,
+        mutator: site.mutator,
+        index: idx,
+        total: total
+      },
       fn ->
         outcome = process_site_body(site, cfg)
         stop_status = task_outcome_status(outcome)
+
         {outcome,
-         %{site_id: site.id, file: site.file, line: site.line, mutator: site.mutator,
-           index: idx, total: total, status: stop_status}}
+         %{
+           site_id: site.id,
+           file: site.file,
+           line: site.line,
+           mutator: site.mutator,
+           index: idx,
+           total: total,
+           status: stop_status
+         }}
       end
     )
   end
@@ -581,8 +598,7 @@ defmodule MutagenEx.MutationRunner do
                test_modules: cfg.test_modules,
                timeout_ms: cfg.timeout_ms,
                ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
-               ex_unit_server:
-                 Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
+               ex_unit_server: Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
                capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
                cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100),
                task_sup: Map.get(cfg, :task_sup, MutagenEx.TaskSup)
@@ -851,7 +867,9 @@ defmodule MutagenEx.MutationRunner do
     new_ambient = update_ambient_runner(meta, ambient)
 
     {form2, _amb, replaced_form?} =
-      if is_atom(form), do: {form, new_ambient, false}, else: walk_bare(form, new_ambient, false, site)
+      if is_atom(form),
+        do: {form, new_ambient, false},
+        else: walk_bare(form, new_ambient, false, site)
 
     case args do
       children when is_list(children) ->

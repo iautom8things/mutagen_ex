@@ -31,57 +31,86 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
   alias MutagenEx.Config
   alias MutagenEx.ScopeResolver.Scope
 
-  # Bypass `MutagenEx.CLI.parse/1` so this test can drive an oversized
-  # `Config.scopes` list past the `--scope` repetition cap
-  # (`mutagen.cli.r12`). The cap is enforced at parse time and is the
-  # right user-facing behaviour; for the phase_scope O(n) regression
-  # we go directly to the orchestrator with a synthetic Config so we
-  # can run the accumulator over thousands of targets and catch the
-  # quadratic regression that the parse-time cap is *also* designed
-  # to mask (caps + linear accumulator are layered defences against
-  # the same F28 / F-PERF-12 finding).
-  @doc false
-  def cli_passthrough(_argv) do
-    case Process.get(:cli_passthrough_config) do
-      %Config{} = config -> {:ok, config}
-      _ -> {:error, :invalid_input, %{message: "no config in process dict"}}
+  # Per bw mutagen-wrd.33, the Mix task's dispatch table carries plain
+  # module atoms — tests swap modules, not `{module, function}` tuples.
+  # The phase stubs below each implement their phase's
+  # `MutagenEx.Pipeline.*Facade` behaviour. Their bodies read parameters
+  # (target counts, captured-test-pid) from the process dictionary so
+  # individual tests can vary behaviour without defining a new module
+  # per test case.
+
+  defmodule CliPassthrough do
+    @moduledoc false
+    # Bypass `MutagenEx.CLI.parse/1` so this test can drive an oversized
+    # `Config.scopes` list past the `--scope` repetition cap
+    # (`mutagen.cli.r12`). The cap is enforced at parse time and is the
+    # right user-facing behaviour; for the phase_scope O(n) regression
+    # we go directly to the orchestrator with a synthetic Config so we
+    # can run the accumulator over thousands of targets and catch the
+    # quadratic regression that the parse-time cap is *also* designed
+    # to mask (caps + linear accumulator are layered defences against
+    # the same F28 / F-PERF-12 finding).
+    @behaviour MutagenEx.Pipeline.CliFacade
+
+    @impl MutagenEx.Pipeline.CliFacade
+    def parse(_argv) do
+      case Process.get(:cli_passthrough_config) do
+        %Config{} = config -> {:ok, config}
+        _ -> {:error, :invalid_input, %{message: "no config in process dict"}}
+      end
     end
   end
 
-  # Dispatch helper used as the `:scope` collaborator. Returns
-  # `{:ok, [Scope{}]}` carrying `records_per_target` records, each named
-  # after the target so we can verify ordering downstream.
-  @doc false
-  def phase_scope_collaborator(target, _opts) do
-    count = Process.get(:records_per_target, 1)
+  defmodule PhaseScopeCollaborator do
+    @moduledoc false
+    # `:scope` collaborator. Returns `{:ok, [Scope{}]}` carrying
+    # `records_per_target` records, each named after the target so we
+    # can verify ordering downstream.
+    @behaviour MutagenEx.Pipeline.ScopeFacade
 
-    records =
-      for i <- 1..count do
-        %Scope{
-          file: "lib/#{target}_#{i}.ex",
-          line_range: 1..10,
-          module: Module.concat([Mutagen.Synthetic, "T_#{target}_#{i}"])
-        }
-      end
+    @impl MutagenEx.Pipeline.ScopeFacade
+    def resolve(target, _opts) do
+      count = Process.get(:records_per_target, 1)
 
-    {:ok, records}
+      records =
+        for i <- 1..count do
+          %Scope{
+            file: "lib/#{target}_#{i}.ex",
+            line_range: 1..10,
+            module: Module.concat([Mutagen.Synthetic, "T_#{target}_#{i}"])
+          }
+        end
+
+      {:ok, records}
+    end
   end
 
-  @doc false
-  # A test-only `:io` collaborator: captures iodata + exit code so the
-  # Mix task doesn't `System.halt/1` and we can inspect the final report.
-  def phase_scope_io(iodata, code, _config) do
-    send(Process.get(:capture_target), {:io, iodata, code})
-    :ok
+  defmodule PhaseScopeIo do
+    @moduledoc false
+    # A test-only `:io` collaborator: captures iodata + exit code so
+    # the Mix task doesn't `System.halt/1` and we can inspect the final
+    # report.
+    @behaviour MutagenEx.Pipeline.IoFacade
+
+    @impl MutagenEx.Pipeline.IoFacade
+    def emit(iodata, code, _config) do
+      send(Process.get(:capture_target), {:io, iodata, code})
+      :ok
+    end
   end
 
-  # Aborting collaborators for the phases AFTER scope. We never want
-  # those phases to actually run — the test focuses on `phase_scope`
-  # alone. We make `:tests` abort with a predictable reason so the
-  # pipeline exits cleanly.
-  @doc false
-  def phase_tests_abort(_targets, _opts) do
-    {:error, :no_tests_match, %{message: "test harness — stop after scope"}}
+  defmodule PhaseTestsAbort do
+    @moduledoc false
+    # Aborting collaborator for the `:tests` phase. The phase_scope
+    # tests never want phases after `:scope` to actually run; this stub
+    # aborts with a predictable reason so the pipeline exits cleanly
+    # after `phase_scope` finishes accumulating.
+    @behaviour MutagenEx.Pipeline.TestsFacade
+
+    @impl MutagenEx.Pipeline.TestsFacade
+    def resolve(_targets, _opts) do
+      {:error, :no_tests_match, %{message: "test harness — stop after scope"}}
+    end
   end
 
   describe "phase_scope — order preservation (mutagen-wrd.22)" do
@@ -99,9 +128,9 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
           ["--tests", "test/t_test.exs"]
 
       dispatch = %{
-        scope: {__MODULE__, :phase_scope_collaborator},
-        tests: {__MODULE__, :phase_tests_abort},
-        io: {__MODULE__, :phase_scope_io}
+        scope: PhaseScopeCollaborator,
+        tests: PhaseTestsAbort,
+        io: PhaseScopeIo
       }
 
       assert {:aborted, :no_tests_match, report} =
@@ -130,9 +159,9 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
       argv = ["--scope", "a", "--scope", "b", "--tests", "test/t_test.exs"]
 
       dispatch = %{
-        scope: {__MODULE__, :phase_scope_collaborator},
-        tests: {__MODULE__, :phase_tests_abort},
-        io: {__MODULE__, :phase_scope_io}
+        scope: PhaseScopeCollaborator,
+        tests: PhaseTestsAbort,
+        io: PhaseScopeIo
       }
 
       assert {:aborted, :no_tests_match, report} =
@@ -189,10 +218,10 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
       Process.put(:cli_passthrough_config, synthetic_config)
 
       dispatch = %{
-        cli: {__MODULE__, :cli_passthrough},
-        scope: {__MODULE__, :phase_scope_collaborator},
-        tests: {__MODULE__, :phase_tests_abort},
-        io: {__MODULE__, :phase_scope_io}
+        cli: CliPassthrough,
+        scope: PhaseScopeCollaborator,
+        tests: PhaseTestsAbort,
+        io: PhaseScopeIo
       }
 
       # Wall-clock the full pipeline call. `phase_scope` is the dominant

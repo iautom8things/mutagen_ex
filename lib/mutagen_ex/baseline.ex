@@ -46,6 +46,8 @@ defmodule MutagenEx.Baseline do
 
   alias MutagenEx.TestSelector.TestFilter
 
+  @behaviour MutagenEx.Pipeline.BaselineFacade
+
   @typedoc "Reasons the baseline can return."
   @type error_reason ::
           :baseline_red
@@ -66,6 +68,7 @@ defmodule MutagenEx.Baseline do
   warnings: [...]}}` on full success or `{:error, :baseline_red,
   %{failures: [...], passed: n}}` on any failing cited test.
   """
+  @impl MutagenEx.Pipeline.BaselineFacade
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),

@@ -864,22 +864,26 @@ defmodule MutagenEx.EndToEndTest do
     this = self()
     ref = make_ref()
 
+    # Per bw mutagen-wrd.33, dispatch values are plain module atoms
+    # (not `{module, function}` tuples). The collaborator stubs below
+    # are dedicated modules implementing the relevant pipeline
+    # facades.
     dispatch = %{
-      io: {__MODULE__, :capture_io_collaborator},
+      io: __MODULE__.CaptureIoCollaborator,
       # `mutagen-wrd.11` fixed `TestSelector.resolve/2` to emit `exclude:
       # []` for bare-file targets, so the e2e suite now consumes the
       # production resolver directly. The `tests_collaborator` fork was
       # retired in the same commit.
-      tests: {MutagenEx.TestSelector, :resolve},
-      baseline: {__MODULE__, :baseline_collaborator},
-      coverage: {__MODULE__, :coverage_collaborator},
+      tests: MutagenEx.TestSelector,
+      baseline: __MODULE__.BaselineCollaborator,
+      coverage: __MODULE__.CoverageCollaborator,
       # `mutagen-wrd.12` fixed `Mix.Tasks.Mutagen.phase_mutation/7` to
       # derive `test_modules` from the resolved `test_filter.files` via
       # `MutagenEx.TestModuleDiscovery.discover/1`, so the e2e suite now
       # consumes the production `MutationRunner.run/1` directly. The
       # `mutation_collaborator` fork (and its `discover_test_modules`
       # / `alias_to_module` helpers) was retired in the same commit.
-      mutation: {MutagenEx.MutationRunner, :run}
+      mutation: MutagenEx.MutationRunner
     }
 
     prior_cwd = File.cwd!()
@@ -924,50 +928,72 @@ defmodule MutagenEx.EndToEndTest do
     end
   end
 
-  @doc false
-  def capture_io_collaborator(iodata, exit_code, _config) do
-    case Process.get(:e2e_capture_target) do
-      target when is_pid(target) ->
-        ref = Process.get(:e2e_capture_ref)
-        send(target, {:e2e_io, ref, iodata, exit_code})
-        :ok
+  # Per bw mutagen-wrd.33, dispatch collaborators are modules, not
+  # `{module, function}` tuples. The three stubs below implement the
+  # relevant pipeline facades; each delegates to the original
+  # collaborator body (left as plain functions in case other test
+  # files want to call them directly).
 
-      _ ->
-        IO.write(iodata)
+  defmodule CaptureIoCollaborator do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.IoFacade
+
+    @impl MutagenEx.Pipeline.IoFacade
+    def emit(iodata, exit_code, _config) do
+      case Process.get(:e2e_capture_target) do
+        target when is_pid(target) ->
+          ref = Process.get(:e2e_capture_ref)
+          send(target, {:e2e_io, ref, iodata, exit_code})
+          :ok
+
+        _ ->
+          IO.write(iodata)
+      end
     end
   end
 
-  @doc false
-  # ExUnit.Server state-machine note: by the time a setup runs, the
-  # parent's `ExUnit.Runner.run/2` has completed its `take_sync_modules`
-  # call, which leaves the server's `loaded` field set to an integer
-  # (see `ExUnit.Server.handle_call(:take_sync_modules)` line 83 in
-  # 1.19.5). In that state, `add_module/2` succeeds.
-  #
-  # `Code.require_file/1` is one-shot per path — the second call on the
-  # same file is cached and the `use ExUnit.Case` `__after_compile__`
-  # hook does not re-fire, so the test module is not re-registered with
-  # the server on subsequent scenarios that cite the same file. Using
-  # `Code.compile_file/1` (which always evaluates the file) fires the
-  # `use ExUnit.Case` macro side effect freshly per scenario, which is
-  # what registers the cited module with `ExUnit.Server` before the
-  # phase's `ExUnit.run/0`.
-  # TODO(bw mutagen-wrd.11): once the production TestSelector ships a
-  # file-cited filter that ExUnit's tag rule doesn't drop, the baseline
-  # phase's own `Code.require_file` call works end-to-end and this
-  # collaborator fork can be retired.
-  def baseline_collaborator(input) do
-    register_test_modules_for_phase!(input.test_filter.files)
-    MutagenEx.Baseline.run(input)
+  defmodule BaselineCollaborator do
+    @moduledoc false
+    # ExUnit.Server state-machine note: by the time a setup runs, the
+    # parent's `ExUnit.Runner.run/2` has completed its
+    # `take_sync_modules` call, which leaves the server's `loaded`
+    # field set to an integer (see `ExUnit.Server.handle_call/3`
+    # line 83 in 1.19.5). In that state, `add_module/2` succeeds.
+    #
+    # `Code.require_file/1` is one-shot per path — the second call on
+    # the same file is cached and the `use ExUnit.Case`
+    # `__after_compile__` hook does not re-fire, so the test module
+    # is not re-registered with the server on subsequent scenarios
+    # that cite the same file. Using `Code.compile_file/1` (which
+    # always evaluates the file) fires the `use ExUnit.Case` macro
+    # side effect freshly per scenario, which is what registers the
+    # cited module with `ExUnit.Server` before the phase's
+    # `ExUnit.run/0`.
+    # TODO(bw mutagen-wrd.11): once the production TestSelector ships
+    # a file-cited filter that ExUnit's tag rule doesn't drop, the
+    # baseline phase's own `Code.require_file` call works end-to-end
+    # and this collaborator fork can be retired.
+    @behaviour MutagenEx.Pipeline.BaselineFacade
+
+    @impl MutagenEx.Pipeline.BaselineFacade
+    def run(input) do
+      MutagenEx.EndToEndTest.register_test_modules_for_phase!(input.test_filter.files)
+      MutagenEx.Baseline.run(input)
+    end
   end
 
-  @doc false
-  # TODO(bw mutagen-wrd.11): retire this fork once the production
-  # TestSelector emits a file-cited filter that ExUnit's tag rule
-  # doesn't drop.
-  def coverage_collaborator(input) do
-    register_test_modules_for_phase!(input.test_filter.files)
-    MutagenEx.CoverageRunner.run(input)
+  defmodule CoverageCollaborator do
+    @moduledoc false
+    # TODO(bw mutagen-wrd.11): retire this fork once the production
+    # TestSelector emits a file-cited filter that ExUnit's tag rule
+    # doesn't drop.
+    @behaviour MutagenEx.Pipeline.CoverageFacade
+
+    @impl MutagenEx.Pipeline.CoverageFacade
+    def run(input) do
+      MutagenEx.EndToEndTest.register_test_modules_for_phase!(input.test_filter.files)
+      MutagenEx.CoverageRunner.run(input)
+    end
   end
 
   # Compile every cited test file via `Code.compile_file/1`, which
@@ -985,7 +1011,8 @@ defmodule MutagenEx.EndToEndTest do
   # scenario's `ExUnit.run/0`. `Code.compile_file/1` sidesteps the cache
   # at the cost of one "warning: redefining module" message per cited
   # file per scenario; the e2e driver swallows stderr in `run_pipeline!/1`.
-  defp register_test_modules_for_phase!(files) do
+  @doc false
+  def register_test_modules_for_phase!(files) do
     Enum.each(files, fn file ->
       try do
         _ = Code.compile_file(file)

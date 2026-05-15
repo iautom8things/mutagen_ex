@@ -155,45 +155,71 @@ defmodule Mix.Tasks.Mutagen do
 
   @typedoc """
   Pluggable collaborators for the mix task's state machine. Each entry is a
-  `{module, function}` pair the task uses instead of a hard-coded call, so
-  every error path AND the happy path can be unit-tested by injecting fake
-  collaborators that capture their arguments and return canned shapes.
+  **module atom** the task uses instead of a hard-coded call, so every
+  error path AND the happy path can be unit-tested by injecting a stub
+  module that captures its arguments and returns canned shapes.
+
+  Per bw mutagen-wrd.33 (closes F9), the 11 production phase keys carry
+  module atoms (not `{module, function}` tuples). The Mix task calls
+  `mod.callback(args)` directly; the callback for each slot is defined
+  by a dedicated behaviour under `MutagenEx.Pipeline.*Facade`.
 
   The keys correspond to the orchestration stages of
   `mutagen.mutation_pipeline`:
 
-    * `:cli` — parse argv (`MutagenEx.CLI.parse/1`).
-    * `:scope` — resolve each scope target (`MutagenEx.ScopeResolver.resolve/2`).
-    * `:tests` — resolve test filter (`MutagenEx.TestSelector.resolve/2`).
-    * `:ast_cache` — load AST + source per file (`MutagenEx.AstCache.load/2`).
-    * `:coverage` — run coverage phase (`MutagenEx.CoverageRunner.run/1`).
-    * `:enumerator` — enumerate mutation sites
-      (`MutagenEx.MutationEnumerator.enumerate/4`).
-    * `:baseline` — baseline phase (`MutagenEx.Baseline.run/1`).
-    * `:mutation` — mutation phase (`MutagenEx.MutationRunner.run/1`).
-    * `:reporter_ok` — emit success JSON (`MutagenEx.JsonReporter.emit_report/1`).
-    * `:reporter_error` — emit abort JSON (`MutagenEx.JsonReporter.emit_error/2`).
-    * `:io` — `{iodata, exit_code, Config.t()} -> :ok` sink for the final
-      document. Default writes to stdout or `Config.json_path` and halts the
-      VM with `exit_code`.
+    * `:cli` — `mod.parse(argv)` (`MutagenEx.Pipeline.CliFacade`,
+      default `MutagenEx.CLI`).
+    * `:scope` — `mod.resolve(target, opts)`
+      (`MutagenEx.Pipeline.ScopeFacade`, default
+      `MutagenEx.ScopeResolver`).
+    * `:tests` — `mod.resolve(tests, opts)`
+      (`MutagenEx.Pipeline.TestsFacade`, default
+      `MutagenEx.TestSelector`).
+    * `:ast_cache` — `mod.load(files, opts)`
+      (`MutagenEx.Pipeline.AstCacheFacade`, default
+      `MutagenEx.AstCache`).
+    * `:coverage` — `mod.run(input)`
+      (`MutagenEx.Pipeline.CoverageFacade`, default
+      `MutagenEx.CoverageRunner`).
+    * `:enumerator` — `mod.enumerate(cache, scope, covered, opts)`
+      (`MutagenEx.Pipeline.EnumeratorFacade`, default
+      `MutagenEx.MutationEnumerator`).
+    * `:baseline` — `mod.run(input)`
+      (`MutagenEx.Pipeline.BaselineFacade`, default
+      `MutagenEx.Baseline`).
+    * `:mutation` — `mod.run(input)`
+      (`MutagenEx.Pipeline.MutationFacade`, default
+      `MutagenEx.MutationRunner`).
+    * `:reporter_ok` — `mod.emit_report(report)`
+      (`MutagenEx.Pipeline.ReporterOkFacade`, default
+      `MutagenEx.JsonReporter`).
+    * `:reporter_error` — `mod.emit_error(report, reason)`
+      (`MutagenEx.Pipeline.ReporterErrorFacade`, default
+      `MutagenEx.JsonReporter`).
+    * `:io` — `mod.emit(iodata, exit_code, Config.t())` sink for the
+      final document (`MutagenEx.Pipeline.IoFacade`, default
+      `MutagenEx.Pipeline.DefaultIo` — writes to stdout or
+      `Config.json_path` and halts the VM with `exit_code`).
 
-  S1 shipped a two-key shape (`:reporter`, `:pipeline`) for early CLI
-  testing. Those keys still merge from defaults so the existing CLI
-  tests keep working; when a caller passes `:pipeline` without the full
-  phase set, the legacy code path runs.
+  S1 shipped a two-key legacy shape (`:reporter`, `:pipeline`) for
+  early CLI testing. Those keys carry `{module, function}` tuples and
+  route through the legacy code path (`run_legacy/2`), which uses
+  `apply/3` to dispatch — that is the explicit back-compat fallback
+  carve-out of `mutagen-wrd.33`'s "no apply/3 in the Mix task"
+  contract.
   """
   @type dispatch :: %{
-          optional(:cli) => {module(), atom()},
-          optional(:scope) => {module(), atom()},
-          optional(:tests) => {module(), atom()},
-          optional(:ast_cache) => {module(), atom()},
-          optional(:coverage) => {module(), atom()},
-          optional(:enumerator) => {module(), atom()},
-          optional(:baseline) => {module(), atom()},
-          optional(:mutation) => {module(), atom()},
-          optional(:reporter_ok) => {module(), atom()},
-          optional(:reporter_error) => {module(), atom()},
-          optional(:io) => {module(), atom()},
+          optional(:cli) => module(),
+          optional(:scope) => module(),
+          optional(:tests) => module(),
+          optional(:ast_cache) => module(),
+          optional(:coverage) => module(),
+          optional(:enumerator) => module(),
+          optional(:baseline) => module(),
+          optional(:mutation) => module(),
+          optional(:reporter_ok) => module(),
+          optional(:reporter_error) => module(),
+          optional(:io) => module(),
           optional(:reporter) => {module(), atom()},
           optional(:pipeline) => {module(), atom()}
         }
@@ -248,15 +274,19 @@ defmodule Mix.Tasks.Mutagen do
   # ---------------------------------------------------------------------------
 
   defp run_legacy(argv, dispatch) do
-    {cli_mod, cli_fun} = Map.fetch!(dispatch, :cli)
+    cli_mod = Map.fetch!(dispatch, :cli)
 
-    case apply(cli_mod, cli_fun, [argv]) do
+    case cli_mod.parse(argv) do
       {:ok, config} ->
+        # Legacy `:pipeline` slot is a `{module, function}` tuple — this
+        # is the explicit back-compat fallback path mutagen-wrd.33's
+        # Verification carves out from the "no apply/3" contract.
         {pipeline_mod, pipeline_fun} = Map.fetch!(dispatch, :pipeline)
         apply(pipeline_mod, pipeline_fun, [config])
         :ok
 
       {:error, reason, details} ->
+        # Same back-compat carve-out as `:pipeline` above.
         {reporter_mod, reporter_fun} = Map.fetch!(dispatch, :reporter)
         apply(reporter_mod, reporter_fun, [reason, details])
         {:error, reason, details}
@@ -433,9 +463,9 @@ defmodule Mix.Tasks.Mutagen do
   # ---------------------------------------------------------------------------
 
   defp phase_cli(argv, dispatch) do
-    {mod, fun} = Map.fetch!(dispatch, :cli)
+    mod = Map.fetch!(dispatch, :cli)
 
-    case apply(mod, fun, [argv]) do
+    case mod.parse(argv) do
       {:ok, %Config{}} = ok ->
         ok
 
@@ -498,19 +528,18 @@ defmodule Mix.Tasks.Mutagen do
   # `:lists.append(:lists.reverse(acc))` which preserves the original
   # input order while staying linear.
   defp phase_scope(%Config{scopes: scopes} = config, dispatch, %Report{} = report) do
-    {mod, fun} = Map.fetch!(dispatch, :scope)
+    mod = Map.fetch!(dispatch, :scope)
 
     result =
       Enum.reduce_while(scopes, {:ok, []}, fn target, {:ok, acc} ->
-        case apply(mod, fun, [target, []]) do
+        case mod.resolve(target, []) do
           {:ok, records} ->
             {:cont, {:ok, [records | acc]}}
 
           {:error, reason, details} ->
             partial = %Report{report | scope: :lists.append(:lists.reverse(acc))}
 
-            {:halt,
-             {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
+            {:halt, {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
         end
       end)
 
@@ -524,9 +553,9 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp phase_tests(%Config{tests: tests} = config, dispatch, report) do
-    {mod, fun} = Map.fetch!(dispatch, :tests)
+    mod = Map.fetch!(dispatch, :tests)
 
-    case apply(mod, fun, [tests, []]) do
+    case mod.resolve(tests, []) do
       {:ok, filter} ->
         {:ok, filter}
 
@@ -539,11 +568,11 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp phase_ast_cache(scope_records, dispatch, report) do
-    {mod, fun} = Map.fetch!(dispatch, :ast_cache)
+    mod = Map.fetch!(dispatch, :ast_cache)
 
     files = scope_records |> Enum.map(& &1.file) |> Enum.uniq()
 
-    case apply(mod, fun, [files, []]) do
+    case mod.load(files, []) do
       {:ok, cache} ->
         {:ok, cache}
 
@@ -553,7 +582,7 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp phase_coverage(%Config{seed: seed} = config, scope_records, test_filter, dispatch, report) do
-    {mod, fun} = Map.fetch!(dispatch, :coverage)
+    mod = Map.fetch!(dispatch, :coverage)
 
     in_scope_modules =
       scope_records
@@ -574,7 +603,7 @@ defmodule Mix.Tasks.Mutagen do
       :coverage,
       %{in_scope_modules: length(in_scope_modules)},
       fn ->
-        case apply(mod, fun, [input]) do
+        case mod.run(input) do
           {:ok, result} ->
             covered = result.covered_lines
 
@@ -620,11 +649,11 @@ defmodule Mix.Tasks.Mutagen do
          dispatch,
          %Report{} = report
        ) do
-    {mod, fun} = Map.fetch!(dispatch, :enumerator)
+    mod = Map.fetch!(dispatch, :enumerator)
 
     covered_lines = coverage_result.covered_lines
 
-    case apply(mod, fun, [ast_cache, scope_records, covered_lines, [max_sites: max_sites]]) do
+    case mod.enumerate(ast_cache, scope_records, covered_lines, max_sites: max_sites) do
       %{sites: _, skipped: _, warnings: _} = enum_result ->
         MutagenEx.Telemetry.execute(
           [:mutagen_ex, :enumeration, :stop],
@@ -646,7 +675,7 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp phase_baseline(%Config{seed: seed} = config, test_filter, dispatch, %Report{} = report) do
-    {mod, fun} = Map.fetch!(dispatch, :baseline)
+    mod = Map.fetch!(dispatch, :baseline)
 
     input = %{seed: seed, test_filter: test_filter}
 
@@ -658,27 +687,26 @@ defmodule Mix.Tasks.Mutagen do
       :baseline,
       %{},
       fn ->
-        case apply(mod, fun, [input]) do
+        case mod.run(input) do
           {:ok, result} ->
-            {{:ok, result},
-             %{passed: result.passed, failed: result.failed}}
+            {{:ok, result}, %{passed: result.passed, failed: result.failed}}
 
           {:error, :baseline_red, details} ->
             partial_baseline = %{
               "passed" => Map.get(details, :passed, 0),
-              "failed" =>
-                Map.get(details, :failed, length(Map.get(details, :failures, []))),
+              "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
               "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1)
             }
 
             partial = %Report{report | baseline: partial_baseline}
 
             {{:abort, partial, config, :baseline_red, details},
-             %{passed: Map.get(details, :passed, 0),
-               failed:
-                 Map.get(details, :failed, length(Map.get(details, :failures, []))),
+             %{
+               passed: Map.get(details, :passed, 0),
+               failed: Map.get(details, :failed, length(Map.get(details, :failures, []))),
                aborted: true,
-               abort_reason: "baseline_red"}}
+               abort_reason: "baseline_red"
+             }}
 
           {:error, reason, details} ->
             {{:abort, report, config, reason, details},
@@ -697,7 +725,7 @@ defmodule Mix.Tasks.Mutagen do
          dispatch,
          report
        ) do
-    {mod, fun} = Map.fetch!(dispatch, :mutation)
+    mod = Map.fetch!(dispatch, :mutation)
 
     # `MutationLoop` re-registers `test_modules` with `ExUnit.Server`
     # before every per-site `ExUnit.run/0` because the server consumes
@@ -726,7 +754,9 @@ defmodule Mix.Tasks.Mutagen do
     site_sink = stream_sink(config, dispatch)
 
     if config.stream do
-      MutagenEx.JsonStreamer.emit_start(site_sink, length(sites),
+      MutagenEx.JsonStreamer.emit_start(
+        site_sink,
+        length(sites),
         Map.from_struct(report.meta || %{})
         |> Map.put_new(:tool_version, "0.0.0-dev")
       )
@@ -770,7 +800,7 @@ defmodule Mix.Tasks.Mutagen do
       on_site_completed: on_site_completed
     }
 
-    case apply(mod, fun, [input]) do
+    case mod.run(input) do
       {:ok, result} ->
         {:ok, result}
 
@@ -1141,23 +1171,22 @@ defmodule Mix.Tasks.Mutagen do
   # ---------------------------------------------------------------------------
 
   defp emit_success(%Report{} = report, %Config{} = config, dispatch) do
-    {mod, fun} = Map.fetch!(dispatch, :reporter_ok)
-    {iodata, code} = apply(mod, fun, [report])
+    mod = Map.fetch!(dispatch, :reporter_ok)
+    {iodata, code} = mod.emit_report(report)
 
-    {io_mod, io_fun} = Map.fetch!(dispatch, :io)
-    apply(io_mod, io_fun, [iodata, code, config])
+    io_mod = Map.fetch!(dispatch, :io)
+    io_mod.emit(iodata, code, config)
     :ok
   end
 
   defp emit_abort(%Report{} = report, config, reason, _details, dispatch) do
-    {mod, fun} = Map.fetch!(dispatch, :reporter_error)
-    {iodata, code} = apply(mod, fun, [report, reason])
+    mod = Map.fetch!(dispatch, :reporter_error)
+    {iodata, code} = mod.emit_error(report, reason)
 
-    {io_mod, io_fun} = Map.fetch!(dispatch, :io)
-    apply(io_mod, io_fun, [iodata, code, config])
+    io_mod = Map.fetch!(dispatch, :io)
+    io_mod.emit(iodata, code, config)
 
-    {:aborted, reason,
-     %Report{report | aborted: true, abort_reason: Atom.to_string(reason)}}
+    {:aborted, reason, %Report{report | aborted: true, abort_reason: Atom.to_string(reason)}}
   end
 
   # ---------------------------------------------------------------------------
@@ -1167,64 +1196,33 @@ defmodule Mix.Tasks.Mutagen do
   @doc false
   # Exposed only for `run/1`. Tests pass a (partial) dispatch via
   # `run/2`; missing keys fall back here.
+  #
+  # Per bw mutagen-wrd.33 (F9), the 11 production phase keys carry
+  # plain module atoms — the Mix task calls `mod.callback(args)`
+  # directly. The two legacy keys (`:reporter`, `:pipeline`) keep the
+  # `{module, function}` tuple shape; they route through
+  # `run_legacy/2`, which is the explicit back-compat fallback the
+  # Verification block carves out from the "no apply/3" contract.
   @spec default_dispatch() :: dispatch()
   def default_dispatch do
     %{
-      cli: {MutagenEx.CLI, :parse},
-      scope: {MutagenEx.ScopeResolver, :resolve},
-      tests: {MutagenEx.TestSelector, :resolve},
-      ast_cache: {MutagenEx.AstCache, :load},
-      coverage: {MutagenEx.CoverageRunner, :run},
-      enumerator: {MutagenEx.MutationEnumerator, :enumerate},
-      baseline: {MutagenEx.Baseline, :run},
-      mutation: {MutagenEx.MutationRunner, :run},
-      reporter_ok: {MutagenEx.JsonReporter, :emit_report},
-      reporter_error: {MutagenEx.JsonReporter, :emit_error},
-      io: {__MODULE__, :default_io},
-      # S1 back-compat — only reached via the legacy code path.
+      cli: MutagenEx.CLI,
+      scope: MutagenEx.ScopeResolver,
+      tests: MutagenEx.TestSelector,
+      ast_cache: MutagenEx.AstCache,
+      coverage: MutagenEx.CoverageRunner,
+      enumerator: MutagenEx.MutationEnumerator,
+      baseline: MutagenEx.Baseline,
+      mutation: MutagenEx.MutationRunner,
+      reporter_ok: MutagenEx.JsonReporter,
+      reporter_error: MutagenEx.JsonReporter,
+      io: MutagenEx.Pipeline.DefaultIo,
+      # S1 back-compat — only reached via the legacy code path
+      # (`run_legacy/2`). These two keys still use `{module, function}`
+      # tuples because pre-.33 tests depend on the legacy seam shape.
       reporter: {__MODULE__, :default_report_error},
       pipeline: {__MODULE__, :default_run_pipeline}
     }
-  end
-
-  @doc false
-  # Default IO sink: writes iodata to stdout or `Config.json_path`, then
-  # halts the BEAM with `exit_code`. State-machine tests override this
-  # with a process-message capture so the test VM stays alive.
-  #
-  # When `--stream` is set and `--json <path>` is also set, the
-  # JsonStreamer has accumulated per-site lines in
-  # `Process.get(:mutagen_stream_buffer)`. We flush that buffer FIRST,
-  # then append the aggregate document — both go to the same file in
-  # a single `File.write!/2` so the file is created atomically (no
-  # partial-write race observable to a watcher tailing the file).
-  @spec default_io(iodata(), non_neg_integer(), Config.t() | nil) :: no_return()
-  def default_io(iodata, exit_code, config) do
-    case config do
-      %Config{json_path: nil, stream: true} ->
-        # `--stream` without `--json`: NDJSON lines have already been
-        # written incrementally to stdout via `:standard_io`. The
-        # final aggregate document follows on the same stream so a
-        # tailing consumer sees N+2 NDJSON values followed by the
-        # multi-line aggregate.
-        IO.write(iodata)
-
-      %Config{json_path: nil} ->
-        IO.write(iodata)
-
-      %Config{json_path: path, stream: true} when is_binary(path) ->
-        buffered = Process.get(:mutagen_stream_buffer, [])
-        Process.delete(:mutagen_stream_buffer)
-        File.write!(path, [buffered, iodata])
-
-      %Config{json_path: path} when is_binary(path) ->
-        File.write!(path, iodata)
-
-      _ ->
-        IO.write(iodata)
-    end
-
-    System.halt(exit_code)
   end
 
   @doc false

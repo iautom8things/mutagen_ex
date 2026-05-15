@@ -906,8 +906,8 @@ defmodule MutagenEx.CLITest do
     @tag :exit_codes
     test "parse-time `..` traversal emits abort JSON (s10a)" do
       dispatch = %{
-        scope: {__MODULE__, :__phase_scope__},
-        io: {__MODULE__, :__phase_io__}
+        scope: __MODULE__.PhaseStubs.Scope,
+        io: __MODULE__.PhaseStubs.Io
       }
 
       Process.put({:phase_fun, :scope}, &fail_scope/2)
@@ -1031,15 +1031,31 @@ defmodule MutagenEx.CLITest do
   end
 
   # --- helpers for the parse-time --json safety test -------------------------
+  #
+  # Per bw mutagen-wrd.33, the Mix task dispatches via plain module
+  # atoms — tests swap modules, not `{module, function}` tuples. The
+  # closure-injection slot is keyed by phase atom; the
+  # PhaseStubs.* modules below read it back at dispatch time.
 
-  @doc false
-  def __phase_scope__(target, opts),
-    do: apply(Process.get({:phase_fun, :scope}), [target, opts])
+  defmodule PhaseStubs.Scope do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.ScopeFacade
 
-  @doc false
-  def __phase_io__(iodata, code, config) do
-    send(Process.get(:capture_target), {:io, iodata, code, config})
-    :ok
+    @impl MutagenEx.Pipeline.ScopeFacade
+    def resolve(target, opts) do
+      apply(Process.get({:phase_fun, :scope}), [target, opts])
+    end
+  end
+
+  defmodule PhaseStubs.Io do
+    @moduledoc false
+    @behaviour MutagenEx.Pipeline.IoFacade
+
+    @impl MutagenEx.Pipeline.IoFacade
+    def emit(iodata, code, config) do
+      send(Process.get(:capture_target), {:io, iodata, code, config})
+      :ok
+    end
   end
 
   # A scope collaborator that always fails — drives the pipeline far
@@ -1047,7 +1063,6 @@ defmodule MutagenEx.CLITest do
   # Config. The parse-time --json safety test uses this as a defensive
   # fallback, though the abort there fires before scope is even reached.
   defp fail_scope(target, _opts) do
-    {:error, :module_not_found,
-     %{target: target, message: "fake-scope refusal (test harness)"}}
+    {:error, :module_not_found, %{target: target, message: "fake-scope refusal (test harness)"}}
   end
 end
