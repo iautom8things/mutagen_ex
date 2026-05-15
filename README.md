@@ -100,11 +100,32 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 | `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `5000`. Must be positive. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
-| `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. |
+| `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |
+| `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
 
 The flag surface above is exhaustive for v0.1.0. `mix mutagen --no-json`
 and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 in v0.1.0 — see Known limitations.
+
+### `--json` path safety
+
+`--json <path>` is canonicalised before any mutation runs, in two layers:
+
+1. **Parse-time** (pure-string): `..` segments and NUL bytes are refused
+   with `abort_reason: "unsafe_json_path"`. No filesystem touch happens.
+2. **Filesystem-canonicalisation**: every existing component is resolved
+   through `File.read_link/1`. If the fully-resolved path escapes the
+   project root (resolved through symlinks itself — macOS
+   `/var -> /private/var` is handled correctly), the run aborts with
+   `abort_reason: "unsafe_json_path"`. The final component is allowed to
+   not yet exist; it is created at write time.
+
+The default policy is **inside the project root only**. CI workflows
+writing artifacts to `/tmp` or a sibling directory must pass
+`--unsafe-json-outside-project`; that flag bypasses the inside-root
+check and emits a one-shot stderr warning naming the resolved target.
+The symlink-resolution step still runs in either mode — the resolved
+path you write to is always the fully-canonical one.
 
 ## Exit codes
 

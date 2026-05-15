@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -25,7 +25,17 @@ defmodule Mix.Tasks.Mutagen do
     * `--seed <int>` — ExUnit seed, propagated to every test-running phase.
       Default `0`. See Constraints.
     * `--json <path>` — write the final JSON document to `<path>` instead
-      of stdout. The document always ends with a single newline.
+      of stdout. The document always ends with a single newline. The path
+      is canonicalised before any mutation runs: `..` segments and NUL
+      bytes are refused at parse time, and the resolved path must stay
+      inside the project root unless `--unsafe-json-outside-project` is
+      also passed. Symlinks whose target escapes the project root are
+      refused.
+    * `--unsafe-json-outside-project` — opt-in to writing `--json` output
+      outside the project root. CI integrations targeting an artifacts
+      directory above the project root pass this flag; everyday use
+      should leave it off. When set, a one-shot warning naming the
+      resolved target lands on stderr at run start.
 
   ## Examples
 
@@ -97,6 +107,14 @@ defmodule Mix.Tasks.Mutagen do
     * **Self-mutation is refused.** `--scope MutagenEx.*` or `Mix.Tasks.Mutagen`
       exits with `reason: :self_mutation_refused` (see
       `mutagen.decision.self_mutation_refused`).
+    * **`--json` paths are canonicalised inside the project root.** Paths
+      with `..` segments or NUL bytes exit with
+      `reason: :unsafe_json_path` at parse time. Symlinks whose target
+      escapes the project root exit the same way at canonicalisation
+      time, before any mutation runs. CI workflows writing artifacts
+      outside the project root must pass `--unsafe-json-outside-project`
+      explicitly; a one-shot stderr warning then names the resolved
+      target.
   """
 
   use Mix.Task
@@ -247,6 +265,7 @@ defmodule Mix.Tasks.Mutagen do
 
     with {:ok, config} <- phase_cli(argv, dispatch),
          report1 = with_meta(report0, config),
+         {:ok, config} <- phase_json_path(config, report1),
          {:ok, scope_records} <- phase_scope(config, dispatch, report1),
          report2 = %Report{report1 | scope: scope_records},
          {:ok, test_filter} <- phase_tests(config, dispatch, report2),
@@ -302,6 +321,51 @@ defmodule Mix.Tasks.Mutagen do
 
       {:error, reason, details} ->
         {:abort, base_report(nil), nil, reason, details}
+    end
+  end
+
+  # Canonicalises `--json <path>` BEFORE any mutation phase runs so a bad
+  # path produces an abort-JSON document on stdout instead of:
+  #   - writing the report to an arbitrary location, or
+  #   - running mutations only to fail at write time.
+  #
+  # When the flag was not passed (`json_path: nil`), this phase is a no-op
+  # — the document goes to stdout.
+  #
+  # When `unsafe_json_outside_project: true` is set, a startup warning
+  # lands on stderr per `mutagen.cli.r10`. The warning is emitted exactly
+  # once per run, at this phase.
+  defp phase_json_path(%Config{json_path: nil} = config, _report), do: {:ok, config}
+
+  defp phase_json_path(%Config{json_path: path} = config, report) do
+    # Project root resolution: production uses `File.cwd!/0`. Tests
+    # may override via the calling process's dictionary
+    # (`Process.put(:mutagen_json_path_project_root, "/tmp/...")`) so
+    # they can plant symlinks in an isolated tmp dir without changing
+    # cwd — which would race with parallel ExUnit test loading. The
+    # process dictionary scope is the test process itself; no global
+    # state, no cross-test contamination.
+    project_root = Process.get(:mutagen_json_path_project_root) || File.cwd!()
+
+    opts = [
+      project_root: project_root,
+      unsafe_outside_project: config.unsafe_json_outside_project
+    ]
+
+    case MutagenEx.JsonPath.canonicalize(path, opts) do
+      {:ok, canonical} ->
+        if config.unsafe_json_outside_project do
+          IO.puts(
+            :stderr,
+            "warning: --unsafe-json-outside-project is set; " <>
+              "writing report to #{canonical} which may be outside the project root"
+          )
+        end
+
+        {:ok, %Config{config | json_path: canonical}}
+
+      {:error, reason, details} ->
+        {:abort, report, config, reason, details}
     end
   end
 

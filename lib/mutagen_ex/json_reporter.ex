@@ -132,6 +132,7 @@ defmodule MutagenEx.JsonReporter do
           | :flag_not_supported_in_v1
           | :unknown_flag
           | :invalid_input
+          | :unsafe_json_path
 
   @doc """
   Emit the success-shape JSON document.

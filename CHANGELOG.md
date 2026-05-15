@@ -33,8 +33,37 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   *(mutagen-wrd.32, the .19b follow-up to mutagen-wrd.19's Option B
   disposition.)*
 
+### Security
+
+- **`--json <path>` is canonicalised before any mutation runs.** Closes
+  F7 (HIGH, Security reviewer H2): `mix mutagen --json <path>` previously
+  accepted any binary, which combined with the in-process compile-and-
+  execute pipeline (`mutagen.decision.in_process_pipeline`) was an
+  arbitrary-file-write primitive — a malicious mutated test could
+  redirect the report into `/etc/`, `~/.ssh/`, or any symlinked path.
+  Two layers of check now run before any mutation phase:
+  1. Parse-time pure-string check refuses paths with NUL bytes or any
+     `..` segment (`abort_reason: "unsafe_json_path"`).
+  2. Filesystem canonicalisation expands every component through
+     `File.read_link/1` and refuses paths whose fully-resolved target
+     escapes the project root (also `abort_reason: "unsafe_json_path"`).
+  CI integrations that need to write outside the project root pass
+  `--unsafe-json-outside-project` explicitly; that flag emits a one-shot
+  stderr warning naming the resolved target. New invariant:
+  `mutagen.cli.r10`. *(mutagen-wrd.21)*
+
 ### Added
 
+- `MutagenEx.JsonPath` — single home for the `--json` path-safety
+  contract. `validate_literal/1` is the pure-string check the CLI parser
+  calls at parse time; `canonicalize/2` is the filesystem-aware check
+  the mix task calls before any mutation phase. The project root is
+  resolved through its own symlinks (handles macOS
+  `/var -> /private/var`); the inside-root comparison uses the canonical
+  form. *(mutagen-wrd.21)*
+- `--unsafe-json-outside-project` flag on `mix mutagen`. Boolean opt-in
+  that bypasses the inside-root check while still resolving symlinks.
+  Lands on `Config.unsafe_json_outside_project`. *(mutagen-wrd.21)*
 - `MutagenEx.Application` — a one-for-one supervisor (`MutagenEx.Supervisor`)
   whose only child is a named `Task.Supervisor` registered as
   `MutagenEx.TaskSup`. Declared via `mod: {MutagenEx.Application, []}` in

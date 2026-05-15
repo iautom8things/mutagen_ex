@@ -17,6 +17,10 @@ defmodule MutagenEx.Config do
   Per `mutagen.cli.r3`, `timeout_ms` defaults to 5000.
   Per `mutagen.cli.r4`, `seed` defaults to 0.
   Per `mutagen.cli.r5`, `json_path` is `nil` when output should go to stdout.
+  Per `mutagen.cli.r10`, `unsafe_json_outside_project` defaults to `false`.
+  It is set to `true` only when the user explicitly passes
+  `--unsafe-json-outside-project`, opting out of the default inside-root
+  check on `--json <path>`.
   """
 
   alias MutagenEx.Types
@@ -26,13 +30,15 @@ defmodule MutagenEx.Config do
             tests: [],
             timeout_ms: 5_000,
             seed: 0,
-            json_path: nil
+            json_path: nil,
+            unsafe_json_outside_project: false
 
   @type t :: %__MODULE__{
           scopes: [Types.scope_target()],
           tests: [Types.test_target()],
           timeout_ms: pos_integer(),
           seed: non_neg_integer(),
-          json_path: Path.t() | nil
+          json_path: Path.t() | nil,
+          unsafe_json_outside_project: boolean()
         }
 end

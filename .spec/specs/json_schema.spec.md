@@ -117,7 +117,8 @@ Top-level keys, all present in every variant unless noted:
     `"missing_scope"`, `"invalid_timeout"`, `"colon_syntax_unsupported"`,
     `"module_not_found"`, `"arity_required"`, `"no_tests_match"`,
     `"self_mutation_refused"`, `"cover_already_running"`, `"baseline_red"`,
-    `"unrecoverable_restore_failure"`, `"flag_not_supported_in_v1"`.
+    `"unrecoverable_restore_failure"`, `"flag_not_supported_in_v1"`,
+    `"unsafe_json_path"`.
 
 - id: mutagen.json_schema.r6
   priority: must

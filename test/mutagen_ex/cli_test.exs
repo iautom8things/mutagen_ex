@@ -196,6 +196,103 @@ defmodule MutagenEx.CLITest do
     end
   end
 
+  describe "parse/1 — --json path safety (mutagen.cli.r10, s10a, s10b)" do
+    test "path with `..` is rejected at parse time as :unsafe_json_path (s10a)" do
+      assert {:error, :unsafe_json_path, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--json",
+                 "../../etc/passwd"
+               ])
+
+      assert details.variant == :traversal
+      assert details.path == "../../etc/passwd"
+      assert is_binary(details.message)
+    end
+
+    test "absolute path with `..` is rejected at parse time as :unsafe_json_path" do
+      assert {:error, :unsafe_json_path, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--json",
+                 "/tmp/../etc/passwd"
+               ])
+
+      assert details.variant == :traversal
+    end
+
+    test "path with embedded NUL byte is rejected at parse time (s10b)" do
+      nul_path = "out/report" <> <<0>> <> ".json"
+
+      assert {:error, :unsafe_json_path, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--json",
+                 nul_path
+               ])
+
+      assert details.variant == :nul_byte
+      assert details.path == nul_path
+    end
+
+    test "literal-safe path passes parse (FS canonicalisation happens later)" do
+      # The CLI parser only does pure-string checks. A path that POINTS
+      # OUTSIDE the project root literally (e.g. `/tmp/foo.json`) is fine
+      # at parse time — the inside-root check runs in the mix task before
+      # any mutation phase.
+      assert {:ok, %Config{json_path: "/tmp/foo.json"}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--json",
+                 "/tmp/foo.json"
+               ])
+    end
+  end
+
+  describe "parse/1 — --unsafe-json-outside-project (mutagen.cli.r10)" do
+    test "flag absent leaves Config.unsafe_json_outside_project at false" do
+      assert {:ok, %Config{unsafe_json_outside_project: false}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+    end
+
+    test "flag present sets Config.unsafe_json_outside_project to true" do
+      assert {:ok, %Config{unsafe_json_outside_project: true}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--unsafe-json-outside-project"
+               ])
+    end
+
+    test "flag is orthogonal to --json (can be passed alone without --json)" do
+      # The escape hatch only has effect when `--json` is also given.
+      # Setting it without `--json` is harmless — the flag still lands
+      # on Config.
+      assert {:ok, %Config{json_path: nil, unsafe_json_outside_project: true}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--unsafe-json-outside-project"
+               ])
+    end
+  end
+
   describe "parse/1 — missing required flags (mutagen.cli.s2)" do
     test "missing --scope yields :missing_scope (s2)" do
       assert {:error, :missing_scope, details} =
@@ -424,6 +521,51 @@ defmodule MutagenEx.CLITest do
     end
   end
 
+  describe "Mix.Tasks.Mutagen — parse-time --json safety (mutagen.cli.r10, s10a)" do
+    # Pure parse-time checks (no FS), safe to run async. The FS-touching
+    # tests for s10c/s10d/s10e live in MutagenEx.JsonCanonicalisationTest
+    # which is async: false because it uses File.cd!/2.
+
+    setup do
+      Process.put(:capture_target, self())
+      :ok
+    end
+
+    @tag :exit_codes
+    test "parse-time `..` traversal emits abort JSON (s10a)" do
+      dispatch = %{
+        scope: {__MODULE__, :__phase_scope__},
+        io: {__MODULE__, :__phase_io__}
+      }
+
+      Process.put({:phase_fun, :scope}, &fail_scope/2)
+
+      assert {:aborted, :unsafe_json_path, _report} =
+               Mix.Tasks.Mutagen.run(
+                 [
+                   "--scope",
+                   "lib/foo.ex",
+                   "--tests",
+                   "test/foo_test.exs",
+                   "--json",
+                   "../etc/passwd"
+                 ],
+                 dispatch
+               )
+
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
+
+      decoded =
+        iodata
+        |> IO.iodata_to_binary()
+        |> :json.decode()
+
+      assert decoded["abort_reason"] == "unsafe_json_path"
+      assert decoded["aborted"] == true
+    end
+  end
+
   describe "Mix.Tasks.Mutagen.@moduledoc (mutagen.cli.r9, v4)" do
     # `mix help mutagen` renders @moduledoc. Asserting that every required
     # section heading is present in the moduledoc is the unit-test analogue
@@ -497,5 +639,26 @@ defmodule MutagenEx.CLITest do
   @doc false
   def raise_pipeline(_config) do
     raise "baseline-red simulation"
+  end
+
+  # --- helpers for the parse-time --json safety test -------------------------
+
+  @doc false
+  def __phase_scope__(target, opts),
+    do: apply(Process.get({:phase_fun, :scope}), [target, opts])
+
+  @doc false
+  def __phase_io__(iodata, code, config) do
+    send(Process.get(:capture_target), {:io, iodata, code, config})
+    :ok
+  end
+
+  # A scope collaborator that always fails — drives the pipeline far
+  # enough past canonicalisation that `:io` fires with the threaded
+  # Config. The parse-time --json safety test uses this as a defensive
+  # fallback, though the abort there fires before scope is even reached.
+  defp fail_scope(target, _opts) do
+    {:error, :module_not_found,
+     %{target: target, message: "fake-scope refusal (test harness)"}}
   end
 end

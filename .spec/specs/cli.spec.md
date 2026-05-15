@@ -112,6 +112,33 @@ decisions:
     equivalent mutants, mix-format ID-stability via content-addressed IDs,
     no `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon
     syntax dropped, and self-mutation refused.
+
+- id: mutagen.cli.r10
+  priority: must
+  statement: |
+    `--json <path>` is canonicalised before any mutation phase runs. The
+    path-safety contract has two layers:
+
+      1. Pure-string checks at parse time. A `--json` value containing a
+         NUL byte (`\0`) or any `..` segment is refused with an error-JSON
+         document whose `abort_reason` is `"unsafe_json_path"`. No mutation
+         phase runs.
+      2. Filesystem canonicalisation before the first mutation phase.
+         Every existing component of the path is resolved through
+         `File.read_link/1`. If any symlink target escapes the project
+         root (defined as `File.cwd!/0` resolved through `Path.expand/1`),
+         the run aborts with `abort_reason: "unsafe_json_path"`. The
+         final component is allowed to not yet exist — it is created at
+         write time. After canonicalisation, the resolved absolute path
+         is stored on `Config.json_path`.
+
+    The default policy is: the resolved path MUST live inside the project
+    root. Passing `--unsafe-json-outside-project` opts out of that check
+    (the symlink-escape check still runs at every component, but the
+    inside-root check is bypassed). When the flag is set, `mix mutagen`
+    emits a one-shot warning to stderr at startup naming the resolved
+    target path. `Config.unsafe_json_outside_project` is `true` iff the
+    flag was passed.
 ```
 
 ```spec-scenarios
@@ -192,6 +219,62 @@ decisions:
   then: |
     An error-JSON document with `reason: :self_mutation_refused` is emitted
     before any mutation phase runs.
+
+- id: mutagen.cli.s10a
+  covers: [mutagen.cli.r10]
+  given: A user invokes `mix mutagen --json ../../etc/passwd --scope ... --tests ...`.
+  when: The CLI parses these flags.
+  then: |
+    `MutagenEx.CLI.parse/1` returns
+    `{:error, :unsafe_json_path, %{variant: :traversal, ...}}`. No
+    filesystem touch happens; an error-JSON document with
+    `abort_reason: "unsafe_json_path"` is emitted to stdout. The file at
+    the traversal target is never opened.
+
+- id: mutagen.cli.s10b
+  covers: [mutagen.cli.r10]
+  given: |
+    A user invokes `mix mutagen --json "out/report\0.json" --scope ...
+    --tests ...` (NUL byte embedded in the path).
+  when: The CLI parses these flags.
+  then: |
+    `MutagenEx.CLI.parse/1` returns
+    `{:error, :unsafe_json_path, %{variant: :nul_byte, ...}}`. The error
+    JSON is emitted; no mutation phase runs.
+
+- id: mutagen.cli.s10c
+  covers: [mutagen.cli.r10]
+  given: |
+    A symlink `<project_root>/escape.json` exists, pointing at `/etc/passwd`.
+    The user invokes `mix mutagen --json escape.json ...`.
+  when: The canonicalisation phase resolves the path.
+  then: |
+    The phase aborts with `abort_reason: "unsafe_json_path"` and
+    `details.variant == :outside_project_root`. `/etc/passwd` is never
+    opened.
+
+- id: mutagen.cli.s10d
+  covers: [mutagen.cli.r10]
+  given: |
+    A symlink `<project_root>/in/inside.json` exists pointing at
+    `<project_root>/out/report.json` (target stays inside project root).
+    The user invokes `mix mutagen --json in/inside.json ...`.
+  when: The canonicalisation phase resolves the path.
+  then: |
+    The phase returns `{:ok, "<project_root>/out/report.json"}`. The mutation
+    pipeline writes the report to the resolved path.
+
+- id: mutagen.cli.s10e
+  covers: [mutagen.cli.r10]
+  given: |
+    A user invokes `mix mutagen --json /tmp/ci-artifacts/report.json
+    --unsafe-json-outside-project --scope ... --tests ...`.
+  when: The CLI parses and the canonicalisation phase resolves.
+  then: |
+    `Config.unsafe_json_outside_project` is `true`. The phase returns
+    `{:ok, "/tmp/ci-artifacts/report.json"}` even though the path is
+    outside the project root. A warning naming the resolved path is
+    written to stderr exactly once.
 ```
 
 ```spec-verification
@@ -217,5 +300,11 @@ decisions:
   covers: [mutagen.cli.r9]
   kind: command
   command: mix help mutagen
+  execute: true
+
+- id: mutagen.cli.v5
+  covers: [mutagen.cli.r10]
+  kind: command
+  command: mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs
   execute: true
 ```

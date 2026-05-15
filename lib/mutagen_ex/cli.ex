@@ -27,7 +27,14 @@ defmodule MutagenEx.CLI do
     * `--timeout-ms <int>` — positive integer, default 5000.
     * `--seed <int>` — non-negative integer, default 0.
     * `--json <path>` — optional file path; when omitted, the final document
-      is written to stdout.
+      is written to stdout. The path is validated at parse time (NUL bytes
+      and `..` segments are refused) and canonicalised at write time
+      (symlinks resolved; the resolved path must stay inside the project
+      root unless `--unsafe-json-outside-project` is passed).
+    * `--unsafe-json-outside-project` — boolean, default false. Opt-in to
+      writing the `--json` output outside the project root. CI integrations
+      that target an artifacts directory above the project root pass this
+      flag explicitly; everyday use should leave it off.
 
   ## Refused flags
 
@@ -50,6 +57,7 @@ defmodule MutagenEx.CLI do
           | :flag_not_supported_in_v1
           | :unknown_flag
           | :self_mutation_refused
+          | :unsafe_json_path
 
   @typedoc "Structured error returned by `parse/1`."
   @type error :: {:error, reason, map()}
@@ -82,14 +90,16 @@ defmodule MutagenEx.CLI do
          :ok <- refuse_self_mutation(scopes),
          {:ok, timeout_ms} <- pick_timeout(parsed),
          {:ok, seed} <- pick_seed(parsed),
-         {:ok, json_path} <- pick_json_path(parsed) do
+         {:ok, json_path} <- pick_json_path(parsed),
+         unsafe_outside_project = pick_unsafe_outside_project(parsed) do
       {:ok,
        %Config{
          scopes: scopes,
          tests: tests,
          timeout_ms: timeout_ms,
          seed: seed,
-         json_path: json_path
+         json_path: json_path,
+         unsafe_json_outside_project: unsafe_outside_project
        }}
     end
   end
@@ -120,7 +130,8 @@ defmodule MutagenEx.CLI do
     tests: :keep,
     timeout_ms: :integer,
     seed: :integer,
-    json: :string
+    json: :string,
+    unsafe_json_outside_project: :boolean
   ]
 
   # OptionParser converts dashes to underscores in switch names. The user
@@ -212,7 +223,27 @@ defmodule MutagenEx.CLI do
         {:error, :unknown_flag, %{flag: "--json", value: "", message: "--json requires a path"}}
 
       {:json, path} when is_binary(path) ->
-        {:ok, path}
+        # Pure-string safety checks happen at parse time so a malformed
+        # `--json` value produces an `:unsafe_json_path` abort-JSON before
+        # any filesystem touch. The filesystem-level canonicalisation
+        # (symlink resolution, inside-project-root check) happens later in
+        # the mix task, before any mutation phase runs.
+        case MutagenEx.JsonPath.validate_literal(path) do
+          :ok -> {:ok, path}
+          {:error, _, _} = err -> err
+        end
+    end
+  end
+
+  # `--unsafe-json-outside-project` is a plain boolean flag. OptionParser
+  # accepts both `--unsafe-json-outside-project` and
+  # `--unsafe-json-outside-project=true` shapes; either lands here as `true`.
+  # When the flag is absent OptionParser does not include it in `parsed`, so
+  # we fall back to `false`.
+  defp pick_unsafe_outside_project(parsed) do
+    case List.keyfind(parsed, :unsafe_json_outside_project, 0, :default) do
+      :default -> false
+      {:unsafe_json_outside_project, value} when is_boolean(value) -> value
     end
   end
 
