@@ -972,6 +972,93 @@ defmodule MutagenEx.MutationRunnerTest do
       assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
       assert Enum.any?(result.warnings, &(&1 =~ "captured stderr line"))
     end
+
+    # mutagen.json_schema.r10 — stderr longer than the 4 KiB cap is
+    # truncated by the runner's `compose_warnings/1` before the warning
+    # lands in `results[i].warnings`. The merge gate explicitly calls
+    # for this assertion.
+    test "stderr larger than 4 KiB is truncated with the byte-count marker (r10)" do
+      clear_stubs()
+      site = build_site(id: "trunc1")
+      cfg = base_cfg(site)
+
+      huge = String.duplicate("a", 10_000)
+
+      defmodule HugeStderrCompiler do
+        # Captured via closure won't work for a module attribute, so
+        # write a fixed-shape large string here. Sized to exceed 4096
+        # by a wide margin so the truncation marker reports a
+        # non-trivial byte count.
+        @huge String.duplicate("a", 10_000)
+        def compile_quoted(_ast, _file) do
+          IO.write(:stderr, @huge)
+          []
+        end
+      end
+
+      _ = huge
+
+      cfg = %{cfg | compiler: {HugeStderrCompiler, :compile_quoted}}
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+
+      truncated_warning =
+        Enum.find(result.warnings, fn w ->
+          String.contains?(w, " bytes truncated>")
+        end)
+
+      assert truncated_warning != nil,
+             "expected a warning to carry the truncation marker; got: #{inspect(result.warnings)}"
+
+      assert byte_size(truncated_warning) < byte_size(String.duplicate("a", 10_000)),
+             "truncated warning must be smaller than the original stderr payload"
+
+      # Sanity: the marker mentions a positive byte count.
+      assert Regex.match?(~r/<\d+ bytes truncated>$/, truncated_warning)
+    end
+
+    # mutagen.json_schema.r11 — the `:redact` config knob replaces
+    # matched patterns with `[REDACTED]` in warnings.
+    test "configured :redact pattern replaces matches with [REDACTED] in warnings (r11)" do
+      original_redact = Application.get_env(:mutagen_ex, :redact)
+      Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])
+
+      on_exit(fn ->
+        case original_redact do
+          nil -> Application.delete_env(:mutagen_ex, :redact)
+          v -> Application.put_env(:mutagen_ex, :redact, v)
+        end
+      end)
+
+      clear_stubs()
+      site = build_site(id: "redact1")
+      cfg = base_cfg(site)
+
+      defmodule SecretStderrCompiler do
+        def compile_quoted(_ast, _file) do
+          IO.write(:stderr, "warning: leaked SECRET_TOKEN=hunter2 in source\n")
+          []
+        end
+      end
+
+      cfg = %{cfg | compiler: {SecretStderrCompiler, :compile_quoted}}
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+
+      assert Enum.any?(result.warnings, &String.contains?(&1, "[REDACTED]")),
+             "expected [REDACTED] in warnings; got: #{inspect(result.warnings)}"
+
+      refute Enum.any?(result.warnings, &String.contains?(&1, "hunter2")),
+             "expected secret value to be redacted; got: #{inspect(result.warnings)}"
+    end
   end
 
   # ---------------------------------------------------------------------------

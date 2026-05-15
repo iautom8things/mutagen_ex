@@ -613,15 +613,33 @@ defmodule Mix.Tasks.Mutagen do
     }
   end
 
+  @doc false
+  # Internal seam exposed so tests can directly assert on the render
+  # path's `Macro.to_string/1` call count per `mutagen.json_schema.r12`.
+  # The function is `@doc false` and prefixed with `__` to signal it is
+  # not part of the public Mix task API; calling it from outside the
+  # test suite is unsupported.
+  def __render_result__(r), do: render_result(r)
+
   defp render_result(r) do
+    # Per `mutagen.json_schema.r12`: compute `Macro.to_string/1` of the
+    # original AST exactly once per result and alias the same binary
+    # into both `before` and `before_source`. The verbatim source-slice
+    # contract documented in `lib/mutagen_ex/ast_cache.ex` (use of
+    # `source_text` for `{line, column, end_line, end_column}` slicing)
+    # is a follow-up — for now the two fields share the same
+    # `Macro.to_string` output, which is the v1 status quo minus the
+    # double-compute waste.
+    before_binary = Macro.to_string(r.original_ast)
+
     %{
       id: r.id,
       file: r.file,
       line: r.line,
       column: r.column,
       mutator: r.mutator,
-      before: Macro.to_string(r.original_ast),
-      before_source: Macro.to_string(r.original_ast),
+      before: before_binary,
+      before_source: before_binary,
       after: Macro.to_string(r.mutated_ast),
       status: r.status,
       tainted_predecessors: r.tainted_predecessors,

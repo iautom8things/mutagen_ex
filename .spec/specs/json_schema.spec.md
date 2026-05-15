@@ -157,6 +157,47 @@ Top-level keys, all present in every variant unless noted:
     Each represents a `%Report{}` fixture struct in the corresponding test
     file; running `JsonReporter.emit_report(fixture)` produces a string
     that is byte-equal to the golden file.
+
+- id: mutagen.json_schema.r10
+  priority: must
+  statement: |
+    Every free-form text field that captures user-code-derived bytes —
+    `mutation.results[].warnings[]`, `mutation.compile_errors[].message`,
+    the abort-detail `message` for `:unrecoverable_restore_failure`,
+    `:test_file_load_failed`, `:ex_unit_run_failed`,
+    `:file_read_failed`, and `:parse_error` — is truncated at 4096 bytes
+    (4 KiB) before emission. When truncation occurs, the emitted string
+    ends with the literal marker ` ... <N bytes truncated>` where `N`
+    is the byte-count that was dropped (`N == original_byte_size -
+    4096`). The marker bytes themselves are not counted against the
+    4 KiB cap — they are metadata about the truncation. Truncation
+    splits on a codepoint boundary so the emitted string is always
+    valid UTF-8.
+
+- id: mutagen.json_schema.r11
+  priority: must
+  statement: |
+    Application config `:redact` (read via `Application.get_env(:mutagen_ex,
+    :redact, [])`) is a list of `%Regex{}` values or binary regex
+    sources. Every text field covered by r10 has each configured
+    pattern applied to it; matches are replaced with the literal
+    string `[REDACTED]`. Redaction runs BEFORE truncation so the
+    replacement is not pushed past the 4 KiB cap. Default `:redact` is
+    `[]` (no-op).
+
+- id: mutagen.json_schema.r12
+  priority: must
+  statement: |
+    Each `mutation.results[].before` and `mutation.results[].before_source`
+    pair is rendered from a single `Macro.to_string(result.original_ast)`
+    call per result — the resulting binary is aliased into both fields.
+    Equivalently, for a run that emits R results, `Macro.to_string/1`
+    is invoked at most `2 * R` times in the report-rendering path
+    (once per result for `original_ast`, once per result for
+    `mutated_ast`). In v1 `before_source` and `before` are
+    byte-identical; a verbatim-source-slice implementation of
+    `before_source` is a separate change that does not relax this
+    call-count cap.
 ```
 
 ```spec-scenarios
@@ -218,6 +259,48 @@ Top-level keys, all present in every variant unless noted:
   then: |
     Each comparison is byte-equal. Schema drift fails the golden test
     suite loudly.
+
+- id: mutagen.json_schema.s7
+  covers: [mutagen.json_schema.r10]
+  given: |
+    A captured stderr binary of 10_240 bytes (well over the 4 KiB cap)
+    composed of repeating `"warning line\n"` so the boundary lands on
+    a codepoint.
+  when: |
+    The binary flows into `mutation.results[i].warnings[0]` via the
+    runner's `compose_warnings/1`.
+  then: |
+    The emitted warning string is exactly 4096 bytes of payload
+    followed by ` ... <6144 bytes truncated>`. The full emitted
+    binary is valid UTF-8.
+
+- id: mutagen.json_schema.s8
+  covers: [mutagen.json_schema.r11]
+  given: |
+    `Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])`.
+    A warning string `"warning: bad value SECRET_TOKEN=hunter2 in
+    line 42"`.
+  when: The warning flows through `compose_warnings/1`.
+  then: |
+    The emitted warning string contains `[REDACTED]` in place of
+    `SECRET_TOKEN=hunter2` and does NOT contain the literal substring
+    `hunter2`.
+
+- id: mutagen.json_schema.s9
+  covers: [mutagen.json_schema.r12]
+  given: |
+    A `%Report{}` fixture with N completed-mutation results, each
+    carrying an `original_ast` whose `Macro.to_string/1` is observable
+    via a counter (test seam — for the actual production path, the
+    rendering helper computes it once explicitly).
+  when: `mutation_to_report/2` renders the wire-shape map.
+  then: |
+    For every result in the rendered output, the `before` and
+    `before_source` fields are the SAME binary value (byte-identical
+    AND, in tests, pointer-equal). The total `Macro.to_string/1`
+    invocation count over the render pass is at most `2 * N` (the
+    `2 *` accounts for original + mutated; the cap is exactly the
+    no-redundancy budget).
 ```
 
 ```spec-verification
@@ -250,5 +333,19 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r8
   kind: command
   command: mix test test/mutagen_ex/json_reporter_test.exs --only contract
+  execute: true
+
+- id: mutagen.json_schema.v5
+  covers:
+    - mutagen.json_schema.r10
+    - mutagen.json_schema.r11
+  kind: command
+  command: mix test test/mutagen_ex/sanitizer_test.exs
+  execute: true
+
+- id: mutagen.json_schema.v6
+  covers: [mutagen.json_schema.r12]
+  kind: command
+  command: mix test test/mutagen_ex/mutagen_task_render_test.exs
   execute: true
 ```

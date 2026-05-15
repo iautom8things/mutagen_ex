@@ -106,7 +106,10 @@ defmodule MutagenEx.Baseline do
            {:error, :test_file_load_failed,
             %{
               file: file,
-              message: "could not load test file #{inspect(file)}: #{Exception.message(e)}"
+              message:
+                MutagenEx.JsonReporter.Sanitizer.clean(
+                  "could not load test file #{inspect(file)}: #{Exception.message(e)}"
+                )
             }}}
       end
     end)
@@ -122,7 +125,10 @@ defmodule MutagenEx.Baseline do
       e ->
         {:error, :ex_unit_run_failed,
          %{
-           message: "ExUnit.run/0 raised during baseline: #{Exception.message(e)}"
+           message:
+             MutagenEx.JsonReporter.Sanitizer.clean(
+               "ExUnit.run/0 raised during baseline: #{Exception.message(e)}"
+             )
          }}
     end
   end

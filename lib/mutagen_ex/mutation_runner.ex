@@ -371,7 +371,7 @@ defmodule MutagenEx.MutationRunner do
                  %{
                    site_id: site.id,
                    file: site.file,
-                   message: message
+                   message: MutagenEx.JsonReporter.Sanitizer.clean(message)
                  }}
             end
 
@@ -382,6 +382,8 @@ defmodule MutagenEx.MutationRunner do
             # call restore defensively to keep state hygiene uniform.
             # Per r6, restore failure on this branch is also abort-worthy
             # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
+            # `message` is already sanitized by safe_compile_quoted/3
+            # (r10/r11 cap + redact applied there before this branch).
             entry = %{
               id: site.id,
               file: site.file,
@@ -401,9 +403,11 @@ defmodule MutagenEx.MutationRunner do
                    site_id: site.id,
                    file: site.file,
                    message:
-                     "restore failed on :compile_error branch: " <>
-                       restore_msg <>
-                       " (original :compile_error: " <> message <> ")"
+                     MutagenEx.JsonReporter.Sanitizer.clean(
+                       "restore failed on :compile_error branch: " <>
+                         restore_msg <>
+                         " (original :compile_error: " <> message <> ")"
+                     )
                  }}
             end
         end
@@ -694,8 +698,15 @@ defmodule MutagenEx.MutationRunner do
         {:ok, modules, stderr}
 
       {:error, message} ->
-        {:error, :compile_error,
-         message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)}
+        # mutagen.json_schema.r10/r11: bound + redact the compile-error
+        # body. Stderr can be multi-MB for some warning-heavy mutations,
+        # and exception messages can echo source slices.
+        sanitized =
+          MutagenEx.JsonReporter.Sanitizer.clean(
+            message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)
+          )
+
+        {:error, :compile_error, sanitized}
     end
   end
 
@@ -789,10 +800,15 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp compose_warnings(parts) do
+    # mutagen.json_schema.r10/r11: warnings carry compile-stderr and
+    # in-runner stderr that can include source slices + secrets. Bound
+    # each part to the 4 KiB cap and apply the configured redactions
+    # before they hit results[i].warnings.
     parts
     |> Enum.map(&to_string/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
+    |> Enum.map(&MutagenEx.JsonReporter.Sanitizer.clean/1)
   end
 
   defp snapshot_warning(%Site{} = site, delta) do

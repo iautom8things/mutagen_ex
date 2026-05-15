@@ -1,3 +1,199 @@
+defmodule MutagenEx.JsonReporter.Sanitizer do
+  @moduledoc """
+  Truncation + redaction of free-form text that flows into the v1 JSON
+  document (warnings, compile-error messages, abort-detail messages, and
+  any other string field that captures user-code-derived bytes).
+
+  Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
+  r10, r11.
+
+  ## Why
+
+  Stderr, exception messages, and `Macro.to_string/1` output flow
+  verbatim into `warnings`, `compile_errors[].message`, and the abort
+  detail block. Unbounded, they let a single mutated module spray
+  multi-MB of compiler diagnostics — including source slices that may
+  contain secrets — into a JSON report that, when written with the lax
+  `--json <path>` flag, becomes a file-system-resident artifact. The
+  sanitizer is the choke point that bounds these strings before they
+  hit the wire.
+
+  ## Truncation (r10)
+
+  Every sanitized binary is capped at `byte_size_limit/0` bytes
+  (default 4 KiB). When truncation occurs, the binary ends with the
+  literal marker `" ... <N bytes truncated>"` where `N` is the
+  byte-count that was dropped. Multibyte UTF-8 grapheme boundaries are
+  respected on a best-effort basis — we truncate on a codepoint
+  boundary rather than splitting a grapheme.
+
+  ## Redaction (r11)
+
+  Opt-in via application config:
+
+      config :mutagen_ex, redact: [~r/AWS_SECRET[A-Z0-9_]+=\\S+/, "BEARER \\S+"]
+
+  Each element of the list may be a `%Regex{}` or a binary regex
+  source. Matches are replaced with the literal string `[REDACTED]`.
+  Redaction runs BEFORE truncation so the replacement does not push
+  redacted bytes past the cap and then drop them as truncated text.
+
+  Default `redact:` is `[]` (no redaction).
+
+  ## API
+
+    * `clean/1` — full pass: redact then truncate. The standard entry
+      point for all message and warning strings.
+    * `clean/2` — same as `clean/1` but accepts an explicit opts list
+      (`:byte_size_limit`, `:patterns`) for tests that need to override
+      the default cap or pattern list without touching application env.
+    * `truncate/2` — truncation only.
+    * `apply_redactions/2` — redaction only.
+  """
+
+  @default_byte_size_limit 4 * 1024
+  @redact_replacement "[REDACTED]"
+
+  @doc """
+  Default byte-size limit. The cap is fixed at 4 KiB in v1. A future
+  version may make it configurable; until then, callers that need a
+  different cap pass `:byte_size_limit` to `clean/2` (test seam) or
+  `truncate/2` directly.
+  """
+  @spec byte_size_limit() :: pos_integer()
+  def byte_size_limit, do: @default_byte_size_limit
+
+  @doc """
+  Redact (per application env `:redact`) then truncate (to 4 KiB).
+  Returns the cleaned binary. Non-binary input is converted via
+  `to_string/1` first; `nil` is returned unchanged so callers can chain
+  with optional fields.
+  """
+  @spec clean(binary() | nil | iodata()) :: binary() | nil
+  def clean(nil), do: nil
+
+  def clean(value) do
+    clean(value, [])
+  end
+
+  @doc """
+  Same as `clean/1` but with explicit opts:
+
+    * `:byte_size_limit` — pos_integer cap (default `byte_size_limit/0`)
+    * `:patterns` — list of patterns (defaults to
+      `Application.get_env(:mutagen_ex, :redact, [])`)
+  """
+  @spec clean(binary() | nil | iodata(), keyword()) :: binary() | nil
+  def clean(nil, _opts), do: nil
+
+  def clean(value, opts) do
+    limit = Keyword.get(opts, :byte_size_limit, @default_byte_size_limit)
+    patterns = Keyword.get(opts, :patterns, configured_patterns())
+
+    value
+    |> to_binary()
+    |> apply_redactions(patterns)
+    |> truncate(limit)
+  end
+
+  @doc """
+  Truncate `bin` to at most `limit` bytes. When truncation happens,
+  the returned binary ends with `" ... <N bytes truncated>"` and its
+  total `byte_size/1` may exceed `limit` by the length of the marker.
+  This is intentional: the marker is metadata about the truncation,
+  not part of the captured payload, and downstream consumers need a
+  visible signal that bytes were dropped.
+
+  Multibyte safety: we split on a codepoint boundary so we never emit
+  an invalid UTF-8 fragment. The marker bytes are pure ASCII.
+  """
+  @spec truncate(binary(), pos_integer()) :: binary()
+  def truncate(bin, limit) when is_binary(bin) and is_integer(limit) and limit > 0 do
+    case byte_size(bin) do
+      n when n <= limit ->
+        bin
+
+      n ->
+        dropped = n - limit
+        prefix = safe_byte_prefix(bin, limit)
+        prefix <> " ... <#{dropped} bytes truncated>"
+    end
+  end
+
+  @doc """
+  Apply each pattern in `patterns` to `bin`, replacing every match
+  with `[REDACTED]`. Patterns may be `%Regex{}` or binary regex
+  sources. Binary sources are compiled with `Regex.compile!/1` on each
+  call; callers that care about performance should pre-compile.
+
+  An empty pattern list is a no-op.
+  """
+  @spec apply_redactions(binary(), list()) :: binary()
+  def apply_redactions(bin, patterns) when is_binary(bin) and is_list(patterns) do
+    Enum.reduce(patterns, bin, fn pattern, acc ->
+      regex = compile_pattern(pattern)
+      Regex.replace(regex, acc, @redact_replacement)
+    end)
+  end
+
+  # ---- internals ----
+
+  defp configured_patterns do
+    case Application.get_env(:mutagen_ex, :redact, []) do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  defp to_binary(bin) when is_binary(bin), do: bin
+
+  defp to_binary(other) do
+    try do
+      to_string(other)
+    rescue
+      _ -> inspect(other)
+    end
+  end
+
+  defp compile_pattern(%Regex{} = re), do: re
+
+  defp compile_pattern(source) when is_binary(source) do
+    Regex.compile!(source)
+  end
+
+  # Find the largest codepoint-aligned prefix of `bin` that fits in
+  # `limit` bytes. We walk the binary by grapheme so a 4-byte emoji at
+  # the boundary is never split mid-codepoint.
+  defp safe_byte_prefix(bin, limit) when is_binary(bin) do
+    case String.valid?(bin) do
+      true -> safe_utf8_prefix(bin, limit)
+      false -> binary_part(bin, 0, limit)
+    end
+  end
+
+  defp safe_utf8_prefix(bin, limit) do
+    do_safe_utf8_prefix(bin, limit, <<>>)
+  end
+
+  defp do_safe_utf8_prefix(<<>>, _limit, acc), do: acc
+
+  defp do_safe_utf8_prefix(rest, limit, acc) do
+    case String.next_grapheme(rest) do
+      nil ->
+        acc
+
+      {grapheme, tail} ->
+        gsize = byte_size(grapheme)
+
+        if byte_size(acc) + gsize > limit do
+          acc
+        else
+          do_safe_utf8_prefix(tail, limit, acc <> grapheme)
+        end
+    end
+  end
+end
+
 defmodule MutagenEx.JsonReporter.Report do
   @moduledoc """
   In-memory shape the pipeline assembles before the JSON reporter

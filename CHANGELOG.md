@@ -9,6 +9,51 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **Bound stderr / exception / `Macro.to_string` output flowing into the
+  JSON report; added opt-in `:redact` config knob.** Stderr captured
+  during per-mutation runs, exception messages from compile/restore
+  paths, and Elixir source slices in compiler diagnostics flowed
+  verbatim into `mutation.results[].warnings[]`,
+  `mutation.compile_errors[].message`, and abort-detail message fields.
+  Combined with the lax `--json <path>` write (mutagen-wrd.21), secrets
+  archived in those reports became file-system-resident. Fixed by:
+  - A new `MutagenEx.JsonReporter.Sanitizer` module truncates every
+    free-form text field at a 4 KiB cap, appending the literal marker
+    `... <N bytes truncated>` when truncation occurs. Truncation
+    splits on a codepoint boundary so the emitted string is always
+    valid UTF-8. New requirement: `mutagen.json_schema.r10`.
+  - Opt-in `:redact` application config (a list of `%Regex{}` or
+    binary regex sources, read via `Application.get_env(:mutagen_ex,
+    :redact, [])`) — each match in any sanitized field is replaced
+    with the literal `[REDACTED]`. Redaction runs BEFORE truncation
+    so secrets near or past the 4 KiB cap are still replaced rather
+    than silently dropped. Default `:redact` is `[]` (no-op). New
+    requirement: `mutagen.json_schema.r11`.
+  - Wired into all sanitization choke points: `MutagenEx.AstCache`
+    file-read + parse error messages; `MutagenEx.Baseline` test-file
+    load + ExUnit.run failure messages; `MutagenEx.MutationRunner`
+    compile-error / restore-failure / unrecoverable-restore-failure
+    messages and per-result warnings (via `compose_warnings/1`).
+  *(mutagen-wrd.26, closes F24 / CF9 from the consolidated Security +
+  Performance review.)*
+
+### Performance
+
+- **`Macro.to_string/1` computed once per mutation result.** The Mix
+  task's `render_result/1` (`lib/mix/tasks/mutagen.ex`) called
+  `Macro.to_string(r.original_ast)` twice per result — once for
+  `before` and once for `before_source` — wasting a full AST-to-string
+  walk on every reported mutation. The render path now computes
+  `Macro.to_string(r.original_ast)` exactly once and aliases the
+  resulting binary into both `before` and `before_source`. Reference
+  identity (`:erts_debug.same/2`) is the falsifiability check.
+  Verbatim source-slice extraction for `before_source` (per the
+  contract documented in `lib/mutagen_ex/ast_cache.ex`) is deferred
+  to a follow-up since it requires extending the `Site` struct to
+  carry `{end_line, end_column}` metadata. New requirement:
+  `mutagen.json_schema.r12`. *(mutagen-wrd.26, closes
+  F-PERF-11 from the Performance review.)*
+
 - **Bound atom creation on CLI input.** Three call sites converted
   attacker- or typo-controlled strings to atoms with no upper bound,
   making CI loops like `mix mutagen --tests tag:$(uuidgen)` a fast

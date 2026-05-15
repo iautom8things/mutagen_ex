@@ -127,6 +127,30 @@ check and emits a one-shot stderr warning naming the resolved target.
 The symlink-resolution step still runs in either mode — the resolved
 path you write to is always the fully-canonical one.
 
+## Application configuration
+
+`mutagen_ex` reads one optional knob from `Application.get_env/3`:
+
+| Key | Purpose |
+|---|---|
+| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]` (no redaction). Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
+
+Set it in `config/config.exs`:
+
+```elixir
+config :mutagen_ex,
+  redact: [
+    ~r/AWS_(?:ACCESS_KEY_ID|SECRET_ACCESS_KEY)=\S+/,
+    ~r/Bearer [A-Za-z0-9._-]+/
+  ]
+```
+
+Independently of `:redact`, **every** free-form text field that
+captures user-code-derived bytes is truncated at 4 KiB. When truncation
+occurs, the emitted string ends with `... <N bytes truncated>` where
+`N` is the byte count that was dropped. The cap is fixed in v1 and
+applies whether `:redact` is set or not.
+
 ## Exit codes
 
 | Code | Meaning |
