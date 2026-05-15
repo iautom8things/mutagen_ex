@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-15T13:11:29Z",
+  "description": "Advances: mutagen.test_selection, mutagen.coverage\n\nFollow-up to mutagen-wrd.25 closing F19 (TestSelector.scan_for_tag re-reads test tree from disk on every --tests tag:foo invocation).\n\nBackground: F19 was descoped from .25 per mutagen.decision.f19_descoped because (a) phase_tests runs BEFORE phase_ast_cache in lib/mix/tasks/mutagen.ex, so the cache cannot serve scan_for_tag without a workaround; (b) the proposed `:persistent_term` workaround introduces a second cache mechanism not asked for by the spec and breaks `async: true` test isolation.\n\nDeliverable:\nInvestigate and implement one of:\n  (Option A — recommended) Re-order `phase_tests` and `phase_ast_cache` so the cache exists before scan_for_tag runs. Ripple effects on test-filter pipeline must be mapped and verified.\n  (Option B) Cache TestSelector tag-scan results in a per-run map threaded through cfg (NOT `:persistent_term`).\n\nAfter implementation, `TestSelector.scan_for_tag/2` (test_selector.ex:343-367) reads from the cache (or per-run map) instead of walking the test tree from disk.\n\nVerification:\n- Tests to pass: existing TestSelector tests still green; new test \"scan_for_tag does not call File.read! when cache is hot\"\n- Behaviors to demonstrate: invoking `mix mutagen --tests tag:foo` twice in the same VM session results in one (not two) test-tree walks\n\nOut of Scope (files):\n- lib/mutagen_ex/beam_cache.ex (already landed in .25)\n- lib/mutagen_ex/ast.ex (already landed in .25)\n- lib/mutagen_ex/mutators/** (do not modify mutators)\nAllowed touches:\n- lib/mutagen_ex/test_selector.ex\n- lib/mutagen_ex/ast_cache.ex (only if Option A and the cache surface needs minor adjustment for the new phase order)\n- lib/mix/tasks/mutagen.ex (phase order)\n- test/mutagen_ex/test_selector_test.exs\n- .spec/specs/test_selection.spec.md\n- CHANGELOG.md\n\nOut of Scope (intent):\n- DO NOT use `:persistent_term` for the tag-to-file mapping. This was explicitly rejected during .25 planning per mutagen.decision.f19_descoped. Use either a phase reorder OR a per-run map threaded via cfg.\n- DO NOT break determinism (mutagen.r2). Tag-resolved file lists must be deterministically ordered.\n\nMerge gate:\n- [ ] `mix compile --warnings-as-errors` green\n- [ ] `mix test` green\n- [ ] Determinism test green (from .25.00)\n- [ ] No second tree walk on repeated `--tests tag:foo`\n- [ ] No `:persistent_term` usage in test_selector.ex\n- [ ] Scope check: diff touches only Allowed globs\n- [ ] Auditor APPROVE comment on the ticket\n\nPriority: P3 (lower than .25 stages; should land soon after .25 closes but is not a merge gate for `epic/mutagen-wrd` -\u003e `main`).",
+  "id": "mutagen-wrd.35",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 3,
+  "status": "open",
+  "title": "F19 follow-up: TestSelector tag cache (descoped from .25)",
+  "type": "task",
+  "updated_at": "2026-05-15T13:11:29Z"
+}
