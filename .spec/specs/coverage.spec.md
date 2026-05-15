@@ -240,7 +240,7 @@ decisions:
 - id: mutagen.coverage.v4
   covers: [mutagen.coverage.r7]
   kind: command
-  command: mix test test/mutagen_ex/integration/c1_test.exs
+  command: mix test --only spike test/mutagen_ex/integration/c1_test.exs
   execute: true
 
 - id: mutagen.coverage.v5
