@@ -35,11 +35,15 @@
     {
       "text": "MERGE_CONFLICT: lib/mix/tasks/mutagen.ex, lib/mutagen_ex/cli.ex (real code conflicts outside narrow rebase authority — both stages touched arg parsing / option dispatch). cli.spec.md also conflicted but is in authority for renumbering. Rebase aborted; escalating to human.",
       "timestamp": "2026-05-15T02:31:42Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd after wide-authority rebase resolved r-number collision with .20 (renumbered .22 entries: r11→r12, r12→r13, plus stub/scenario renumbers). Closing per orchestrator sign-off (selective audit gate auto-approve after iteration 2 closed AUDIT-1's spec-text gap).",
+      "timestamp": "2026-05-15T02:39:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
-  "updated_at": "2026-05-15T02:31:42Z"
+  "updated_at": "2026-05-15T02:39:11Z"
 }
