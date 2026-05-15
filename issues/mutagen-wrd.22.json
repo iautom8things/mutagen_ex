@@ -40,11 +40,15 @@
     {
       "text": "APPROVED. Merged into epic/mutagen-wrd after wide-authority rebase resolved r-number collision with .20 (renumbered .22 entries: r11→r12, r12→r13, plus stub/scenario renumbers). Closing per orchestrator sign-off (selective audit gate auto-approve after iteration 2 closed AUDIT-1's spec-text gap).",
       "timestamp": "2026-05-15T02:39:11Z"
+    },
+    {
+      "text": "ORCHESTRATOR_RECOVERY: ticket was prematurely closed at 2026-05-15T02:38 — ff-merge actually FAILED (epic had advanced to include .26 between rebase-wide-22 and the close step). The branch was deleted but recovered from dangling commits (3e76c58). Reopening to re-rebase onto current epic HEAD (851fad7 post-.26) and re-merge.",
+      "timestamp": "2026-05-15T02:40:21Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
-  "updated_at": "2026-05-15T02:39:11Z"
+  "updated_at": "2026-05-15T02:40:21Z"
 }
