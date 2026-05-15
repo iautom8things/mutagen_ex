@@ -40,11 +40,13 @@ defmodule MutagenEx.CoverageRunner do
 
   Optional:
 
-    * `:ex_unit` — module to use for ExUnit operations. Defaults to
+    * `:ex_unit` — module implementing `MutagenEx.Test.ExUnitFacade`.
+      Defaults to `MutagenEx.Test.ExUnit`, which delegates to the real
       `ExUnit`. The seam exists so the failure-path tests can assert the
       runner aborts **before** any `ExUnit` call.
-    * `:cover` — atom, defaults to `:cover`. The Erlang module that owns
-      cover. Existence solely as a test seam.
+    * `:cover` — module implementing `MutagenEx.Test.CoverFacade`.
+      Defaults to `MutagenEx.Test.Cover`, which delegates to Erlang's
+      `:cover` module. Existence solely as a test seam.
     * `:test_loader` — `(path :: String.t() -> any())` — overrides
       `Code.require_file/1`. Tests use this to track that test files are
       loaded once, not per-phase.
@@ -166,11 +168,25 @@ defmodule MutagenEx.CoverageRunner do
   # The S2 spike confirmed `:code.lib_dir(:tools)` returns `{:error,
   # :bad_name}` when tools hasn't been loaded yet; we resolve via the OTP
   # root + wildcard, exactly as the spike does.
+  #
+  # `:cover` is the *underlying* Erlang module, distinct from the facade
+  # module (`MutagenEx.Test.Cover` by default). The default cover facade
+  # delegates to `:cover`, so we must ensure that atom is loadable. Tests
+  # that swap in their own cover facade do not need this step — their
+  # fake module is always loaded under the test app's compile path.
   defp ensure_cover_loadable(cfg) do
-    cover_mod = Map.get(cfg, :cover, :cover)
+    cover_facade = Map.get(cfg, :cover, MutagenEx.Test.Cover)
 
-    case Code.ensure_loaded(cover_mod) do
-      {:module, ^cover_mod} ->
+    if cover_facade == MutagenEx.Test.Cover do
+      ensure_underlying_cover_loaded()
+    else
+      :ok
+    end
+  end
+
+  defp ensure_underlying_cover_loaded do
+    case Code.ensure_loaded(:cover) do
+      {:module, :cover} ->
         :ok
 
       _ ->
@@ -178,8 +194,8 @@ defmodule MutagenEx.CoverageRunner do
           {:ok, path} ->
             Code.append_path(path)
 
-            case Code.ensure_loaded(cover_mod) do
-              {:module, ^cover_mod} ->
+            case Code.ensure_loaded(:cover) do
+              {:module, :cover} ->
                 :ok
 
               other ->
@@ -208,9 +224,9 @@ defmodule MutagenEx.CoverageRunner do
   end
 
   defp start_cover(cfg) do
-    cover_mod = Map.get(cfg, :cover, :cover)
+    cover_mod = Map.get(cfg, :cover, MutagenEx.Test.Cover)
 
-    case apply(cover_mod, :start, []) do
+    case cover_mod.start() do
       {:ok, _pid} ->
         :ok
 
@@ -223,10 +239,10 @@ defmodule MutagenEx.CoverageRunner do
   end
 
   defp safe_cover_stop(cfg) do
-    cover_mod = Map.get(cfg, :cover, :cover)
+    cover_mod = Map.get(cfg, :cover, MutagenEx.Test.Cover)
 
     try do
-      apply(cover_mod, :stop, [])
+      cover_mod.stop()
     rescue
       _ -> :ok
     catch
@@ -237,7 +253,7 @@ defmodule MutagenEx.CoverageRunner do
   end
 
   defp cover_compile_modules(cfg) do
-    cover_mod = Map.get(cfg, :cover, :cover)
+    cover_mod = Map.get(cfg, :cover, MutagenEx.Test.Cover)
 
     cfg.in_scope_modules
     |> Enum.reduce_while({:ok, []}, fn {module, file}, {:ok, acc} ->
@@ -247,7 +263,7 @@ defmodule MutagenEx.CoverageRunner do
           # `{:error, reason}` on failure. We accept any `{:ok, _}` return
           # because cover guarantees the instrumentation matches the .beam
           # we pointed it at.
-          case apply(cover_mod, :compile_beam, [path]) do
+          case cover_mod.compile_beam(path) do
             {:ok, _instrumented_mod} ->
               {:cont, {:ok, [{module, file} | acc]}}
 
@@ -300,14 +316,9 @@ defmodule MutagenEx.CoverageRunner do
   # ignored — modules can still be `async: true`; max_cases: 1 collapses
   # them to serial execution per mutagen.decision.serial_execution_and_seed.
   defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnit)
+    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
-    apply(ex_unit, :configure, [
-      [
-        max_cases: 1,
-        seed: cfg.seed
-      ] ++ test_filter_options(cfg.test_filter)
-    ])
+    ex_unit.configure([max_cases: 1, seed: cfg.seed] ++ test_filter_options(cfg.test_filter))
 
     :ok
   end
@@ -341,10 +352,10 @@ defmodule MutagenEx.CoverageRunner do
   end
 
   defp run_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnit)
+    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
     try do
-      result = apply(ex_unit, :run, [])
+      result = ex_unit.run()
       {:ok, result}
     rescue
       e ->
@@ -363,7 +374,7 @@ defmodule MutagenEx.CoverageRunner do
   # module and folds the results into a `%{file => MapSet.t(line)}` map
   # keyed by the user-relative source path (r5).
   defp gather_covered_lines(cfg, instrumented) do
-    cover_mod = Map.get(cfg, :cover, :cover)
+    cover_mod = Map.get(cfg, :cover, MutagenEx.Test.Cover)
 
     in_scope_files =
       cfg.in_scope_modules
@@ -406,7 +417,7 @@ defmodule MutagenEx.CoverageRunner do
   #
   # We treat a line as covered if its `covered` count > 0.
   defp analyse_module(cover_mod, module) do
-    case apply(cover_mod, :analyse, [module, :coverage, :line]) do
+    case cover_mod.analyse(module, :coverage, :line) do
       {:ok, lines} when is_list(lines) ->
         set =
           lines

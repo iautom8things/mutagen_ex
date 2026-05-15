@@ -105,7 +105,12 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
                cancel_mode: cancel_mode()
              }}
 
-  @typedoc "Input map."
+  @typedoc """
+  Input map. The `:ex_unit`, `:ex_unit_server`, and `:capture_io` keys
+  name modules implementing the corresponding `MutagenEx.Test.*Facade`
+  behaviour (defaults: `MutagenEx.Test.ExUnit`,
+  `MutagenEx.Test.ExUnitServer`, `MutagenEx.Test.CaptureIo`).
+  """
   @type input :: %{
           required(:test_modules) => [{module(), map()}],
           required(:timeout_ms) => pos_integer(),
@@ -177,8 +182,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     timeout = input.timeout_ms
     grace = Map.get(input, :cancel_grace_ms, @default_cancel_grace_ms)
     test_modules = input.test_modules
-    ex_unit = Map.get(input, :ex_unit, ExUnit)
-    server = Map.get(input, :ex_unit_server, ExUnit.Server)
+    ex_unit = Map.get(input, :ex_unit, MutagenEx.Test.ExUnit)
+    server = Map.get(input, :ex_unit_server, MutagenEx.Test.ExUnitServer)
     # Per `mutagen.decision.supervision_tree`: the per-site task runs
     # under the named `MutagenEx.TaskSup` in production. Tests can
     # inject their own `Task.Supervisor` pid (or name) via `:task_sup`
@@ -194,11 +199,11 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         # ExUnit's internal config struct ever changes, this is the line
         # to update — and the spike will catch the regression.
         Enum.each(test_modules, fn {mod, cfg} ->
-          apply(server, :add_module, [mod, cfg])
+          server.add_module(mod, cfg)
         end)
 
         try do
-          {:ok, apply(ex_unit, :run, [])}
+          {:ok, ex_unit.run()}
         rescue
           e ->
             {:error, {:run_raised, Exception.message(e)}}
@@ -323,14 +328,14 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # ---- stderr capture ----
 
   defp capture_stderr(input, fun) do
-    capture_io = Map.get(input, :capture_io, ExUnit.CaptureIO)
+    capture_io = Map.get(input, :capture_io, MutagenEx.Test.CaptureIo)
 
-    # `with_io/3` returns `{closure_result, captured_io}` directly. Per
+    # `with_io/2` returns `{closure_result, captured_io}` directly. Per
     # `mutagen-wrd.23` this replaces the older
     # `make_ref/Process.put/Process.get` smuggle that relied on the
     # (undocumented) fact that `capture_io/2` runs its closure in the
     # calling process.
-    {body_result, output} = apply(capture_io, :with_io, [:stderr, fun])
+    {body_result, output} = capture_io.with_io(:stderr, fun)
 
     {output, body_result}
   end

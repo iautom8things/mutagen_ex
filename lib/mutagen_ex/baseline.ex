@@ -37,7 +37,10 @@ defmodule MutagenEx.Baseline do
 
   Optional:
 
-    * `:ex_unit` — `ExUnit` module (test seam).
+    * `:ex_unit` — module implementing `MutagenEx.Test.ExUnitFacade`
+      (test seam). Defaults to `MutagenEx.Test.ExUnit`, which delegates
+      to the real `ExUnit`. Tests pass their own module with the same
+      callback surface.
     * `:test_loader` — `(path -> any)` overriding `Code.require_file/1`.
   """
 
@@ -78,16 +81,14 @@ defmodule MutagenEx.Baseline do
   # ---------------------------------------------------------------------------
 
   defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnit)
+    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
-    apply(ex_unit, :configure, [
-      [
-        max_cases: 1,
-        seed: cfg.seed,
-        include: cfg.test_filter.include,
-        exclude: cfg.test_filter.exclude
-      ]
-    ])
+    ex_unit.configure(
+      max_cases: 1,
+      seed: cfg.seed,
+      include: cfg.test_filter.include,
+      exclude: cfg.test_filter.exclude
+    )
 
     :ok
   end
@@ -112,10 +113,10 @@ defmodule MutagenEx.Baseline do
   end
 
   defp run_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnit)
+    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
     try do
-      result = apply(ex_unit, :run, [])
+      result = ex_unit.run()
       {:ok, result}
     rescue
       e ->

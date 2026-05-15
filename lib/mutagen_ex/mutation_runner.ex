@@ -72,10 +72,21 @@ defmodule MutagenEx.MutationRunner do
 
   Optional:
 
-    * `:ex_unit`, `:ex_unit_server`, `:capture_io` — module-level seams
-      passed through to `MutationLoop`. Default: the real Elixir modules.
-    * `:compiler` — `{module, fun}` to use instead of
-      `Code.compile_quoted/2`. Test seam.
+    * `:ex_unit` — module implementing `MutagenEx.Test.ExUnitFacade`.
+      Default `MutagenEx.Test.ExUnit`. Passed through to `MutationLoop`.
+    * `:ex_unit_server` — module implementing
+      `MutagenEx.Test.ExUnitServerFacade`. Default
+      `MutagenEx.Test.ExUnitServer`. Passed through to `MutationLoop`.
+    * `:capture_io` — module implementing
+      `MutagenEx.Test.CaptureIoFacade`. Default
+      `MutagenEx.Test.CaptureIo`. Used by both the swap-compile capture
+      around `Code.compile_quoted/2` and the per-site `MutationLoop`
+      stderr capture.
+    * `:compiler` — module implementing `MutagenEx.Test.CompilerFacade`,
+      OR a legacy `{module, function}` tuple for back-compat with the
+      pre-bw mutagen-wrd.24 stubs. Default `MutagenEx.Test.Compiler`.
+      The legacy tuple shape is honored so existing test stubs that
+      pass `{CompilerStub, :compile_quoted}` keep working.
     * `:cancel_grace_ms` — `non_neg_integer`. Grace window the
       cooperative-cancellation phase waits before escalating to
       brutal_kill on a timeout. Default `100`. Set to `0` in tests
@@ -191,16 +202,14 @@ defmodule MutagenEx.MutationRunner do
   # ---------------------------------------------------------------------------
 
   defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnit)
+    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
-    apply(ex_unit, :configure, [
-      [
-        max_cases: 1,
-        seed: cfg.seed,
-        include: cfg.test_filter.include,
-        exclude: cfg.test_filter.exclude
-      ]
-    ])
+    ex_unit.configure(
+      max_cases: 1,
+      seed: cfg.seed,
+      include: cfg.test_filter.include,
+      exclude: cfg.test_filter.exclude
+    )
 
     :ok
   end
@@ -338,9 +347,10 @@ defmodule MutagenEx.MutationRunner do
                      MutationLoop.run(%{
                        test_modules: cfg.test_modules,
                        timeout_ms: cfg.timeout_ms,
-                       ex_unit: Map.get(cfg, :ex_unit, ExUnit),
-                       ex_unit_server: Map.get(cfg, :ex_unit_server, ExUnit.Server),
-                       capture_io: Map.get(cfg, :capture_io, ExUnit.CaptureIO),
+                       ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
+                       ex_unit_server:
+                         Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
+                       capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
                        cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100)
                      })
 
@@ -660,27 +670,24 @@ defmodule MutagenEx.MutationRunner do
   # ---------------------------------------------------------------------------
 
   defp safe_compile_quoted(ast, file, cfg) do
-    {compiler_mod, compiler_fun} = Map.get(cfg, :compiler, {Code, :compile_quoted})
-    capture_io = Map.get(cfg, :capture_io, ExUnit.CaptureIO)
+    compile_fn = compiler_call(cfg)
+    capture_io = Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo)
 
-    # `with_io/3` returns `{closure_result, captured_io}` synchronously —
+    # `with_io/2` returns `{closure_result, captured_io}` synchronously —
     # no process-dictionary smuggle needed. Per `mutagen-wrd.23` this
     # replaces the older `make_ref/Process.put/Process.get` pattern that
     # relied on the (undocumented) fact that `capture_io/2` runs its
     # closure in the calling process.
     {body_result, stderr} =
-      apply(capture_io, :with_io, [
-        :stderr,
-        fn ->
-          try do
-            {:ok, apply(compiler_mod, compiler_fun, [ast, file])}
-          rescue
-            e -> {:error, Exception.message(e)}
-          catch
-            kind, value -> {:error, "#{kind}: #{inspect(value)}"}
-          end
+      capture_io.with_io(:stderr, fn ->
+        try do
+          {:ok, compile_fn.(ast, file)}
+        rescue
+          e -> {:error, Exception.message(e)}
+        catch
+          kind, value -> {:error, "#{kind}: #{inspect(value)}"}
         end
-      ])
+      end)
 
     case body_result do
       {:ok, modules} ->
@@ -689,6 +696,21 @@ defmodule MutagenEx.MutationRunner do
       {:error, message} ->
         {:error, :compile_error,
          message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)}
+    end
+  end
+
+  # Resolve the compile-quoted call. Production / new-shape callers pass
+  # a module atom implementing `MutagenEx.Test.CompilerFacade`. Legacy
+  # callers (pre-bw mutagen-wrd.24) pass a `{module, function}` tuple;
+  # that shape is preserved so existing test stubs continue to work.
+  # Returns a 2-arity function `(ast, file -> [{module, binary}])`.
+  defp compiler_call(cfg) do
+    case Map.get(cfg, :compiler, MutagenEx.Test.Compiler) do
+      mod when is_atom(mod) ->
+        fn ast, file -> mod.compile_quoted(ast, file) end
+
+      {mod, fun} when is_atom(mod) and is_atom(fun) ->
+        fn ast, file -> apply(mod, fun, [ast, file]) end
     end
   end
 

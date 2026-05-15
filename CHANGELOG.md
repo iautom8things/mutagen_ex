@@ -36,6 +36,35 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     requirement: `mutagen.scope_resolution.r8`. *(mutagen-wrd.20,
     closes F6 from the consolidated security review.)*
 
+### Changed
+
+- **Test-seam call sites swapped to behaviour-backed facades.** The
+  eleven `apply(Map.get(cfg, :facade, ProductionMod), :fun, [args])`
+  call sites in `MutagenEx.Baseline`, `MutagenEx.CoverageRunner`,
+  `MutagenEx.MutationRunner`, and `MutagenEx.MutationRunner.MutationLoop`
+  now dispatch through named behaviours instead of `apply/3` with no
+  compile-time leverage. New facade modules under
+  `lib/mutagen_ex/test/`:
+  - `MutagenEx.Test.ExUnitFacade` (defaults to `MutagenEx.Test.ExUnit`,
+    delegates to `ExUnit.configure/1`, `ExUnit.run/0`).
+  - `MutagenEx.Test.ExUnitServerFacade` (defaults to
+    `MutagenEx.Test.ExUnitServer`, delegates to
+    `ExUnit.Server.add_module/2`).
+  - `MutagenEx.Test.CaptureIoFacade` (defaults to
+    `MutagenEx.Test.CaptureIo`, delegates to
+    `ExUnit.CaptureIO.with_io/2`).
+  - `MutagenEx.Test.CompilerFacade` (defaults to
+    `MutagenEx.Test.Compiler`, delegates to `Code.compile_quoted/2`).
+  - `MutagenEx.Test.CoverFacade` (defaults to `MutagenEx.Test.Cover`,
+    delegates to `:cover.start/0`, `:cover.stop/0`,
+    `:cover.compile_beam/1`, `:cover.analyse/3`).
+
+  Existing facade-using tests continue to swap modules (not function
+  names) and pass without changes. The `:compiler` config key also
+  accepts a legacy `{module, function}` tuple for back-compat with
+  pre-bw-mutagen-wrd.24 stubs; new callers should pass a behaviour-
+  implementing module atom. *(mutagen-wrd.24)*
+
 ### Fixed
 
 - **Scenario 7 (`:ecto_user_scenario`) un-skipped.** The end-to-end
