@@ -43,11 +43,15 @@
     {
       "text": "MERGE_CONFLICT: CHANGELOG.md (real-code conflict between .27 and .28 [Unreleased] entries)",
       "timestamp": "2026-05-15T01:09:38Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-15T01:12:40Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Gate spike integration tests off default mix test + env-var iteration count",
   "type": "task",
-  "updated_at": "2026-05-15T01:09:38Z"
+  "updated_at": "2026-05-15T01:12:40Z"
 }
