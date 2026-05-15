@@ -249,9 +249,13 @@ decisions:
     same deterministic-input test stubs produce a byte-identical
     aggregate `%{results, compile_errors, state_drift_warning,
     warnings}` map across all valid `cfg.max_concurrency` values.
-    The user-facing default for `--max-concurrency` resolves to
-    `System.schedulers_online()` at the Mix-task layer; the
-    runner's own internal default when nothing is passed is `1`.
+    The user-facing default for `--max-concurrency` is `1`
+    (fully-serial, v1.0-equivalent execution) at both the Mix-task
+    layer and the runner's own internal default. The caveat
+    paragraph below documents why default-1 is the honest reflection
+    of in-process pipeline constraints; users with collision-free
+    input opt into parallelism via explicit `--max-concurrency N`
+    (N > 1).
 
     During the run the runner emits `:telemetry` events under the
     `[:mutagen_ex, ...]` namespace per `MutagenEx.Telemetry`:

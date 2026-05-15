@@ -43,12 +43,16 @@ defmodule MutagenEx.CLI do
       budget for the mutation phase in milliseconds. When exceeded the
       runner terminates gracefully and the JSON document carries
       `truncated: true` (per `mutagen.cli.r13`).
-    * `--max-concurrency <int>` — positive integer, default
-      `System.schedulers_online()`. The mutation loop dispatches per-site
-      tasks via `Task.Supervisor.async_stream_nolink/4`; results are
-      collected in input order so the JSON document remains byte-identical
-      across `--max-concurrency` values on deterministic scopes. Set to
-      `1` for fully-serial behaviour (matches v1.0 semantics exactly).
+    * `--max-concurrency <int>` — positive integer, default `1`
+      (fully-serial, matches v1.0 semantics exactly). The mutation loop
+      dispatches per-site tasks via `Task.Supervisor.async_stream_nolink/4`;
+      results are collected in input order so the JSON document remains
+      byte-identical across `--max-concurrency` values on deterministic
+      scopes. Set to `N > 1` to opt in to parallelism; only safe for
+      callers with collision-free input (no two sites mutating the same
+      module, no shared `:cover` instrumentation state). See
+      `mutagen.mutation_pipeline.r15` for the in-process pipeline
+      caveat that motivates default-1.
     * `--stream` — boolean, default false. When set, the runner emits
       one NDJSON line per completed site (and one envelope line on start
       and finish) to the configured output (`stdout` by default, or

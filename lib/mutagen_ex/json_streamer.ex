@@ -118,6 +118,7 @@ defmodule MutagenEx.JsonStreamer do
 
   defp result_to_wire(%{} = r) do
     %{
+      "version" => @schema_version,
       "id" => Map.fetch!(r, :id),
       "file" => to_string(Map.fetch!(r, :file)),
       "line" => Map.fetch!(r, :line),

@@ -96,8 +96,10 @@ defmodule MutagenEx.MutationRunner do
       `:timeout` Code.Server settle pass. Default `&:code.purge/1`.
     * `:max_concurrency` — `pos_integer | nil`. Cap on the number of
       per-site tasks `Task.Supervisor.async_stream_nolink/4` will spawn
-      in parallel. `nil` resolves to `System.schedulers_online()` at
-      runtime; `1` forces v1.0-equivalent serial execution. Regardless
+      in parallel. `nil` resolves to `1` (fully-serial, v1.0-equivalent
+      execution) — this is also the Mix-task default when the user
+      does not pass `--max-concurrency`. `N > 1` is the explicit
+      opt-in path for callers with collision-free input. Regardless
       of value, results are collected in input order (the
       `async_stream` `:ordered` default) so the JSON document is
       byte-identical to the serial-equivalent run on deterministic
@@ -402,19 +404,28 @@ defmodule MutagenEx.MutationRunner do
     outcome =
       Enum.reduce_while(task_outcomes_stream, {:ok, initial}, fn
         {:ok, task_outcome}, {:ok, acc} ->
-          if budget_exceeded?(budget_ms, started_at) do
-            truncated = %{
-              acc
-              | warnings: [budget_truncation_warning(budget_ms) | acc.warnings],
-                truncated: true
-            }
+          # Fold the completed site's outcome FIRST (so the site that
+          # crossed the budget still lands in results), then evaluate
+          # the budget AFTER recording it — that decides whether to
+          # short-circuit the remaining sites. The worst-case overshoot
+          # is exactly one `timeout_ms` per `mutagen.cli.r13` because
+          # the per-site task is not interrupted mid-flight.
+          case fold_task_outcome(task_outcome, cfg, acc, on_site_completed) do
+            {:cont, next_acc} ->
+              if budget_exceeded?(budget_ms, started_at) do
+                truncated = %{
+                  next_acc
+                  | warnings: [budget_truncation_warning(budget_ms) | next_acc.warnings],
+                    truncated: true
+                }
 
-            {:halt, {:ok, truncated}}
-          else
-            case fold_task_outcome(task_outcome, cfg, acc, on_site_completed) do
-              {:cont, next_acc} -> {:cont, {:ok, next_acc}}
-              {:halt, abort} -> {:halt, abort}
-            end
+                {:halt, {:ok, truncated}}
+              else
+                {:cont, {:ok, next_acc}}
+              end
+
+            {:halt, abort} ->
+              {:halt, abort}
           end
 
         {:exit, reason}, {:ok, _acc} ->
@@ -457,15 +468,17 @@ defmodule MutagenEx.MutationRunner do
 
   # Resolves the per-site concurrency cap.
   #
-  # The runner itself defaults to `1` (fully serial, in-caller-process)
-  # when no value is set — that is the conservative, deterministic
-  # default that preserves the v1.0 contract. Production callers
-  # (`Mix.Tasks.Mutagen`) translate `Config.max_concurrency == nil` to
-  # `System.schedulers_online()` BEFORE handing the config to the
-  # runner, so the user-facing default is still
-  # `--max-concurrency=System.schedulers_online()` per
-  # `mutagen.mutation_pipeline.r15`. Tests and library callers that
-  # don't pass a value get serial execution.
+  # The runner defaults to `1` (fully serial, in-caller-process) when
+  # no value is set — the conservative, deterministic default that
+  # preserves the v1.0 contract. The Mix task (`Mix.Tasks.Mutagen`)
+  # mirrors this default: `Config.max_concurrency == nil` resolves to
+  # `1` there too (`mix/tasks/mutagen.ex` — `config.max_concurrency
+  # || 1`), so the user-facing default for `mix mutagen` is
+  # `--max-concurrency 1`. Users pass `--max-concurrency N` (N > 1)
+  # explicitly to opt in to parallelism. See
+  # `mutagen.mutation_pipeline.r15` for the in-process pipeline
+  # caveat (shared ExUnit/Code.Server/cover state) that motivates
+  # default-1.
   defp resolve_max_concurrency(cfg) do
     case Map.get(cfg, :max_concurrency) do
       nil -> 1

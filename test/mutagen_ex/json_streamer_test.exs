@@ -91,6 +91,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "result"
+      assert decoded["version"] == "1"
       assert decoded["id"] == "lib/foo.ex:abc:arith"
       assert decoded["file"] == "lib/foo.ex"
       assert decoded["line"] == 42
@@ -138,6 +139,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "compile_error"
+      assert decoded["version"] == "1"
       assert decoded["id"] == "lib/foo.ex:bad:case_drop"
       assert decoded["mutator"] == "case_drop"
       assert decoded["message"] == "bad arity for case_drop"
@@ -166,6 +168,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "end"
+      assert decoded["version"] == "1"
       assert decoded["aborted"] == false
       assert decoded["abort_reason"] in [nil, :null]
       assert decoded["killed"] == 3
@@ -244,6 +247,10 @@ defmodule MutagenEx.JsonStreamerTest do
 
       decoded = Enum.map(lines, &:json.decode/1)
       assert Enum.map(decoded, & &1["kind"]) == ["start", "result", "result", "end"]
+
+      # r10: every line carries "version". This is the regression gate —
+      # if any line kind drops the discriminator, this assertion fails.
+      assert Enum.all?(decoded, &(&1["version"] == "1"))
     end
   end
 end

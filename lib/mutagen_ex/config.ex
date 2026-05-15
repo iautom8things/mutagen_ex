@@ -32,10 +32,13 @@ defmodule MutagenEx.Config do
 
   Per `mutagen.mutation_pipeline.r15` / `mutagen.json_schema.r10`,
   `max_concurrency` controls the per-site parallelism of the mutation
-  loop (default `System.schedulers_online()`), `stream` toggles per-site
-  NDJSON emission to stdout (default `false`), and `progress` toggles
-  the human-readable progress feedback on stderr (default `:auto`,
-  which evaluates "is stdout a TTY?" at run time).
+  loop. The struct default is `nil`; both the Mix task and the runner
+  translate `nil` to `1` (fully-serial, v1.0-equivalent). Callers that
+  have arranged for collision-free input pass `--max-concurrency N`
+  (N > 1) explicitly. `stream` toggles per-site NDJSON emission to
+  stdout (default `false`), and `progress` toggles the human-readable
+  progress feedback on stderr (default `:auto`, which evaluates "is
+  stdout a TTY?" at run time).
   """
 
   alias MutagenEx.Types

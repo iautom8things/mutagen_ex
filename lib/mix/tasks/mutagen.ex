@@ -710,11 +710,13 @@ defmodule Mix.Tasks.Mutagen do
     # `budget_ms` (from `--budget-ms`, mutagen.cli.r13) is an optional
     # aggregate wall-clock cap. `nil` means unbounded.
     #
-    # Per `mutagen.mutation_pipeline.r15`, `--max-concurrency` (resolved
-    # via `Config.max_concurrency || 1`) is threaded into the runner
-    # here. The internal default is `1` (fully serial, v1.0-equivalent)
-    # for safety; users opt in to parallel dispatch by passing
-    # `--max-concurrency N` (N > 1).
+    # Per `mutagen.mutation_pipeline.r15`, `--max-concurrency` is
+    # threaded into the runner here. Both the Mix task and the runner
+    # resolve `Config.max_concurrency == nil` to `1` (fully-serial,
+    # v1.0-equivalent); callers opt in to parallelism by passing
+    # `--max-concurrency N` (N > 1) explicitly. Default-1 is the
+    # honest reflection of the in-process pipeline's shared ExUnit /
+    # Code.Server / cover state — see the caveat paragraph in r15.
     #
     # When `--stream` is set, the `:on_site_completed` seam emits one
     # NDJSON line per site (in input order) to the same sink the final
