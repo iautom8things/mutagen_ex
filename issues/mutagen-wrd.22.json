@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.22",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nCommit: 083f8f5 (on stage branch mutagen-wrd.22/cli-caps-budget, based off epic/mutagen-wrd @ 9882d4a)\nFiles touched:\n- lib/mutagen_ex/cli.ex\n- lib/mutagen_ex/config.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mutagen_ex/mutation_runner.ex\n- lib/mutagen_ex/json_reporter.ex\n- lib/mix/tasks/mutagen.ex\n- .spec/specs/cli.spec.md\n- .spec/specs/mutation_enumeration.spec.md\n- README.md\n- CHANGELOG.md\n- test/mutagen_ex/cli_test.exs\n- test/mutagen_ex/mutation_enumerator_test.exs\n- test/mutagen_ex/mutation_runner_test.exs\n- test/mutagen_ex/mix_task_phase_scope_test.exs (new)\n- test/mutagen_ex/golden/*.json (16 fixtures, REGEN=1 for new truncated field)\n\nTests added:\n- CLITest \"--scope/--tests repetition cap (mutagen.cli.r11)\" — 4 tests: 100 boundary OK, 101 refused, 501 still refused, --tests 101 refused\n- CLITest \"--max-sites (mutagen.cli.r11)\" — 5 tests: default, positive int, 0/negative/non-integer rejections\n- CLITest \"--budget-ms (mutagen.cli.r12)\" — 5 tests: nil default, positive int, 0/negative/non-integer rejections\n- CLITest moduledoc r11/r12 keyword assertion\n- MutationEnumeratorTest \"r7 — --max-sites cap\" — 3 tests: exceeding cap returns :too_many_sites, exact-cap success, absent-option unbounded\n- MutationRunnerTest \"r12: --budget-ms aggregate wall-clock\" — 3 tests: elapsed budget halts loop + truncated, nil budget back-compat, oversize budget never truncates\n- MutagenEx.MixTaskPhaseScopeTest (new file) — 3 tests: order preservation single-record, order preservation multi-record chunks, O(n) regression (2000 targets × 5 records \u003c 2000ms)\n\nVerification stubs flipped:\n- mutagen.cli.v6 (covers r11) → execute: true\n- mutagen.cli.v7 (covers r12) → execute: true\n- mutagen.mutation_enumeration.v4 (covers r7) → execute: true\n\nSummary: Closes F28 / CF11. The CLI now caps --scope/--tests repetition at 100, rejects excess with :too_many_targets; --max-sites (default 10_000) caps enumerated mutation sites with :too_many_sites; --budget-ms is an optional aggregate wall-clock cap that emits a graceful truncated:true partial JSON report instead of aborting. phase_scope's O(n²) acc++records accumulation was replaced with prepend-then-flatten, asserted by a new mix_task_phase_scope_test.exs that runs 10_000 records across 2_000 targets under 2_000ms. Specs (cli + mutation_enumeration) gained r11/r12/r7 with scenarios + new verification stubs. README + CHANGELOG updated.\n\nmix compile --warnings-as-errors clean. mix test: 419 tests, 0 failures (15 excluded). mix test --include e2e_slow: 432 tests, 0 failures (2 excluded).\n\nNote: epic/mutagen-wrd has advanced 2 commits past the base of this stage worktree (mutagen-wrd.24 and mutagen-wrd.20 landed while this work was in flight). Orchestrator will need to rebase/merge.",
+      "timestamp": "2026-05-15T02:11:17Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
-  "updated_at": "2026-05-15T01:51:08Z"
+  "updated_at": "2026-05-15T02:11:17Z"
 }
