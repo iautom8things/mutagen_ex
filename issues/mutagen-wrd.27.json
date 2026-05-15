@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.27",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nCommit: 942d8a7c1bde97eeacd11fbae681f3987eee4d88\nFiles touched:\n- test/mutagen_ex/mutation_runner_test.exs\n- test/mutagen_ex/coverage_runner_test.exs\n- test/support/disk_snapshot_helper.exs (new)\n- .spec/specs/mutation_pipeline.spec.md\n- .spec/specs/coverage.spec.md\n- README.md\n- CHANGELOG.md\n\nTests added:\n- MutagenEx.MutationRunnerTest \"r11: no disk writes (broader surface)\" /\n  \"lib/, _build/, cover/, host config, and /tmp are byte-identical\n  before/after a runner pass\"\n- MutagenEx.CoverageRunnerTest \"r7: no disk writes (broader surface, s7)\" /\n  \"lib/, _build/, cover/, host config, and /tmp are byte-identical\n  before/after a coverage run\"\n- MutagenEx.TestSupport.DiskSnapshot helper module (snapshot/1, diff/2,\n  mutagen_attributable_tmp/2) — provides the disk-snapshot diffing primitive\n  the two broadened tests share.\n\nVerification stubs flipped: none (v2 covering r11 in\nmutation_pipeline.spec.md and v4 covering r7 in coverage.spec.md were\nalready execute: true; the test files those stubs point at now carry the\nbroader assertions).\n\nSummary: The r11 and r7 disk-write tests were broadened from\n`lib/**/*.ex`-only SHA-256 checks to a snapshot-diff over `lib/`,\n`_build/**/*.{beam,app}`, `cover/**`, host project config (mix.exs,\nmix.lock, .formatter.exs), and `/tmp` entries with a `mutagen_ex_`\nprefix. The shared helper at `test/support/disk_snapshot_helper.exs`\nencapsulates the snapshot/diff logic with documented allowed-write\nrationale per surface. The two spec statements\n(mutagen.mutation_pipeline.r11, mutagen.coverage.r7) were updated to name\nthe broader surface explicitly with `Allowed-write list: NONE`. `mix\ncompile --warnings-as-errors` clean; full `mix test` is 362/0 green.",
+      "timestamp": "2026-05-15T00:49:41Z"
+    }
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "Broaden r11 disk-write tests beyond lib/**/*.ex",
   "type": "task",
-  "updated_at": "2026-05-15T00:10:30Z"
+  "updated_at": "2026-05-15T00:49:41Z"
 }
