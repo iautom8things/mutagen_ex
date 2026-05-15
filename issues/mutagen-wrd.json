@@ -30,11 +30,15 @@
     {
       "text": "Post-review hardening phase begins. Tickets .17+ land fixes from the critical review (consolidated report: /Users/mz/vaults/rmbrs-vault/code_review/critical/mutagen_ex-mutagen-wrd/2026-05-13/epic-mutagen-wrd/20260513-204355-consolidated.md). Distilled from /Users/mz/Documents/my-vault/LLMs/plans/-Users-mz-dev-mz-mutagen_ex-mutagen-wrd/2026-05-13-mutagen-wrd-review-fixes/00-spec.md. Merge gate to main: .17 + .18 + .19. Post-merge: .20+.",
       "timestamp": "2026-05-14T16:31:19Z"
+    },
+    {
+      "text": "ORCHESTRATOR_RESUME: second pass on epic, 2026-05-14.\n\nState at start:\n- 17 closed children (10 stages + 7 discovery/cleanup)\n- 13 open children\n- Epic worktree: /Users/mz/dev/mz/mutagen_ex-mutagen-wrd at 3d8b82f (branch epic/mutagen-wrd, 1 commit behind main \"format\")\n- Smoke green: mix test → 362 tests, 0 failures (e2e_slow excluded)\n\nExcluded from this run:\n- mutagen-wrd.25 (MEGA, spec recommends /mega-plan first — user driver required)\n- mutagen-wrd.29 (blocked_by .25)\n- mutagen-wrd.31 (BUCKET index ticket — not a real PR)\n\nIn-pipeline this run (10 tickets):\n.19 (SPIKE), .20, .21, .22, .23, .24, .26, .27, .28, .30\n\nConcurrency cap: 3 active background agents. Bounce cap: 2 per ticket.\nGenerated state paths: .spec/state.json (regen: spec tooling — verify before use).",
+      "timestamp": "2026-05-15T00:09:10Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "mutagen_ex: mix mutagen pipeline",
   "type": "epic",
-  "updated_at": "2026-05-14T16:33:03Z"
+  "updated_at": "2026-05-15T00:09:10Z"
 }
