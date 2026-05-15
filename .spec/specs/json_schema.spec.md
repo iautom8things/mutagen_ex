@@ -100,7 +100,12 @@ Top-level keys, all present in every variant unless noted:
     `column` (int),
     `mutator` (string, snake_case name),
     `before` (string — `Macro.to_string/1` of original AST),
-    `before_source` (string — verbatim source slice by line/col),
+    `before_source` (string — see r12 for the v1 contract: in v1
+      `before_source` is byte-identical to `before` (the
+      `Macro.to_string/1` output, aliased into the same binary). The
+      verbatim source slice by `{line, column, end_line, end_column}`
+      against `AstCache.source_text/2` is the post-`mutagen-wrd.34`
+      contract and is not in force in v1),
     `after` (string — `Macro.to_string/1` of swapped AST),
     `status` (one of: `"killed"`, `"survived"`, `"timeout"`, `"error"`),
     `tainted_predecessors` (bool),

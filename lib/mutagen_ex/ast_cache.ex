@@ -10,13 +10,23 @@ defmodule MutagenEx.AstCache do
   Two consumers need different shapes:
 
     * `MutagenEx.MutationEnumerator` walks the AST to find candidate sites.
-    * `MutagenEx.JsonReporter` (S6) cuts a `before_source` slice for each
-      reported mutation. The slice is taken by `{line, column, end_line,
-      end_column}` from AST node metadata against the **verbatim** source
-      text — so format-equivalent but byte-different re-serialisations of
-      the AST would break the slice contract. Holding the verbatim source
-      bytes that the AST was parsed from is the cleanest way to keep the
-      slice deterministic.
+    * `MutagenEx.JsonReporter` (S6) renders a `before_source` field for each
+      reported mutation.
+
+  v1 contract (see `mutagen.json_schema` r12): the Mix task computes
+  `Macro.to_string(result.original_ast)` once per result and aliases the
+  resulting binary into both `before` and `before_source`. In v1 the
+  cache's `source_text` is **not** consumed by the renderer — it is held
+  for the post-`mutagen-wrd.34` upgrade.
+
+  Post-`mutagen-wrd.34` contract: `before_source` becomes a verbatim
+  source slice taken by `{line, column, end_line, end_column}` from AST
+  node metadata against `source_text` — so format-equivalent but
+  byte-different re-serialisations of the AST will no longer collapse
+  into the `Macro.to_string/1` form. Holding the verbatim source bytes
+  that the AST was parsed from is the cleanest way to keep that future
+  slice deterministic, which is why `source_text` is loaded today even
+  though v1 does not yet read it from the report path.
 
   Critical invariant (r6): `source_text` is byte-identical to
   `File.read!(file)` at the moment `load/1` was called. Each file is read

@@ -155,27 +155,65 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
     end
 
     test "redaction happens BEFORE truncation so replacements are not lost (r11)" do
-      Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])
+      # Pattern requires a terminating `=END` marker: anchored on both
+      # ends. This is the falsifier lever — if any bytes between the
+      # `SECRET_TOKEN=` opener and the `=END` closer are dropped, the
+      # pattern stops matching and no `[REDACTED]` appears in the
+      # output.
+      Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=[^=]+=END/])
 
-      # Place SECRET_TOKEN at the very END of a 10_000-byte string.
-      # If truncation ran first, we'd drop the SECRET and silently keep
-      # whatever's at the front; redact-first guarantees the secret is
-      # replaced even when its position is past the cap.
-      tail = "SECRET_TOKEN=hunter2"
-      front_len = 10_000 - byte_size(tail)
-      bin = String.duplicate("x", front_len) <> tail
+      # Layout (byte positions are inclusive lower bound, exclusive upper):
+      #
+      #   0      ..  3000   filler "a"
+      #   3000   ..  3013   "SECRET_TOKEN="   (13 bytes — opener)
+      #   3013   ..  5000   "hunter2..." secret body (1987 bytes)
+      #   5000   ..  5004   "=END"            (closer)
+      #   5004   .. 10_000  filler "z"
+      #
+      # The opener sits BEFORE the 4 KiB cap (3000 < 4096) but the
+      # closer sits AFTER it (5000 > 4096). The full match spans
+      # bytes 3000..5004 — straddling the cap boundary.
+      #
+      # * redact-first ordering: the regex matches the full
+      #   3000..5004 span, replaces it with `[REDACTED]` (10 bytes
+      #   landing at position 3000), then truncate at 4096 keeps the
+      #   prefix bytes 0..4096, which INCLUDE `[REDACTED]`. The
+      #   `assert String.contains?(out, "[REDACTED]")` passes.
+      #
+      # * truncate-first ordering: truncate cuts at 4096, dropping the
+      #   `=END` closer. The remaining prefix contains
+      #   `SECRET_TOKEN=hunter2...` without the closer. The
+      #   regex requires `=END`, so it does NOT match, no replacement
+      #   happens, and `[REDACTED]` is absent. The same assertion
+      #   would fail under that ordering — which is what makes this
+      #   test a load-bearing falsifier for r11's "redact BEFORE
+      #   truncate" clause.
+      opener = "SECRET_TOKEN="
+      closer = "=END"
+      secret_body_len = 5000 - 3000 - byte_size(opener)
+      secret_body = String.duplicate("h", secret_body_len)
+      prefix = String.duplicate("a", 3000)
+      suffix = String.duplicate("z", 10_000 - 5000 - byte_size(closer))
+      bin = prefix <> opener <> secret_body <> closer <> suffix
+
+      assert byte_size(bin) == 10_000
 
       out = Sanitizer.clean(bin)
 
       # Sanity: the input WAS long enough to be truncated.
       assert String.contains?(out, " bytes truncated>")
 
-      # The secret was at position 9980-9999. After redact-first +
-      # truncate, the SECRET_TOKEN=hunter2 substring is gone (replaced
-      # with [REDACTED]) — even though that bytewise position would
-      # have been truncated away under a truncate-first ordering.
-      refute String.contains?(out, "hunter2"),
-             "redact must run before truncate so secrets near or past the cap are still redacted"
+      # Secret body bytes must be gone from the output.
+      refute String.contains?(out, secret_body),
+             "redact must run before truncate so secrets that straddle the cap are still redacted"
+
+      # Load-bearing falsifier for r11's ordering clause: under a
+      # truncate-first ordering, the `=END` anchor at byte 5000 is
+      # dropped at the 4 KiB cap, the regex no longer matches the
+      # truncated prefix, and `[REDACTED]` is therefore absent.
+      # The presence of `[REDACTED]` is what proves redact ran first.
+      assert String.contains?(out, "[REDACTED]"),
+             "redact must run before truncate — the [REDACTED] marker should be present even though the secret's closing anchor is past the 4 KiB cap"
     end
 
     test "explicit opts override application env" do
