@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T02:44:26Z",
   "created": "2026-05-14T16:33:59Z",
   "description": "Advances: mutagen.cli, mutagen.mutation_enumeration\n\nCloses **F28 / CF11** (MEDIUM consensus from Security + Performance — Security M1, Performance F-PERF-07/12).\n\nCLI accepts unlimited repetition of `--scope` / `--tests`. The enumerator materializes every site in memory before the runner starts. No aggregate budget. Per-site timeout doesnt bound the whole run. Three avenues for runaway resource use.\n\n## Deliverable\n\n- Cap `--scope` / `--tests` repetition at 100 each. Reject excess with `:too_many_targets`.\n- Cap total enumerated sites at a sensible upper bound (e.g. 10,000). Configurable via `--max-sites`.\n- Add `--budget-ms \u003cN\u003e` for aggregate wall-clock budget. When exceeded, the runner terminates gracefully and emits a partial JSON report with `truncated: true`.\n- Fix `phase_scope` O(n²): the `acc ++ records` accumulation in lib/mix/tasks/mutagen.ex:311-323 — prepend-then-reverse. (This is a half-overlap with F20 / `.25`; do it here since its at the same touch points.)\n- Revise `.spec/specs/cli.spec.md` + `.spec/specs/mutation_enumeration.spec.md` accordingly.\n\n## Verification\n\n- New cli_test.exs: 101 scopes → `:too_many_targets`; 10,001 sites → `:too_many_sites`; budget elapsed → partial report\n- Benchmark: `phase_scope` with 1000 records — assert O(n) not O(n²) via timing or operation count\n- mix test green\n\n## Allowed touches\n\n- lib/mutagen_ex/cli.ex\n- lib/mix/tasks/mutagen.ex (phase_scope + aggregate budget)\n- lib/mutagen_ex/mutation_enumerator.ex (site cap)\n- .spec/specs/cli.spec.md, mutation_enumeration.spec.md\n- Corresponding test files\n- README.md, CHANGELOG.md\n\n## Out of Scope\n\n- Streaming the enumerator (Stream.transform conversion) — that is F44 / `.25` (AST/perf mega)\n- NDJSON output streaming — that is F17 / `.30`\n\n## Merge gate\n- [ ] mix test green / strict pre-merge green\n- [ ] Cap-enforcement tests pass\n- [ ] phase_scope O(n) regression test passes\n- [ ] Auditor APPROVE",
   "id": "mutagen-wrd.22",
@@ -50,7 +51,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
   "updated_at": "2026-05-15T02:44:26Z"
