@@ -55,6 +55,10 @@ Top-level keys, all present in every variant unless noted:
 - `aborted`: boolean. `false` for full pipeline completion; `true` for any
   pre-completion exit.
 - `abort_reason`: string or `null`. Populated iff `aborted == true`.
+- `truncated`: boolean. `false` on every normal run; `true` when the
+  mutation phase exited early because an aggregate budget elapsed. See
+  r13 for the contract and [mutagen.cli.r13](cli.spec.md) for the
+  `--budget-ms` flag that drives it.
 
 ```spec-requirements
 - id: mutagen.json_schema.r1
@@ -69,7 +73,9 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     Every successful (`aborted: false`) run emits a document with all
     top-level keys populated and non-null EXCEPT `abort_reason`, which is
-    `null` on success.
+    `null` on success. The `truncated` boolean is populated on every run
+    (success or abort); it defaults to `false` and only flips to `true`
+    under the budget-exhaustion path defined in r13.
 
 - id: mutagen.json_schema.r3
   priority: must
@@ -203,6 +209,25 @@ Top-level keys, all present in every variant unless noted:
     byte-identical; a verbatim-source-slice implementation of
     `before_source` is a separate change that does not relax this
     call-count cap.
+
+- id: mutagen.json_schema.r13
+  priority: must
+  statement: |
+    `truncated` is a top-level boolean populated on every emitted document
+    (success or abort). It defaults to `false` and flips to `true` iff the
+    mutation phase exited early under an aggregate wall-clock budget. The
+    `--budget-ms` flag and the runtime conditions that drive this flip are
+    defined by [mutagen.cli.r13](cli.spec.md); this schema only pins the
+    wire shape:
+
+    - The key is always present at the top level (never omitted, never `null`).
+    - On a normal completion, the value is `false`.
+    - On a budget-exhaustion early exit, the value is `true`, `aborted`
+      remains `false` (truncation is a graceful early exit, not an abort),
+      `abort_reason` remains `null`, and the `mutation` block reflects only
+      the sites the runner completed before the budget elapsed.
+    - `warnings` contains at least one `budget_exceeded` entry when
+      `truncated: true`.
 ```
 
 ```spec-scenarios
