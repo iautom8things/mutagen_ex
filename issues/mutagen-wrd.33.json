@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: agent-a0950e89016a8521f (subagent of 866c9970-ee52-41f7-b573-aa2ec26231c0)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0/subagents/agent-a0950e89016a8521f.jsonl\n\nReasoning: Re-ran the contract live from the stage worktree: `grep -nE 'apply\\(' lib/mix/tasks/mutagen.ex` returns exactly 2 hits, both inside `run_legacy/2` (lines 285, 291) with inline comments tying back to the Verification carve-out — production state machine has 0 apply/3 sites. The 9 production-module diffs are pure `@behaviour X` + `@impl X` annotations plus `mix format` long-line reflow (verified by reading each diff); zero semantic changes, identical pattern to mutagen-wrd.24's audit-expanded scope. The 3 extra test files (mix_task_phase_scope, json_canonicalisation, end_to_end) are mechanical `{__MODULE__, :__phase_X__}`-tuple → `defmodule PhaseStubs.X` migrations wrapping the same function bodies (closure-injection preserved via `Process.get({:phase_fun, k})` where used); no semantic test rewrites. Spec stub count confirmed: 8 cli.v* + 7 mutation_pipeline.v* = 15 in `.spec/specs/{cli,mutation_pipeline}.spec.md` with cli.v3 marked `execute: false` as verifier reported. Live re-run: `mix compile --warnings-as-errors` exit 0; `mix test` 506 tests / 0 failures / 15 excluded. Zero `__phase_` tokens remain across lib + test. Retroactive audit-expanded scope authorized — same justification as .24: annotations are mechanically required for the new behaviours to bind under --warnings-as-errors (the Dialyzer-surrogate gate), and the 3 extra test files were broken by the same dispatch-shape change this ticket exists to make, so deferring them would leave an unbuildable intermediate state. No carve subticket warranted.",
       "timestamp": "2026-05-15T03:43:02Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off (auditor APPROVE; closes F9 second half started in .24).",
+      "timestamp": "2026-05-15T03:45:04Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Replace Mix.Tasks.Mutagen dispatch table {mod, fun} with module atoms",
   "type": "task",
-  "updated_at": "2026-05-15T03:43:02Z"
+  "updated_at": "2026-05-15T03:45:04Z"
 }
