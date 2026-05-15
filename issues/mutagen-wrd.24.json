@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T02:01:32Z",
   "created": "2026-05-14T16:34:58Z",
   "description": "Advances: mutagen.mutation_pipeline, mutagen.coverage\n\nCloses **F9** (HIGH, Idioms H2). Eleven `apply(Map.get(cfg, :facade, ProductionMod), :fun, [arg])` call sites span runner / baseline / coverage / loop. The Mix tasks dispatch table has 11 `{mod, fun}` keys. No compile-time dispatch, specs are a lie, no Dialyzer leverage.\n\n## Deliverable\n\nDefine behaviours and switch call sites to direct calls on a swappable module atom:\n\n- `lib/mutagen_ex/test/ex_unit_facade.ex` (`@behaviour MutagenEx.Test.ExUnitFacade`) — ExUnit.run/0, ExUnit.Server.add_module/2, etc.\n- `lib/mutagen_ex/test/compiler_facade.ex` — Code.compile_quoted/2\n- `lib/mutagen_ex/test/cover_facade.ex` — :cover.* calls\n- Production implementations live as default modules; test seams swap via cfg.\n\n## Verification\n\n- All existing facade-using tests pass without changes (they swap modules, not function names)\n- Dialyzer reports no missing-spec warnings on facade modules\n- mix test / mix compile --warnings-as-errors green\n\n## Allowed touches\n\n- lib/mutagen_ex/test/ (new subdirectory for facades)\n- lib/mutagen_ex/mutation_runner.ex (call site swaps)\n- lib/mutagen_ex/mutation_runner/mutation_loop.ex\n- lib/mutagen_ex/baseline.ex\n- lib/mutagen_ex/coverage_runner.ex\n- lib/mix/tasks/mutagen.ex (dispatch table replacement)\n- .spec/specs/ (any spec invariant about test-seam contract)\n- Corresponding test files\n- README.md, CHANGELOG.md\n\n## Out of Scope\n- Replace facades with mox-based mocks — facades are explicit behaviours, not mock contracts\n- Refactor configuration shape beyond facade-name keys\n\n## Merge gate\n- [ ] mix compile --warnings-as-errors green\n- [ ] mix test green\n- [ ] Dialyzer clean on facade modules\n- [ ] Scope check\n- [ ] Auditor APPROVE",
   "id": "mutagen-wrd.24",
@@ -26,7 +27,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Replace apply/3 test seams with behaviour-backed facades",
   "type": "task",
   "updated_at": "2026-05-15T02:01:32Z"
