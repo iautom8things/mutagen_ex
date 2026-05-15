@@ -773,20 +773,16 @@ defmodule MutagenEx.EndToEndTest do
   end
 
   describe "Scenario 7 (solo): EctoUser bytecode-identical restore (Spike I invariants)" do
-    # Skipped pending mutagen-wrd.13 (MutationLoop brutal_kill / Code.Server
-    # corruption) and the related cover-instrumentation hardening that the
-    # EctoUser hand-rolled DSL exposes. Verified in isolation: even with
-    # the per-scenario state reset from iteration 3, baseline against
-    # ecto_user_test.exs reports `failed: 1, passed: 5` — one of the six
-    # tight tests fails on the post-cover-compile module before any
-    # mutation runs. The macro-injected callbacks (`__schema_kind__/0`
-    # or the `:lane_schema_kind` persisted-attribute round-trip)
-    # legitimately do not survive `:cover.compile_beam/1` against the
-    # current production code path. The fix belongs in `lib/` (see
-    # mutagen-wrd.13's resolution note) and is out of scope for this
-    # ticket's Allowed touches.
+    # Un-skipped in mutagen-wrd.32 after the mutagen-wrd.19 spike
+    # (Option B disposition) confirmed the prior `:cover` + Ecto-DSL
+    # framing was wrong: every macro-injected callback on
+    # `LaneFixture.EctoUser` survives the full
+    # `:cover.compile_beam/1` -> `:cover.stop/0` -> `:code.purge/1` ->
+    # `:code.load_file/1` cycle byte-for-byte. The baseline-red was a
+    # fixture-test assertion bug in `ecto_user_test.exs` (a
+    # `Keyword.get_values/2` over a `persist: true` attribute returns a
+    # list-of-lists), now fixed.
     @tag :ecto_user_scenario
-    @tag :skip
     @tag timeout: 120_000
     test "after full mutation pass, source and bytecode are identical (r6, r11)", ctx do
       for mod <- [LaneFixture.EctoUser, LaneFixture.EctoUserSchema] do

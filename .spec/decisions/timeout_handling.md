@@ -110,11 +110,21 @@ are unchanged.
   condition.
 - The Code.Server stays healthy across `:timeout` events: the per-site
   cycle no longer poisons the BEAM by orphaning per-module load locks.
-  This is what unblocks the S7 end-to-end driver scenarios 4
-  (`infinite_looper.ex` → `:timeout`) and 7 (`EctoUser` bytecode-
-  identical restore) from running in the same BEAM as the other
-  scenarios. (Scenario 7 has its own additional cover-instrumentation
-  caveats; see the e2e module doc.)
+  This is what unblocks the S7 end-to-end driver Scenario 4
+  (`infinite_looper.ex` → `:timeout`) from running in the same BEAM as
+  the other scenarios. (Scenario 7 — `EctoUser` bytecode-identical
+  restore — was originally bundled into this rationale under a
+  "cover-instrumentation issue with Ecto-style DSLs" framing. The
+  mutagen-wrd.19 spike disproved that framing: every macro-injected
+  callback on `LaneFixture.EctoUser` survives the
+  `:cover.compile_beam/1` → `:cover.stop/0` → `:code.purge/1` →
+  `:code.load_file/1` cycle byte-for-byte, and the baseline-red was a
+  fixture-test assertion bug — `Keyword.get_values/2` over a
+  `persist: true` attribute returns a list-of-lists. Scenario 7 is
+  unblocked by mutagen-wrd.32's assertion fix, NOT by this decision's
+  load-lock release. The two-phase cancel + `:code.purge/1` settle is
+  still correct for Scenario 4 and for any future timeout-classified
+  site whose task is mid-flight in `:code.load_binary/3`.)
 
 **Negative**:
 

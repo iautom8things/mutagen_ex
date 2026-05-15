@@ -7,26 +7,31 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-### Investigation notes
+### Fixed
 
-- **Scenario 7 (`:ecto_user_scenario`) root cause confirmed standalone**
-  (`mutagen-wrd.19` spike). The end-to-end Scenario 7 `@tag :skip` was
-  long blamed on a `:cover` + Ecto-style DSL interaction. Direct
-  reproduction (`priv/helper_scripts/spike_19_repro.exs`) showed every
-  macro-injected callback — `__schema_kind__/0`, `field/2`-generated
-  `name/0` and `age/0`, the `birthday/1` arithmetic helper, and the
-  persisted `:lane_schema_kind` attribute — survives
-  `:cover.compile_beam/1` → `:cover.stop/0` → `:code.purge/1` →
-  `:code.load_file/1` byte-for-byte. The actual baseline-red came from
-  one assertion in
+- **Scenario 7 (`:ecto_user_scenario`) un-skipped.** The end-to-end
+  Scenario 7 `@tag :skip` in `test/mutagen_ex/end_to_end_test.exs` was
+  long blamed on a `:cover` + Ecto-style DSL interaction. The
+  `mutagen-wrd.19` spike (direct reproduction in
+  `priv/helper_scripts/spike_19_repro.exs`) showed every macro-injected
+  callback — `__schema_kind__/0`, `field/2`-generated `name/0` and
+  `age/0`, the `birthday/1` arithmetic helper, and the persisted
+  `:lane_schema_kind` attribute — survives `:cover.compile_beam/1` ->
+  `:cover.stop/0` -> `:code.purge/1` -> `:code.load_file/1`
+  byte-for-byte. The actual baseline-red came from one assertion in
   `test/fixtures/lane_project/test/lane_fixture/ecto_user_test.exs:30`
   (`assert :registered in Keyword.get_values(attrs, :lane_schema_kind)`)
   that fails because `persist: true` attributes serialise their value
   wrapped in a list — `Keyword.get_values/2` returns `[[:registered]]`,
-  not `[:registered]`. The test fails identically with or without cover.
-  Disposition: **Option B** — `mutagen-wrd.32` (the .19b follow-up)
-  opened to fix the assertion (`List.flatten/1` or `Keyword.fetch!`)
-  and un-skip Scenario 7. README "Known limitations" entry 5 added.
+  not `[:registered]`, and `:registered in [[:registered]]` is `false`.
+  The test fails identically with or without `:cover`. The assertion
+  was rewritten to flatten the values plus an explicit
+  `Keyword.fetch!(attrs, :lane_schema_kind) == [:registered]` check,
+  Scenario 7's `@tag :skip` was removed, and README "Known limitations"
+  item 5 was marked resolved. The Spike-I bytecode-identical-restore
+  invariant is now exercised end-to-end against the hand-rolled DSL.
+  *(mutagen-wrd.32, the .19b follow-up to mutagen-wrd.19's Option B
+  disposition.)*
 
 ### Added
 

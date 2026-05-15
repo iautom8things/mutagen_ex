@@ -30,7 +30,14 @@ defmodule LaneFixture.EctoUserTest do
   test "persisted attribute survives compile (tight)" do
     attrs = LaneFixture.EctoUser.__info__(:attributes)
     assert Keyword.has_key?(attrs, :lane_schema_kind)
-    assert :registered in Keyword.get_values(attrs, :lane_schema_kind)
+    # `Module.register_attribute/3` with `persist: true` (without `accumulate:
+    # true`) wraps the value in a list before serialising into the BEAM
+    # attributes chunk. `Keyword.get_values/2` then returns `[[:registered]]`,
+    # so we flatten before membership-testing. The single fetched value is
+    # also asserted directly for tightness. See mutagen-wrd.19 spike (Option
+    # B) and mutagen-wrd.32 for the fix narrative.
+    assert :registered in List.flatten(Keyword.get_values(attrs, :lane_schema_kind))
+    assert Keyword.fetch!(attrs, :lane_schema_kind) == [:registered]
   end
 
   test "birthday/1 returns an integer (toothless)" do
