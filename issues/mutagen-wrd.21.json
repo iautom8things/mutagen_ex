@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T01:33:20Z",
   "created": "2026-05-14T16:33:43Z",
   "description": "Advances: mutagen.cli, mutagen.json_schema\n\nCloses **F7** (HIGH, Security reviewer H2). `--json \u003cpath\u003e` accepts any binary; no canonicalisation. Combined with the in-process compile-and-execute design (Security C1), this is an arbitrary-file-write primitive: a malicious mutated test could write the report to `/etc/`, `~/.ssh/`, or a symlinked path.\n\n## Sites\n- lib/mutagen_ex/cli.ex:206-217 (parse)\n- lib/mix/tasks/mutagen.ex:626-641 (write)\n\n## Deliverable\n\n- Canonicalize the path: refuse `..` traversal segments, reject NUL bytes, follow symlinks ONLY if target stays inside project root.\n- Default policy: writes must land inside the projects root (resolved via `File.cwd!/0` or `Mix.Project.deps_path/0` parent).\n- Escape hatch: `--unsafe-json-outside-project` flag explicitly opts in to writing outside the project root (CI use cases). When set, log a warning at startup.\n- Revise `.spec/specs/cli.spec.md` + `.spec/specs/json_schema.spec.md`: new requirement for path safety.\n\n## Verification\n\n- New cli_test.exs cases: path with `..`, NUL byte, symlink to /etc, symlink staying inside project — assert each is accepted/rejected per the policy\n- mix test green\n- Spec verification stubs pass\n\n## Allowed touches\n\n- lib/mutagen_ex/cli.ex\n- lib/mix/tasks/mutagen.ex (write site)\n- .spec/specs/cli.spec.md, json_schema.spec.md\n- test/mutagen_ex/cli_test.exs\n- README.md, CHANGELOG.md\n\n## Out of Scope\n\n- Sandbox the entire mutation run (out-of-process workers) — that is Wont-Have / v2\n- Refactor JSON write path beyond the canonicalization\n\n## Merge gate\n- [ ] mix compile --warnings-as-errors / mix test green\n- [ ] Symlink traversal test passes\n- [ ] Spec verification passes\n- [ ] Auditor APPROVE",
   "id": "mutagen-wrd.21",
@@ -26,7 +27,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Canonicalize --json \u003cpath\u003e — reject path traversal + symlink escape",
   "type": "task",
   "updated_at": "2026-05-15T01:33:20Z"
