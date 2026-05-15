@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-05-14T16:33:04Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "DISCOVERY: :ecto_user_scenario @tag :skip — spike root cause, decide deferral or fix path",
   "type": "task",
-  "updated_at": "2026-05-14T16:33:04Z"
+  "updated_at": "2026-05-15T00:10:07Z"
 }
