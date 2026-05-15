@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-15T13:08:30Z",
+  "description": "Advances: mutagen.mutation_enumeration, mutagen.mutation_pipeline\n\nDeliverable:\nAdd `test/mutagen_ex/determinism_test.exs` (new file, tagged `:e2e_slow`). The test runs `MutagenEx.run/2` twice against a small bench fixture and asserts the produced NDJSON output is byte-identical across runs.\n\nThe fixture lives at `priv/helper_scripts/bench_fixtures/wrd25_200sites/` (added in S1). Until S1 lands, the test can target an existing tiny scope as the input — the goal is to commit the safety net before any refactor begins. Re-target to the wrd25 fixture in S1.\n\nVerification:\n- Tests to pass: `mix test --include e2e_slow test/mutagen_ex/determinism_test.exs` green\n- Behaviors to demonstrate: two consecutive `MutagenEx.run/2` invocations against the same input produce binary-identical NDJSON output (the mutagen.r2 determinism contract)\n\nOut of Scope (files):\n- lib/**/* (no production code changes)\n- priv/repo/migrations/** (none exist; defensive)\nAllowed touches (this stage may modify):\n- test/mutagen_ex/determinism_test.exs (new)\n\nOut of Scope (intent):\n- Do not refactor anything. This is the safety-net commit before refactoring begins.\n- Do not add a fixture under priv/helper_scripts/ — S1 owns that.\n- Do not include in default `mix test` (must be `:e2e_slow` tagged).\n\nMerge gate:\n- [ ] Code compiles cleanly (`mix compile --warnings-as-errors`)\n- [ ] `mix test` (default) still green (the new test is excluded by default)\n- [ ] `mix test --include e2e_slow test/mutagen_ex/determinism_test.exs` green\n- [ ] Scope check: diff touches only Allowed globs\n- [ ] Auditor APPROVE comment on the ticket\n\nCommit: `mutagen-wrd.25.00: pre-flight determinism test`",
+  "id": "mutagen-wrd.25.1",
+  "labels": [],
+  "parent": "mutagen-wrd.25",
+  "priority": 2,
+  "status": "open",
+  "title": "S0: pre-flight determinism baseline test",
+  "type": "task",
+  "updated_at": "2026-05-15T13:08:30Z"
+}
