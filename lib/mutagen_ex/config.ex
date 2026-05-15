@@ -29,6 +29,13 @@ defmodule MutagenEx.Config do
   budget for the mutation phase in milliseconds. `nil` means unbounded
   (the existing per-site `timeout_ms` is still enforced); set via
   `--budget-ms`.
+
+  Per `mutagen.mutation_pipeline.r15` / `mutagen.json_schema.r10`,
+  `max_concurrency` controls the per-site parallelism of the mutation
+  loop (default `System.schedulers_online()`), `stream` toggles per-site
+  NDJSON emission to stdout (default `false`), and `progress` toggles
+  the human-readable progress feedback on stderr (default `:auto`,
+  which evaluates "is stdout a TTY?" at run time).
   """
 
   alias MutagenEx.Types
@@ -41,7 +48,10 @@ defmodule MutagenEx.Config do
             json_path: nil,
             unsafe_json_outside_project: false,
             max_sites: 10_000,
-            budget_ms: nil
+            budget_ms: nil,
+            max_concurrency: nil,
+            stream: false,
+            progress: :auto
 
   @type t :: %__MODULE__{
           scopes: [Types.scope_target()],
@@ -51,6 +61,9 @@ defmodule MutagenEx.Config do
           json_path: Path.t() | nil,
           unsafe_json_outside_project: boolean(),
           max_sites: pos_integer(),
-          budget_ms: pos_integer() | nil
+          budget_ms: pos_integer() | nil,
+          max_concurrency: pos_integer() | nil,
+          stream: boolean(),
+          progress: :auto | :on | :off
         }
 end

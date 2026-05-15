@@ -43,6 +43,21 @@ defmodule MutagenEx.CLI do
       budget for the mutation phase in milliseconds. When exceeded the
       runner terminates gracefully and the JSON document carries
       `truncated: true` (per `mutagen.cli.r13`).
+    * `--max-concurrency <int>` — positive integer, default
+      `System.schedulers_online()`. The mutation loop dispatches per-site
+      tasks via `Task.Supervisor.async_stream_nolink/4`; results are
+      collected in input order so the JSON document remains byte-identical
+      across `--max-concurrency` values on deterministic scopes. Set to
+      `1` for fully-serial behaviour (matches v1.0 semantics exactly).
+    * `--stream` — boolean, default false. When set, the runner emits
+      one NDJSON line per completed site (and one envelope line on start
+      and finish) to the configured output (`stdout` by default, or
+      `--json <path>`). The final aggregate JSON document is still
+      emitted on the same sink as the last line. Consumers tee on `\\n`.
+    * `--no-progress` — boolean, default false. When set, the human-
+      readable progress bar / counter is never written to stderr.
+      Default behaviour is to emit progress only when stderr is a TTY
+      (`:io.getopts/0` reports `:terminal`).
 
   ## Refused flags
 
@@ -77,6 +92,7 @@ defmodule MutagenEx.CLI do
           | :missing_tests
           | :invalid_timeout
           | :invalid_seed
+          | :invalid_max_concurrency
           | :flag_not_supported_in_v1
           | :unknown_flag
           | :self_mutation_refused
@@ -123,7 +139,10 @@ defmodule MutagenEx.CLI do
          {:ok, json_path} <- pick_json_path(parsed),
          {:ok, max_sites} <- pick_max_sites(parsed),
          {:ok, budget_ms} <- pick_budget_ms(parsed),
-         unsafe_outside_project = pick_unsafe_outside_project(parsed) do
+         {:ok, max_concurrency} <- pick_max_concurrency(parsed),
+         unsafe_outside_project = pick_unsafe_outside_project(parsed),
+         stream = pick_stream(parsed),
+         progress = pick_progress(parsed) do
       {:ok,
        %Config{
          scopes: scopes,
@@ -133,7 +152,10 @@ defmodule MutagenEx.CLI do
          json_path: json_path,
          unsafe_json_outside_project: unsafe_outside_project,
          max_sites: max_sites,
-         budget_ms: budget_ms
+         budget_ms: budget_ms,
+         max_concurrency: max_concurrency,
+         stream: stream,
+         progress: progress
        }}
     end
   end
@@ -167,7 +189,10 @@ defmodule MutagenEx.CLI do
     json: :string,
     unsafe_json_outside_project: :boolean,
     max_sites: :integer,
-    budget_ms: :integer
+    budget_ms: :integer,
+    max_concurrency: :integer,
+    stream: :boolean,
+    no_progress: :boolean
   ]
 
   # Resource caps — see mutagen.cli.r12.
@@ -206,6 +231,10 @@ defmodule MutagenEx.CLI do
       flag == "--budget-ms" ->
         {:error, :invalid_budget_ms,
          %{flag: flag, value: value, message: "--budget-ms requires a positive integer"}}
+
+      flag == "--max-concurrency" ->
+        {:error, :invalid_max_concurrency,
+         %{flag: flag, value: value, message: "--max-concurrency requires a positive integer"}}
 
       true ->
         {:error, :unknown_flag, %{flag: flag, value: value, message: "unrecognised flag #{flag}"}}
@@ -354,6 +383,50 @@ defmodule MutagenEx.CLI do
     case List.keyfind(parsed, :unsafe_json_outside_project, 0, :default) do
       :default -> false
       {:unsafe_json_outside_project, value} when is_boolean(value) -> value
+    end
+  end
+
+  # `--max-concurrency <int>` — positive integer. `nil` (the default
+  # stored on `Config`) means "use System.schedulers_online() at run
+  # time"; the parser intentionally does NOT eagerly resolve to a
+  # concrete number, so the same parsed config can produce different
+  # concurrency on machines with different scheduler counts. Setting
+  # to `1` forces v1.0-equivalent serial execution.
+  defp pick_max_concurrency(parsed) do
+    case List.keyfind(parsed, :max_concurrency, 0, :default) do
+      :default ->
+        {:ok, nil}
+
+      {:max_concurrency, n} when is_integer(n) and n > 0 ->
+        {:ok, n}
+
+      {:max_concurrency, n} ->
+        {:error, :invalid_max_concurrency,
+         %{
+           flag: "--max-concurrency",
+           value: n,
+           message: "--max-concurrency must be a positive integer"
+         }}
+    end
+  end
+
+  # `--stream` — boolean. Absent means false; present means true.
+  defp pick_stream(parsed) do
+    case List.keyfind(parsed, :stream, 0, :default) do
+      :default -> false
+      {:stream, value} when is_boolean(value) -> value
+    end
+  end
+
+  # `--no-progress` — boolean. Absent means `:auto` (TTY-detected);
+  # `--no-progress` forces `:off`. There is no `--progress` flag in v1.1
+  # — the auto-detection behaviour is the documented default and an
+  # explicit override would just shadow it.
+  defp pick_progress(parsed) do
+    case List.keyfind(parsed, :no_progress, 0, :default) do
+      :default -> :auto
+      {:no_progress, true} -> :off
+      {:no_progress, false} -> :auto
     end
   end
 

@@ -32,6 +32,10 @@ surface:
   - lib/mutagen_ex/baseline.ex
   - lib/mutagen_ex/mutation_runner.ex
   - lib/mutagen_ex/mutation_runner/mutation_loop.ex
+  - lib/mutagen_ex/telemetry.ex
+  - lib/mutagen_ex/progress.ex
+  - lib/mutagen_ex/application.ex
+  - lib/mix/tasks/mutagen.ex
 decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
@@ -228,6 +232,67 @@ decisions:
     test anti-pattern) remain leaked; snapshot-delta detection
     (mutagen.mutation_pipeline.r7) continues to detect these as
     advisory growth signals.
+
+- id: mutagen.mutation_pipeline.r15
+  priority: must
+  statement: |
+    `MutationRunner.run/1` dispatches per-site work through
+    `Task.Supervisor.async_stream_nolink/4` under
+    `MutagenEx.TaskSup` when `cfg.max_concurrency > 1`; when
+    `cfg.max_concurrency == 1` it stays in the caller process for
+    byte-equivalent v1.0 execution. Regardless of which path runs,
+    results MUST be collected in input order (the async_stream
+    `:ordered: true` default) and the sequential post-fold for
+    taint propagation, snapshot warnings, and per-site
+    classification MUST run over the ordered outcome stream. As a
+    consequence, two runs against the same `cfg.sites` with the
+    same deterministic-input test stubs produce a byte-identical
+    aggregate `%{results, compile_errors, state_drift_warning,
+    warnings}` map across all valid `cfg.max_concurrency` values.
+    The user-facing default for `--max-concurrency` resolves to
+    `System.schedulers_online()` at the Mix-task layer; the
+    runner's own internal default when nothing is passed is `1`.
+
+    During the run the runner emits `:telemetry` events under the
+    `[:mutagen_ex, ...]` namespace per `MutagenEx.Telemetry`:
+      - `[:mutagen_ex, :run, :start | :stop]` brackets the whole
+        pipeline (emitted by the Mix task).
+      - `[:mutagen_ex, :coverage, :start | :stop]`,
+        `[:mutagen_ex, :baseline, :start | :stop]` bracket those
+        phases (emitted by the Mix task via `:telemetry.span/3`).
+      - `[:mutagen_ex, :enumeration, :stop]` carries the site
+        count after enumeration.
+      - `[:mutagen_ex, :site, :start | :stop]` brackets every
+        per-site task. The `.stop` metadata names `site_id`,
+        `file`, `line`, `mutator`, `status`, `index`, and `total`.
+    Consumers attach their own `:telemetry.attach/4` handlers; the
+    library does NOT ship a poller or built-in subscriber per the
+    bw mutagen-wrd.30 Out of Scope.
+
+    The runner accepts a `:on_site_completed` callback in `cfg`
+    that fires once per site as the per-site outcome becomes
+    available (after sequential post-fold). The callback receives
+    either `{:result, %{...}}` for completed sites or
+    `{:compile_error, %{...}}` for sites whose mutated AST refused
+    to compile. The Mix task wires this callback to
+    `MutagenEx.JsonStreamer` when `--stream` is set so each
+    completed site emits one NDJSON line on the same sink the
+    aggregate document goes to. Callback firing order matches
+    input order; the runner never invokes the callback out of
+    order even under `cfg.max_concurrency > 1`.
+
+    Caveat: the in-process pipeline shares ExUnit's global server,
+    the Code.Server's per-module load locks, and `:cover`
+    instrumentation state across per-site tasks. Two parallel
+    sites that mutate the SAME module collide on
+    `Code.compile_quoted/2`; two parallel `ExUnit.run/0` calls
+    interleave the global registered-modules list. The Mix task
+    therefore defaults `--max-concurrency` to `1` for the
+    user-facing `mix mutagen` command when the flag is not passed;
+    `--max-concurrency N` (N > 1) is the explicit opt-in path for
+    callers that have arranged for collision-free input. Advanced
+    parallelism (per-task ExUnit servers, isolated Code.Server
+    instances) is out of scope for v1.1 and tracked separately.
 ```
 
 ```spec-scenarios
@@ -441,5 +506,12 @@ decisions:
     - mutagen.mutation_pipeline.r14
   kind: command
   command: mix test test/mutagen_ex/supervision_test.exs
+  execute: true
+
+- id: mutagen.mutation_pipeline.v7
+  covers:
+    - mutagen.mutation_pipeline.r15
+  kind: command
+  command: mix test test/mutagen_ex/mutation_runner_parallel_test.exs
   execute: true
 ```

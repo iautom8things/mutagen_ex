@@ -293,6 +293,93 @@ defmodule MutagenEx.CLITest do
     end
   end
 
+  describe "parse/1 — --max-concurrency / --stream / --no-progress (bw mutagen-wrd.30)" do
+    test "--max-concurrency 4 lands on Config" do
+      assert {:ok, %Config{max_concurrency: 4}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-concurrency",
+                 "4"
+               ])
+    end
+
+    test "--max-concurrency default is nil (Mix task resolves to schedulers_online)" do
+      assert {:ok, %Config{max_concurrency: nil}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+    end
+
+    test "--max-concurrency 0 is rejected with :invalid_max_concurrency" do
+      assert {:error, :invalid_max_concurrency, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-concurrency",
+                 "0"
+               ])
+
+      assert details.value == 0
+    end
+
+    test "--max-concurrency -2 is rejected with :invalid_max_concurrency" do
+      assert {:error, :invalid_max_concurrency, _} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-concurrency",
+                 "-2"
+               ])
+    end
+
+    test "--max-concurrency non-integer surfaces :invalid_max_concurrency" do
+      assert {:error, :invalid_max_concurrency, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-concurrency",
+                 "many"
+               ])
+
+      assert details.flag == "--max-concurrency"
+    end
+
+    test "--stream sets Config.stream true; default false" do
+      assert {:ok, %Config{stream: false}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+
+      assert {:ok, %Config{stream: true}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--stream"
+               ])
+    end
+
+    test "--no-progress sets Config.progress :off; default :auto" do
+      assert {:ok, %Config{progress: :auto}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+
+      assert {:ok, %Config{progress: :off}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--no-progress"
+               ])
+    end
+  end
+
   describe "parse/1 — missing required flags (mutagen.cli.s2)" do
     test "missing --scope yields :missing_scope (s2)" do
       assert {:error, :missing_scope, details} =

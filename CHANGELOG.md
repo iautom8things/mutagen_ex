@@ -7,6 +7,35 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Parallel mutation loop, telemetry, NDJSON streaming, and progress
+  feedback.** The mutation runner now dispatches per-site work through
+  `Task.Supervisor.async_stream_nolink/4` under `MutagenEx.TaskSup`
+  with `:ordered: true`, so results are collected in input order
+  regardless of which task body finished first. Configurable via the
+  new `--max-concurrency <int>` flag (default `1` for v1.0-equivalent
+  serial execution; set explicitly to `System.schedulers_online()` to
+  opt in). New requirement: `mutagen.mutation_pipeline.r15`.
+  - `:telemetry` events at well-defined points: `run.start/stop`,
+    `coverage.start/stop`, `baseline.start/stop`, `enumeration.stop`,
+    and per-site `site.start/stop`. Consumers attach their own
+    handlers; the library ships no built-in subscriber. See the new
+    `MutagenEx.Telemetry` module.
+  - `--stream` enables NDJSON-per-site emission via the new
+    `MutagenEx.JsonStreamer`. Each line carries a `"kind"`
+    discriminator (`"start"`, `"result"`, `"compile_error"`, `"end"`)
+    and a per-site wire shape byte-equal to the equivalent entry in
+    the aggregate document. New requirements:
+    `mutagen.json_schema.r10`, `mutagen.json_schema.r11`.
+  - `--no-progress` suppresses the human-readable per-site progress
+    feed on stderr; the default is auto-on when stderr is a TTY,
+    auto-off otherwise. See the new `MutagenEx.Progress` module.
+  - New dependency: `:telemetry ~> 1.0` (lightweight, no transitive
+    deps). The runner emits events through the standard
+    `:telemetry.execute/3` and `:telemetry.span/3` surfaces.
+  - *(mutagen-wrd.30, closes F17 from the consolidated review.)*
+
 ### Security
 
 - **Bound stderr / exception / `Macro.to_string` output flowing into the

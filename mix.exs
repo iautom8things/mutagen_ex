@@ -38,8 +38,13 @@ defmodule MutagenEx.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # {:dep_from_hexpm, "~> 0.3.0"},
-      # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
+      # `:telemetry` is the only runtime dependency. The mutation runner
+      # dispatches events at well-defined points (enumeration_done,
+      # baseline_done, coverage_done, site_started, site_completed,
+      # run_completed) per `mutagen.mutation_pipeline.r15`; consumers
+      # attach their own handlers. No metrics/exporter dependency — the
+      # event surface is intentionally minimal.
+      {:telemetry, "~> 1.0"}
     ]
   end
 end

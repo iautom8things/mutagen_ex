@@ -31,6 +31,7 @@ status: draft
 summary: Stable v1 JSON output schema for success, partial, and error runs.
 surface:
   - lib/mutagen_ex/json_reporter.ex
+  - lib/mutagen_ex/json_streamer.ex
   - test/mutagen_ex/golden/
 decisions:
   - mutagen.decision.json_reporter_owns_error
@@ -228,6 +229,55 @@ Top-level keys, all present in every variant unless noted:
       the sites the runner completed before the budget elapsed.
     - `warnings` contains at least one `budget_exceeded` entry when
       `truncated: true`.
+
+- id: mutagen.json_schema.r14
+  priority: must
+  statement: |
+    NDJSON streaming variant (`mix mutagen --stream`). When `--stream`
+    is set, `MutagenEx.JsonStreamer` emits one JSON object per line to
+    the same sink the aggregate document goes to (stdout when `--json`
+    is absent, the configured file when `--json <path>` is set).
+    Every line terminates with exactly one `\n` and is independently
+    parseable by `:json.decode/1`. Every line carries:
+      - `"version"` — the same literal `"1"` the aggregate document
+        emits (`r1`).
+      - `"kind"` — one of `"start"`, `"result"`, `"compile_error"`,
+        `"end"`.
+    The four kinds bracket the run:
+      - `"start"` fires once at mutation-phase entry; carries `total`
+        (planned site count) and `meta` (`r2`'s meta block).
+      - `"result"` fires once per completed site (any of `killed`,
+        `survived`, `timeout`, `error`); the line's wire shape MUST be
+        byte-equal to the equivalent entry in the aggregate document's
+        `mutation.results[]` array (`r4`) plus the `"kind"` and
+        `"version"` discriminators.
+      - `"compile_error"` fires once per `:compile_error` site; the
+        line's wire shape MUST be byte-equal to the equivalent entry
+        in `mutation.compile_errors[]`.
+      - `"end"` fires once at pipeline exit (success or abort);
+        carries the aggregate counters (`total`, `completed`,
+        `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
+        AND `aborted` + `abort_reason`.
+    Per-site lines (`"result"` / `"compile_error"`) are emitted in
+    input order — async_stream's `:ordered: true` plus the runner's
+    `:on_site_completed` sequential post-fold ensure a consumer
+    concatenating the stream into the aggregate would reproduce
+    `mutation.results[]` byte-equal to the standalone aggregate
+    document's array.
+
+- id: mutagen.json_schema.r15
+  priority: must
+  statement: |
+    `JsonStreamer.emit_*` functions do not call `IO.puts`,
+    `IO.write`, `System.halt`, or write to disk on their own. They
+    take a `sink` argument (either an IO device atom like
+    `:standard_io` or a `(iodata -> any)` function) and dispatch the
+    encoded line to it. The Mix task chooses the sink: stdout for
+    `--stream` without `--json`, an in-memory buffer that the final
+    IO step flushes for `--stream --json <path>`. This mirrors
+    `r6` (the aggregate reporter is also I/O-free) and lets unit
+    tests of the streamer assert wire shape without touching the
+    filesystem.
 ```
 
 ```spec-scenarios
@@ -377,5 +427,13 @@ Top-level keys, all present in every variant unless noted:
   covers: [mutagen.json_schema.r12]
   kind: command
   command: mix test test/mutagen_ex/mutagen_task_render_test.exs
+  execute: true
+
+- id: mutagen.json_schema.v7
+  covers:
+    - mutagen.json_schema.r14
+    - mutagen.json_schema.r15
+  kind: command
+  command: mix test test/mutagen_ex/json_streamer_test.exs
   execute: true
 ```

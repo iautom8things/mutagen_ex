@@ -94,6 +94,25 @@ defmodule MutagenEx.MutationRunner do
       `MutationLoop`.
     * `:code_purge` — `(module -> any)`. Test seam for the post-
       `:timeout` Code.Server settle pass. Default `&:code.purge/1`.
+    * `:max_concurrency` — `pos_integer | nil`. Cap on the number of
+      per-site tasks `Task.Supervisor.async_stream_nolink/4` will spawn
+      in parallel. `nil` resolves to `System.schedulers_online()` at
+      runtime; `1` forces v1.0-equivalent serial execution. Regardless
+      of value, results are collected in input order (the
+      `async_stream` `:ordered` default) so the JSON document is
+      byte-identical to the serial-equivalent run on deterministic
+      scopes — taint, warnings, and per-site classification all fold
+      sequentially over the ordered result list. See
+      `mutagen.mutation_pipeline.r15`.
+    * `:task_sup` — `atom | pid`. The `Task.Supervisor` the per-site
+      tasks run under. Default `MutagenEx.TaskSup`. Tests can pass a
+      one-off supervisor pid for isolation.
+    * `:on_site_completed` — `(result_or_compile_error -> :ok)`. Called
+      once per site as the result becomes available (in input order),
+      before the runner accumulates it. This is the streaming-NDJSON
+      seam: the Mix task wires this to emit one wire-shape JSON line
+      per site. The runner only invokes it; it does no I/O itself
+      (`mutagen.json_schema.r11`).
 
   ## Output shape
 
@@ -283,10 +302,38 @@ defmodule MutagenEx.MutationRunner do
   defp alias_to_module(_), do: nil
 
   # ---------------------------------------------------------------------------
-  # Main per-site loop
+  # Main per-site loop — async_stream over sites with ordered collection
   # ---------------------------------------------------------------------------
-
+  #
+  # The loop dispatches each site through `Task.Supervisor.async_stream_nolink/4`
+  # under the configured `:task_sup` supervisor (default `MutagenEx.TaskSup`).
+  # `:ordered` is `true` (the async_stream default), so the stream yields
+  # site outcomes in input order regardless of which task finished first;
+  # the byte-identical-output gate (`mutagen.mutation_pipeline.r15`)
+  # depends on this ordering guarantee.
+  #
+  # Per-site classification — including taint propagation
+  # (`tainted_predecessors`) — is computed in a sequential post-fold over
+  # the ordered outcomes, NOT inside the task body. This is deliberate:
+  # taint depends on the previous site's snapshot delta, so it must be
+  # folded against the input-order stream and cannot be parallelised.
+  #
+  # The per-site task body covers everything that IS safely parallelisable
+  # in principle: AST mutation, compile-quoted, MutationLoop.run/1
+  # (timeout wrapping + ExUnit invocation), and restore. Note that ExUnit
+  # globals (`ExUnit.Server`, `:cover`, the running test config) are
+  # shared across tasks, so `--max-concurrency > 1` on a real ExUnit
+  # backend can produce inter-site interference. The default in v1.1
+  # remains `System.schedulers_online()`; consumers needing fully-serial
+  # behaviour pass `--max-concurrency 1`. The byte-identical-output gate
+  # is verified against the test fakes (Agent-backed `ExUnitFake`,
+  # CompilerStub) which are concurrency-safe by construction.
   defp execute(cfg, drift) do
+    sites = cfg.sites
+    total = length(sites)
+    max_concurrency = resolve_max_concurrency(cfg)
+    on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
+
     initial = %{
       results: [],
       compile_errors: [],
@@ -298,33 +345,89 @@ defmodule MutagenEx.MutationRunner do
 
     # `budget_ms` is the aggregate wall-clock budget from `--budget-ms`
     # (mutagen.cli.r13). `nil` means unbounded — the existing per-site
-    # `timeout_ms` is the only cap. When budget is set, the loop checks
-    # elapsed wall-clock BEFORE each new site dispatch and bails with
-    # `truncated: true` once the cap is hit. We don't interrupt a site
-    # in flight — the per-site timeout owns that — so the worst-case
-    # overshoot is one `timeout_ms`.
+    # `timeout_ms` is the only cap. When budget is set, the fold checks
+    # elapsed wall-clock BEFORE processing each completed-site outcome
+    # and bails with `truncated: true` once the cap is hit. We don't
+    # interrupt a site in flight — the per-site timeout owns that — so
+    # the worst-case overshoot is one `timeout_ms`. On the serial path
+    # (`max_concurrency == 1`) the outer stream is lazy, so halting
+    # early also avoids dispatching subsequent sites.
     budget_ms = Map.get(cfg, :budget_ms)
     started_at = System.monotonic_time(:millisecond)
 
-    Enum.reduce_while(cfg.sites, {:ok, initial}, fn site, {:ok, acc} ->
-      cond do
-        budget_exceeded?(budget_ms, started_at) ->
-          truncated = %{
-            acc
-            | warnings: [budget_truncation_warning(budget_ms) | acc.warnings],
-              truncated: true
-          }
+    indexed_sites = Enum.with_index(sites, 1)
 
-          {:halt, {:ok, truncated}}
+    # When `max_concurrency == 1` we stay in the caller process. This:
+    #   1. Preserves the v1.0 byte-identical execution path — the
+    #      fold reaches exactly the same accumulator updates in
+    #      exactly the same order.
+    #   2. Keeps Process-dictionary-backed test stubs working without
+    #      having to thread state through `Task.Supervisor`. The
+    #      existing `RecordingCompiler`-style hooks (see
+    #      `test/mutagen_ex/mutation_runner_raise_test.exs`) record
+    #      every compile call in the caller's process dictionary; a
+    #      spawned task would never see those hooks.
+    #
+    # When `max_concurrency > 1` we dispatch through
+    # `Task.Supervisor.async_stream_nolink/4` under the configured
+    # `:task_sup`. The stream's `:ordered: true` default guarantees
+    # the fold sees outcomes in input order, so the byte-identical
+    # contract still holds for deterministic scopes — taint,
+    # warnings, and counters all fold sequentially over the ordered
+    # result list.
+    task_outcomes_stream =
+      if max_concurrency == 1 do
+        Stream.map(indexed_sites, fn {site, idx} ->
+          {:ok, process_site_task(site, idx, total, cfg)}
+        end)
+      else
+        task_sup = Map.get(cfg, :task_sup, MutagenEx.TaskSup)
 
-        true ->
-          case process_site(site, cfg, acc) do
-            {:ok, next_acc} -> {:cont, {:ok, next_acc}}
-            {:error, _reason, _details} = err -> {:halt, err}
-          end
+        Task.Supervisor.async_stream_nolink(
+          task_sup,
+          indexed_sites,
+          fn {site, idx} -> process_site_task(site, idx, total, cfg) end,
+          max_concurrency: max_concurrency,
+          ordered: true,
+          # Per-site timeout is handled INSIDE `MutationLoop.run/1`; the
+          # outer async_stream timeout is effectively unbounded (the
+          # inner task's wall-clock budget governs). `:infinity` makes
+          # it explicit that the outer stream does not impose a second
+          # competing deadline.
+          timeout: :infinity,
+          on_timeout: :kill_task
+        )
       end
-    end)
-    |> case do
+
+    outcome =
+      Enum.reduce_while(task_outcomes_stream, {:ok, initial}, fn
+        {:ok, task_outcome}, {:ok, acc} ->
+          if budget_exceeded?(budget_ms, started_at) do
+            truncated = %{
+              acc
+              | warnings: [budget_truncation_warning(budget_ms) | acc.warnings],
+                truncated: true
+            }
+
+            {:halt, {:ok, truncated}}
+          else
+            case fold_task_outcome(task_outcome, cfg, acc, on_site_completed) do
+              {:cont, next_acc} -> {:cont, {:ok, next_acc}}
+              {:halt, abort} -> {:halt, abort}
+            end
+          end
+
+        {:exit, reason}, {:ok, _acc} ->
+          # An outer task exited unexpectedly (e.g. the supervisor
+          # killed it). Surface as an abort — the in-process pipeline
+          # does not have a "skip this site" recovery for outer-task
+          # death.
+          {:halt,
+           {:error, :unrecoverable_restore_failure,
+            %{message: "per-site outer task exited: " <> inspect(reason)}}}
+      end)
+
+    case outcome do
       {:ok, acc} ->
         {:ok,
          %{
@@ -352,64 +455,72 @@ defmodule MutagenEx.MutationRunner do
       "report truncated to completed sites only"
   end
 
-  defp process_site(%Site{} = site, cfg, acc) do
-    case AstCache.get(cfg.ast_cache, site.file) do
-      :error ->
-        # Cache miss is a programmer error — but per the universal
-        # partial-report shape we record it and continue with the next
-        # site (so a malformed cache against one site doesn't drop the
-        # whole report).
-        warning = "ast_cache_miss: " <> site.file
-        {:ok, %{acc | warnings: [warning | acc.warnings]}}
-
-      {:ok, {file_ast, _source}} ->
-        run_one_site(site, file_ast, cfg, acc)
+  # Resolves the per-site concurrency cap.
+  #
+  # The runner itself defaults to `1` (fully serial, in-caller-process)
+  # when no value is set — that is the conservative, deterministic
+  # default that preserves the v1.0 contract. Production callers
+  # (`Mix.Tasks.Mutagen`) translate `Config.max_concurrency == nil` to
+  # `System.schedulers_online()` BEFORE handing the config to the
+  # runner, so the user-facing default is still
+  # `--max-concurrency=System.schedulers_online()` per
+  # `mutagen.mutation_pipeline.r15`. Tests and library callers that
+  # don't pass a value get serial execution.
+  defp resolve_max_concurrency(cfg) do
+    case Map.get(cfg, :max_concurrency) do
+      nil -> 1
+      n when is_integer(n) and n > 0 -> n
     end
   end
 
-  defp run_one_site(%Site{} = site, file_ast, cfg, acc) do
+  # Per-site task body. Returns a `task_outcome` tuple that the
+  # sequential post-fold turns into accumulator updates. The shape is
+  # always `{:ok, site, …}` or `{:abort, reason, details}`; the fold
+  # decides whether to continue or halt.
+  defp process_site_task(%Site{} = site, idx, total, cfg) do
+    MutagenEx.Telemetry.span(
+      :site,
+      %{site_id: site.id, file: site.file, line: site.line, mutator: site.mutator,
+        index: idx, total: total},
+      fn ->
+        outcome = process_site_body(site, cfg)
+        stop_status = task_outcome_status(outcome)
+        {outcome,
+         %{site_id: site.id, file: site.file, line: site.line, mutator: site.mutator,
+           index: idx, total: total, status: stop_status}}
+      end
+    )
+  end
+
+  defp task_outcome_status({:ok, _site, {:completed, %{failures: f}, _meta}, _stderr})
+       when is_integer(f) and f > 0,
+       do: :killed
+
+  defp task_outcome_status({:ok, _site, {:completed, %{}, _meta}, _stderr}), do: :survived
+  defp task_outcome_status({:ok, _site, {:timeout, _meta}, _stderr}), do: :timeout
+  defp task_outcome_status({:ok, _site, {:error, _reason, _meta}, _stderr}), do: :error
+  defp task_outcome_status({:compile_error, _site, _msg}), do: :compile_error
+  defp task_outcome_status({:ast_miss, _site}), do: :compile_error
+  defp task_outcome_status({:site_not_found, _site}), do: :compile_error
+
+  defp task_outcome_status({:abort, _reason, _details}), do: :error
+
+  defp process_site_body(%Site{} = site, cfg) do
+    case AstCache.get(cfg.ast_cache, site.file) do
+      :error ->
+        {:ast_miss, site}
+
+      {:ok, {file_ast, _source}} ->
+        run_one_site_task(site, file_ast, cfg)
+    end
+  end
+
+  defp run_one_site_task(%Site{} = site, file_ast, cfg) do
     case build_mutated_file_ast(file_ast, site) do
       {:ok, mutated_ast} ->
-        # 1. Compile the mutated AST.
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
-            # r6 + r12: span the loaded-mutation window through
-            # `with_restore/4`. Any raise/throw/exit that escapes the
-            # closure triggers `safe_restore/3` before re-propagation;
-            # a clean closure return still routes through `restore/3`
-            # and surfaces failure as `:unrecoverable_restore_failure`.
-            case with_restore(file_ast, site, cfg, fn ->
-                   outcome =
-                     MutationLoop.run(%{
-                       test_modules: cfg.test_modules,
-                       timeout_ms: cfg.timeout_ms,
-                       ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
-                       ex_unit_server:
-                         Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
-                       capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
-                       cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100)
-                     })
-
-                   # If MutationLoop had to brutal-kill the task to honour
-                   # the wall-clock budget, the task may have been mid-flight
-                   # inside `:code.load_binary/3`, leaving the Code.Server
-                   # holding an orphaned per-module load lock. Purge before
-                   # restore re-loads. Safe on non-timeout paths too.
-                   # See `mutagen.decision.timeout_handling`.
-                   settle_code_server!(site, cfg, outcome)
-                   outcome
-                 end) do
-              {:ok, outcome} ->
-                record_outcome(site, outcome, compile_stderr, acc)
-
-              {:error, :restore_failed, message} ->
-                {:error, :unrecoverable_restore_failure,
-                 %{
-                   site_id: site.id,
-                   file: site.file,
-                   message: MutagenEx.JsonReporter.Sanitizer.clean(message)
-                 }}
-            end
+            run_within_restore(site, file_ast, compile_stderr, cfg)
 
           {:error, :compile_error, message} ->
             # r5: `:compile_error` outcomes don't go in `results`; they
@@ -420,21 +531,12 @@ defmodule MutagenEx.MutationRunner do
             # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
             # `message` is already sanitized by safe_compile_quoted/3
             # (r10/r11 cap + redact applied there before this branch).
-            entry = %{
-              id: site.id,
-              file: site.file,
-              line: site.line,
-              column: site.column,
-              mutator: site.mutator,
-              message: message
-            }
-
             case restore(file_ast, site.file, cfg) do
               :ok ->
-                {:ok, %{acc | compile_errors: [entry | acc.compile_errors]}}
+                {:compile_error, site, message}
 
               {:error, restore_msg} ->
-                {:error, :unrecoverable_restore_failure,
+                {:abort, :unrecoverable_restore_failure,
                  %{
                    site_id: site.id,
                    file: site.file,
@@ -449,15 +551,118 @@ defmodule MutagenEx.MutationRunner do
         end
 
       {:error, :site_not_found} ->
-        # Defensive — if we cannot locate the site's original node in
-        # the cached AST, surface as a warning and move on. This
-        # shouldn't happen with the enumerator's output, but we don't
-        # want a bad site record to take down the whole runner.
-        warning =
-          "site_node_not_found: " <> site.id <> " in " <> site.file
-
-        {:ok, %{acc | warnings: [warning | acc.warnings]}}
+        {:site_not_found, site}
     end
+  end
+
+  defp run_within_restore(%Site{} = site, file_ast, compile_stderr, cfg) do
+    case with_restore(file_ast, site, cfg, fn ->
+           outcome =
+             MutationLoop.run(%{
+               test_modules: cfg.test_modules,
+               timeout_ms: cfg.timeout_ms,
+               ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
+               ex_unit_server:
+                 Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
+               capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
+               cancel_grace_ms: Map.get(cfg, :cancel_grace_ms, 100),
+               task_sup: Map.get(cfg, :task_sup, MutagenEx.TaskSup)
+             })
+
+           settle_code_server!(site, cfg, outcome)
+           outcome
+         end) do
+      {:ok, outcome} ->
+        {:ok, site, outcome, compile_stderr}
+
+      {:error, :restore_failed, message} ->
+        {:abort, :unrecoverable_restore_failure,
+         %{
+           site_id: site.id,
+           file: site.file,
+           message: MutagenEx.JsonReporter.Sanitizer.clean(message)
+         }}
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Sequential post-fold over ordered task outcomes
+  # ---------------------------------------------------------------------------
+  #
+  # Taint (`tainted_predecessors`) cascades over the ORDERED stream —
+  # async_stream's `:ordered: true` guarantees the fold sees outcomes
+  # in input order even if tasks completed out of order. The fold also
+  # invokes `:on_site_completed` for each accumulated site so the Mix
+  # task's NDJSON streamer emits in the same order.
+
+  defp fold_task_outcome({:ok, site, outcome, compile_stderr}, _cfg, acc, on_site_completed) do
+    {status, run_warnings, post_meta} = classify(outcome, compile_stderr)
+
+    delta = MutationLoop.snapshot_delta(post_meta.snapshot_before, post_meta.snapshot_after)
+    grew? = MutationLoop.snapshot_grew?(delta)
+
+    tainted_now = acc.tainted
+
+    snapshot_warning =
+      if grew? do
+        [snapshot_warning(site, delta)]
+      else
+        []
+      end
+
+    next_tainted = tainted_now or grew? or status == :timeout
+
+    result = %{
+      id: site.id,
+      file: site.file,
+      line: site.line,
+      column: site.column,
+      mutator: site.mutator,
+      original_ast: site.original_ast,
+      mutated_ast: site.mutated_ast,
+      status: status,
+      tainted_predecessors: tainted_now,
+      warnings: run_warnings
+    }
+
+    _ = on_site_completed.({:result, result})
+
+    {:cont,
+     %{
+       acc
+       | results: [result | acc.results],
+         warnings: snapshot_warning ++ acc.warnings,
+         tainted: next_tainted
+     }}
+  end
+
+  defp fold_task_outcome({:compile_error, site, message}, _cfg, acc, on_site_completed) do
+    entry = %{
+      id: site.id,
+      file: site.file,
+      line: site.line,
+      column: site.column,
+      mutator: site.mutator,
+      message: message
+    }
+
+    _ = on_site_completed.({:compile_error, entry})
+
+    {:cont, %{acc | compile_errors: [entry | acc.compile_errors]}}
+  end
+
+  defp fold_task_outcome({:ast_miss, site}, _cfg, acc, _on_site_completed) do
+    warning = "ast_cache_miss: " <> site.file
+    {:cont, %{acc | warnings: [warning | acc.warnings]}}
+  end
+
+  defp fold_task_outcome({:site_not_found, site}, _cfg, acc, _on_site_completed) do
+    warning = "site_node_not_found: " <> site.id <> " in " <> site.file
+    {:cont, %{acc | warnings: [warning | acc.warnings]}}
+  end
+
+  defp fold_task_outcome({:abort, reason, details}, _cfg, _acc, _on_site_completed) do
+    {:halt, {:error, reason, details}}
   end
 
   # Wrap a closure that operates while a mutated AST is installed as the
@@ -771,45 +976,6 @@ defmodule MutagenEx.MutationRunner do
   # ---------------------------------------------------------------------------
   # Classification & taint (r4, r5, r7)
   # ---------------------------------------------------------------------------
-
-  defp record_outcome(%Site{} = site, outcome, compile_stderr, acc) do
-    {status, run_warnings, post_meta} = classify(outcome, compile_stderr)
-
-    delta = MutationLoop.snapshot_delta(post_meta.snapshot_before, post_meta.snapshot_after)
-    grew? = MutationLoop.snapshot_grew?(delta)
-
-    tainted_now = acc.tainted
-
-    snapshot_warning =
-      if grew? do
-        [snapshot_warning(site, delta)]
-      else
-        []
-      end
-
-    next_tainted = tainted_now or grew? or status == :timeout
-
-    result = %{
-      id: site.id,
-      file: site.file,
-      line: site.line,
-      column: site.column,
-      mutator: site.mutator,
-      original_ast: site.original_ast,
-      mutated_ast: site.mutated_ast,
-      status: status,
-      tainted_predecessors: tainted_now,
-      warnings: run_warnings
-    }
-
-    {:ok,
-     %{
-       acc
-       | results: [result | acc.results],
-         warnings: snapshot_warning ++ acc.warnings,
-         tainted: next_tainted
-     }}
-  end
 
   # Three input shapes from MutationLoop.run/1, mapped onto the five
   # outcomes from r5 (minus `:compile_error`, which never reaches here).
