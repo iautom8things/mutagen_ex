@@ -155,6 +155,26 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stderr warning naming the resolved target. New invariant:
   `mutagen.cli.r10`. *(mutagen-wrd.21)*
 
+- **Resource caps on input and output volume.** Closes F28 / CF11
+  (MEDIUM consensus from Security M1 + Performance F-PERF-07/12): the
+  CLI previously accepted unlimited `--scope` / `--tests` repetition,
+  the enumerator materialised every site in memory before the runner
+  started, and there was no aggregate wall-clock budget — three
+  avenues for runaway resource use.
+  - `--scope` and `--tests` each cap at 100 occurrences; the 101st is
+    refused at parse time with `abort_reason: "too_many_targets"`.
+  - `--max-sites` caps enumerated mutation sites (default 10_000).
+    Exceeding the cap aborts the pipeline with
+    `abort_reason: "too_many_sites"` BEFORE the mutation runner
+    starts.
+  - `--budget-ms` is an optional aggregate wall-clock budget for the
+    mutation phase. When the budget elapses the runner stops
+    dispatching new sites and emits a `truncated: true` partial JSON
+    report (`aborted: false`; the per-site `--timeout-ms` still
+    bounds the in-flight site). New invariants: `mutagen.cli.r12`,
+    `mutagen.cli.r13`, `mutagen.mutation_enumeration.r7`.
+    *(mutagen-wrd.22)*
+
 ### Added
 
 - `MutagenEx.JsonPath` — single home for the `--json` path-safety
@@ -192,6 +212,17 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   attributable entries under `System.tmp_dir!()`. *(mutagen-wrd.27)*
 
 ### Changed
+
+- `Mix.Tasks.Mutagen.phase_scope/3` now accumulates per-target scope
+  records in O(n) overall instead of O(n²). The previous
+  `acc ++ records` pattern was quadratic in the cumulative record
+  count — a measurable cost on broad `--scope` workloads. The new
+  accumulator prepends chunks and flattens once via
+  `:lists.append(:lists.reverse(acc))`. Closes F-PERF-12 (the
+  half-overlap with F20). Order of records is preserved; a new
+  regression test (`test/mutagen_ex/mix_task_phase_scope_test.exs`)
+  asserts both ordering and a 2_000 ms ceiling for 10_000 records
+  across 2_000 targets. *(mutagen-wrd.22)*
 
 - `MutationRunner.safe_compile_quoted/3` and
   `MutationLoop.capture_stderr/2` now use

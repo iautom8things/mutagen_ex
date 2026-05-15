@@ -292,13 +292,36 @@ defmodule MutagenEx.MutationRunner do
       compile_errors: [],
       state_drift_warning: drift,
       warnings: [],
-      tainted: false
+      tainted: false,
+      truncated: false
     }
 
+    # `budget_ms` is the aggregate wall-clock budget from `--budget-ms`
+    # (mutagen.cli.r13). `nil` means unbounded — the existing per-site
+    # `timeout_ms` is the only cap. When budget is set, the loop checks
+    # elapsed wall-clock BEFORE each new site dispatch and bails with
+    # `truncated: true` once the cap is hit. We don't interrupt a site
+    # in flight — the per-site timeout owns that — so the worst-case
+    # overshoot is one `timeout_ms`.
+    budget_ms = Map.get(cfg, :budget_ms)
+    started_at = System.monotonic_time(:millisecond)
+
     Enum.reduce_while(cfg.sites, {:ok, initial}, fn site, {:ok, acc} ->
-      case process_site(site, cfg, acc) do
-        {:ok, next_acc} -> {:cont, {:ok, next_acc}}
-        {:error, _reason, _details} = err -> {:halt, err}
+      cond do
+        budget_exceeded?(budget_ms, started_at) ->
+          truncated = %{
+            acc
+            | warnings: [budget_truncation_warning(budget_ms) | acc.warnings],
+              truncated: true
+          }
+
+          {:halt, {:ok, truncated}}
+
+        true ->
+          case process_site(site, cfg, acc) do
+            {:ok, next_acc} -> {:cont, {:ok, next_acc}}
+            {:error, _reason, _details} = err -> {:halt, err}
+          end
       end
     end)
     |> case do
@@ -308,12 +331,25 @@ defmodule MutagenEx.MutationRunner do
            results: Enum.reverse(acc.results),
            compile_errors: Enum.reverse(acc.compile_errors),
            state_drift_warning: acc.state_drift_warning,
-           warnings: Enum.reverse(acc.warnings)
+           warnings: Enum.reverse(acc.warnings),
+           truncated: Map.get(acc, :truncated, false)
          }}
 
       err ->
         err
     end
+  end
+
+  defp budget_exceeded?(nil, _started_at), do: false
+
+  defp budget_exceeded?(budget_ms, started_at) when is_integer(budget_ms) do
+    elapsed = System.monotonic_time(:millisecond) - started_at
+    elapsed >= budget_ms
+  end
+
+  defp budget_truncation_warning(budget_ms) do
+    "budget_exceeded: aggregate --budget-ms #{budget_ms} reached; " <>
+      "report truncated to completed sites only"
   end
 
   defp process_site(%Site{} = site, cfg, acc) do

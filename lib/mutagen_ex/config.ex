@@ -21,6 +21,14 @@ defmodule MutagenEx.Config do
   It is set to `true` only when the user explicitly passes
   `--unsafe-json-outside-project`, opting out of the default inside-root
   check on `--json <path>`.
+
+  Per `mutagen.cli.r12`, `max_sites` is the upper bound on enumerated
+  mutation sites for one run. Defaults to 10_000. Set via `--max-sites`.
+
+  Per `mutagen.cli.r13`, `budget_ms` is an optional aggregate wall-clock
+  budget for the mutation phase in milliseconds. `nil` means unbounded
+  (the existing per-site `timeout_ms` is still enforced); set via
+  `--budget-ms`.
   """
 
   alias MutagenEx.Types
@@ -31,7 +39,9 @@ defmodule MutagenEx.Config do
             timeout_ms: 5_000,
             seed: 0,
             json_path: nil,
-            unsafe_json_outside_project: false
+            unsafe_json_outside_project: false,
+            max_sites: 10_000,
+            budget_ms: nil
 
   @type t :: %__MODULE__{
           scopes: [Types.scope_target()],
@@ -39,6 +49,8 @@ defmodule MutagenEx.Config do
           timeout_ms: pos_integer(),
           seed: non_neg_integer(),
           json_path: Path.t() | nil,
-          unsafe_json_outside_project: boolean()
+          unsafe_json_outside_project: boolean(),
+          max_sites: pos_integer(),
+          budget_ms: pos_integer() | nil
         }
 end

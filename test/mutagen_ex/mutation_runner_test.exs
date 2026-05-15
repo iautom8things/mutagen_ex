@@ -1234,4 +1234,83 @@ defmodule MutagenEx.MutationRunnerTest do
       assert apply(MutationRunnerTestSynth.RealFixture, :two, []) == 2
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # mutagen.cli.r13: --budget-ms aggregate wall-clock cap
+  # ---------------------------------------------------------------------------
+  #
+  # When the configured `budget_ms` elapses, the runner stops dispatching
+  # further sites and the result map carries `truncated: true`. The
+  # per-site `timeout_ms` continues to bound the in-flight site (we do
+  # NOT cancel mid-site — overshoot is at most one `timeout_ms`).
+  describe "r12: --budget-ms aggregate wall-clock (bw mutagen-wrd.22)" do
+    test "elapsed budget halts the loop before the next site and sets truncated: true" do
+      clear_stubs()
+      site1 = build_site(id: "b1")
+      site2 = build_site(id: "b2")
+      site3 = build_site(id: "b3")
+
+      # Sites share the same file, so a single ast_cache entry serves all
+      # three. We set `budget_ms` to 50ms and make site 1 sleep for 100ms;
+      # by the time site 1's result is recorded, the budget check at the
+      # top of the next iteration fires and the loop bails before site 2.
+      cfg = base_cfg([site1, site2, site3], timeout_ms: 500)
+      cfg = Map.put(cfg, :budget_ms, 50)
+
+      ExUnitFake.set_results([
+        # Site 1 sleeps past the budget then returns a clean pass.
+        {:sleep_then, 100, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        # Sites 2 and 3 would pass if they ran — they should NOT run.
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+
+      # Only site 1 ran.
+      assert length(output.results) == 1
+      assert hd(output.results).id == "b1"
+
+      # The truncation flag is set, and a budget_exceeded warning is in
+      # the warnings list (the report-time signal to the user).
+      assert output.truncated == true
+      assert Enum.any?(output.warnings, &String.contains?(&1, "budget_exceeded"))
+    end
+
+    test "budget_ms == nil (default) leaves truncated == false" do
+      clear_stubs()
+      site = build_site(id: "nb1")
+      cfg = base_cfg(site)
+      # Don't put :budget_ms — defaults to nil at the Mix-task level.
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+      assert output.truncated == false
+      refute Enum.any?(output.warnings, &String.contains?(&1, "budget_exceeded"))
+    end
+
+    test "budget that exceeds total runtime never triggers truncation" do
+      # Falsifies a regression where the budget check is checked AFTER
+      # the loop finishes, marking a fast clean run as truncated.
+      clear_stubs()
+      site1 = build_site(id: "g1")
+      site2 = build_site(id: "g2")
+
+      cfg = base_cfg([site1, site2], timeout_ms: 500)
+      # 10 seconds is comfortably more than two stubbed sites take.
+      cfg = Map.put(cfg, :budget_ms, 10_000)
+
+      ExUnitFake.set_results([
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      ])
+
+      assert {:ok, output} = MutationRunner.run(cfg)
+      assert length(output.results) == 2
+      assert output.truncated == false
+    end
+  end
 end

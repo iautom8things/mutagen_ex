@@ -127,16 +127,31 @@ defmodule MutagenEx.MutationEnumerator do
           warnings: [warning()]
         }
 
+  @typedoc "Enumeration error: site cap exceeded (r7)."
+  @type error :: {:error, :too_many_sites, map()}
+
   @doc """
   Enumerate mutation sites for `scope_records` against `ast_cache` and
   `covered_lines`.
 
   See the module doc for the input/output contract.
+
+  ## Options
+
+    * `:mutators` — list of mutator modules to consult. Defaults to
+      `MutagenEx.Mutators.all/0`.
+    * `:max_sites` — positive integer cap on the produced sites list
+      (per `mutagen.mutation_enumeration.r7`). When the cap is exceeded
+      the enumerator returns `{:error, :too_many_sites, details}` instead
+      of materialising more sites than requested. Default is unbounded
+      (callers that want the cap MUST pass it; the Mix task threads
+      `Config.max_sites` in).
   """
-  @spec enumerate(map(), [Scope.t()], map(), keyword) :: result
+  @spec enumerate(map(), [Scope.t()], map(), keyword) :: result | error
   def enumerate(ast_cache, scope_records, covered_lines, opts \\ [])
       when is_map(ast_cache) and is_list(scope_records) and is_map(covered_lines) do
     mutators = Keyword.get(opts, :mutators, Mutators.all())
+    max_sites = Keyword.get(opts, :max_sites)
 
     initial = %{sites: [], skipped: [], warnings: []}
 
@@ -145,11 +160,29 @@ defmodule MutagenEx.MutationEnumerator do
         enumerate_scope(scope, ast_cache, covered_lines, mutators, acc)
       end)
 
-    %{
-      sites: Enum.reverse(final.sites),
-      skipped: Enum.reverse(final.skipped),
-      warnings: Enum.reverse(final.warnings)
-    }
+    site_count = length(final.sites)
+
+    cond do
+      is_integer(max_sites) and site_count > max_sites ->
+        # r7: cap is structural — the pipeline aborts before the runner
+        # starts. Return the count so the abort-JSON document can include
+        # it.
+        {:error, :too_many_sites,
+         %{
+           cap: max_sites,
+           count: site_count,
+           message:
+             "mutation site enumeration produced #{site_count} sites; " <>
+               "cap is --max-sites=#{max_sites}. Narrow --scope or raise --max-sites."
+         }}
+
+      true ->
+        %{
+          sites: Enum.reverse(final.sites),
+          skipped: Enum.reverse(final.skipped),
+          warnings: Enum.reverse(final.warnings)
+        }
+    end
   end
 
   # Walk one scope record. Pulls the AST for the scope's file out of the

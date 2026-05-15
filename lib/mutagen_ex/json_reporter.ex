@@ -224,6 +224,12 @@ defmodule MutagenEx.JsonReporter.Report do
     * `:aborted` — boolean. `false` for full success, `true` for any
       pre-completion exit.
     * `:abort_reason` — string or `nil`. Populated iff `aborted == true`.
+    * `:truncated` — boolean. `true` when the run completed only a
+      prefix of the enumerated mutation sites because the aggregate
+      `--budget-ms` wall-clock was exhausted (per `mutagen.cli.r13`).
+      The mutation block reflects the partial results; `aborted` may
+      still be `false` since a truncated run is a graceful early exit,
+      not an abort.
   """
 
   defstruct meta: nil,
@@ -234,7 +240,8 @@ defmodule MutagenEx.JsonReporter.Report do
             mutation: nil,
             warnings: [],
             aborted: false,
-            abort_reason: nil
+            abort_reason: nil,
+            truncated: false
 
   @type t :: %__MODULE__{
           meta: map() | nil,
@@ -245,7 +252,8 @@ defmodule MutagenEx.JsonReporter.Report do
           mutation: map() | nil,
           warnings: [String.t()],
           aborted: boolean(),
-          abort_reason: String.t() | nil
+          abort_reason: String.t() | nil,
+          truncated: boolean()
         }
 end
 
@@ -329,6 +337,10 @@ defmodule MutagenEx.JsonReporter do
           | :unknown_flag
           | :invalid_input
           | :unsafe_json_path
+          | :too_many_targets
+          | :too_many_sites
+          | :invalid_max_sites
+          | :invalid_budget_ms
 
   @doc """
   Emit the success-shape JSON document.
@@ -392,7 +404,8 @@ defmodule MutagenEx.JsonReporter do
       "mutation" => mutation_to_wire(r.mutation),
       "warnings" => r.warnings || [],
       "aborted" => r.aborted == true,
-      "abort_reason" => r.abort_reason
+      "abort_reason" => r.abort_reason,
+      "truncated" => r.truncated == true
     }
   end
 

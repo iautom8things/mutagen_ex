@@ -77,6 +77,20 @@ decisions:
     re-read. This is the property that lets state-drift-free restore work:
     the same AST that was enumerated is the AST that gets compiled back at
     restore time.
+
+- id: mutagen.mutation_enumeration.r7
+  priority: must
+  statement: |
+    `MutagenEx.MutationEnumerator.enumerate/4` accepts an opts keyword
+    `:max_sites` carrying a positive integer cap. When the produced
+    site list would exceed the cap, the enumerator returns
+    `{:error, :too_many_sites, %{cap: <n>, count: <m>, message:
+    <string>}}` instead of the success-shape map. The cap is structural
+    — the pipeline aborts before the mutation runner starts.
+
+    Absence of the option (or `nil`) leaves enumeration unbounded.
+    Callers that want the cap MUST pass it; the Mix task threads
+    `Config.max_sites` (default 10_000) in. See `mutagen.cli.r12`.
 ```
 
 ```spec-scenarios
@@ -139,6 +153,16 @@ decisions:
   then: |
     No call to `File.read/1`, `File.read!/1`, or `Code.require_file/1` was
     made during enumeration; all AST data came from the cache.
+
+- id: mutagen.mutation_enumeration.s7
+  covers: [mutagen.mutation_enumeration.r7]
+  given: |
+    Inputs that would produce more than `:max_sites` mutation sites
+    (e.g. 20 arithmetic operations covered, `:max_sites = 5`).
+  when: The enumerator runs.
+  then: |
+    Output is `{:error, :too_many_sites, %{cap: 5, count: <n>, ...}}`
+    where `<n>` > 5. No partial site list is returned.
 ```
 
 ```spec-verification
@@ -158,5 +182,11 @@ decisions:
   covers: [mutagen.mutation_enumeration.r2, mutagen.mutation_enumeration.r3]
   kind: command
   command: mix test test/mutagen_ex/mutation_enumerator_test.exs --only filtering
+  execute: true
+
+- id: mutagen.mutation_enumeration.v4
+  covers: [mutagen.mutation_enumeration.r7]
+  kind: command
+  command: mix test test/mutagen_ex/mutation_enumerator_test.exs
   execute: true
 ```

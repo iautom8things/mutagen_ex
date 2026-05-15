@@ -535,6 +535,177 @@ defmodule MutagenEx.CLITest do
     end
   end
 
+  describe "parse/1 — --scope/--tests repetition cap (mutagen.cli.r12)" do
+    # The cap is structural: parse refuses BEFORE any filesystem touch.
+    # 100 is allowed; 101 is refused. We don't bother varying the count
+    # — boundary + over-boundary is enough to falsify a "no cap" or
+    # "off-by-one" regression.
+
+    test "exactly 100 --scope occurrences parse cleanly (cap boundary)" do
+      argv =
+        Enum.flat_map(1..100, fn n -> ["--scope", "lib/foo_#{n}.ex"] end) ++
+          ["--tests", "test/foo_test.exs"]
+
+      assert {:ok, %Config{scopes: scopes}} = CLI.parse(argv)
+      assert length(scopes) == 100
+    end
+
+    test "101 --scope occurrences are refused with :too_many_targets" do
+      argv =
+        Enum.flat_map(1..101, fn n -> ["--scope", "lib/foo_#{n}.ex"] end) ++
+          ["--tests", "test/foo_test.exs"]
+
+      assert {:error, :too_many_targets, details} = CLI.parse(argv)
+      assert details.flag == "--scope"
+      assert details.kind == :scope
+      assert details.cap == 100
+      assert details.count == 101
+      assert is_binary(details.message)
+    end
+
+    test "101 --tests occurrences are refused with :too_many_targets" do
+      argv =
+        ["--scope", "lib/foo.ex"] ++
+          Enum.flat_map(1..101, fn n -> ["--tests", "test/t_#{n}_test.exs"] end)
+
+      assert {:error, :too_many_targets, details} = CLI.parse(argv)
+      assert details.flag == "--tests"
+      assert details.kind == :tests
+      assert details.cap == 100
+      assert details.count == 101
+    end
+
+    test "501 --scope occurrences still resolve to :too_many_targets, not OOM" do
+      # Falsifies "cap was a comment, not enforced". 501 is well past the
+      # cap; if the cap weren't honoured we'd materialise a 501-element
+      # scope list. The assertion is that parse halts at the cap check.
+      argv =
+        Enum.flat_map(1..501, fn n -> ["--scope", "lib/foo_#{n}.ex"] end) ++
+          ["--tests", "test/foo_test.exs"]
+
+      assert {:error, :too_many_targets, details} = CLI.parse(argv)
+      assert details.count == 501
+    end
+  end
+
+  describe "parse/1 — --max-sites (mutagen.cli.r12)" do
+    test "default --max-sites is 10_000" do
+      assert {:ok, %Config{max_sites: 10_000}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+    end
+
+    test "positive integer lands on Config.max_sites" do
+      assert {:ok, %Config{max_sites: 250}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-sites",
+                 "250"
+               ])
+    end
+
+    test "zero is rejected with :invalid_max_sites" do
+      assert {:error, :invalid_max_sites, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-sites",
+                 "0"
+               ])
+
+      assert details.value == 0
+    end
+
+    test "negative value is rejected with :invalid_max_sites" do
+      assert {:error, :invalid_max_sites, _details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-sites",
+                 "-1"
+               ])
+    end
+
+    test "non-integer value is rejected with :invalid_max_sites" do
+      assert {:error, :invalid_max_sites, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--max-sites",
+                 "abc"
+               ])
+
+      assert details.flag == "--max-sites"
+    end
+  end
+
+  describe "parse/1 — --budget-ms (mutagen.cli.r13)" do
+    test "absent flag leaves Config.budget_ms == nil (unbounded)" do
+      assert {:ok, %Config{budget_ms: nil}} =
+               CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
+    end
+
+    test "positive integer lands on Config.budget_ms" do
+      assert {:ok, %Config{budget_ms: 30_000}} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--budget-ms",
+                 "30000"
+               ])
+    end
+
+    test "zero is rejected with :invalid_budget_ms" do
+      assert {:error, :invalid_budget_ms, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--budget-ms",
+                 "0"
+               ])
+
+      assert details.value == 0
+    end
+
+    test "negative value is rejected with :invalid_budget_ms" do
+      assert {:error, :invalid_budget_ms, _details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--budget-ms",
+                 "-100"
+               ])
+    end
+
+    test "non-integer value is rejected with :invalid_budget_ms" do
+      assert {:error, :invalid_budget_ms, details} =
+               CLI.parse([
+                 "--scope",
+                 "lib/foo.ex",
+                 "--tests",
+                 "test/foo_test.exs",
+                 "--budget-ms",
+                 "abc"
+               ])
+
+      assert details.flag == "--budget-ms"
+    end
+  end
+
   describe "Mix.Tasks.Mutagen.run/2 — dispatch table (mutagen.cli.s6, s7)" do
     @tag :exit_codes
     test "successful parse invokes the pipeline collaborator with the Config (s6 happy path)" do
@@ -734,6 +905,21 @@ defmodule MutagenEx.CLITest do
       for keyword <- caveats do
         assert doc =~ keyword,
                "moduledoc is missing required caveat keyword: #{inspect(keyword)}"
+      end
+    end
+
+    test "Caveats mention input/output caps (mutagen.cli.r12/r13)", %{moduledoc: doc} do
+      # Falsifies regression where caps section is dropped from
+      # moduledoc. We don't require exact wording; the salient flag
+      # names and reason atoms must appear.
+      for keyword <- [
+            "--max-sites",
+            "--budget-ms",
+            "too_many_targets",
+            "truncated"
+          ] do
+        assert doc =~ keyword,
+               "moduledoc is missing required caps keyword: #{inspect(keyword)}"
       end
     end
   end

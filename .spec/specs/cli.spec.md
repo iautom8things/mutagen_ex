@@ -156,6 +156,53 @@ decisions:
     tag:$(uuidgen)`) from reaching the resolver at all. Non-`tag:` `--tests`
     targets (file paths, `file:line`) are not gated by this rule — they
     don't feed atom resolution.
+
+- id: mutagen.cli.r12
+  priority: must
+  statement: |
+    Resource caps protect the runtime from runaway input shapes (closes
+    F28 / CF11 — security M1, performance F-PERF-07/12):
+
+      1. `--scope` accepts at most 100 occurrences. The 101st occurrence
+         is refused at parse time with `reason: :too_many_targets`. The
+         error-JSON `details` map carries `flag: "--scope"`, `kind:
+         :scope`, `cap: 100`, and `count: <n>`. The cap is structural
+         — enforced before any scope resolution. The `tag:NAME` charset
+         gate (r11) runs before this cap, so invalid tag names are
+         rejected at parse time regardless of count.
+      2. `--tests` accepts at most 100 occurrences with the same shape
+         (`flag: "--tests"`, `kind: :tests`).
+      3. `--max-sites <n>` populates `Config.max_sites` as a positive
+         integer. Default 10_000. Non-positive or non-integer values
+         cause an error-JSON exit with `reason: :invalid_max_sites`
+         before any pipeline phase runs.
+
+    The `--max-sites` cap is enforced inside the mutation enumerator
+    (see `mutagen.mutation_enumeration.r7`); the cap value flows from
+    `Config.max_sites` through the orchestrator. Exceeding it aborts
+    the pipeline with `abort_reason: "too_many_sites"` before the
+    mutation runner starts.
+
+- id: mutagen.cli.r13
+  priority: must
+  statement: |
+    `--budget-ms <n>` populates `Config.budget_ms` as an optional
+    positive integer aggregate wall-clock budget for the mutation
+    phase, in milliseconds. Absence leaves `Config.budget_ms == nil`,
+    which means unbounded — the per-site `--timeout-ms` is still the
+    only cap.
+
+    When the budget elapses, the mutation runner stops dispatching
+    further sites and returns the partial result it has accumulated.
+    The final JSON document on stdout (or `--json <path>`) carries
+    `truncated: true` at the top level and the `mutation` block
+    reflects only the completed sites. `aborted` stays `false` —
+    truncation is a graceful early exit, not an abort.
+
+    The runner does NOT interrupt an in-flight site; the worst-case
+    overshoot is one `timeout_ms`. Non-positive or non-integer
+    `--budget-ms` values cause an error-JSON exit with `reason:
+    :invalid_budget_ms`.
 ```
 
 ```spec-scenarios
@@ -303,13 +350,70 @@ decisions:
     `{:error, :invalid_tag_name, _}` before the test selector runs.
     `Config` is not constructed; no atom is created from the UUID string.
 
-- id: mutagen.cli.s12
+- id: mutagen.cli.s11b
   covers: [mutagen.cli.r11]
   given: A user invokes `mix mutagen --scope lib/foo.ex --tests tag:slow`.
   when: The CLI parses these flags.
   then: |
     `Config.tests` is `["tag:slow"]`. `slow` matches the charset and
     flows through to test selection unchanged.
+
+- id: mutagen.cli.s12a
+  covers: [mutagen.cli.r12]
+  given: |
+    A user invokes `mix mutagen` with 101 distinct `--scope <target>`
+    occurrences and one `--tests` target.
+  when: The CLI parses these flags.
+  then: |
+    `MutagenEx.CLI.parse/1` returns
+    `{:error, :too_many_targets, %{flag: "--scope", kind: :scope,
+    cap: 100, count: 101, ...}}`. No filesystem touch, no scope
+    resolution, no mutation phase. The error-JSON document's
+    `abort_reason` is `"too_many_targets"`.
+
+- id: mutagen.cli.s12b
+  covers: [mutagen.cli.r12]
+  given: |
+    A scope/tests combination whose enumerated mutation sites exceed
+    `Config.max_sites` (default 10_000), e.g. a broad `--scope` on a
+    large module with thorough coverage.
+  when: The enumerator phase runs.
+  then: |
+    The phase returns
+    `{:error, :too_many_sites, %{cap: 10000, count: <n>, ...}}`. The
+    pipeline aborts with `abort_reason: "too_many_sites"` BEFORE the
+    mutation runner starts. The error-JSON document names the count
+    so the user can decide whether to narrow `--scope` or raise
+    `--max-sites`.
+
+- id: mutagen.cli.s12c
+  covers: [mutagen.cli.r12]
+  given: A user invokes `mix mutagen --max-sites 0 ...`.
+  when: The CLI parses these flags.
+  then: |
+    An error-JSON document with `reason: :invalid_max_sites` is
+    emitted. `Config.max_sites` is never set to 0.
+
+- id: mutagen.cli.s13a
+  covers: [mutagen.cli.r13]
+  given: |
+    A user invokes `mix mutagen --budget-ms 1000 ...` against a scope
+    whose enumerated mutation sites would take longer than 1000 ms in
+    aggregate.
+  when: The mutation phase runs and the budget elapses.
+  then: |
+    The runner stops dispatching new sites. The success-JSON document
+    has `truncated: true` at the top level, `aborted: false`, and the
+    `mutation` block holds only the completed sites' results. A
+    `budget_exceeded` warning is included in the `warnings` array.
+
+- id: mutagen.cli.s13b
+  covers: [mutagen.cli.r13]
+  given: A user invokes `mix mutagen --budget-ms 0 ...`.
+  when: The CLI parses these flags.
+  then: |
+    An error-JSON document with `reason: :invalid_budget_ms` is
+    emitted. `Config.budget_ms` is never set to 0.
 ```
 
 ```spec-verification
@@ -347,5 +451,17 @@ decisions:
   covers: [mutagen.cli.r11]
   kind: command
   command: mix test test/mutagen_ex/cli_test.exs --only tag_charset
+  execute: true
+
+- id: mutagen.cli.v7
+  covers: [mutagen.cli.r12]
+  kind: command
+  command: mix test test/mutagen_ex/cli_test.exs test/mutagen_ex/mutation_enumerator_test.exs
+  execute: true
+
+- id: mutagen.cli.v8
+  covers: [mutagen.cli.r13]
+  kind: command
+  command: mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs
   execute: true
 ```

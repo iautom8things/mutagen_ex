@@ -96,16 +96,38 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 
 | Flag | Purpose |
 |---|---|
-| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. |
-| `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. |
+| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
+| `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `5000`. Must be positive. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |
 | `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
+| `--max-sites <int>` | Upper bound on enumerated mutation sites for one run. Default `10000`. Exceeding the cap aborts with `abort_reason: "too_many_sites"` BEFORE the mutation runner starts — narrow `--scope` (or raise the cap) to proceed. |
+| `--budget-ms <int>` | Optional aggregate wall-clock budget for the mutation phase, in milliseconds. Default unbounded (`--timeout-ms` still bounds each site). When elapsed, the runner stops dispatching new sites and emits a `truncated: true` partial JSON report. |
 
 The flag surface above is exhaustive for v0.1.0. `mix mutagen --no-json`
 and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 in v0.1.0 — see Known limitations.
+
+### Resource caps
+
+`mix mutagen` enforces caps on input and output volume to keep one bad
+invocation from running away with the host's memory or wall-clock time:
+
+- `--scope` and `--tests` each accept at most 100 occurrences. The 101st
+  is refused at parse time with `abort_reason: "too_many_targets"`. No
+  filesystem touch.
+- `--max-sites` (default 10_000) caps the enumerated mutation sites.
+  Exceeding the cap aborts with `abort_reason: "too_many_sites"` BEFORE
+  the mutation runner starts; the error-JSON `details` map names the
+  count so you can choose between narrowing `--scope` and raising
+  `--max-sites`.
+- `--budget-ms` (optional) caps the aggregate mutation-phase
+  wall-clock. When the budget elapses the runner stops dispatching new
+  sites and the JSON document carries `truncated: true` (`aborted` stays
+  `false` — truncation is a graceful early exit, not an abort). The
+  per-site `--timeout-ms` still bounds the in-flight site; worst-case
+  overshoot is one `timeout_ms`.
 
 ### `--json` path safety
 
@@ -156,7 +178,7 @@ applies whether `:redact` is set or not.
 | Code | Meaning |
 |---|---|
 | `0` | Pipeline ran to completion. This includes a run where every mutation survived — kill rate of 0.0 is a valid result, not a failure. |
-| non-zero | "Bad input" or unrecoverable error. Every non-zero exit also writes an error-JSON document to stdout (or `--json <path>`). The `reason` field names the abort: `:missing_scope`, `:invalid_timeout`, `:no_tests_match`, `:baseline_red`, `:self_mutation_refused`, `:flag_not_supported_in_v1`, etc. |
+| non-zero | "Bad input" or unrecoverable error. Every non-zero exit also writes an error-JSON document to stdout (or `--json <path>`). The `reason` field names the abort: `:missing_scope`, `:invalid_timeout`, `:too_many_targets`, `:too_many_sites`, `:invalid_max_sites`, `:invalid_budget_ms`, `:no_tests_match`, `:baseline_red`, `:self_mutation_refused`, `:flag_not_supported_in_v1`, etc. |
 
 `aborted: true` in the emitted JSON always co-occurs with a non-zero exit;
 `aborted: false` always co-occurs with exit 0.

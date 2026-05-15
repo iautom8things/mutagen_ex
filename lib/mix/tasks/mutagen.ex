@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -36,6 +36,23 @@ defmodule Mix.Tasks.Mutagen do
       directory above the project root pass this flag; everyday use
       should leave it off. When set, a one-shot warning naming the
       resolved target lands on stderr at run start.
+    * `--max-sites <int>` — upper bound on enumerated mutation sites
+      for one run. Default `10000`. The enumerator aborts with
+      `:too_many_sites` BEFORE the runner starts when the cap is
+      exceeded; narrow `--scope` (or raise the cap) to proceed.
+    * `--budget-ms <int>` — aggregate wall-clock budget for the
+      mutation phase, in milliseconds. Optional (default: unbounded;
+      the per-site `--timeout-ms` is still enforced). When the budget
+      elapses the runner stops dispatching new sites and emits a
+      `truncated: true` partial report.
+
+  ## Caps
+
+    * `--scope` and `--tests` each accept at most 100 occurrences. Excess
+      is refused at parse time with `reason: :too_many_targets`.
+    * `--max-sites` caps enumerated mutation sites (default 10_000).
+    * `--budget-ms` (optional) caps aggregate wall-clock for the
+      mutation phase. The per-site `--timeout-ms` still applies.
 
   ## Examples
 
@@ -122,6 +139,12 @@ defmodule Mix.Tasks.Mutagen do
       test resolution runs. This is the atom-table-DOS bound (see
       `mutagen.cli.r11`, mutagen-wrd.20): CI loops like
       `mix mutagen --tests tag:$(uuidgen)` cannot grow the BEAM atom table.
+    * **Caps on input and output volume.** `--scope` and `--tests` each
+      accept at most 100 occurrences (`reason: :too_many_targets`).
+      `--max-sites` caps enumerated mutation sites (default 10_000;
+      `reason: :too_many_sites`). `--budget-ms` (optional) caps the
+      aggregate mutation wall-clock and yields a `truncated: true`
+      partial report when exhausted.
   """
 
   use Mix.Task
@@ -281,8 +304,8 @@ defmodule Mix.Tasks.Mutagen do
          {:ok, coverage_result} <-
            phase_coverage(config, scope_records, test_filter, dispatch, report3),
          report4 = %Report{report3 | coverage: coverage_to_report(coverage_result)},
-         enum_result =
-           phase_enumerator(ast_cache, scope_records, coverage_result, dispatch),
+         {:ok, enum_result} <-
+           phase_enumerator(config, ast_cache, scope_records, coverage_result, dispatch, report4),
          {:ok, baseline_result} <-
            phase_baseline(config, test_filter, dispatch, report4),
          report5 = %Report{
@@ -306,7 +329,8 @@ defmodule Mix.Tasks.Mutagen do
           warnings:
             report5.warnings ++ enumerator_warnings(enum_result) ++ mutation_result.warnings,
           aborted: false,
-          abort_reason: nil
+          abort_reason: nil,
+          truncated: Map.get(mutation_result, :truncated, false) == true
       }
 
       {:ok, report, config}
@@ -376,21 +400,38 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
+  # Per-target scope resolution. The accumulator holds **reversed** chunks
+  # of records so the per-target merge is O(records_per_target) rather
+  # than O(total_records_so_far) — the `acc ++ records` shape this
+  # replaced was O(n²) over the cumulative record count (bw mutagen-wrd.22
+  # / F28). We prepend each new chunk (already in the same order as it
+  # came out of the resolver), and flatten-reverse at the end via
+  # `:lists.append(:lists.reverse(acc))` which preserves the original
+  # input order while staying linear.
   defp phase_scope(%Config{scopes: scopes} = config, dispatch, %Report{} = report) do
     {mod, fun} = Map.fetch!(dispatch, :scope)
 
-    Enum.reduce_while(scopes, {:ok, []}, fn target, {:ok, acc} ->
-      case apply(mod, fun, [target, []]) do
-        {:ok, records} ->
-          {:cont, {:ok, acc ++ records}}
+    result =
+      Enum.reduce_while(scopes, {:ok, []}, fn target, {:ok, acc} ->
+        case apply(mod, fun, [target, []]) do
+          {:ok, records} ->
+            {:cont, {:ok, [records | acc]}}
 
-        {:error, reason, details} ->
-          partial = %Report{report | scope: acc}
+          {:error, reason, details} ->
+            partial = %Report{report | scope: :lists.append(:lists.reverse(acc))}
 
-          {:halt,
-           {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
-      end
-    end)
+            {:halt,
+             {:abort, partial, config, reason, Map.put_new(details, :target, target)}}
+        end
+      end)
+
+    case result do
+      {:ok, chunks_reversed} ->
+        {:ok, :lists.append(:lists.reverse(chunks_reversed))}
+
+      {:abort, _, _, _, _} = abort ->
+        abort
+    end
   end
 
   defp phase_tests(%Config{tests: tests} = config, dispatch, report) do
@@ -445,11 +486,31 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp phase_enumerator(ast_cache, scope_records, coverage_result, dispatch) do
+  # `--max-sites` flows in here so an over-budget enumeration aborts
+  # before the runner even starts. The enumerator returns
+  # `{:error, :too_many_sites, details}` when the produced sites would
+  # exceed `Config.max_sites`; that becomes an abort-JSON document so
+  # the user gets a structured "your scope is too large, narrow it"
+  # signal rather than an OOM.
+  defp phase_enumerator(
+         %Config{max_sites: max_sites} = config,
+         ast_cache,
+         scope_records,
+         coverage_result,
+         dispatch,
+         %Report{} = report
+       ) do
     {mod, fun} = Map.fetch!(dispatch, :enumerator)
 
     covered_lines = coverage_result.covered_lines
-    apply(mod, fun, [ast_cache, scope_records, covered_lines, []])
+
+    case apply(mod, fun, [ast_cache, scope_records, covered_lines, [max_sites: max_sites]]) do
+      %{sites: _, skipped: _, warnings: _} = enum_result ->
+        {:ok, enum_result}
+
+      {:error, :too_many_sites, details} ->
+        {:abort, report, config, :too_many_sites, details}
+    end
   end
 
   defp phase_baseline(%Config{seed: seed} = config, test_filter, dispatch, %Report{} = report) do
@@ -479,7 +540,7 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp phase_mutation(
-         %Config{seed: seed, timeout_ms: timeout_ms} = config,
+         %Config{seed: seed, timeout_ms: timeout_ms, budget_ms: budget_ms} = config,
          test_filter,
          ast_cache,
          sites,
@@ -496,9 +557,13 @@ defmodule Mix.Tasks.Mutagen do
     # classified `:survived` (mutagen-wrd.12). Derive from the resolved
     # `test_filter.files` so the production pipeline matches what
     # `mutagen.mutation_pipeline.r5` requires.
+    #
+    # `budget_ms` (from `--budget-ms`, mutagen.cli.r13) is an optional
+    # aggregate wall-clock cap. `nil` means unbounded.
     input = %{
       seed: seed,
       timeout_ms: timeout_ms,
+      budget_ms: budget_ms,
       test_filter: test_filter,
       ast_cache: ast_cache,
       sites: sites,

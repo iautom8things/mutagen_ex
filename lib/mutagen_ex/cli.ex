@@ -20,10 +20,10 @@ defmodule MutagenEx.CLI do
 
   ## Recognised flags
 
-    * `--scope <target>` — required, repeatable. Raw target string; shape
-      validation happens during scope resolution.
-    * `--tests <target>` — required, repeatable. Raw target string; shape
-      validation happens during test selection.
+    * `--scope <target>` — required, repeatable (max 100 occurrences). Raw
+      target string; shape validation happens during scope resolution.
+    * `--tests <target>` — required, repeatable (max 100 occurrences). Raw
+      target string; shape validation happens during test selection.
     * `--timeout-ms <int>` — positive integer, default 5000.
     * `--seed <int>` — non-negative integer, default 0.
     * `--json <path>` — optional file path; when omitted, the final document
@@ -35,6 +35,14 @@ defmodule MutagenEx.CLI do
       writing the `--json` output outside the project root. CI integrations
       that target an artifacts directory above the project root pass this
       flag explicitly; everyday use should leave it off.
+    * `--max-sites <int>` — positive integer, default 10_000. Upper bound
+      on enumerated mutation sites for one run. Exceeding it aborts with
+      `:too_many_sites` before any mutation phase runs (per
+      `mutagen.mutation_enumeration.r7`).
+    * `--budget-ms <int>` — optional positive integer. Aggregate wall-clock
+      budget for the mutation phase in milliseconds. When exceeded the
+      runner terminates gracefully and the JSON document carries
+      `truncated: true` (per `mutagen.cli.r13`).
 
   ## Refused flags
 
@@ -52,6 +60,13 @@ defmodule MutagenEx.CLI do
       adversarial inputs (`tag:$(uuidgen)`-style loops) from reaching the
       selector at all. Non-`tag:` `--tests` targets (file paths, file:line)
       are not gated by this rule — they don't feed atom resolution.
+
+  ## Caps
+
+  Per `mutagen.cli.r12`, `--scope` and `--tests` accept at most 100
+  occurrences each. Excess is refused with `:too_many_targets`. The cap
+  is structural: it is enforced before any filesystem touch (scope or
+  test target resolution).
   """
 
   alias MutagenEx.Config
@@ -67,6 +82,9 @@ defmodule MutagenEx.CLI do
           | :self_mutation_refused
           | :unsafe_json_path
           | :invalid_tag_name
+          | :too_many_targets
+          | :invalid_max_sites
+          | :invalid_budget_ms
 
   @typedoc "Structured error returned by `parse/1`."
   @type error :: {:error, reason, map()}
@@ -98,9 +116,13 @@ defmodule MutagenEx.CLI do
          :ok <- require_nonempty(tests, :missing_tests, "at least one --tests target is required"),
          :ok <- refuse_self_mutation(scopes),
          :ok <- validate_tag_charset(tests),
+         :ok <- enforce_target_cap(scopes, :scope),
+         :ok <- enforce_target_cap(tests, :tests),
          {:ok, timeout_ms} <- pick_timeout(parsed),
          {:ok, seed} <- pick_seed(parsed),
          {:ok, json_path} <- pick_json_path(parsed),
+         {:ok, max_sites} <- pick_max_sites(parsed),
+         {:ok, budget_ms} <- pick_budget_ms(parsed),
          unsafe_outside_project = pick_unsafe_outside_project(parsed) do
       {:ok,
        %Config{
@@ -109,7 +131,9 @@ defmodule MutagenEx.CLI do
          timeout_ms: timeout_ms,
          seed: seed,
          json_path: json_path,
-         unsafe_json_outside_project: unsafe_outside_project
+         unsafe_json_outside_project: unsafe_outside_project,
+         max_sites: max_sites,
+         budget_ms: budget_ms
        }}
     end
   end
@@ -141,8 +165,13 @@ defmodule MutagenEx.CLI do
     timeout_ms: :integer,
     seed: :integer,
     json: :string,
-    unsafe_json_outside_project: :boolean
+    unsafe_json_outside_project: :boolean,
+    max_sites: :integer,
+    budget_ms: :integer
   ]
+
+  # Resource caps — see mutagen.cli.r12.
+  @target_cap 100
 
   # OptionParser converts dashes to underscores in switch names. The user
   # types `--timeout-ms`, the parser key is `:timeout_ms`.
@@ -170,6 +199,14 @@ defmodule MutagenEx.CLI do
         {:error, :invalid_seed,
          %{flag: flag, value: value, message: "--seed requires a non-negative integer"}}
 
+      flag == "--max-sites" ->
+        {:error, :invalid_max_sites,
+         %{flag: flag, value: value, message: "--max-sites requires a positive integer"}}
+
+      flag == "--budget-ms" ->
+        {:error, :invalid_budget_ms,
+         %{flag: flag, value: value, message: "--budget-ms requires a positive integer"}}
+
       true ->
         {:error, :unknown_flag, %{flag: flag, value: value, message: "unrecognised flag #{flag}"}}
     end
@@ -192,6 +229,34 @@ defmodule MutagenEx.CLI do
 
   defp require_nonempty([], reason, message), do: {:error, reason, %{message: message}}
   defp require_nonempty(_, _, _), do: :ok
+
+  # Per `mutagen.cli.r12`: cap repetition of `--scope` / `--tests` at
+  # @target_cap. The cap is structural — checked before any filesystem
+  # touch — so a CI step that mistakenly passes thousands of targets fails
+  # fast instead of materialising a huge list of scope/test resolutions.
+  defp enforce_target_cap(targets, kind) do
+    count = length(targets)
+
+    if count <= @target_cap do
+      :ok
+    else
+      flag =
+        case kind do
+          :scope -> "--scope"
+          :tests -> "--tests"
+        end
+
+      {:error, :too_many_targets,
+       %{
+         flag: flag,
+         kind: kind,
+         cap: @target_cap,
+         count: count,
+         message:
+           "#{flag} accepts at most #{@target_cap} occurrences; got #{count}"
+       }}
+    end
+  end
 
   # Pick the LAST occurrence of a non-`:keep` flag — matches OptionParser's
   # documented behaviour for non-`:keep` switches and avoids surprises when
@@ -221,6 +286,41 @@ defmodule MutagenEx.CLI do
       {:seed, n} ->
         {:error, :invalid_seed,
          %{flag: "--seed", value: n, message: "--seed must be a non-negative integer"}}
+    end
+  end
+
+  # `--max-sites` defaults to 10_000 (the structural site cap per
+  # `mutagen.mutation_enumeration.r7`). Zero and negative values are
+  # rejected — a cap of 0 would mean "enumerate nothing" which is
+  # better expressed by simply not running mutagen at all.
+  defp pick_max_sites(parsed) do
+    case List.keyfind(parsed, :max_sites, 0, :default) do
+      :default ->
+        {:ok, 10_000}
+
+      {:max_sites, n} when is_integer(n) and n > 0 ->
+        {:ok, n}
+
+      {:max_sites, n} ->
+        {:error, :invalid_max_sites,
+         %{flag: "--max-sites", value: n, message: "--max-sites must be a positive integer"}}
+    end
+  end
+
+  # `--budget-ms` is optional. Absence leaves `Config.budget_ms` as `nil`
+  # which means "no aggregate wall-clock cap"; per-site `--timeout-ms` is
+  # still enforced. Zero / negative are rejected.
+  defp pick_budget_ms(parsed) do
+    case List.keyfind(parsed, :budget_ms, 0, :default) do
+      :default ->
+        {:ok, nil}
+
+      {:budget_ms, n} when is_integer(n) and n > 0 ->
+        {:ok, n}
+
+      {:budget_ms, n} ->
+        {:error, :invalid_budget_ms,
+         %{flag: "--budget-ms", value: n, message: "--budget-ms must be a positive integer"}}
     end
   end
 

@@ -759,4 +759,63 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert length(literal_ids) == 3
     end
   end
+
+  describe "r7 — --max-sites cap (mutagen.mutation_enumeration.r7)" do
+    # The cap is structural: when sites exceed `:max_sites` the enumerator
+    # returns `{:error, :too_many_sites, details}` instead of materialising
+    # more sites. Falsifies "cap is documentation only".
+
+    defp many_arith_source(n) do
+      defs =
+        for i <- 1..n do
+          "  def f#{i}(x), do: x + #{i}\n"
+        end
+        |> Enum.join("")
+
+      "defmodule ManyArith do\n" <> defs <> "end\n"
+    end
+
+    test "exceeding --max-sites returns {:error, :too_many_sites, details}" do
+      source = many_arith_source(20)
+      cache = ast_cache("lib/many_arith.ex", source)
+      scopes = [scope("lib/many_arith.ex", ManyArith)]
+      covered = covered_lines("lib/many_arith.ex", Enum.to_list(1..30))
+
+      # Cap below the actual site count.
+      result = MutationEnumerator.enumerate(cache, scopes, covered, max_sites: 5)
+
+      assert {:error, :too_many_sites, details} = result
+      assert details.cap == 5
+      assert details.count > 5
+      assert is_binary(details.message)
+    end
+
+    test "exact-cap site count still returns a success result" do
+      # Run uncapped first to learn the true site count, then re-run with
+      # cap == count. Off-by-one regressions ("strict > vs >=") fail here.
+      source = many_arith_source(10)
+      cache = ast_cache("lib/many_arith.ex", source)
+      scopes = [scope("lib/many_arith.ex", ManyArith)]
+      covered = covered_lines("lib/many_arith.ex", Enum.to_list(1..30))
+
+      uncapped = MutationEnumerator.enumerate(cache, scopes, covered)
+      count = length(uncapped.sites)
+      assert count > 0
+
+      capped = MutationEnumerator.enumerate(cache, scopes, covered, max_sites: count)
+      assert match?(%{sites: _}, capped)
+      assert length(capped.sites) == count
+    end
+
+    test "absent --max-sites option behaves as unbounded (back-compat)" do
+      source = many_arith_source(50)
+      cache = ast_cache("lib/many_arith.ex", source)
+      scopes = [scope("lib/many_arith.ex", ManyArith)]
+      covered = covered_lines("lib/many_arith.ex", Enum.to_list(1..60))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+      assert match?(%{sites: _}, result)
+      assert length(result.sites) >= 50
+    end
+  end
 end
