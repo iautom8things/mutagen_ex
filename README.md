@@ -69,6 +69,13 @@ For each `--scope` target, mutagen_ex:
 Tests run **serially** in every phase. The run is single-process: there is
 no worker pool, no shelled-out subprocess.
 
+`mix mutagen` does not write to disk. Mutations are applied in memory via
+`Code.compile_quoted/2`; the original module is restored from the cached
+AST after every site. The byte-identity contract is asserted across
+`lib/`, `_build/`, `cover/`, host project config (`mix.exs`, `mix.lock`,
+`.formatter.exs`), and tmp entries with the `mutagen_ex_` prefix — see
+`mutagen.mutation_pipeline.r11` and `mutagen.coverage.r7`.
+
 ## Basic usage
 
 ```bash

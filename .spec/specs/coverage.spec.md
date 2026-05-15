@@ -101,7 +101,19 @@ decisions:
   statement: |
     Neither `CoverageRunner.run/1` nor `AstCache.load/1` modifies any file
     on disk. The working tree is byte-identical before and after both
-    complete.
+    complete, asserted across at minimum:
+      * `lib/**/*.{ex,exs}` — source surface.
+      * `_build/**/*.{beam,app}` — compiled artifacts. Cover-instrumented
+        modules live in memory; .beam files on disk must not change.
+      * `cover/**` — coverage reports. The runner produces
+        `covered_lines :: %{file => MapSet.t(line)}` in memory and
+        does not call `:cover.analyse_to_file/*`.
+      * Host project config: `mix.exs`, `mix.lock`, `.formatter.exs`.
+      * Tmp entries created with a `mutagen_ex_`-attributable prefix
+        under `System.tmp_dir!()`.
+    Allowed-write list: NONE. AST cache and coverage results live
+    in-process per mutagen.decision.in_process_pipeline; nothing
+    persists to disk.
 
 - id: mutagen.coverage.r8
   priority: must

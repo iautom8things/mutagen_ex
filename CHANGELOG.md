@@ -48,8 +48,24 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   contract for `:cover_server` / `ExUnit.Server`, and the v2 won't-haves
   (out-of-process workers, `:cover.start/0` race arbiter).
   *(mutagen-wrd.18)*
+- `test/support/disk_snapshot_helper.exs` — disk-snapshot diffing helper
+  used by the r11 / r7 "no disk writes" tests. Captures byte-identity
+  across `lib/**`, `_build/**/*.{beam,app}`, `cover/**`, host project
+  config (`mix.exs`, `mix.lock`, `.formatter.exs`), and `mutagen_ex_`-
+  attributable entries under `System.tmp_dir!()`. *(mutagen-wrd.27)*
 
 ### Changed
+
+- The r11 disk-write test in `mutation_runner_test.exs` and the r7
+  disk-write test in `coverage_runner_test.exs` now assert byte-identity
+  across `lib/`, `_build/`, `cover/`, host project config, and
+  `mutagen_ex_`-attributable tmp entries — not just `lib/**/*.ex`.
+  Closes Testing-reviewer F13: the original tests would have shipped
+  green if the runner accidentally rewrote `mix.exs`, dropped artifacts
+  under `_build/`, or wrote a coverage report to `cover/`. The
+  `mutagen.mutation_pipeline.r11` and `mutagen.coverage.r7` spec
+  statements were updated to name the broader surface explicitly, with
+  an allowed-write list of `NONE`. *(mutagen-wrd.27)*
 
 - `MutationRunner.run_one_site/3` now routes the loaded-mutation window
   through a new `with_restore/4` lifecycle helper that mirrors

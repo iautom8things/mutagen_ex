@@ -162,7 +162,22 @@ decisions:
   priority: must
   statement: |
     `MutationRunner.run/1` does not modify any file on disk. The working
-    tree is byte-identical before and after the runner completes.
+    tree is byte-identical before and after the runner completes,
+    asserted across at minimum:
+      * `lib/**/*.{ex,exs}` — source surface.
+      * `_build/**/*.{beam,app}` — compiled artifacts. The runner uses
+        `Code.compile_quoted/2` in memory; .beam files on disk must
+        not change.
+      * `cover/**` — coverage reports. The runner does not write
+        coverage output to disk.
+      * Host project config: `mix.exs`, `mix.lock`, `.formatter.exs`.
+      * Tmp entries created with a `mutagen_ex_`-attributable prefix
+        under `System.tmp_dir!()`.
+    Allowed-write list: NONE. There is no surface the runner is
+    permitted to write to as a normal side effect; a future feature
+    that needs scratch space (e.g. a tmp .beam stash) must declare
+    its writes here first and tag them with a `mutagen_ex_` prefix
+    so the snapshot diff distinguishes them from background noise.
 
 - id: mutagen.mutation_pipeline.r12
   priority: must

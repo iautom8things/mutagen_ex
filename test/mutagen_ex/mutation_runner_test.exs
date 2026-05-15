@@ -20,8 +20,18 @@ defmodule MutagenEx.MutationRunnerTest do
     * `mutagen.mutation_pipeline.r9` / `s8` — stderr captured into
       `results[i].warnings`.
     * `mutagen.mutation_pipeline.r11` — no file on disk is modified by
-      the runner.
+      the runner. Asserted across `lib/`, `_build/`, `cover/`, host
+      project config (mix.exs, mix.lock, .formatter.exs), and tmp
+      entries with the `mutagen_ex_` prefix — see the r11 describe
+      block below.
   """
+
+  # Load the disk-snapshot test helper. We use `Code.require_file/1`
+  # rather than adding a `test/support/` compile path to mix.exs to
+  # keep the helper scoped to the tests that need it (r11 here, r7 in
+  # coverage_runner_test.exs). require_file is idempotent — loading
+  # twice from two test modules is a no-op.
+  Code.require_file("../support/disk_snapshot_helper.exs", __DIR__)
 
   use ExUnit.Case, async: false
 
@@ -967,19 +977,43 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
   # r11: no disk writes during the runner phase
   # ---------------------------------------------------------------------------
+  #
+  # The r11 invariant ("MutationRunner.run/1 does not modify any file on
+  # disk") is broader than `lib/**/*.ex`. The bytecode-identical-restore
+  # contract is violated by any disk write the runner did not declare —
+  # build artifacts, coverage output, tmp scratch, or worst-case the
+  # host project's `mix.exs` / `mix.lock` / `.formatter.exs`.
+  #
+  # The original r11 test hashed `lib/**/*.ex` only and would ship green
+  # if the runner accidentally rewrote `mix.exs`, dropped a file under
+  # `_build/`, or wrote a stray report to `cover/`. This broader test
+  # asserts byte-identity across:
+  #
+  #   * `lib/**/*.{ex,exs}`  — the source surface (original assertion).
+  #   * `_build/**/*.{beam,app}` — compiled artifacts. The runner uses
+  #     `Code.compile_quoted/2` *in-memory*; it must NOT touch the .beam
+  #     files on disk under the test suite's stubbed-compiler path.
+  #   * `cover/**`           — coverage reports. The runner does not run
+  #     `:cover.analyze/0` with on-disk output; this directory must NOT
+  #     materialize as a side effect.
+  #   * `mix.exs`, `mix.lock`, `.formatter.exs` — host project config.
+  #     No mutation path may rewrite these.
+  #   * `/tmp` entries with `mutagen_ex_` prefix — the runner currently
+  #     creates no tmp scratch, and any future addition must be opt-in.
+  #
+  # Allowed writes during this stubbed-runner pass: none. The runner's
+  # public seams (ExUnitFake, CompilerStub, etc.) live in-process and
+  # don't touch disk. If a real :cover path needs file output later,
+  # that path goes through `CoverageRunner` (covered by coverage.r7),
+  # not `MutationRunner`.
 
-  describe "r11: no disk writes" do
-    test "all lib/ source SHA-256s are unchanged before and after a runner pass" do
+  describe "r11: no disk writes (broader surface)" do
+    test "lib/, _build/, cover/, host config, and /tmp are byte-identical before/after a runner pass" do
       clear_stubs()
       site = build_site(id: "n1")
       cfg = base_cfg(site)
 
-      lib_files = Path.wildcard("lib/**/*.ex")
-
-      pre =
-        for f <- lib_files, into: %{} do
-          {f, :crypto.hash(:sha256, File.read!(f))}
-        end
+      pre = MutagenEx.TestSupport.DiskSnapshot.snapshot()
 
       ExUnitFake.set_results([
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
@@ -987,10 +1021,38 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert {:ok, _} = MutationRunner.run(cfg)
 
-      for f <- lib_files do
-        post = :crypto.hash(:sha256, File.read!(f))
-        assert post == pre[f], "runner modified source file #{f}"
-      end
+      post = MutagenEx.TestSupport.DiskSnapshot.snapshot()
+      diff = MutagenEx.TestSupport.DiskSnapshot.diff(pre, post)
+
+      # Modified files: ANY content change to a snapshotted path is a
+      # violation. There is no allowed-write surface for the stubbed
+      # runner pass.
+      assert diff.modified == [],
+             "r11 regression: runner modified files on disk:\n" <>
+               Enum.map_join(diff.modified, "\n  ", &("- " <> &1))
+
+      # Removed files: equally a violation — the runner must never
+      # delete user content.
+      assert diff.removed == [],
+             "r11 regression: runner removed files from disk:\n" <>
+               Enum.map_join(diff.removed, "\n  ", &("- " <> &1))
+
+      # Added files under the snapshotted globs: the stubbed runner
+      # creates no compiled artifacts, no coverage output. ANY added
+      # path here is unaccounted disk write.
+      assert diff.added == [],
+             "r11 regression: runner created files on disk:\n" <>
+               Enum.map_join(diff.added, "\n  ", &("- " <> &1))
+
+      # /tmp churn: only flag entries the runner could plausibly own
+      # (prefix `mutagen_ex_`). Concurrent processes adding unrelated
+      # tmp entries during the test run are not a r11 violation — that
+      # would be a flaky assertion on shared hardware.
+      attributable = MutagenEx.TestSupport.DiskSnapshot.mutagen_attributable_tmp(diff)
+
+      assert attributable == [],
+             "r11 regression: runner created tmp entries with `mutagen_ex_` prefix:\n" <>
+               Enum.map_join(attributable, "\n  ", &("- " <> &1))
     end
   end
 

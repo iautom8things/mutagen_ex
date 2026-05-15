@@ -15,6 +15,9 @@ defmodule MutagenEx.CoverageRunnerTest do
     * `mutagen.coverage.r5` / `s5` — `covered_lines` keys only include files
       in `cfg.in_scope_modules`.
     * `mutagen.coverage.r7` / `s7` — no disk writes during the run.
+      Asserted across `lib/`, `_build/`, `cover/`, host project config
+      (mix.exs, mix.lock, .formatter.exs), and tmp entries with the
+      `mutagen_ex_` prefix — see the r7 describe block below.
 
   Tests that exercise the real `:cover` lifecycle are tagged
   `:cover_integration` so they can be filtered separately if the
@@ -22,6 +25,11 @@ defmodule MutagenEx.CoverageRunnerTest do
   tests use seam stubs to assert state-machine shape without touching the
   real cover_server.
   """
+
+  # Load the disk-snapshot test helper for the r7 broader surface check.
+  # See note in mutation_runner_test.exs for why we require_file rather
+  # than route through mix.exs `elixirc_paths`.
+  Code.require_file("../support/disk_snapshot_helper.exs", __DIR__)
 
   use ExUnit.Case, async: false
 
@@ -280,26 +288,68 @@ defmodule MutagenEx.CoverageRunnerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # r7: no disk writes
+  # r7: no disk writes (broader surface)
   # ---------------------------------------------------------------------------
+  #
+  # The r7 invariant ("Neither CoverageRunner.run/1 nor AstCache.load/1
+  # modifies any file on disk") is broader than `lib/**/*.ex`. The
+  # original test hashed only the source surface and would ship green
+  # if `CoverageRunner` accidentally:
+  #
+  #   * Wrote a coverage report under `cover/`
+  #   * Touched `_build/**/*.beam` (e.g. by leaving cover-compiled
+  #     artifacts on disk instead of in-memory)
+  #   * Rewrote `mix.exs` / `mix.lock` / `.formatter.exs`
+  #   * Stashed instrumented state under `/tmp` without cleanup
+  #
+  # This broader test asserts byte-identity across the same surface as
+  # the r11 test in mutation_runner_test.exs (see that file for the
+  # full allowed-write rationale). The stubbed CoverageRunner pass
+  # here has no allowed-write surface: every diff category must be
+  # empty.
+  #
+  # Real-cover behavior (cover-instrumented .beam files DO modify
+  # process state but must NOT land on disk) is covered indirectly by
+  # the `:cover_integration` test below and exhaustively by C1
+  # (test/mutagen_ex/integration/c1_test.exs), which already snapshots
+  # its own fixture sources.
 
-  describe "r7: no source/disk writes (s7)" do
-    test "fixture sha-256 hashes are unchanged before/after a run" do
-      # Hash every file in lib/ and confirm no bytes changed during a run.
-      lib_files = Path.wildcard("lib/**/*.ex")
-
-      pre =
-        for file <- lib_files, into: %{} do
-          {file, :crypto.hash(:sha256, File.read!(file))}
-        end
+  describe "r7: no disk writes (broader surface, s7)" do
+    test "lib/, _build/, cover/, host config, and /tmp are byte-identical before/after a coverage run" do
+      pre = MutagenEx.TestSupport.DiskSnapshot.snapshot()
 
       cfg = base_cfg_with_fakes()
       assert {:ok, _} = CoverageRunner.run(cfg)
 
-      for file <- lib_files do
-        post = :crypto.hash(:sha256, File.read!(file))
-        assert post == pre[file], "coverage run modified source file #{file}"
-      end
+      post = MutagenEx.TestSupport.DiskSnapshot.snapshot()
+      diff = MutagenEx.TestSupport.DiskSnapshot.diff(pre, post)
+
+      # Modified files: any content change to a snapshotted path is
+      # a violation. The stubbed coverage run does not modify disk.
+      assert diff.modified == [],
+             "r7 regression: coverage run modified files on disk:\n" <>
+               Enum.map_join(diff.modified, "\n  ", &("- " <> &1))
+
+      # Removed files: the runner must never delete user content.
+      assert diff.removed == [],
+             "r7 regression: coverage run removed files from disk:\n" <>
+               Enum.map_join(diff.removed, "\n  ", &("- " <> &1))
+
+      # Added files: the runner must not create coverage reports, beam
+      # artifacts, or any other disk artifact under the snapshotted
+      # globs.
+      assert diff.added == [],
+             "r7 regression: coverage run created files on disk:\n" <>
+               Enum.map_join(diff.added, "\n  ", &("- " <> &1))
+
+      # /tmp entries with `mutagen_ex_` prefix: only flag MutagenEx-
+      # attributable entries to avoid flake from concurrent test
+      # processes.
+      attributable = MutagenEx.TestSupport.DiskSnapshot.mutagen_attributable_tmp(diff)
+
+      assert attributable == [],
+             "r7 regression: coverage run created tmp entries with `mutagen_ex_` prefix:\n" <>
+               Enum.map_join(attributable, "\n  ", &("- " <> &1))
     end
   end
 
