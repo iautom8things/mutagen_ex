@@ -19,11 +19,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: VERIFY reported PASS with 6 files touched (all Allowed), zero out-of-scope. Both call-site swaps confined to safe_compile_quoted/3 and capture_stderr/2 hunks; MutationLoop.run/1 orchestration untouched; stream selection (:stderr) preserved at both sites. v2 stub (mutation_runner_test.exs) 22/22 and v5 stub (mutation_runner_raise_test.exs) 7/7 pass; r9 spec line aligned to with_io/3 and the v2 test covers r9 with concrete failure modes (empty result.warnings if tuple unpacking broke; missing capture if suppression broke). make_ref/Process.put/Process.get/Process.delete scaffolding fully removed at both sites; internal stubs CaptureIoStub + RaisingCaptureIO updated in lock-step (call-count fire_on=2 semantics preserved). LOC delta -13 net on production+test. mix compile --warnings-as-errors clean; mix test 360/360 (15 excluded). One non-blocking advisory: stale capture_io(:stderr,...) reference in mutation_loop.ex:38 moduledoc — flagged as Note, not Gap. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-15T01:24:35Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd at 338c534. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-15T01:25:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Replace Process.put smuggle with ExUnit.CaptureIO.with_io/3",
   "type": "task",
-  "updated_at": "2026-05-15T01:24:35Z"
+  "updated_at": "2026-05-15T01:25:53Z"
 }
