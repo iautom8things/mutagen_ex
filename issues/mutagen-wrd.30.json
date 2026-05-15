@@ -37,11 +37,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: VERIFY-3 (iteration 2 after AUDIT-1 BOUNCE → implementer) reported VERIFIED with both audit Gaps closed and a negative probe confirming load-bearing tests: (1) r10 NDJSON `version` key now present on all 4 line kinds (start/result/compile_error/end) in json_streamer.ex; v5 stub asserts version on each line kind + stream-wide Enum.all? — verifier deleted the new line and re-ran v5 to confirm 2 failures fire, then restored. (2) max_concurrency default=1 canonical at all 6 audit-enumerated locations (spec r15 first paragraph, cli.ex moduledoc, config.ex moduledoc, mutation_runner.ex @doc + resolve_max_concurrency comment, mix/tasks/mutagen.ex moduledoc). All stubs pass (v5 8/0, v7 6/0). Project verification green (456 tests, 0 failures). Intent clean (no telemetry_poller, no ETS/DETS). Two residual doc-drift Notes (cli.ex:293-298 and mutation_runner.ex:329 inline comments mentioning schedulers_online — not on the auditor's enumeration) are advisory only and can be folded into a follow-up ticket if needed. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-15T02:55:34Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off (auto-approve after iteration 2 closed AUDIT-1's two audit Gaps; rebase combined .30 parallelism + .22 budget-ms + .26 Sanitizer wrapping additively).",
+      "timestamp": "2026-05-15T03:06:53Z"
     }
   ],
   "priority": 4,
   "status": "in_progress",
   "title": "Parallel mutation loop + telemetry + NDJSON streaming + progress feedback",
   "type": "task",
-  "updated_at": "2026-05-15T02:55:34Z"
+  "updated_at": "2026-05-15T03:06:53Z"
 }
