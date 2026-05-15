@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [
     "mutagen-wrd.18"
   ],
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "mutagen-wrd",
   "priority": 4,
-  "status": "open",
+  "status": "in_progress",
   "title": "Parallel mutation loop + telemetry + NDJSON streaming + progress feedback",
   "type": "task",
-  "updated_at": "2026-05-14T16:36:34Z"
+  "updated_at": "2026-05-15T02:02:26Z"
 }
