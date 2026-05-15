@@ -43,11 +43,15 @@
     {
       "text": "ORCHESTRATOR_RECOVERY: ticket was prematurely closed at 2026-05-15T02:38 — ff-merge actually FAILED (epic had advanced to include .26 between rebase-wide-22 and the close step). The branch was deleted but recovered from dangling commits (3e76c58). Reopening to re-rebase onto current epic HEAD (851fad7 post-.26) and re-merge.",
       "timestamp": "2026-05-15T02:40:21Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-15T02:44:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Caps on --scope/--tests/total sites + --budget-ms + phase_scope O(n) fix",
   "type": "task",
-  "updated_at": "2026-05-15T02:40:28Z"
+  "updated_at": "2026-05-15T02:44:26Z"
 }
