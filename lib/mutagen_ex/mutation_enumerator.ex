@@ -23,10 +23,30 @@ defmodule MutagenEx.MutationEnumerator.Site do
       restore invariant in `mutagen.mutation_enumeration.r6`).
     * `:mutated_ast` — the swapped AST node returned by the mutator's
       `mutate/1`.
+    * `:end_line` / `:end_column` — 1-based EXCLUSIVE end position of the
+      `original_ast` expression in the parsed source, computed
+      best-effort from AST metadata per
+      `mutagen.mutation_enumeration.r8`. Both are `nil` when the
+      enumerator could not derive an end position (bare-literal sites
+      whose meta comes from a parent operator, some macro-expanded
+      forms). When non-nil, callers slice the verbatim `source_text`
+      between the leftmost descendant's `{line, column}` and this
+      `{end_line, end_column}` to obtain a byte-faithful
+      `before_source` per `mutagen.json_schema.r4`.
   """
 
   @enforce_keys [:id, :file, :line, :column, :mutator, :original_ast, :mutated_ast]
-  defstruct [:id, :file, :line, :column, :mutator, :original_ast, :mutated_ast]
+  defstruct [
+    :id,
+    :file,
+    :line,
+    :column,
+    :mutator,
+    :original_ast,
+    :mutated_ast,
+    end_line: nil,
+    end_column: nil
+  ]
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -35,7 +55,9 @@ defmodule MutagenEx.MutationEnumerator.Site do
           column: pos_integer(),
           mutator: atom(),
           original_ast: Macro.t(),
-          mutated_ast: Macro.t()
+          mutated_ast: Macro.t(),
+          end_line: pos_integer() | nil,
+          end_column: pos_integer() | nil
         }
 end
 
@@ -361,6 +383,12 @@ defmodule MutagenEx.MutationEnumerator do
 
     case mutator.validate(mutated) do
       :ok ->
+        # Per `mutagen.mutation_enumeration.r8`: derive the exclusive
+        # end position of `node` best-effort. Nil when not derivable;
+        # the JSON renderer's `before_source` path treats that as the
+        # signal to fall back to `Macro.to_string/1`.
+        {end_line, end_column} = compute_end_position(node)
+
         site = %Site{
           id: id,
           file: file,
@@ -368,7 +396,9 @@ defmodule MutagenEx.MutationEnumerator do
           column: column,
           mutator: name,
           original_ast: node,
-          mutated_ast: mutated
+          mutated_ast: mutated,
+          end_line: end_line,
+          end_column: end_column
         }
 
         %{acc | sites: [site | acc.sites]}
@@ -439,4 +469,168 @@ defmodule MutagenEx.MutationEnumerator do
   # ambient column rather than masking it with `1`.
   defp node_column_or_nil({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :column)
   defp node_column_or_nil(_), do: nil
+
+  # --- end-position derivation (r8) ----------------------------------------
+  #
+  # Returns `{end_line, end_column}` (exclusive end) for the `original_ast`
+  # of a candidate site, or `{nil, nil}` when derivation fails. The render
+  # path treats `{nil, nil}` as the signal to fall back to
+  # `Macro.to_string/1` for `before_source` (see `mutagen.json_schema.r4`).
+  #
+  # Strategy (in order of preference):
+  #
+  #   1. Node meta directly carries `:end_of_expression: [line, column]` —
+  #      that position is already the exclusive end.
+  #   2. Node meta carries `:closing: [line, column]` — closing is the
+  #      position of `)` or `]`; exclusive end is `column + 1`.
+  #   3. Node meta carries `:end: [line, column]` — `:end` is the
+  #      position of the literal `end` keyword (3 bytes); exclusive end
+  #      is `column + 3`.
+  #   4. Fallback: walk to the rightmost child whose end position can be
+  #      computed from AST alone. For variables `{name, meta, nil}`
+  #      where `name` is an atom, the end column is
+  #      `column + byte_size(Atom.to_string(name))`. For bare numeric
+  #      literals, the end column is `column + byte_size(printed_form)`
+  #      where the printed form uses `Integer.to_string/1` or
+  #      `Float.to_string/1`. For boolean / nil literals we know the
+  #      printed length statically. The walk recurses into structured
+  #      children; if no rightmost descendant can be sized, returns
+  #      `{nil, nil}` (the fallback path).
+  @doc false
+  @spec compute_end_position(Macro.t()) :: {pos_integer() | nil, pos_integer() | nil}
+  def compute_end_position({_form, meta, _args} = node) when is_list(meta) do
+    cond do
+      end_of_expr = Keyword.get(meta, :end_of_expression) ->
+        {Keyword.get(end_of_expr, :line), Keyword.get(end_of_expr, :column)}
+
+      closing = Keyword.get(meta, :closing) ->
+        line = Keyword.get(closing, :line)
+        column = Keyword.get(closing, :column)
+        if line && column, do: {line, column + 1}, else: walk_for_end(node)
+
+      end_kw = Keyword.get(meta, :end) ->
+        line = Keyword.get(end_kw, :line)
+        column = Keyword.get(end_kw, :column)
+        if line && column, do: {line, column + 3}, else: walk_for_end(node)
+
+      true ->
+        walk_for_end(node)
+    end
+  end
+
+  def compute_end_position(_), do: {nil, nil}
+
+  # Walk rightward through the node's children, returning the
+  # `{end_line, end_column}` of the rightmost descendant whose size we
+  # can compute. Stops short with `{nil, nil}` if no descendant
+  # qualifies OR if the form is one whose printed source has trailing
+  # delimiters past its rightmost AST child (e.g. function calls like
+  # `foo(x)`: the rightmost child is `x` but the expression ends at
+  # `)`). Such forms require explicit `:closing` / `:end` metadata.
+  defp walk_for_end({form, _meta, args}) do
+    if delimiterless_form?(form) do
+      case rightmost_with_size(args) do
+        {:ok, line, column} -> {line, column}
+        :unknown -> {nil, nil}
+      end
+    else
+      {nil, nil}
+    end
+  end
+
+  defp walk_for_end(_), do: {nil, nil}
+
+  # A form is "delimiterless" when its source representation ends
+  # exactly where its rightmost AST child ends — i.e., no trailing
+  # parens, brackets, or `end` keyword. Binary infix operators
+  # qualify (the printed form is `{left} {op} {right}`). Function
+  # calls, do/end blocks, etc., do NOT qualify and need explicit
+  # metadata to size their end.
+  defp delimiterless_form?(form) when is_atom(form) do
+    form in [
+      :+,
+      :-,
+      :*,
+      :/,
+      :==,
+      :!=,
+      :===,
+      :!==,
+      :<,
+      :>,
+      :<=,
+      :>=,
+      :&&,
+      :||,
+      :and,
+      :or,
+      :++,
+      :--,
+      :<>,
+      :in,
+      :|>,
+      :|,
+      :=
+    ]
+  end
+
+  defp delimiterless_form?(_), do: false
+
+  # End position of the LITERAL rightmost child. We require the
+  # rightmost child to be sizeable — falling back to the next-rightmost
+  # would produce a SHORTER slice than the actual expression (e.g.
+  # `b != 0` would slice to just `b` because `0` is a bare literal
+  # with no meta). That silent truncation is worse than declaring
+  # "unknown" and letting the renderer fall back to Macro.to_string.
+  defp rightmost_with_size(nil), do: :unknown
+  defp rightmost_with_size([]), do: :unknown
+
+  defp rightmost_with_size(args) when is_list(args) do
+    case :lists.reverse(args) do
+      [last | _] -> end_position_of_leaf_or_node_result(last)
+      _ -> :unknown
+    end
+  end
+
+  defp rightmost_with_size(_other), do: :unknown
+
+  defp end_position_of_leaf_or_node_result(child) do
+    case end_position_of_leaf_or_node(child) do
+      {:ok, line, col} -> {:ok, line, col}
+      :unknown -> :unknown
+    end
+  end
+
+  # End position of a single AST term, considering both leaves
+  # (bare literals, variables) and structured nodes (recurse via
+  # `compute_end_position/1`).
+  defp end_position_of_leaf_or_node({name, meta, nil})
+       when is_atom(name) and is_list(meta) do
+    # Variable: `{:a, [line: L, column: C], nil}`. Size = atom name's
+    # byte length.
+    line = Keyword.get(meta, :line)
+    column = Keyword.get(meta, :column)
+
+    if line && column do
+      {:ok, line, column + byte_size(Atom.to_string(name))}
+    else
+      :unknown
+    end
+  end
+
+  defp end_position_of_leaf_or_node({_form, meta, _args} = node) when is_list(meta) do
+    case compute_end_position(node) do
+      {nil, nil} -> :unknown
+      {line, col} when is_integer(line) and is_integer(col) -> {:ok, line, col}
+    end
+  end
+
+  defp end_position_of_leaf_or_node(_other) do
+    # Bare literals (integers, atoms, floats, booleans) and other
+    # leaves don't carry their own metadata; we cannot honestly place
+    # their end position without source-text scanning, which is out
+    # of scope for the enumerator (the runner ticket calls this out
+    # explicitly).
+    :unknown
+  end
 end

@@ -91,6 +91,33 @@ decisions:
     Absence of the option (or `nil`) leaves enumeration unbounded.
     Callers that want the cap MUST pass it; the Mix task threads
     `Config.max_sites` (default 10_000) in. See `mutagen.cli.r12`.
+
+- id: mutagen.mutation_enumeration.r8
+  priority: must
+  statement: |
+    Every `%MutagenEx.MutationEnumerator.Site{}` carries optional
+    `end_line` and `end_column` fields recording an EXCLUSIVE end
+    position for the site's `original_ast` against the parsed
+    source: `end_line` is the line of the position just past the
+    last character of the expression; `end_column` is the column
+    on that line. The enumerator derives end positions
+    best-effort from AST metadata:
+
+      * If the node's meta carries `:end_of_expression`, that
+        position is used (it is already the exclusive end).
+      * Else if the node's meta carries `:closing` (parens or
+        brackets), end is the closing position plus one column.
+      * Else if the node's meta carries `:end` (do/end blocks),
+        end is the position just past the literal `end` keyword.
+      * Else the enumerator walks to the rightmost child whose
+        size can be computed from the AST alone (variables by
+        atom name length; bare numeric / atomic literals by their
+        printed form's byte size; otherwise recurse).
+
+    When derivation fails, BOTH `end_line` and `end_column` are
+    `nil` and the consumer (the JSON renderer's `before_source`
+    path, see `mutagen.json_schema.r4`) falls back to
+    `Macro.to_string/1`.
 ```
 
 ```spec-scenarios
@@ -163,6 +190,24 @@ decisions:
   then: |
     Output is `{:error, :too_many_sites, %{cap: 5, count: <n>, ...}}`
     where `<n>` > 5. No partial site list is returned.
+
+- id: mutagen.mutation_enumeration.s8
+  covers: [mutagen.mutation_enumeration.r8]
+  given: |
+    The source `def add(a, b), do: a + b` parsed by
+    `Code.string_to_quoted/2` with `columns: true, token_metadata:
+    true` and enumerated against the `arith` mutator.
+  when: The enumerator produces the `:+` site.
+  then: |
+    The emitted `%Site{}` has `line: L, column: 24` pointing at the
+    `+` operator (unchanged from the pre-`mutagen-wrd.34`
+    contract) and `end_line: L, end_column: 27` — the exclusive
+    end position of the rightmost descendant `b` at column 26.
+    The pair `{end_line, end_column}` together with the leftmost
+    descendant's position (derivable from `original_ast`, here
+    `a` at column 22) defines the source range that
+    `Macro.to_string(original_ast)` printed; slicing
+    `source_text` by that range yields exactly `"a + b"`.
 ```
 
 ```spec-verification

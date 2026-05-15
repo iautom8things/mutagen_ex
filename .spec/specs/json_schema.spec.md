@@ -107,12 +107,26 @@ Top-level keys, all present in every variant unless noted:
     `column` (int),
     `mutator` (string, snake_case name),
     `before` (string — `Macro.to_string/1` of original AST),
-    `before_source` (string — see r12 for the v1 contract: in v1
-      `before_source` is byte-identical to `before` (the
-      `Macro.to_string/1` output, aliased into the same binary). The
-      verbatim source slice by `{line, column, end_line, end_column}`
-      against `AstCache.source_text/2` is the post-`mutagen-wrd.34`
-      contract and is not in force in v1),
+    `before_source` (string — verbatim source slice taken from
+      the `source_text` the AST was parsed from (the `source_text`
+      half of an `MutagenEx.AstCache` entry) when end positions
+      are available. The slice range is
+      `{start_line, start_column}` (the leftmost descendant of the
+      site's `original_ast`, derived at render time) through
+      `{end_line, end_column}` (carried on
+      `%MutagenEx.MutationEnumerator.Site{}` per
+      `mutagen.mutation_enumeration.r8`), end-exclusive. When the
+      enumerator could not derive `{end_line, end_column}` for the
+      site (e.g. bare-literal sites attributed to a parent
+      operator's metadata, or macro-expanded forms whose AST
+      metadata lacks a reliable end position), `before_source`
+      falls back to `Macro.to_string/1` of the original AST and
+      aliases the same binary as `before`. The fallback is
+      observable: on the slice path `before_source` is byte-equal
+      to a hand-cut source slice of the same range and may differ
+      from `before` (which is always the `Macro.to_string/1`
+      output); on the fallback path `before_source === before`
+      (same binary reference, `:erts_debug.same/2` returns true)),
     `after` (string — `Macro.to_string/1` of swapped AST),
     `status` (one of: `"killed"`, `"survived"`, `"timeout"`, `"error"`),
     `tainted_predecessors` (bool),
@@ -200,16 +214,32 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r12
   priority: must
   statement: |
-    Each `mutation.results[].before` and `mutation.results[].before_source`
-    pair is rendered from a single `Macro.to_string(result.original_ast)`
-    call per result — the resulting binary is aliased into both fields.
-    Equivalently, for a run that emits R results, `Macro.to_string/1`
-    is invoked at most `2 * R` times in the report-rendering path
-    (once per result for `original_ast`, once per result for
-    `mutated_ast`). In v1 `before_source` and `before` are
-    byte-identical; a verbatim-source-slice implementation of
-    `before_source` is a separate change that does not relax this
-    call-count cap.
+    The report-rendering path invokes `Macro.to_string/1` at most
+    `2 * R` times for a run that emits R results: once per result
+    for `original_ast` (rendered into `before`) and once per
+    result for `mutated_ast` (rendered into `after`). Computing
+    `before_source` does NOT add `Macro.to_string/1` invocations:
+
+      * When `{end_line, end_column}` are available for the site,
+        `before_source` is a verbatim slice of `source_text` and
+        is computed by direct byte indexing — no `Macro.to_string`
+        call.
+      * When `{end_line, end_column}` are unavailable,
+        `before_source` falls back to aliasing the same binary
+        already computed for `before` — also no additional
+        `Macro.to_string` call.
+
+    The `2 * R` cap is therefore exact: the renderer never invokes
+    `Macro.to_string/1` more than twice per result regardless of
+    which `before_source` path each site takes. (Pre-`mutagen-wrd.26`
+    the renderer used `4 * R` calls — once per result for each of
+    `before`, `before_source`, `after`, and an accidental duplicate
+    via the legacy fallback. `mutagen-wrd.26` cached the
+    `original_ast` rendering and aliased it into both `before` and
+    `before_source`, getting to `2 * R`. `mutagen-wrd.34` made
+    `before_source` a verbatim source slice when end positions are
+    available; the cap continues to hold because the slice path
+    uses byte indexing, not `Macro.to_string/1`.)
 
 - id: mutagen.json_schema.r13
   priority: must
@@ -367,20 +397,25 @@ Top-level keys, all present in every variant unless noted:
     `hunter2`.
 
 - id: mutagen.json_schema.s9
-  covers: [mutagen.json_schema.r12]
+  covers: [mutagen.json_schema.r12, mutagen.json_schema.r4]
   given: |
-    A `%Report{}` fixture with N completed-mutation results, each
-    carrying an `original_ast` whose `Macro.to_string/1` is observable
-    via a counter (test seam — for the actual production path, the
-    rendering helper computes it once explicitly).
+    A `%Report{}` fixture with N completed-mutation results.
+    Some results carry `end_line`/`end_column` and `source_text`
+    (slice path); others carry `end_line: nil` (fallback path).
   when: `mutation_to_report/2` renders the wire-shape map.
   then: |
-    For every result in the rendered output, the `before` and
-    `before_source` fields are the SAME binary value (byte-identical
-    AND, in tests, pointer-equal). The total `Macro.to_string/1`
-    invocation count over the render pass is at most `2 * N` (the
-    `2 *` accounts for original + mutated; the cap is exactly the
-    no-redundancy budget).
+    For every result on the FALLBACK path (`end_line == nil`), the
+    rendered `before` and `before_source` fields share the SAME
+    binary reference (`:erts_debug.same/2` returns true) — the
+    `Macro.to_string(original_ast)` output is aliased into both.
+    For every result on the SLICE path (`end_line` non-nil), the
+    rendered `before_source` is a verbatim slice of `source_text`
+    by `{line, column, end_line, end_column}` and matches a
+    hand-cut source slice byte-for-byte. The total
+    `Macro.to_string/1` invocation count over the render pass is
+    AT MOST `2 * N` regardless of how the N results split between
+    slice and fallback (the slice path uses byte indexing, not
+    `Macro.to_string`).
 ```
 
 ```spec-verification

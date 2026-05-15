@@ -907,15 +907,18 @@ defmodule Mix.Tasks.Mutagen do
   def __render_result__(r), do: render_result(r)
 
   defp render_result(r) do
-    # Per `mutagen.json_schema.r12`: compute `Macro.to_string/1` of the
-    # original AST exactly once per result and alias the same binary
-    # into both `before` and `before_source`. The verbatim source-slice
-    # contract documented in `lib/mutagen_ex/ast_cache.ex` (use of
-    # `source_text` for `{line, column, end_line, end_column}` slicing)
-    # is a follow-up — for now the two fields share the same
-    # `Macro.to_string` output, which is the v1 status quo minus the
-    # double-compute waste.
+    # Per `mutagen.json_schema.r4` + r12: `before` is always the
+    # `Macro.to_string(original_ast)` output (computed exactly once).
+    # `before_source` is a verbatim slice of `source_text` when the
+    # enumerator provided `end_line`/`end_column` AND a `source_text`
+    # was threaded through by the runner; otherwise it aliases the
+    # same binary as `before` (the legacy / fallback path).
+    #
+    # The slice path uses byte indexing — no additional
+    # `Macro.to_string/1` call — so the `2 * R` cap from r12 holds
+    # regardless of which path each site takes.
     before_binary = Macro.to_string(r.original_ast)
+    before_source = render_before_source(r, before_binary)
 
     %{
       id: r.id,
@@ -924,12 +927,195 @@ defmodule Mix.Tasks.Mutagen do
       column: r.column,
       mutator: r.mutator,
       before: before_binary,
-      before_source: before_binary,
+      before_source: before_source,
       after: Macro.to_string(r.mutated_ast),
       status: r.status,
       tainted_predecessors: r.tainted_predecessors,
       warnings: r.warnings
     }
+  end
+
+  # `before_source` resolution:
+  #   1. If the result lacks `end_line` / `end_column` (legacy callers,
+  #      bare-literal sites, macro-expanded forms): alias `before`.
+  #   2. If no `source_text` was threaded through: alias `before`.
+  #   3. If we can derive a slice-start position from `original_ast`
+  #      (the leftmost descendant's `{line, column}`): slice
+  #      `source_text` between `{start_line, start_column}` and
+  #      `{end_line, end_column}` (end-exclusive).
+  #   4. Otherwise: alias `before`.
+  defp render_before_source(r, before_binary) do
+    end_line = Map.get(r, :end_line)
+    end_column = Map.get(r, :end_column)
+    source_text = Map.get(r, :source_text)
+
+    cond do
+      is_nil(end_line) or is_nil(end_column) ->
+        before_binary
+
+      not is_binary(source_text) ->
+        before_binary
+
+      true ->
+        case leftmost_descendant_position(r.original_ast) do
+          {start_line, start_column}
+          when is_integer(start_line) and is_integer(start_column) ->
+            case slice_source(source_text, start_line, start_column, end_line, end_column) do
+              {:ok, slice} -> slice
+              :error -> before_binary
+            end
+
+          _ ->
+            before_binary
+        end
+    end
+  end
+
+  # Find the leftmost descendant's `{line, column}` of an AST node.
+  # For most nodes the leftmost descendant is in `args`; if no
+  # descendant carries position metadata, fall back to the node's
+  # own meta. Returns `{line, column}` or `nil`.
+  defp leftmost_descendant_position(ast) do
+    case do_leftmost(ast) do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  defp do_leftmost({_form, meta, args}) when is_list(meta) do
+    # Prefer a descendant's position (the leftmost child whose
+    # leftmost descendant carries meta). Fall back to this node's own
+    # meta only when no descendant qualifies.
+    case do_leftmost_children(args) do
+      {line, col} when is_integer(line) and is_integer(col) ->
+        # If THIS node's meta is to the left of the descendant's
+        # (e.g. an operator that starts at col 24 but whose child
+        # is at col 22 — actually impossible by parser, but the
+        # general principle: take the leftmost position).
+        own =
+          case {Keyword.get(meta, :line), Keyword.get(meta, :column)} do
+            {l, c} when is_integer(l) and is_integer(c) -> {l, c}
+            _ -> nil
+          end
+
+        case own do
+          nil -> {line, col}
+          {own_line, own_col} -> earlier({own_line, own_col}, {line, col})
+        end
+
+      _ ->
+        case {Keyword.get(meta, :line), Keyword.get(meta, :column)} do
+          {l, c} when is_integer(l) and is_integer(c) -> {l, c}
+          _ -> nil
+        end
+    end
+  end
+
+  defp do_leftmost(_), do: nil
+
+  defp do_leftmost_children(nil), do: nil
+
+  defp do_leftmost_children(args) when is_list(args) do
+    Enum.reduce_while(args, nil, fn child, acc ->
+      case do_leftmost(child) do
+        nil -> {:cont, acc}
+        pos -> {:halt, pos}
+      end
+    end)
+  end
+
+  defp do_leftmost_children(_), do: nil
+
+  # The earlier of two positions (smaller line first; same line: smaller column).
+  defp earlier({l1, c1}, {l2, c2}) do
+    cond do
+      l1 < l2 -> {l1, c1}
+      l1 > l2 -> {l2, c2}
+      c1 <= c2 -> {l1, c1}
+      true -> {l2, c2}
+    end
+  end
+
+  # Slice `source_text` between `{start_line, start_column}` (inclusive,
+  # 1-based) and `{end_line, end_column}` (exclusive, 1-based). Returns
+  # `{:ok, slice}` on success, `:error` if the indices are out of range.
+  # Columns count UTF-8 codepoints (matching how Elixir's tokenizer
+  # populates `:column`).
+  defp slice_source(source_text, start_line, start_column, end_line, end_column)
+       when is_binary(source_text) and is_integer(start_line) and is_integer(start_column) and
+              is_integer(end_line) and is_integer(end_column) do
+    lines = String.split(source_text, "\n", trim: false)
+
+    try do
+      cond do
+        start_line < 1 or end_line < 1 ->
+          :error
+
+        start_line > end_line ->
+          :error
+
+        start_line == end_line ->
+          line = Enum.at(lines, start_line - 1)
+
+          if is_binary(line) and end_column > start_column do
+            # Convert from 1-based inclusive `start_column` and 1-based
+            # exclusive `end_column` to byte indices on the line.
+            len = end_column - start_column
+            slice = slice_codepoints(line, start_column - 1, len)
+            {:ok, slice}
+          else
+            :error
+          end
+
+        true ->
+          # Multi-line slice: take suffix of start_line from start_column,
+          # all middle lines in full, prefix of end_line up to end_column.
+          start_line_text = Enum.at(lines, start_line - 1)
+          end_line_text = Enum.at(lines, end_line - 1)
+
+          middle =
+            if end_line - start_line >= 2 do
+              Enum.slice(lines, start_line, end_line - start_line - 1)
+            else
+              []
+            end
+
+          if is_binary(start_line_text) and is_binary(end_line_text) do
+            start_suffix = slice_codepoints_tail(start_line_text, start_column - 1)
+            end_prefix = slice_codepoints(end_line_text, 0, end_column - 1)
+
+            middle_iodata =
+              case middle do
+                [] -> []
+                _ -> [Enum.intersperse(middle, "\n"), "\n"]
+              end
+
+            iodata = [start_suffix, "\n", middle_iodata, end_prefix]
+            {:ok, IO.iodata_to_binary(iodata)}
+          else
+            :error
+          end
+      end
+    rescue
+      _ -> :error
+    end
+  end
+
+  defp slice_source(_, _, _, _, _), do: :error
+
+  # Take `len` codepoints from `string` starting at codepoint index `start`.
+  defp slice_codepoints(string, start, len) do
+    string
+    |> String.graphemes()
+    |> Enum.slice(start, len)
+    |> Enum.join()
+  end
+
+  defp slice_codepoints_tail(string, start) do
+    string
+    |> String.graphemes()
+    |> Enum.drop(start)
+    |> Enum.join()
   end
 
   defp enumerator_warnings(%{warnings: ws}) when is_list(ws) do

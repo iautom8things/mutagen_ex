@@ -20,9 +20,19 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
   # Build the `%{file => ast}` map by parsing a single synthetic source
   # string. The line numbers in the AST are real because we let
-  # `Code.string_to_quoted/2` populate them.
+  # `Code.string_to_quoted/2` populate them. `token_metadata: true`
+  # mirrors `MutagenEx.AstCache.parse/2` and is required for the
+  # enumerator's end-position derivation (r8) to find `:closing` and
+  # `:end` metadata on the AST nodes.
   defp ast_cache(file, source) do
-    {:ok, ast} = Code.string_to_quoted(source, columns: true, line: 1, file: file)
+    {:ok, ast} =
+      Code.string_to_quoted(source,
+        columns: true,
+        token_metadata: true,
+        line: 1,
+        file: file
+      )
+
     %{file => ast}
   end
 
@@ -816,6 +826,120 @@ defmodule MutagenEx.MutationEnumeratorTest do
       result = MutationEnumerator.enumerate(cache, scopes, covered)
       assert match?(%{sites: _}, result)
       assert length(result.sites) >= 50
+    end
+  end
+
+  describe "r8 / s8 — end position derivation for verbatim source slice" do
+    test "3-tuple arith site carries `end_line`/`end_column` (exclusive end of expression)" do
+      # Mirrors `mutagen.mutation_enumeration.s8`. Source:
+      # "defmodule F do\n  def add(a, b), do: a + b\nend\n"
+      # `a`@line2col22 → `+`@line2col24 → `b`@line2col26. The full
+      # expression "a + b" ends at exclusive col 27.
+      source = """
+      defmodule F do
+        def add(a, b), do: a + b
+      end
+      """
+
+      cache = ast_cache("lib/f.ex", source)
+      scopes = [scope("lib/f.ex", F)]
+      covered = covered_lines("lib/f.ex", [1, 2, 3, 4])
+
+      %{sites: sites} = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      arith_site =
+        Enum.find(sites, fn s -> s.mutator == :arith and s.line == 2 end)
+
+      assert arith_site, "expected an arith site on line 2; got: #{inspect(sites)}"
+
+      # Operator's own position is unchanged from the pre-r8 contract.
+      assert arith_site.line == 2
+      assert arith_site.column == 24
+
+      # End position is the exclusive end of the rightmost descendant
+      # `b` (a 1-char variable at col 26 → exclusive end col 27).
+      assert arith_site.end_line == 2
+      assert arith_site.end_column == 27
+    end
+
+    test "function-call site whose rightmost descendant is a bare literal yields nil end positions" do
+      # `foo(x, y) + 1` is `{:+, _, [{:foo, _, [x, y]}, 1]}`. The
+      # rightmost child of `:+` is the bare integer `1` which has no
+      # per-node metadata. Our walker requires the LITERAL rightmost
+      # descendant to be sizeable — falling back to the next-rightmost
+      # (`foo(x, y)`) would produce a SHORTER slice than the full
+      # expression. So end positions are nil here; the renderer falls
+      # back to Macro.to_string.
+      source = """
+      defmodule G do
+        def g(x, y), do: foo(x, y) + 1
+      end
+      """
+
+      cache = ast_cache("lib/g.ex", source)
+      scopes = [scope("lib/g.ex", G)]
+      covered = covered_lines("lib/g.ex", [1, 2, 3, 4])
+
+      %{sites: sites} = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      arith_site =
+        Enum.find(sites, fn s -> s.mutator == :arith and s.line == 2 end)
+
+      assert arith_site
+      assert arith_site.end_line == nil
+      assert arith_site.end_column == nil
+    end
+
+    test "site whose rightmost child IS a 3-tuple with closing meta gets an end position" do
+      # The complement test: when the rightmost child has its own
+      # metadata (a function call with `:closing` meta), the end
+      # position is derivable.
+      source = """
+      defmodule G2 do
+        def g(x), do: x + foo(x)
+      end
+      """
+
+      cache = ast_cache("lib/g2.ex", source)
+      scopes = [scope("lib/g2.ex", G2)]
+      covered = covered_lines("lib/g2.ex", [1, 2, 3])
+
+      %{sites: sites} = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      arith_site =
+        Enum.find(sites, fn s -> s.mutator == :arith and s.line == 2 end)
+
+      assert arith_site
+      assert is_integer(arith_site.end_line)
+      assert is_integer(arith_site.end_column)
+    end
+
+    test "bare-literal site (literal mutator on parent-attributed `0`) has nil end positions" do
+      # The literal mutator's bare-value clauses produce sites whose
+      # `original_ast` is a raw integer / boolean with no metadata.
+      # Per r8's "Out of Scope" fallback the enumerator leaves both
+      # `end_line` and `end_column` as nil.
+      source = """
+      defmodule H do
+        def h(n), do: n > 0
+      end
+      """
+
+      cache = ast_cache("lib/h.ex", source)
+      scopes = [scope("lib/h.ex", H)]
+      covered = covered_lines("lib/h.ex", [1, 2, 3, 4])
+
+      %{sites: sites} = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_site = Enum.find(sites, fn s -> s.mutator == :literal end)
+
+      if literal_site do
+        # The literal site for bare `0` is parent-attributed; its
+        # `original_ast` is the integer `0` (no meta). end positions
+        # must be nil so the renderer falls back.
+        assert literal_site.end_line == nil
+        assert literal_site.end_column == nil
+      end
     end
   end
 end

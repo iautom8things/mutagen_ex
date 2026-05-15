@@ -149,7 +149,10 @@ defmodule MutagenEx.MutationRunner do
           mutated_ast: Macro.t(),
           status: :killed | :survived | :timeout | :error,
           tainted_predecessors: boolean(),
-          warnings: [String.t()]
+          warnings: [String.t()],
+          end_line: pos_integer() | nil,
+          end_column: pos_integer() | nil,
+          source_text: String.t() | nil
         }
 
   @typedoc "Compile-error record (sites whose mutated AST refused to compile)."
@@ -488,8 +491,11 @@ defmodule MutagenEx.MutationRunner do
 
   # Per-site task body. Returns a `task_outcome` tuple that the
   # sequential post-fold turns into accumulator updates. The shape is
-  # always `{:ok, site, …}` or `{:abort, reason, details}`; the fold
-  # decides whether to continue or halt.
+  # always `{:ok, site, source_text, outcome, stderr}` (the happy path
+  # carries `source_text` for the renderer's verbatim-source-slice;
+  # see `mutagen.json_schema.r4`), `{:compile_error, site, msg}`,
+  # `{:ast_miss, site}`, `{:site_not_found, site}`, or `{:abort,
+  # reason, details}`; the fold decides whether to continue or halt.
   defp process_site_task(%Site{} = site, idx, total, cfg) do
     MutagenEx.Telemetry.span(
       :site,
@@ -505,13 +511,13 @@ defmodule MutagenEx.MutationRunner do
     )
   end
 
-  defp task_outcome_status({:ok, _site, {:completed, %{failures: f}, _meta}, _stderr})
+  defp task_outcome_status({:ok, _site, _src, {:completed, %{failures: f}, _meta}, _stderr})
        when is_integer(f) and f > 0,
        do: :killed
 
-  defp task_outcome_status({:ok, _site, {:completed, %{}, _meta}, _stderr}), do: :survived
-  defp task_outcome_status({:ok, _site, {:timeout, _meta}, _stderr}), do: :timeout
-  defp task_outcome_status({:ok, _site, {:error, _reason, _meta}, _stderr}), do: :error
+  defp task_outcome_status({:ok, _site, _src, {:completed, %{}, _meta}, _stderr}), do: :survived
+  defp task_outcome_status({:ok, _site, _src, {:timeout, _meta}, _stderr}), do: :timeout
+  defp task_outcome_status({:ok, _site, _src, {:error, _reason, _meta}, _stderr}), do: :error
   defp task_outcome_status({:compile_error, _site, _msg}), do: :compile_error
   defp task_outcome_status({:ast_miss, _site}), do: :compile_error
   defp task_outcome_status({:site_not_found, _site}), do: :compile_error
@@ -523,17 +529,17 @@ defmodule MutagenEx.MutationRunner do
       :error ->
         {:ast_miss, site}
 
-      {:ok, {file_ast, _source}} ->
-        run_one_site_task(site, file_ast, cfg)
+      {:ok, {file_ast, source_text}} ->
+        run_one_site_task(site, file_ast, source_text, cfg)
     end
   end
 
-  defp run_one_site_task(%Site{} = site, file_ast, cfg) do
+  defp run_one_site_task(%Site{} = site, file_ast, source_text, cfg) do
     case build_mutated_file_ast(file_ast, site) do
       {:ok, mutated_ast} ->
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
-            run_within_restore(site, file_ast, compile_stderr, cfg)
+            run_within_restore(site, file_ast, source_text, compile_stderr, cfg)
 
           {:error, :compile_error, message} ->
             # r5: `:compile_error` outcomes don't go in `results`; they
@@ -568,7 +574,7 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  defp run_within_restore(%Site{} = site, file_ast, compile_stderr, cfg) do
+  defp run_within_restore(%Site{} = site, file_ast, source_text, compile_stderr, cfg) do
     case with_restore(file_ast, site, cfg, fn ->
            outcome =
              MutationLoop.run(%{
@@ -586,7 +592,10 @@ defmodule MutagenEx.MutationRunner do
            outcome
          end) do
       {:ok, outcome} ->
-        {:ok, site, outcome, compile_stderr}
+        # `source_text` is threaded through here so the post-fold can
+        # add it to the result map for the renderer's verbatim slice
+        # path (`mutagen.json_schema.r4`).
+        {:ok, site, source_text, outcome, compile_stderr}
 
       {:error, :restore_failed, message} ->
         {:abort, :unrecoverable_restore_failure,
@@ -608,7 +617,12 @@ defmodule MutagenEx.MutationRunner do
   # invokes `:on_site_completed` for each accumulated site so the Mix
   # task's NDJSON streamer emits in the same order.
 
-  defp fold_task_outcome({:ok, site, outcome, compile_stderr}, _cfg, acc, on_site_completed) do
+  defp fold_task_outcome(
+         {:ok, site, source_text, outcome, compile_stderr},
+         _cfg,
+         acc,
+         on_site_completed
+       ) do
     {status, run_warnings, post_meta} = classify(outcome, compile_stderr)
 
     delta = MutationLoop.snapshot_delta(post_meta.snapshot_before, post_meta.snapshot_after)
@@ -635,7 +649,16 @@ defmodule MutagenEx.MutationRunner do
       mutated_ast: site.mutated_ast,
       status: status,
       tainted_predecessors: tainted_now,
-      warnings: run_warnings
+      warnings: run_warnings,
+      # Threaded through for the JSON renderer's verbatim-source-slice
+      # path (`mutagen.json_schema.r4`). When `end_line`/`end_column`
+      # are nil, the renderer falls back to aliasing `before` into
+      # `before_source`; when non-nil it slices `source_text` between
+      # the leftmost descendant of `original_ast` and
+      # `{end_line, end_column}`.
+      end_line: site.end_line,
+      end_column: site.end_column,
+      source_text: source_text
     }
 
     _ = on_site_completed.({:result, result})

@@ -13,20 +13,22 @@ defmodule MutagenEx.AstCache do
     * `MutagenEx.JsonReporter` (S6) renders a `before_source` field for each
       reported mutation.
 
-  v1 contract (see `mutagen.json_schema` r12): the Mix task computes
-  `Macro.to_string(result.original_ast)` once per result and aliases the
-  resulting binary into both `before` and `before_source`. In v1 the
-  cache's `source_text` is **not** consumed by the renderer — it is held
-  for the post-`mutagen-wrd.34` upgrade.
+  Current contract (see `mutagen.json_schema` r4 + r12, post
+  `mutagen-wrd.34`): `before_source` is a verbatim source slice taken
+  by `{line, column, end_line, end_column}` against `source_text`
+  whenever the enumerator could derive end positions for the site
+  (the common case for AST 3-tuples). When end positions are
+  unavailable (bare-literal sites attributed to a parent operator,
+  some macro-expanded forms) the renderer falls back to aliasing
+  the `Macro.to_string(original_ast)` binary already computed for
+  `before`. The slice path uses byte indexing and never invokes
+  `Macro.to_string/1`, so the `2 * R` rendering call-count cap
+  from r12 still holds.
 
-  Post-`mutagen-wrd.34` contract: `before_source` becomes a verbatim
-  source slice taken by `{line, column, end_line, end_column}` from AST
-  node metadata against `source_text` — so format-equivalent but
-  byte-different re-serialisations of the AST will no longer collapse
-  into the `Macro.to_string/1` form. Holding the verbatim source bytes
-  that the AST was parsed from is the cleanest way to keep that future
-  slice deterministic, which is why `source_text` is loaded today even
-  though v1 does not yet read it from the report path.
+  Holding the verbatim source bytes the AST was parsed from keeps
+  the slice deterministic: it is the byte content of the file at
+  load time, not what's on disk now (which a concurrent edit could
+  have changed).
 
   Critical invariant (r6): `source_text` is byte-identical to
   `File.read!(file)` at the moment `load/1` was called. Each file is read
