@@ -155,9 +155,27 @@ ticket; the v0.1.0 cut ships the surface and the contract, not the fix.
    mutators (`compare`, `boolean`, `case_drop`, `else_removal`,
    `withblock_*`) are unaffected. *(mutagen-wrd.15)*
 
-In all four cases the JSON document is well-formed and the contract is
-honoured; the gap is in upstream classification fidelity, not in the
-output schema.
+5. **End-to-end Scenario 7 (`:ecto_user_scenario`) is `@tag :skip`.**
+   The scenario gates the Spike-I bytecode-identical-restore invariant
+   against a hand-rolled DSL macro module (the `Ecto.Schema` analogue).
+   The mutagen-wrd.19 spike confirmed the macro-injected callbacks
+   (`__schema_kind__/0`, `field/2`-generated functions, the persisted
+   `:lane_schema_kind` attribute) DO survive `:cover.compile_beam/1` —
+   the prior framing of "cover-instrumentation issue with Ecto-style
+   DSLs" was wrong. The actual root cause is a bug in the fixture test
+   assertion at `test/fixtures/lane_project/test/lane_fixture/ecto_user_test.exs:30`:
+   `Keyword.get_values(attrs, :lane_schema_kind)` returns `[[:registered]]`
+   (a list-of-lists, because `persist: true` attributes wrap the value
+   in a list before serialising into the BEAM attributes chunk), and
+   the test asserts `:registered in [[:registered]]`, which is `false`.
+   The test fails identically before, during, and after `:cover.compile_beam/1`.
+   Un-skip + assertion fix tracked at *(mutagen-wrd.32, the .19b follow-up
+   to mutagen-wrd.19's Option B disposition)*.
+
+In all four cases above the JSON document is well-formed and the contract
+is honoured; the gap is in upstream classification fidelity, not in the
+output schema. Item 5 is a fixture-test bug that masks the Spike-I
+invariant evidence; it does not affect production behaviour.
 
 ## Specs
 
