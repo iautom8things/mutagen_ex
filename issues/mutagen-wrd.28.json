@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T01:12:40Z",
   "created": "2026-05-14T16:35:46Z",
   "description": "Advances: mutagen.mutation_pipeline\n\nCloses **F14** (HIGH, Testing). Integration spikes c1+c2 in test/mutagen_ex/integration/ run on every default `mix test`, executing ~500 cover lifecycles. Test wall-clock cost is dominated by them. Gate behind `:spike` tag + opt-in iteration count.\n\n## Deliverable\n- Add `@tag :spike` to c1_test.exs and c2_test.exs describe blocks\n- In test/test_helper.exs: `ExUnit.start(exclude: [:spike])` (preserving any other excludes already configured)\n- Add env var `MUTAGEN_SPIKE_ITERATIONS=N` to control loop count in c2_test (currently 100, default down to 10)\n- Document the opt-in pattern in CONTRIBUTING.md or README\n\n## Allowed touches\n- test/mutagen_ex/integration/c1_test.exs, c2_test.exs\n- test/test_helper.exs\n- README.md / CONTRIBUTING.md\n- CHANGELOG.md\n\n## Out of Scope\n- Reduce or remove spike coverage — the spike is the gating decision artifact; keep it runnable\n- Convert spikes to property tests (different shape)\n\n## Merge gate\n- [ ] mix test wall-clock down measurably\n- [ ] mix test --only spike still runs the spikes\n- [ ] Auditor APPROVE",
   "id": "mutagen-wrd.28",
@@ -50,7 +51,7 @@
     }
   ],
   "priority": 3,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Gate spike integration tests off default mix test + env-var iteration count",
   "type": "task",
   "updated_at": "2026-05-15T01:12:40Z"
