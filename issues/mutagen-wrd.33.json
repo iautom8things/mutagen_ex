@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-15T03:45:04Z",
   "created": "2026-05-15T01:44:55Z",
   "description": "Advances: mutagen.mutation_pipeline, mutagen.cli\n\nFollow-up to mutagen-wrd.24. The behaviour facades (ExUnit, ExUnit.Server, CaptureIO, Compiler, Cover) replaced the 14 test-seam apply/3 sites in Baseline, CoverageRunner, MutationRunner, and MutationLoop. The Mix task's pipeline dispatch table (lib/mix/tasks/mutagen.ex) still uses {mod, fun} tuples with 15 apply/3 call sites for the 11 phase keys (:cli, :scope, :tests, :ast_cache, :coverage, :enumerator, :baseline, :mutation, :reporter_ok, :reporter_error, :io + legacy :reporter, :pipeline).\n\nThe deferred replacement: define a per-phase behaviour (or a single MutagenEx.Pipeline.Collaborator behaviour-per-key family) and convert each dispatch slot to a plain module atom. Tests using {__MODULE__, :__phase_X__} (heavily in json_reporter_test.exs's capture_dispatch/1) will need adjustment to swap module atoms.\n\nWhy deferred from .24:\n- The .24 deliverable explicitly named only ExUnit/Compiler/Cover facades.\n- The phase dispatch has 11+ different arities; the facade pattern is not a uniform fit.\n- json_reporter_test.exs's heavy {__MODULE__, :__phase_X__} pattern requires coordinated test rewrites that go beyond \"tests swap modules without changes\".\n\nCloses the remaining half of F9 (HIGH, Idioms H2) once .24 lands.\n\n## Allowed touches\n- lib/mix/tasks/mutagen.ex\n- test/mutagen_ex/json_reporter_test.exs (capture_dispatch rewrite)\n- test/mutagen_ex/cli_test.exs (if affected)\n- lib/mutagen_ex/pipeline/ (new behaviours)\n\n## Verification\n- mix compile --warnings-as-errors green\n- mix test green\n- No apply/3 call sites remain in lib/mix/tasks/mutagen.ex except for explicit back-compat fallback paths.\n\nFiled during mutagen-wrd.24 (post-review hardening epic).",
   "id": "mutagen-wrd.33",
@@ -26,7 +27,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Replace Mix.Tasks.Mutagen dispatch table {mod, fun} with module atoms",
   "type": "task",
   "updated_at": "2026-05-15T03:45:04Z"
