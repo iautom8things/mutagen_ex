@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.25",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR_ESCALATION: skipping this ticket and its dependent mutagen-wrd.29.\n\nReason: the ticket spec explicitly says \"Recommended planning path: This is the largest single ticket in the landing plan. Recommend running /mega-plan against this ticket before /implement.\" Orchestrator policy forbids running /mega-plan autonomously — needs user driver.\n\nOrchestrator action:\n- mutagen-wrd.25 left open, no impl worker spawned\n- mutagen-wrd.29 left open (blocked_by .25)\n- All other open children processed via normal pipeline\n\nWhen user is ready, run /mega-plan against mutagen-wrd.25 to produce a phased subplan, then re-orchestrate (or /implement the resulting decomposed tickets).",
+      "timestamp": "2026-05-15T00:09:03Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "MEGA: AST/perf consolidation — MutagenEx.Ast + extended cache + batched prewalk + .beam restore",
   "type": "task",
-  "updated_at": "2026-05-14T16:36:34Z"
+  "updated_at": "2026-05-15T00:09:03Z"
 }
