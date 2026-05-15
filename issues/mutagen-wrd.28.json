@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.28",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-mutagen-wrd/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nCommit: f8d9d3f\nStage branch: mutagen-wrd.28/gate-spike-tests\nStage worktree: /Users/mz/dev/mz/mutagen_ex-gate-spike-tests\nBase: 3d8b82f (epic/mutagen-wrd)\n\nFiles touched:\n- test/test_helper.exs\n- test/mutagen_ex/integration/c2_test.exs\n- README.md\n- CHANGELOG.md\n\n(All within the ticket's Allowed touches list; c1_test.exs needed no edits — it already carried @moduletag :spike.)\n\nTests added: none (this ticket is a test-gating change, not a behavior addition). The existing C1/C2 spike tests are the contract; they remain runnable via `mix test --only spike`.\n\nVerification stubs flipped: none (the ticket does not advance new spec requirements; it adjusts how the existing spike tests are selected. The `mutation_pipeline.spec.md` stubs v3/v4 that reference c1/c2 stay `execute: true` — they will still execute, just not on the default `mix test` run; the test files themselves are unchanged in their assertions).\n\nSummary:\nFlipped `test/test_helper.exs` to `ExUnit.start(exclude: [:e2e_slow, :spike])`, so the 500-cover-lifecycle C1/C2 integration spikes no longer dominate default `mix test` wall-clock. Both c1_test.exs and c2_test.exs already carried `@moduletag :spike` in source, so no test-file edits were needed for the gating. Added env-var control `MUTAGEN_SPIKE_ITERATIONS=N` (default 10, original gating value 100) to c2_test's `@iterations` module attribute — the c2 invariants (failures==0, process growth \u003c=50, memory growth \u003c=1.5x) hold at any positive N, so the count is a cycle-time knob rather than part of the contract. c1's 100-iteration count is unchanged because c1's loop count IS its contract (restore fidelity measured across cycles). README gained a \"Test suite gates\" subsection documenting both the `:spike` opt-in and the `MUTAGEN_SPIKE_ITERATIONS` env var, with explicit reproduction commands for the original gating run.\n\nMerge-gate evidence:\n- mix test (default) wall-clock: 24.087s -\u003e 1.565s (15x speedup; 360 tests run, 15 excluded — was 13).\n- mix test --only spike: 2 tests, 0 failures, 23.1s wall-clock — the C1/C2 spikes still run unmodified.\n- MUTAGEN_SPIKE_ITERATIONS=3 mix test test/mutagen_ex/integration/c2_test.exs --only spike: 1 test, 0 failures, 0.05s — env-var override confirmed wired through.\n- mix compile --warnings-as-errors: clean.\n\nDeferred must requirements: none — the spike spec subjects (`mutagen.mutation_pipeline.r6`, `r10`, `r11`, and `mutagen.coverage.r3`, `r7`) remain covered by the spike tests themselves; this ticket just gates their default execution. The spec's `spec-verification` v3/v4 entries that name c1/c2 will succeed when run; the run mode is `mix test --only spike` after this change.",
+      "timestamp": "2026-05-15T00:36:06Z"
+    }
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "Gate spike integration tests off default mix test + env-var iteration count",
   "type": "task",
-  "updated_at": "2026-05-15T00:10:33Z"
+  "updated_at": "2026-05-15T00:36:06Z"
 }
