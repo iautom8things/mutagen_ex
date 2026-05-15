@@ -36,8 +36,9 @@ defmodule MutagenEx.Mutators.Boolean do
   @impl true
   def validate({op, _meta, [_left, _right]}) when op in @binary_ops, do: :ok
 
-  def validate(other) when is_tuple(other) or is_atom(other) or is_number(other) or
-                             is_binary(other) or is_list(other) do
+  def validate(other)
+      when is_tuple(other) or is_atom(other) or is_number(other) or
+             is_binary(other) or is_list(other) do
     # Dropping `not`/`!` always leaves a syntactically valid expression: the
     # operand was already a well-formed boolean expression before negation.
     :ok

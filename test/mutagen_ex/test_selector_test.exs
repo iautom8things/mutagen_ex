@@ -491,7 +491,9 @@ defmodule MutagenEx.TestSelectorTest do
 
     test "tag target sets exclude=[:test]", %{fixture_dir: dir} do
       _tagged = write_test_file(dir, "x_test.exs", tagged_test_module("@tag :foo", "X"))
-      assert {:ok, %TestFilter{exclude: [:test]}} = TestSelector.resolve("tag:foo", test_root: dir)
+
+      assert {:ok, %TestFilter{exclude: [:test]}} =
+               TestSelector.resolve("tag:foo", test_root: dir)
     end
   end
 end

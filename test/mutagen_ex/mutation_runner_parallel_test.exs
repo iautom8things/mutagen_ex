@@ -58,8 +58,12 @@ defmodule MutagenEx.MutationRunnerParallelTest do
 
     defp wait_unregister(remaining \\ 500) do
       cond do
-        Process.whereis(@agent) == nil -> :ok
-        remaining <= 0 -> :ok
+        Process.whereis(@agent) == nil ->
+          :ok
+
+        remaining <= 0 ->
+          :ok
+
         true ->
           Process.sleep(5)
           wait_unregister(remaining - 5)

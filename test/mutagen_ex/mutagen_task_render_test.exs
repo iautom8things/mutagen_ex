@@ -298,6 +298,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
       # same-reference.
       assert wire[:before] == "0"
       assert wire[:before_source] == "0"
+
       assert :erts_debug.same(wire[:before], wire[:before_source]),
              "bare-literal fallback: before_source must alias the " <>
                "Macro.to_string binary when no end positions exist"

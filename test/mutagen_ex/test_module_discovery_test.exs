@@ -51,6 +51,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
 
     test "single defmodule in one file returns one entry", %{dir: dir} do
       file = Path.join(dir, "a_test.exs")
+
       File.write!(file, """
       defmodule SomeATest do
         use ExUnit.Case
@@ -64,6 +65,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
 
     test "multiple defmodules in one file return entries in source order", %{dir: dir} do
       file = Path.join(dir, "b_test.exs")
+
       File.write!(file, """
       defmodule FirstTest do
         use ExUnit.Case
@@ -125,6 +127,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
 
     test "dotted alias resolves to the full module atom", %{dir: dir} do
       file = Path.join(dir, "dotted_test.exs")
+
       File.write!(file, """
       defmodule MyApp.Foo.BarTest do
         use ExUnit.Case
@@ -142,6 +145,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
       # contract here lets the caller change its filtering rules without
       # the discovery layer being a hidden gate.
       file = Path.join(dir, "plain_lib_module.ex")
+
       File.write!(file, """
       defmodule SomePlainModule do
         def f, do: :ok
@@ -154,6 +158,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
 
     test "nested defmodule blocks are picked up alongside their parents", %{dir: dir} do
       file = Path.join(dir, "nested_test.exs")
+
       File.write!(file, """
       defmodule OuterTest do
         use ExUnit.Case
@@ -234,6 +239,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     test "every entry's cfg is exactly %{async?: false, group: nil, parameterize: nil}",
          %{dir: dir} do
       file = Path.join(dir, "shape_test.exs")
+
       File.write!(file, """
       defmodule ShapeOneTest do
         use ExUnit.Case, async: true

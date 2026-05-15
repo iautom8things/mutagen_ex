@@ -705,6 +705,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       # And no literal SKIP entry — the uncovered literal was filtered
       # before validate, per r2.
       literal_skips = Enum.filter(result.skipped, &(&1.mutator == :literal))
+
       assert literal_skips == [],
              "uncovered literal must be filtered, not skipped: #{inspect(literal_skips)}"
     end

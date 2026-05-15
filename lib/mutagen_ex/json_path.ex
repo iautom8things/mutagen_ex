@@ -41,8 +41,7 @@ defmodule MutagenEx.JsonPath do
 
   @typedoc "Details map shape attached to every rejection."
   @type details :: %{
-          required(:variant) =>
-            :nul_byte | :traversal | :outside_project_root | :empty_path,
+          required(:variant) => :nul_byte | :traversal | :outside_project_root | :empty_path,
           required(:path) => String.t(),
           required(:message) => String.t(),
           optional(:resolved) => String.t(),
@@ -94,8 +93,7 @@ defmodule MutagenEx.JsonPath do
          %{
            variant: :traversal,
            path: path,
-           message:
-             "--json path contains a `..` segment; path traversal is refused"
+           message: "--json path contains a `..` segment; path traversal is refused"
          }}
 
       true ->
@@ -209,8 +207,7 @@ defmodule MutagenEx.JsonPath do
      %{
        variant: :traversal,
        path: original,
-       message:
-         "--json project root exceeds symlink resolution budget (#{@symlink_loop_budget})"
+       message: "--json project root exceeds symlink resolution budget (#{@symlink_loop_budget})"
      }}
   end
 
@@ -238,8 +235,7 @@ defmodule MutagenEx.JsonPath do
              %{
                variant: :traversal,
                path: original,
-               message:
-                 "--json project root symlink could not be read (#{candidate}): #{posix}"
+               message: "--json project root symlink could not be read (#{candidate}): #{posix}"
              }}
         end
 
@@ -260,8 +256,7 @@ defmodule MutagenEx.JsonPath do
          %{
            variant: :traversal,
            path: original,
-           message:
-             "--json project root component could not be stat'd (#{candidate}): #{posix}"
+           message: "--json project root component could not be stat'd (#{candidate}): #{posix}"
          }}
     end
   end

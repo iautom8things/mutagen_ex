@@ -1,6 +1,6 @@
 # mutagen_ex
 
-<!-- agentic-worktree-rules:start -->
+<!-- agentic.rules:start -->
 ## Rules
 
 Detailed rules live in `.claude/rules/`. Each file has frontmatter describing when it applies.
@@ -8,5 +8,5 @@ Detailed rules live in `.claude/rules/`. Each file has frontmatter describing wh
 | Rule | Covers |
 | --- | --- |
 | `worktree.md` | Worktree-first workflow - all dev in worktrees, never main checkout |
-<!-- agentic-worktree-rules:end -->
+<!-- agentic.rules:end -->
 

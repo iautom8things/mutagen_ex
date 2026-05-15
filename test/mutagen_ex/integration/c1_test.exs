@@ -239,9 +239,7 @@ defmodule MutagenEx.Integration.C1Test do
           :ok
 
         other ->
-          flunk(
-            "GATING [#{file} iter #{iter}]: :cover.compile_beam failed: #{inspect(other)}"
-          )
+          flunk("GATING [#{file} iter #{iter}]: :cover.compile_beam failed: #{inspect(other)}")
       end
     end
 
@@ -251,9 +249,7 @@ defmodule MutagenEx.Integration.C1Test do
         :ok
 
       other ->
-        flunk(
-          "GATING [#{file} iter #{iter}]: expected :cover_compiled, got #{inspect(other)}"
-        )
+        flunk("GATING [#{file} iter #{iter}]: expected :cover_compiled, got #{inspect(other)}")
     end
 
     # 2. Run the fixture's "test" predicate against cover-compiled

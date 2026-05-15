@@ -692,6 +692,7 @@ defmodule Mix.Tasks.Mutagen do
             {{:ok, result}, %{passed: result.passed, failed: result.failed}}
 
           {:error, :baseline_red, details} ->
+            # r1: baseline failures populate `baseline` on the abort report.
             partial_baseline = %{
               "passed" => Map.get(details, :passed, 0),
               "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
