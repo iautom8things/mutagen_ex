@@ -39,11 +39,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 866c9970-ee52-41f7-b573-aa2ec26231c0\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/866c9970-ee52-41f7-b573-aa2ec26231c0.jsonl\n\nReasoning: VERIFY-3 (2026-05-15T01:08:01Z) reported PASS with: 6 files touched (4 originally Allowed + 2 audit-expanded per AUDIT-2's option (a) authorization on .spec/specs/{mutation_pipeline,coverage}.spec.md); zero out-of-scope-glob matches; 3 spec stubs (v3, v4, coverage.v4) run LITERALLY (no --include substitution) and passed — each updated command now executes 1 test, 0 failures; r6/r10/r11/coverage.r7 each named with covered-by file:line AND a concrete \"Would fail if\" falsifiability line that maps to runner code paths the ticket could break; intent checks clean (spike coverage preserved, no property-test conversion, no new deps); project verification green (compile clean, 360 tests/0 failures default, 24x speedup confirmed). AUDIT-1's broken-provenance Gap is fully closed by the three single-line spec-stub edits applied in iteration 2 (commit 21f062a). Notes acknowledge the contaminated VERIFY-2 at 00:56:23Z (mdazzle cross-pollination, ignored). No Gaps. No further auditor spawn per selective-audit policy; this auto-approval reflects iteration 2 mechanically applying exactly the option (a) audit-expanded scope edits, nothing more.",
       "timestamp": "2026-05-15T01:08:53Z"
+    },
+    {
+      "text": "MERGE_CONFLICT: CHANGELOG.md (real-code conflict between .27 and .28 [Unreleased] entries)",
+      "timestamp": "2026-05-15T01:09:38Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Gate spike integration tests off default mix test + env-var iteration count",
   "type": "task",
-  "updated_at": "2026-05-15T01:08:53Z"
+  "updated_at": "2026-05-15T01:09:38Z"
 }
