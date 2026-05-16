@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-16T10:01:36Z",
+  "description": "Advances: mutagen.coverage\n\nScope-expansion follow-up from mutagen-wrd.25.3 (S2). The orchestrator carved this out per `/orchestrate-epic` scope-expansion authority after .25.3's worker + verifier + auditor all flagged the same coordination gap.\n\n## Why this exists\n\nmutagen-wrd.25.3 landed the `Baseline.detect_async_modules/1` cache consumer (a capability — Baseline.run/1 can read AST from `cfg.ast_cache` when populated) and tests s9b/s9c lock that capability. BUT the production `phase_baseline` step at `lib/mix/tasks/mutagen.ex:695-735` builds `input = %{seed: seed, test_filter: test_filter}` without an `:ast_cache` key, so the live `mix mutagen` pipeline still uses the disk-read fallback path on cited test files.\n\nThe .25.3 ticket's Allowed touches explicitly restricted `mutagen.ex` to `phase_ast_cache only`, scoping `phase_baseline` out. Both the auditor (agent adc4689afabdd3b71) and verifier (agent ae38cb61079b7ea9c) confirmed the .25.3 contract was a CAPABILITY contract, satisfied module-side. This subticket lands the one-line wiring that turns the capability into a live perf win.\n\n## Deliverable\n\n- In `lib/mix/tasks/mutagen.ex` `phase_baseline`, add `ast_cache: cfg.ast_cache` to the input map passed to `Baseline.run/1`.\n- In `do_pipeline`'s `with` chain, plumb the `ast_cache` from `phase_ast_cache`'s output through to `phase_baseline` (single-line addition similar to the .25.3 `phase_ast_cache` call-site update).\n- Update or add a single integration test asserting `phase_baseline` consumes the cache when called via `Mix.Tasks.Mutagen.run/2`.\n\n## Allowed touches\n\n- lib/mix/tasks/mutagen.ex\n- test/mix/tasks/mutagen_test.exs (or new test/mutagen_ex/baseline_integration_test.exs)\n\n## Out of Scope\n\n- No changes to `Baseline.detect_async_modules/1` (already cache-aware from .25.3)\n- No changes to `AstCache.load/2` (categories metadata stable from .25.3)\n- No new collaborators on the facade contract\n\n## Merge gate\n\n- [ ] mix compile --warnings-as-errors green\n- [ ] mix test green\n- [ ] New integration test would fail if the wiring were silently removed\n- [ ] Auditor APPROVE",
+  "id": "mutagen-wrd.25.8",
+  "labels": [],
+  "parent": "mutagen-wrd.25",
+  "priority": 3,
+  "status": "open",
+  "title": "S2-fu: wire ast_cache into phase_baseline production path",
+  "type": "task",
+  "updated_at": "2026-05-16T10:01:36Z"
+}
