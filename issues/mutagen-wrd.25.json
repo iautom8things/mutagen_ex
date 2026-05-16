@@ -18,11 +18,15 @@
     {
       "text": "Orchestrator carved 2 scope-expansion subtickets surfaced during .25.3 execution: .25.8 (production phase_baseline cache wiring — capability landed in .25.3, runtime wiring deferred per .25.3's Allowed-touches scope) and .25.9 (flaky atom-count test originated in .25.2, surfaced during .25.3 rebase). Neither blocks the .25.5–.25.7 critical path.",
       "timestamp": "2026-05-16T10:02:18Z"
+    },
+    {
+      "text": "DELIVER: closing epic.\n\nAll 7 critical-path children (.25.1–.25.7) closed via orchestrator verify/audit/merge-back pipeline. Epic branch epic/mutagen-wrd preserved at 0db66a0 awaiting human-checkpoint PR review against main.\n\nOpen follow-ups (intentional, non-blocking; kept open):\n- mutagen-wrd.25.8 (S2-fu: wire ast_cache into phase_baseline production path) — capability landed in .25.3; runtime wiring scope-expanded per orchestrator authority since .25.3 Allowed-touches excluded the wiring file\n- mutagen-wrd.25.9 (BUG: flaky atom-count test r8 invariant order-dependence) — pre-existing flake originating in .25.2, surfaced during .25.3 rebase\n- mutagen-wrd.36 (Triage .25 speedup shortfall to 2-4x target) — filed at mutagen-wrd level per .25.7 spec \"if speedup \u003c 2x\" clause; observed 1.66x vs 2-4x target\n\nClosing .25 unblocks mutagen-wrd.29 and mutagen-wrd.31.",
+      "timestamp": "2026-05-16T11:54:59Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "MEGA: AST/perf consolidation — MutagenEx.Ast + extended cache + batched prewalk + .beam restore",
   "type": "task",
-  "updated_at": "2026-05-16T10:02:18Z"
+  "updated_at": "2026-05-16T11:54:59Z"
 }
