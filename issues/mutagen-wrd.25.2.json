@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [
     "mutagen-wrd.25.1"
   ],
@@ -13,8 +13,8 @@
   "labels": [],
   "parent": "mutagen-wrd.25",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "S1: MutagenEx.Ast lift + Path.wildcard sort + bench fixture",
   "type": "task",
-  "updated_at": "2026-05-15T13:11:05Z"
+  "updated_at": "2026-05-16T02:06:10Z"
 }
