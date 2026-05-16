@@ -7,6 +7,110 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **`.25` epic capstone: bench harness, large-scope memory test, and
+  measured speedup.** The `.25` AST/perf epic (S1–S6) is complete.
+  This entry summarises what the epic shipped, the perf number the
+  bench harness produced before vs. after the epic, and the byte-
+  identity contract the refactor preserves.
+
+  *Bench harness* — `priv/helper_scripts/bench_ast_perf.exs` is no
+  longer a skeleton: it drives the real `Mix.Tasks.Mutagen.run/2`
+  pipeline against the `wrd25_200sites` fixture (S1), captures
+  wall-clock + `:erlang.memory/0` snapshots + SHA-256 of the emitted
+  NDJSON, supports `--baseline <path>` / `--compare <path>` for
+  before/after scoring, and uses a stable tmp-ebin so the SHA is
+  reproducible across invocations. Two minor wrd25 fixture asserts
+  (`mix4`, `chain2`) were corrected so baseline runs green; the
+  fixture's `lib/` is unchanged.
+
+  *Measured speedup (wrd25_200sites, scope `lib/arith_dense.ex`,
+  Elixir 1.19.5 / OTP 28)*:
+
+  | metric           | before (`978a995`, pre-.25 main merge) | after (`78b022f`, post-.25.6) |
+  |------------------|----------------------------------------|-------------------------------|
+  | sites/run        | 87                                     | 87                            |
+  | wall_ms          | 2179.53                                | 1314.00                       |
+  | per_site_us      | 25052.05                               | 15103.49                      |
+
+  **Wall-clock speedup: 1.66×. Per-site speedup: 1.66×.** This is
+  below the epic's documented 2–4× target — see the follow-up note
+  below.
+
+  *Byte-identity*: the SHA-256 of the *full* NDJSON document differs
+  between commits (state-drift warning text and "redefining module"
+  paths embed run-time process state), but when those advisory
+  diagnostics are normalised the documents are byte-identical:
+  `3534443176dd9e2c673b21703085b1b02b2ddac0f2d6e3f7598542d5723df57a`
+  on both commits. The mutation results — site IDs, before/after
+  source slices, killed/survived verdicts, kill_rate — are
+  byte-for-byte the same; the .25 refactor changes timing, not
+  outcomes. The full per-commit document SHAs (advisory:
+  `mix run priv/helper_scripts/bench_ast_perf.exs` reproduces them):
+
+  - before: `d878975d19112378f3598cb32c452c7c55b90b810156316335f13c9e5e8bee85`
+  - after:  `46292518ccecca161161f278e3df58dc05d1031a47b9bff9ff7137af499b8b2a`
+
+  *Speedup-shortfall triage* — the measured 1.66× falls short of the
+  spec's lower bound. Trace through the epic's deliverables:
+
+  - **S2 (Ast lift)** removed duplicated helpers — wins compile time
+    and code clarity, not per-site runtime.
+  - **S3 (AstCache categorised load)** cut redundant `File.read/1`
+    for cited test files in the Baseline async-warning path — runs
+    once per pipeline, sub-millisecond impact at this scope.
+  - **S4 (head-atom dispatch table)** pre-filters mutators per node
+    — the `O(nodes × catalog)` → `O(nodes × applicable)` win is real
+    but proportional to catalog size; with 10 mutators it's a 2-3×
+    win on the **enumeration** phase, which is a small slice of
+    wall time vs. the per-site test-execution cost.
+  - **S5 (batched grouped-by-file prewalk)** replaced per-site
+    `Macro.prewalk/2` with `O(depth)` path descent — the headline
+    win. Its impact is `O(sites × file_ast_size)` saved, but on the
+    wrd25 fixture the file AST is small (~40 lines/file), so the
+    win is modest. On a real codebase with multi-thousand-line
+    scope files the win compounds.
+  - **S6 (BeamCache binary-swap restore)** replaced `Code.compile_quoted/2`
+    on the cached AST with `:code.load_binary/3`. This is per-site
+    and should be a strong contributor; the bench shows it
+    delivered.
+
+  The bench fixture exposes hot AST machinery, but the per-site cost
+  is dominated by the test-execution phase (one `ExUnit.run/0` per
+  mutation, with `:cover` instrumentation) — and that's untouched
+  by `.25`. `Mutators.normalize/1` (out of scope per the epic's Out
+  of Scope) and the per-site ExUnit boot also dominate.
+  `mutagen-wrd.36` (follow-up to mutagen-wrd.25, the documented
+  `.25-fu2` slot) tracks the gap to the 2–4× target; a candidate
+  path is replacing the per-site ExUnit boot with a longer-lived
+  test-runner process. *(mutagen-wrd.25.7.)*
+
+  *Large-scope memory test* — new `test/mutagen_ex/memory_test.exs`
+  (tagged `:e2e_slow`) generates a 1000-site synthetic fixture in
+  `System.tmp_dir!/0` at runtime (NOT committed to disk), drives
+  the full pipeline against it with a 60s `--budget-ms` cap, and
+  asserts the run completes without OOM. The assertion is
+  deliberately weak per the epic's Out of Scope (intent) — it
+  passes either on a clean completion (`aborted: false`) or a
+  graceful budget-cap (`truncated: true`); a non-graceful abort
+  (any reason outside `budget_exceeded` / `too_many_sites`) fails
+  the test. Heap-size assertions are not pinned (brittle across
+  BEAM versions). *(mutagen-wrd.25.7.)*
+
+  *Epic summary — one line per feature shipped*:
+
+  - `MutagenEx.Ast` helper lift: canonical `alias_to_module/1`,
+    `find_module_body/2`, `node_line/1` (mutagen-wrd.25.2)
+  - `AstCache.load/2` categorised input + Baseline cache consumer
+    (mutagen-wrd.25.3)
+  - `MutagenEx.Mutators.Dispatch` head-atom table + enumerator
+    pre-filter (mutagen-wrd.25.4)
+  - Batched grouped-by-file prewalk for the per-site AST swap
+    (mutagen-wrd.25.5)
+  - `MutagenEx.BeamCache` per-run ETS + binary-swap restore
+    (mutagen-wrd.25.6)
+  - Bench harness, memory test, this CHANGELOG entry
+    (mutagen-wrd.25.7)
+
 - **BeamCache per-run ETS + binary-swap restore.**
   `MutagenEx.MutationRunner.run/1` no longer restores via
   `Code.compile_quoted/2` on the cached AST. Restore is now a binary

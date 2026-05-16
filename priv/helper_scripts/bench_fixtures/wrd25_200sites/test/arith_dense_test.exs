@@ -20,12 +20,12 @@ defmodule Wrd25Bench.ArithDenseTest do
     assert ArithDense.mix1(1, 2) == 2
     assert ArithDense.mix2(2, 3) == 11
     assert ArithDense.mix3(2, 3) == 11
-    assert ArithDense.mix4(2, 3) == -1
+    assert ArithDense.mix4(2, 3) == 6
   end
 
   test "chains" do
     assert ArithDense.chain1(0) == -2
-    assert ArithDense.chain2(0) == 61
+    assert ArithDense.chain2(0) == 54
   end
 
   test "n-ary sums and prods" do

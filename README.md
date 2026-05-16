@@ -319,6 +319,26 @@ In items 1-4 above the JSON document is well-formed and the contract
 is honoured; the gap is in upstream classification fidelity, not in the
 output schema.
 
+## Performance
+
+`mutagen_ex` ships a benchmark harness at
+`priv/helper_scripts/bench_ast_perf.exs`. It drives the full pipeline
+against `priv/helper_scripts/bench_fixtures/wrd25_200sites/` and
+reports wall-clock, per-site time, peak `:erlang.memory/0`, and the
+SHA-256 of the emitted NDJSON. Run with `mix run priv/helper_scripts/
+bench_ast_perf.exs`; pass `--baseline <path>` to capture a run for
+later comparison and `--compare <path>` to score a fresh run against a
+prior baseline.
+
+The `.25` AST/perf epic measured a 1.66× wall-clock speedup on the
+wrd25 fixture between commit `978a995` (pre-.25) and `78b022f`
+(post-.25.6); see the `[Unreleased]` `.25` capstone entry in
+`CHANGELOG.md` for the full table and the follow-up triage of the
+gap to the spec's documented 2-4× target. The byte-identity of the
+mutation results (site IDs, before/after slices, kill/survive
+verdicts, kill_rate) is preserved across the refactor — only timing
+and the diagnostic warning text changed.
+
 ## Specs
 
 The behavioural contract for `mutagen_ex` lives in `.spec/`:
