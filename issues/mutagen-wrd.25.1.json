@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.25.1",
   "labels": [],
   "parent": "mutagen-wrd.25",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 1932fee7-a5d3-4675-b46d-9a3eca264d33\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/1932fee7-a5d3-4675-b46d-9a3eca264d33.jsonl\n\nCommit: 73e9eabe3568216d7a2c36d069e51f45ff79f2e3\nBranch: mutagen-wrd.25.1/determinism-baseline (worktree at /Users/mz/dev/mz/mutagen_ex-determinism-baseline, branched off epic/mutagen-wrd @ 792acea)\n\nFiles touched:\n- test/mutagen_ex/determinism_test.exs (new)\n\nTests added:\n- MutagenEx.DeterminismTest \"two runs of mix mutagen against arith.ex produce byte-identical iodata\"\n  (single test under describe \"deterministic JSON output across consecutive runs (mutagen.r2 contract)\")\n\nVerification stubs flipped: none\n  The ticket's advanced subjects (mutagen.mutation_enumeration, mutagen.mutation_pipeline) already\n  carry their own spec-verification entries (all execute: true). The new test does not have its own\n  spec-verification stub — S0 is a pre-flight safety net that anchors the r15 determinism contract\n  before the wrd25 refactor begins; it lives directly in the test tree under the :e2e_slow tag.\n\nSummary:\nAdds test/mutagen_ex/determinism_test.exs which runs Mix.Tasks.Mutagen.run/2 twice against\nlib/lane_fixture/arith.ex with --seed 0 and --timeout-ms 2000, captures the emitted JSON iodata\nvia a stub IO collaborator, and asserts the two raw binaries are byte-identical. The harness\nmirrors EndToEndTest's collaborator-dispatch pattern (CaptureIo / Baseline / Coverage stubs +\nlane-fixture beam recompile via setup_all + per-run cover.stop + beam reload state reset) but is\nself-contained so future refactors of EndToEndTest cannot accidentally drop the determinism\nsafety net. The test is tagged :e2e_slow so it stays out of default `mix test`. Per the ticket,\nS1 will re-target this test at priv/helper_scripts/bench_fixtures/wrd25_200sites/ once that\nfixture lands; the contract being asserted (byte-equality across two consecutive runs) does\nnot change with the retarget.\n\nNote on entry point: the ticket text names MutagenEx.run/2, but the actual public entry on the\ncodebase today is Mix.Tasks.Mutagen.run/2 (no top-level lib/mutagen_ex.ex). I used the actual\nentry. The contract — byte-identical NDJSON across two consecutive invocations against the same\ninput — is unchanged.\n\nVerification:\n- mix compile --warnings-as-errors: green\n- mix test (default): 517 tests, 0 failures, 16 excluded (new file excluded by :e2e_slow tag)\n- mix test --include e2e_slow test/mutagen_ex/determinism_test.exs: 1 test, 0 failures",
+      "timestamp": "2026-05-16T01:54:23Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "S0: pre-flight determinism baseline test",
   "type": "task",
-  "updated_at": "2026-05-16T01:49:14Z"
+  "updated_at": "2026-05-16T01:54:23Z"
 }
