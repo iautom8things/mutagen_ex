@@ -25,11 +25,15 @@
     {
       "text": "MERGE_CONFLICT: smoke red post-rebase (MutagenEx.AstTest find_module_body/2 r8 invariant test failure: before_count=29657 != after_count=29659 atom-count increase)",
       "timestamp": "2026-05-16T09:56:59Z"
+    },
+    {
+      "text": "Orchestrator update: the rebase-worker's MERGE_CONFLICT was a false alarm. The post-rebase `make smoke` used `--max-failures 1` and happened to pick a test seed where a PRE-EXISTING flaky test (`test/mutagen_ex/ast_test.exs:135` \"find_module_body/2 does NOT call String.to_atom on the target string (r8 invariant)\") landed in a position where the atom-count delta read non-zero. Reproduced the same failure on the bare epic tip in isolation (24605 → 24671 atom growth without any .25.3 code in play), confirming the test is order-dependent, not regression-induced.\n\n5 random-seed smoke runs (0, 1, 42, 100, 12345) on the rebased branch all green: 608/608. Re-attempting ff-merge.\n\nFollow-up ticket to be filed for the flaky-test root-cause fix (originates in .25.2 ast_test.exs, not .25.3).",
+      "timestamp": "2026-05-16T09:59:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S2: AstCache categorised load + F18 Baseline cache consumer",
   "type": "task",
-  "updated_at": "2026-05-16T09:56:59Z"
+  "updated_at": "2026-05-16T09:59:59Z"
 }
