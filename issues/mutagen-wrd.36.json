@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-16T11:41:56Z",
+  "description": "Advances: mutagen.mutation_pipeline\n\nThe `.25` AST/perf epic shipped (S1-S6) but the bench harness (S7,\nmutagen-wrd.25.7) measured **1.66×** wall-clock speedup on the\n`wrd25_200sites` fixture, below the spec's 2-4× lower bound.\n\n## Baseline numbers (Elixir 1.19.5 / OTP 28, scope `lib/arith_dense.ex`)\n\n| metric        | before (`978a995`) | after (`78b022f`) |\n|---------------|--------------------|-------------------|\n| sites/run     | 87                 | 87                |\n| wall_ms       | 2179.53            | 1314.00           |\n| per_site_us   | 25052.05           | 15103.49          |\n\nReproduce: `mix run priv/helper_scripts/bench_ast_perf.exs --\n--baseline /tmp/bench_before.json` (on `978a995`), then on the\ncurrent commit `mix run priv/helper_scripts/bench_ast_perf.exs --\n--compare /tmp/bench_before.json`.\n\n## Likely root causes\n\nThe bench fixture has small file ASTs (~40 lines) — S5's batched\nprewalk wins ~O(sites × file_ast_size) which under-shows on\nsmall files. On a real codebase with multi-thousand-line scope\nfiles the win should compound. Two candidates:\n\n1. **Mutators.normalize/1** (out of scope per `.25`) was flagged\n   as a hot path in the consolidated review. Profiling against the\n   bench fixture should confirm or rule out.\n2. **Per-site ExUnit.run/0 + :cover instrumentation boot.** Each\n   mutation pays the full ExUnit startup cost; a longer-lived test\n   runner process (or ExUnit.Server priming) could amortise this\n   across the per-site loop. Big change, deferred to `.30` parallel\n   work or a dedicated epic.\n\n## Verification\n\n- Profile the post-.25 bench run to identify where the remaining\n  ~85% of per-site time goes (`:fprof` or `:eprof`).\n- Decide whether normalize/1 belongs in a follow-up epic or is\n  incidental.\n- Document the findings (even if the conclusion is \"the bench\n  fixture isn't representative of real codebases\").",
+  "id": "mutagen-wrd.36",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "Triage .25 speedup shortfall to 2-4x target",
+  "type": "task",
+  "updated_at": "2026-05-16T11:41:56Z"
+}
