@@ -23,11 +23,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: a1bdcc8b01ead7600 (subagent of 1932fee7-a5d3-4675-b46d-9a3eca264d33)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/1932fee7-a5d3-4675-b46d-9a3eca264d33/subagents/agent-a1bdcc8b01ead7600.jsonl\n\nReasoning: r9's two contractual properties are each gated by load-bearing\nassertions. (1) Equivalence is enforced by the per-node corpus test at\ntest/mutagen_ex/head_atom_dispatch_test.exs:145-162 — for every node in the\n39-entry corpus it asserts `Mutators.all() |\u003e Enum.filter(match?) ==\nDispatch.mutators_for_node(node) |\u003e Enum.filter(match?)`; omitting any\nmutator from a dispatch entry (e.g. dropping GuardDrop from `:when`) makes\nthe `:when`-containing corpus rows (\"function-clause guard\", \"anonymous\nfunction with guard clause\", \"case with guard\") diverge. (2) Order-\npreservation is gated twice: dispatch_test.exs:165-209 walks 10 probe shapes\nand asserts the result's indices into `Mutators.all/0` are strictly\nincreasing — returning a permutation flips this immediately. And the\nenumerator-level byte-identity at dispatch_test.exs:308-335 reruns each of\n6 multi-mutator fixtures under both `:dispatch_mode` modes and asserts full\nmap equality plus site-id-order equality — any enumerator-level reordering\nbetween paths bounces here. r1 stays locked under the new default via\nmutation_enumerator_test.exs:48 (two-run byte-identity) and :74 (10-run)\nwhich both run with the production `:head_atom` mode now; full enumerator\nsuite (30/30) green. Scope verification holds: dispatch.ex (new) +\nenumeration plumbing only — `git diff b343109 HEAD -- lib/mutagen_ex/mutators.ex\nlib/mutagen_ex/mutators/{arith,literal,result_tuple,case_drop}.ex` is empty\n(verified, 0 lines), `@callback`/`@optional_callbacks` surface in\nmutators.ex unchanged; `grep -rn dispatch_mode` confirms the option is\nreferenced only in mutation_enumerator.ex + head_atom_dispatch_test.exs\n(no Mix task exposure). The Dispatch table covers all 10 mutators in\n`Mutators.all/0` (8 head-keyed: Arith/Compare/Boolean/WithSwap/ElseRemoval/\nCaseDrop/Pipeline/GuardDrop; 2 in `@any_mutators`: Literal/ResultTuple) —\nspot-checked each module's match?/1 head clauses against the table entry,\nall consistent (Literal correctly stays in `:any` because its\n`{:__block__, _, [v]}` clauses span shapes that no head-keyed entry can\ncover without aliasing). Intent-level scope clean: no @callback head_atoms/0\nadded, no mutator module touched, Mutators.all/0 order preserved (mutators.ex\ndiff empty), :dispatch_mode is documented as an internal test seam in both\nthe @doc and CHANGELOG, and the Mix task does not reference it.",
       "timestamp": "2026-05-16T09:50:19Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd (fast-forward, post-merge smoke 600/0/16-excluded + format clean). Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-16T09:50:53Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S3: head-atom dispatch table + enumerator pre-filter",
   "type": "task",
-  "updated_at": "2026-05-16T09:50:19Z"
+  "updated_at": "2026-05-16T09:50:53Z"
 }
