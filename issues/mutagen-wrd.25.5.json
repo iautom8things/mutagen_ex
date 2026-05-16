@@ -35,11 +35,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 1932fee7-a5d3-4675-b46d-9a3eca264d33\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/1932fee7-a5d3-4675-b46d-9a3eca264d33.jsonl\n\nReasoning: VERIFY iter 2 (2026-05-16T10:26:32Z) reported PASS with 8/8 stubs passing, full per-requirement coverage with falsifiability lines for all 4 r16 sub-aspects (one-walk-per-file byte-identity, site.id keying contract, prewalk-count/cache-shape clause, bare-literal fallback), zero out-of-Allowed touches, zero Out-of-Scope file matches, and project verification green (mix test 606/0/16-excluded, mix compile --warnings-as-errors clean). Iter-2 added a test-only opt-in `:on_cache_built` seam in mutation_runner.ex (already in Allowed touches; default no-op; production callers never pass it) plus two falsifiable tests that the implementer verified catch the exact regression classes the prior audit BOUNCE called out. No Gaps; only advisory Notes about further hypothetical tightenings. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-16T10:27:18Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd (fast-forward post-rebase, post-merge smoke 614/0/16-excluded + format clean). Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-16T10:28:23Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S4: batched grouped-by-file prewalk (Layer B)",
   "type": "task",
-  "updated_at": "2026-05-16T10:27:18Z"
+  "updated_at": "2026-05-16T10:28:23Z"
 }
