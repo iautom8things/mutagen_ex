@@ -34,11 +34,15 @@
     {
       "text": "APPROVED. Merged into epic/mutagen-wrd (fast-forward post-rebase, post-merge smoke 608/0/16-excluded + format clean). Closing per orchestrator sign-off.",
       "timestamp": "2026-05-16T10:00:11Z"
+    },
+    {
+      "text": "SCOPE_EXPANSION: spawned mutagen-wrd.25.8 (production phase_baseline cache wiring) and mutagen-wrd.25.9 (root-cause fix for the pre-existing flaky ast_test atom-count test). Neither blocks .25.3 (already merged); both are follow-ups under the .25 epic.",
+      "timestamp": "2026-05-16T10:02:17Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "S2: AstCache categorised load + F18 Baseline cache consumer",
   "type": "task",
-  "updated_at": "2026-05-16T10:00:11Z"
+  "updated_at": "2026-05-16T10:02:17Z"
 }
