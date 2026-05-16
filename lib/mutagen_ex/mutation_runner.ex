@@ -26,8 +26,17 @@ defmodule MutagenEx.MutationRunner do
       `:compile_error`, `:error`. `:compile_error` does not count toward
       the kill-rate denominator.
     * **r6** — after every per-site run, the original module is restored
-      via `Code.compile_quoted(cached_ast, file)`. On restore failure the
-      runner aborts with `{:error, :unrecoverable_restore_failure, ...}`.
+      via `:code.load_binary/3` from a per-run ETS snapshot owned by
+      `MutagenEx.BeamCache`. The snapshot is taken once before the
+      per-site loop dispatches, in a serial pre-pass over every scoped
+      module — closing the TOCTOU window a per-site snapshot would
+      open under `--max-concurrency > 1`. The cache lives only for the
+      duration of `run/1` (created at the start, deleted in the
+      `after` clause). On restore failure the runner aborts with
+      `{:error, :unrecoverable_restore_failure, ...}`. See
+      [`mutagen.decision.per_run_beam_cache`](../../.spec/decisions/per_run_beam_cache.md)
+      and
+      [`mutagen.decision.code_server_facade`](../../.spec/decisions/code_server_facade.md).
     * **r12** — a raise, throw, or exit propagating out of the
       loaded-mutation window (from successful compile of the mutated
       AST through the test run and `:code.purge/1` settle) triggers
@@ -51,7 +60,9 @@ defmodule MutagenEx.MutationRunner do
       responsibility upstream); per-site cycles re-register modules via
       `ExUnit.Server.add_module/2` from `MutationLoop`.
     * **r11** — no file on disk is modified by the runner. All AST
-      compilation is in-memory via `Code.compile_quoted/2`.
+      compilation is in-memory via `Code.compile_quoted/2`; restore is
+      an in-memory binary swap via `:code.load_binary/3` against the
+      per-run BeamCache snapshot (no disk writes either).
 
   ## Input shape
 
@@ -87,6 +98,21 @@ defmodule MutagenEx.MutationRunner do
       pre-bw mutagen-wrd.24 stubs. Default `MutagenEx.Test.Compiler`.
       The legacy tuple shape is honored so existing test stubs that
       pass `{CompilerStub, :compile_quoted}` keep working.
+    * `:code_server` — module implementing
+      `MutagenEx.Test.CodeServerFacade`. Default
+      `MutagenEx.Test.CodeServer`. The restore path uses this facade to
+      call `:code.get_object_code/1` (snapshot pre-pass) and
+      `:code.load_binary/3` (per-site restore). Tests inject a stub
+      that records calls and returns canned binaries; production
+      callers leave the default. Mirrors the `:compiler` seam.
+    * `:beam_cache_table` — `:ets.tab()`. The per-run snapshot table.
+      Callers DO NOT pass this; `run/1` creates the table itself via
+      `MutagenEx.BeamCache.new/0` at the start of `execute/2` and
+      deletes it in the `after` clause. The field is documented here
+      so internal helpers that read `cfg.beam_cache_table` have a
+      named contract. Tests that bypass `execute/2` (and thread a
+      hand-rolled cfg into deeper helpers) must populate this
+      themselves.
     * `:cancel_grace_ms` — `non_neg_integer`. Grace window the
       cooperative-cancellation phase waits before escalating to
       brutal_kill on a timeout. Default `100`. Set to `0` in tests
@@ -125,6 +151,7 @@ defmodule MutagenEx.MutationRunner do
 
   alias MutagenEx.Ast
   alias MutagenEx.AstCache
+  alias MutagenEx.BeamCache
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.MutationRunner.MutationLoop
   alias MutagenEx.ScopeResolver.Scope
@@ -186,7 +213,24 @@ defmodule MutagenEx.MutationRunner do
          :ok <- ensure_no_self_mutation(cfg) do
       :ok = configure_exunit(cfg)
       drift = compute_state_drift_warnings(cfg)
+      run_with_beam_cache(cfg, drift)
+    end
+  end
+
+  # Per [`mutagen.decision.per_run_beam_cache`](../../.spec/decisions/per_run_beam_cache.md):
+  # the snapshot table lives for exactly the duration of `run/1`. Create it
+  # before dispatching to `execute/2`; delete it on every exit path —
+  # success, `{:error, _, _}` return, or raise/throw/exit propagating out
+  # of `execute/2`. The `after` clause is the only place the table is
+  # destroyed; no peer code, test seam, or supervisor child owns it.
+  defp run_with_beam_cache(cfg, drift) do
+    table = BeamCache.new()
+    cfg = Map.put(cfg, :beam_cache_table, table)
+
+    try do
       execute(cfg, drift)
+    after
+      BeamCache.delete(table)
     end
   end
 
@@ -320,9 +364,6 @@ defmodule MutagenEx.MutationRunner do
   # CompilerStub) which are concurrency-safe by construction.
   defp execute(cfg, drift) do
     sites = cfg.sites
-    total = length(sites)
-    max_concurrency = resolve_max_concurrency(cfg)
-    on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
 
     # r16 — Layer B (mutagen-wrd.25.5): pre-compute one path index per
     # distinct file in `cfg.sites`. Each entry maps `site.id => path` so
@@ -352,6 +393,94 @@ defmodule MutagenEx.MutationRunner do
     _ = on_cache_built.(mutated_ast_cache)
 
     cfg = Map.put(cfg, :mutated_ast_cache, mutated_ast_cache)
+
+    # Serial BeamCache snapshot pre-pass.
+    #
+    # Per `mutagen.decision.per_run_beam_cache`, every scoped module must
+    # be snapshotted BEFORE the async_stream dispatch begins. Doing this
+    # in a serial pre-pass closes the TOCTOU window that a per-worker
+    # snapshot under `async_stream_nolink/4` would open: two workers
+    # mutating the same module could otherwise race to capture an already-
+    # mutated binary if the first worker's `Code.compile_quoted/2` ran
+    # before the second worker's snapshot. The pre-pass guarantees every
+    # entry in `cfg.beam_cache_table` is the cover-instrumented original.
+    #
+    # Snapshot order vs. cover instrumentation: `CoverageRunner` runs
+    # earlier in the pipeline (see `Mix.Tasks.Mutagen`) — by the time
+    # `MutationRunner.run/1` is invoked, `:cover.compile_directory/1`
+    # has already replaced the scoped modules' loaded binaries with
+    # cover-instrumented variants. The snapshot taken here therefore
+    # captures the cover-instrumented binary, and the per-site restore
+    # via `:code.load_binary/3` swaps that cover-instrumented binary
+    # back in. Coverage analysis on the eventual completed run sees
+    # accumulated counts because the cover-instrumented binary is
+    # restored between sites.
+    #
+    # `BeamCache.snapshot/3` is idempotent: a module appearing in
+    # multiple scope records (or matched by multiple sites) is captured
+    # at most once thanks to `:ets.insert_new/2`'s semantics. An
+    # `:unavailable` return is surfaced as an abort because it means a
+    # scoped module is not loaded in the BEAM — the per-site loop would
+    # then have nothing to restore from.
+    with :ok <- prime_beam_cache(cfg) do
+      execute_after_prime(cfg, drift)
+    end
+  end
+
+  # Pre-pass that snapshots every scoped module into `cfg.beam_cache_table`.
+  #
+  # Runs serially, BEFORE any per-site task starts. Honors
+  # `mutagen.decision.per_run_beam_cache`'s TOCTOU-closure invariant: no
+  # worker can mutate a module before its snapshot exists.
+  #
+  # Returns `:ok` always. Modules that the `code_server` reports as
+  # `:unavailable` (no `.beam` resolvable on the BEAM's code path) are
+  # SKIPPED — they simply do not get an entry in the table. This is
+  # the test-fixture path: synthetic scope records with module names
+  # like `Synthetic.Foo` that exist only as metadata in the test cfg
+  # have no loaded bytecode, so there is nothing to snapshot and
+  # therefore nothing to restore. The per-site loop's `restore/2`
+  # mirrors this and skips modules without snapshots.
+  #
+  # In production, every scoped module IS loaded (the scope resolver
+  # discovers modules by walking compiled sources, so by the time
+  # `MutationRunner.run/1` is invoked they are necessarily on the code
+  # path). A genuine `:unavailable` outcome there indicates a
+  # configuration drift between the scope set and the BEAM's
+  # loaded-module table — surfaced via a warning on the run's
+  # `warnings` field rather than an abort, because the per-site
+  # restore loop will also have nothing to swap and proceed as a
+  # no-op for that module. The warning gives operators a way to
+  # detect the drift without breaking the run.
+  #
+  # We snapshot the unique set of modules across `cfg.scope_records`.
+  # Idempotency is delegated to `BeamCache.snapshot/3` (it ignores
+  # repeat inserts via `:ets.insert_new/2`), so de-duping here is
+  # purely a perf optimisation — one `get_object_code` call per
+  # module instead of one per scope record.
+  defp prime_beam_cache(cfg) do
+    table = Map.fetch!(cfg, :beam_cache_table)
+    code_server = code_server_module(cfg)
+
+    modules =
+      cfg.scope_records
+      |> Enum.map(& &1.module)
+      |> Enum.uniq()
+
+    Enum.each(modules, fn module ->
+      _ = BeamCache.snapshot(table, module, code_server)
+    end)
+
+    :ok
+  end
+
+  # The post-prime portion of `execute/2`. Split out from `execute/2` so
+  # the prime step's `{:error, _, _}` short-circuits cleanly via `with`.
+  defp execute_after_prime(cfg, drift) do
+    sites = cfg.sites
+    total = length(sites)
+    max_concurrency = resolve_max_concurrency(cfg)
+    on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
 
     initial = %{
       results: [],
@@ -580,7 +709,7 @@ defmodule MutagenEx.MutationRunner do
             # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
             # `message` is already sanitized by safe_compile_quoted/3
             # (r10/r11 cap + redact applied there before this branch).
-            case restore(file_ast, site.file, cfg) do
+            case restore(site.file, cfg) do
               :ok ->
                 {:compile_error, site, message}
 
@@ -746,31 +875,41 @@ defmodule MutagenEx.MutationRunner do
   #     so it cannot mask the original cause.
   #
   # Shape mirrors `MutagenEx.CoverageRunner.with_cover_lifecycle/2`.
-  defp with_restore(file_ast, %Site{} = site, cfg, fun) do
+  #
+  # mutagen-wrd.25.6: the 4-arity signature (and the `file_ast`
+  # parameter) is preserved verbatim per
+  # `mutagen.decision.per_run_beam_cache` — "the `with_restore/4`
+  # wrapper signature and external behaviour MUST be byte-identical
+  # to pre-`.25`". Internally, restore no longer needs the AST
+  # because the binary swap reloads from the `BeamCache` snapshot;
+  # `file_ast` is therefore unused inside the wrapper but kept in the
+  # signature so external callers (and future static-grep verification)
+  # see the same shape they did before.
+  defp with_restore(_file_ast, %Site{} = site, cfg, fun) do
     try do
       result = fun.()
 
-      case restore(file_ast, site.file, cfg) do
+      case restore(site.file, cfg) do
         :ok -> {:ok, result}
         {:error, message} -> {:error, :restore_failed, message}
       end
     rescue
       e ->
-        _ = safe_restore(file_ast, site, cfg)
+        _ = safe_restore(site, cfg)
         reraise(e, __STACKTRACE__)
     catch
       kind, value ->
-        _ = safe_restore(file_ast, site, cfg)
+        _ = safe_restore(site, cfg)
         :erlang.raise(kind, value, __STACKTRACE__)
     end
   end
 
   # Cleanup that never throws. Preserves the original exception inside
-  # `rescue` / `catch` clauses by swallowing any failure of `restore/3`
-  # itself (including raises from a misbehaving `:compiler` seam).
-  defp safe_restore(file_ast, %Site{} = site, cfg) do
+  # `rescue` / `catch` clauses by swallowing any failure of `restore/2`
+  # itself (including raises from a misbehaving `:code_server` seam).
+  defp safe_restore(%Site{} = site, cfg) do
     try do
-      restore(file_ast, site.file, cfg)
+      restore(site.file, cfg)
     rescue
       _ -> {:error, "safe_restore: restore raised"}
     catch
@@ -1297,11 +1436,77 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  defp restore(original_ast, file, cfg) do
-    case safe_compile_quoted(original_ast, file, cfg) do
-      {:ok, _modules, _stderr} -> :ok
-      {:error, :compile_error, message} -> {:error, message}
-    end
+  # Restore the original `.beam` for every scoped module in `file`.
+  #
+  # Per `mutagen.decision.per_run_beam_cache`, restore is a binary swap
+  # via `:code.load_binary/3` against the snapshot captured by
+  # `prime_beam_cache/1`. There is NO `Code.compile_quoted/2` in this
+  # path; the AST never participates.
+  #
+  # One file can host multiple modules (the canonical example is a file
+  # with sibling `defmodule`s, or an umbrella module's child defs). We
+  # restore every scoped module attributed to `file` rather than
+  # threading the specific mutated module through `with_restore/4`'s
+  # closure — the per-site task body installs a single mutated AST that
+  # compiles into one module, but restoring every scoped module from
+  # the cached binary is idempotent and cheap (one ETS lookup + one
+  # `:code.load_binary/3` per module), so we restore them all.
+  #
+  # **Skip modules without snapshots.** When `prime_beam_cache/1`
+  # encounters a module the `code_server` reports as `:unavailable`
+  # (e.g. test fixtures with synthetic scope records, or a scope-set
+  # drift in production), no entry lands in the table. Restore skips
+  # those modules by treating `{:not_snapshotted, _}` as success-
+  # equivalent — there is nothing to swap because nothing was loaded
+  # in the first place. The mutation cycle for that file is then
+  # effectively a no-op at the BEAM level (the AST-only compiler
+  # stubs in tests already match this assumption).
+  #
+  # Returns `:ok` if every module either restores cleanly or was
+  # never snapshotted. Returns `{:error, message}` on the first
+  # `code_server`-reported failure; the caller folds this through
+  # the existing `:unrecoverable_restore_failure` surface.
+  defp restore(file, cfg) do
+    table = Map.fetch!(cfg, :beam_cache_table)
+    code_server = code_server_module(cfg)
+
+    modules =
+      cfg.scope_records
+      |> Enum.filter(fn %Scope{file: f} -> f == file end)
+      |> Enum.map(& &1.module)
+      |> Enum.uniq()
+
+    Enum.reduce_while(modules, :ok, fn mod, :ok ->
+      case BeamCache.restore(table, mod, code_server) do
+        {:ok, ^mod} ->
+          {:cont, :ok}
+
+        {:error, {:not_snapshotted, ^mod}} ->
+          # No entry was captured for this module — typically because
+          # the pre-pass `code_server` returned `:error` for it (test
+          # fixture / unloaded module). Skip restore: there is nothing
+          # to swap back. The mutation cycle's compile path is the
+          # only stateful side effect, and that runs through the
+          # `:compiler` seam which the test layer already controls.
+          {:cont, :ok}
+
+        {:error, {:code_server, reason}} ->
+          {:halt,
+           {:error,
+            "beam_cache restore: " <>
+              inspect(mod) <>
+              " load_binary failed: " <>
+              inspect(reason)}}
+      end
+    end)
+  end
+
+  # Resolve the code-server seam. Mirrors `compiler_call/1` (atom-only
+  # shape — no back-compat tuple here because the seam is new in
+  # mutagen-wrd.25.6). Production callers leave the default
+  # `MutagenEx.Test.CodeServer`; tests inject a stub.
+  defp code_server_module(cfg) do
+    Map.get(cfg, :code_server, MutagenEx.Test.CodeServer)
   end
 
   # ---------------------------------------------------------------------------

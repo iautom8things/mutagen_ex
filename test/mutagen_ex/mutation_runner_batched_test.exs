@@ -272,21 +272,19 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
 
     assert {:ok, _output} = MutationRunner.run(cfg)
 
-    # The runner calls `compile_quoted/2` TWICE per site: once for the
-    # mutated AST (the swap) and once for the original (the restore).
-    # The first call in each pair is the mutated swap — that's what
-    # we want to compare against the legacy reference. We pair up the
-    # recorded calls (mutated, original) and discard the restore call.
+    # mutagen-wrd.25.6: the runner now calls `compile_quoted/2` ONCE
+    # per site (the mutated swap). Restore is a binary swap via
+    # `:code.load_binary/3` against the per-run BeamCache snapshot —
+    # no compile_quoted on the original AST. So the recording compiler
+    # sees one call per site, carrying the mutated swap AST.
     recorded = AstRecordingCompiler.recorded()
 
-    assert length(recorded) == 2 * length(sites),
-           "expected 2 compile_quoted calls per site (swap + restore), got " <>
+    assert length(recorded) == length(sites),
+           "expected 1 compile_quoted call per site (mutated swap only — " <>
+             "restore is :code.load_binary/3 after mutagen-wrd.25.6), got " <>
              "#{length(recorded)} for #{length(sites)} sites"
 
-    mutated_swaps =
-      recorded
-      |> Enum.chunk_every(2)
-      |> Enum.map(fn [{_file, swap_ast}, _restore_pair] -> swap_ast end)
+    mutated_swaps = Enum.map(recorded, fn {_file, swap_ast} -> swap_ast end)
 
     Enum.zip(sites, mutated_swaps)
     |> Enum.map(fn {site, swap_ast} -> {site.id, swap_ast} end)
@@ -496,15 +494,13 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
       # The two recorded entries must reach `compile_quoted/2` carrying
       # their OWN mutated_ast (not the other site's). This is the
       # end-to-end behavioural check.
+      #
+      # mutagen-wrd.25.6: 1 compile call per site (mutated swap only).
+      # Restore moved to `:code.load_binary/3` via BeamCache.
       recorded = AstRecordingCompiler.recorded()
-      assert length(recorded) == 4, "expected 4 compile calls (swap+restore × 2 sites)"
+      assert length(recorded) == 2, "expected 2 compile calls (mutated swap × 2 sites)"
 
-      mutated_swaps =
-        recorded
-        |> Enum.chunk_every(2)
-        |> Enum.map(fn [{_file, swap_ast}, _restore_pair] -> swap_ast end)
-
-      [batched_a, batched_b] = mutated_swaps
+      [{_file_a, batched_a}, {_file_b, batched_b}] = recorded
 
       assert contains_node?(batched_a, {:-, meta, args}),
              "site_a's mutated_ast (`1 - 1`) must surface in its compile_quoted call"

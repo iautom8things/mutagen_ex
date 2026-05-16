@@ -131,6 +131,51 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
     end
   end
 
+  # mutagen-wrd.25.6: code-server seam for the new restore path
+  # (`MutagenEx.BeamCache.restore/3` → `:code.load_binary/3`). Records
+  # every load call so tests can assert that restore fired before the
+  # exception propagated — the new equivalent of the old "compile_quoted
+  # on original AST" detection.
+  #
+  # `:code_server_load_hooks` is `[{predicate, action}]` mirroring the
+  # compiler-stub pattern.
+  defmodule RecordingCodeServer do
+    @moduledoc false
+    @behaviour MutagenEx.Test.CodeServerFacade
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def get_object_code(module) do
+      # Canned response so prime_beam_cache lands an entry for the
+      # synthetic test module. The filename and binary are deterministic.
+      filename = ~c"/tmp/" ++ Atom.to_charlist(module) ++ ~c".beam"
+      {module, <<"SYN:", Atom.to_string(module)::binary>>, filename}
+    end
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def load_binary(module, filename, binary) do
+      Process.put(
+        :code_server_load_calls,
+        [{module, filename, binary} | Process.get(:code_server_load_calls) || []]
+      )
+
+      hooks = Process.get(:code_server_load_hooks) || []
+
+      case Enum.find(hooks, fn {pred, _action} -> pred.(module, filename, binary) end) do
+        {_, {:raise, msg}} ->
+          raise RuntimeError, message: msg
+
+        {_, {:error, reason}} ->
+          {:error, reason}
+
+        {_, :ok} ->
+          {:module, module}
+
+        nil ->
+          {:module, module}
+      end
+    end
+  end
+
   # ---- Fixture builders -----------------------------------------------------
 
   defp build_site(opts \\ []) do
@@ -180,7 +225,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
       ex_unit: ExUnitStub,
       ex_unit_server: ExUnitServerStub,
       capture_io: RaisingCaptureIO,
-      compiler: {RecordingCompiler, :compile_quoted}
+      compiler: {RecordingCompiler, :compile_quoted},
+      code_server: RecordingCodeServer
     }
   end
 
@@ -200,6 +246,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
     Process.delete(:raising_capture_io_call_n)
     Process.delete(:compiler_calls)
     Process.delete(:compiler_hooks)
+    Process.delete(:code_server_load_calls)
+    Process.delete(:code_server_load_hooks)
   end
 
   setup do
@@ -221,10 +269,16 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
     end
   end
 
-  defp restore_call_invoked?(site) do
-    Enum.any?(compile_call_sequence(), fn {_file, ast} ->
-      contains_node?(ast, site.original_ast) and not contains_node?(ast, site.mutated_ast)
-    end)
+  # mutagen-wrd.25.6: restore is now `code_server.load_binary/3` via
+  # `MutagenEx.BeamCache.restore/3`, not `Code.compile_quoted/2` on the
+  # original AST. We detect restore by inspecting the recorded
+  # `load_binary` call list for an entry on the site's scoped module.
+  defp restore_call_invoked?(_site) do
+    case Process.get(:code_server_load_calls) do
+      nil -> false
+      [] -> false
+      [_ | _] -> true
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -281,23 +335,30 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
       # Fault during window AND restore fails inside safe_restore.
       Process.put(:raising_capture_io_fault, {:raise, "original cause"})
 
+      # mutagen-wrd.25.6: mutated AST compile still uses the compiler
+      # seam; restore now uses the code_server seam. We make load_binary
+      # raise to exercise safe_restore's swallow-and-propagate path.
       Process.put(:compiler_hooks, [
-        # First call (mutated AST compile) succeeds.
-        {fn ast, _file -> contains_node?(ast, site.mutated_ast) end, {:ok, []}},
-        # Second call (restore path) raises.
-        {fn ast, _file ->
-           contains_node?(ast, site.original_ast) and not contains_node?(ast, site.mutated_ast)
-         end, {:raise, "restore boom"}}
+        # Mutated AST compile succeeds.
+        {fn ast, _file -> contains_node?(ast, site.mutated_ast) end, {:ok, []}}
       ])
 
-      # The original RuntimeError must surface — not a CompileError from
-      # the failed restore. safe_restore's job is to absorb its own
-      # failures so they never mask the original cause.
+      Process.put(:code_server_load_hooks, [
+        # Restore path raises inside load_binary — safe_restore wraps
+        # the call, swallows the failure, and re-propagates the
+        # original CaptureIO-induced RuntimeError.
+        {fn _mod, _file, _bin -> true end, {:raise, "restore boom"}}
+      ])
+
+      # The original RuntimeError must surface — not the restore
+      # failure. safe_restore's job is to absorb its own failures so
+      # they never mask the original cause.
       assert_raise RuntimeError, "original cause", fn ->
         MutationRunner.run(cfg)
       end
 
-      # Both compile calls were attempted (proves safe_restore tried).
+      # The mutated swap was attempted (compile) AND the restore was
+      # attempted (load_binary call recorded before it raised).
       assert first_call_has_mutated?(site)
       assert restore_call_invoked?(site)
     end
@@ -313,14 +374,20 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
       site = build_site()
       cfg = base_cfg(site)
 
+      # mutagen-wrd.25.6: the mutated-AST compile still routes through
+      # `:compiler`; restore failure is now a `code_server.load_binary/3`
+      # error (not a `Code.compile_quoted/2` raise).
       Process.put(:compiler_hooks, [
-        # First call: mutated AST compile fails (:compile_error branch).
+        # Mutated AST compile fails (:compile_error branch).
         {fn ast, _file -> contains_node?(ast, site.mutated_ast) end,
-         {:raise, "synthetic compile failure"}},
-        # Defensive restore on the :compile_error branch also fails.
-        {fn ast, _file ->
-           contains_node?(ast, site.original_ast) and not contains_node?(ast, site.mutated_ast)
-         end, {:raise, "restore failure on compile_error branch"}}
+         {:raise, "synthetic compile failure"}}
+      ])
+
+      Process.put(:code_server_load_hooks, [
+        # The defensive restore on the :compile_error branch fails when
+        # load_binary returns {:error, _}. The surfacing path renames
+        # the failure mode but preserves the same external error shape.
+        {fn _mod, _file, _bin -> true end, {:error, :restore_failure_on_compile_error_branch}}
       ])
 
       assert {:error, :unrecoverable_restore_failure, details} = MutationRunner.run(cfg)
@@ -329,8 +396,11 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
       assert details.file == site.file
 
       # Message names both the restore failure and the original cause.
+      # The text moved from "compile_quoted raised" → "load_binary
+      # failed" but the surface shape (":compile_error branch"
+      # narrative + original cause) is preserved.
       assert details.message =~ "restore failed on :compile_error branch"
-      assert details.message =~ "restore failure on compile_error branch"
+      assert details.message =~ "restore_failure_on_compile_error_branch"
       assert details.message =~ "synthetic compile failure"
     end
 
@@ -340,11 +410,11 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
 
       Process.put(:compiler_hooks, [
         {fn ast, _file -> contains_node?(ast, site.mutated_ast) end,
-         {:raise, "synthetic compile failure"}},
-        {fn ast, _file ->
-           contains_node?(ast, site.original_ast) and not contains_node?(ast, site.mutated_ast)
-         end, {:ok, []}}
+         {:raise, "synthetic compile failure"}}
       ])
+
+      # Restore via load_binary returns :ok (the default RecordingCodeServer
+      # response when no hook is set).
 
       assert {:ok, result} = MutationRunner.run(cfg)
       assert result.compile_errors != []

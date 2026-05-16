@@ -30,11 +30,14 @@ status: draft
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
   - lib/mutagen_ex/baseline.ex
+  - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
   - lib/mutagen_ex/mutation_runner/mutation_loop.ex
   - lib/mutagen_ex/telemetry.ex
   - lib/mutagen_ex/progress.ex
   - lib/mutagen_ex/application.ex
+  - lib/mutagen_ex/test/code_server.ex
+  - lib/mutagen_ex/test/code_server_facade.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
   - mutagen.decision.in_process_pipeline
@@ -43,6 +46,8 @@ decisions:
   - mutagen.decision.mutation_loop_private
   - mutagen.decision.self_mutation_refused
   - mutagen.decision.supervision_tree
+  - mutagen.decision.per_run_beam_cache
+  - mutagen.decision.code_server_facade
 ```
 
 ```spec-requirements
@@ -120,10 +125,23 @@ decisions:
   priority: must
   statement: |
     After each per-mutation test run (regardless of classification), the
-    original module's bytecode is restored by `Code.compile_quoted/1` on
-    the cached AST (passing the source file's real path as the `file`
-    argument). On restore failure the pipeline aborts with an error-shaped
-    JSON `reason: :unrecoverable_restore_failure`.
+    original module's bytecode is restored via `:code.load_binary/3`
+    against the per-run `MutagenEx.BeamCache` snapshot (a `:set, :public`
+    ETS table owned by `MutationRunner.run/1`, populated by a serial
+    pre-pass over `cfg.scope_records` BEFORE the per-site
+    `async_stream_nolink/4` dispatch). The restore path no longer
+    invokes `Code.compile_quoted/2`; the AST never participates in
+    restore. On restore failure (`code_server.load_binary/3` returns
+    `{:error, reason}`) the pipeline aborts with an error-shaped JSON
+    `reason: :unrecoverable_restore_failure`. The snapshot pre-pass
+    runs AFTER `:cover.compile_directory/1` so the cached binary IS
+    the cover-instrumented binary — restore preserves coverage
+    instrumentation across the per-site cycle. The ETS table is
+    deleted in `run/1`'s `after` clause on every exit path
+    (success, error return, raise/throw/exit). See
+    [`mutagen.decision.per_run_beam_cache`](../decisions/per_run_beam_cache.md)
+    and
+    [`mutagen.decision.code_server_facade`](../decisions/code_server_facade.md).
 
 - id: mutagen.mutation_pipeline.r7
   priority: must
@@ -182,6 +200,11 @@ decisions:
     that needs scratch space (e.g. a tmp .beam stash) must declare
     its writes here first and tag them with a `mutagen_ex_` prefix
     so the snapshot diff distinguishes them from background noise.
+
+    The restore path's binary swap (`:code.load_binary/3` via
+    `MutagenEx.BeamCache`, per r6) is also in-memory: it mutates the
+    BEAM's loaded-module table only, never writing to disk. The
+    snapshot itself lives in an ETS table that dies with `run/1`.
 
 - id: mutagen.mutation_pipeline.r12
   priority: must
@@ -531,6 +554,46 @@ decisions:
     places `mutated_ast` at the bare value's position. The legacy
     reference output (manual ambient walk) matches the runner's
     output byte-for-byte.
+
+- id: mutagen.mutation_pipeline.s16
+  covers: [mutagen.mutation_pipeline.r6]
+  given: |
+    A site whose scoped module exists on the BEAM's code path (has a
+    real `.beam` resolvable via `:code.where_is_file/1`). The
+    `MutationRunner.run/1` cycle compiles the mutated AST, runs the
+    test, and reaches the restore point.
+  when: |
+    The runner invokes `MutagenEx.BeamCache.restore/3` for that
+    module via the configured `code_server` seam.
+  then: |
+    The `code_server.load_binary/3` callback is invoked exactly once
+    with the original `{module, filename, binary}` triple captured by
+    the pre-pass `snapshot/3` (no `Code.compile_quoted/2` call is
+    made on the original AST during restore). After the cycle, the
+    module's MD5 (via `<mod>.module_info(:md5)`) matches the
+    pre-mutation MD5. The ETS table holding the snapshot is deleted
+    when `run/1` returns (`:ets.info/1` returns `:undefined`); on a
+    `raise`/`throw`/`exit` exit path the `after` clause still
+    deletes the table.
+
+- id: mutagen.mutation_pipeline.s17
+  covers: [mutagen.mutation_pipeline.r6]
+  given: |
+    A mutation cycle where the BeamCache snapshot pre-pass has run and
+    populated the ETS table for every scoped module BEFORE the per-site
+    loop dispatches.
+  when: |
+    The `async_stream_nolink/4` dispatch begins and two workers handle
+    sites that target the SAME module (e.g. duplicate-position sites
+    or two sites in different functions of the same module).
+  then: |
+    Neither worker triggers a snapshot during its task body — both
+    read from the pre-populated table. `code_server.get_object_code/1`
+    is invoked once per distinct scoped module during the pre-pass and
+    zero times during the per-site loop. The TOCTOU window between
+    "current module load state" and "snapshot capture" is therefore
+    closed at the run boundary: even under `--max-concurrency > 1`,
+    no two workers can race to snapshot the same module.
 ```
 
 ```spec-verification
@@ -595,5 +658,12 @@ decisions:
     - mutagen.mutation_pipeline.r16
   kind: command
   command: mix test test/mutagen_ex/mutation_runner_batched_test.exs
+  execute: true
+
+- id: mutagen.mutation_pipeline.v9
+  covers:
+    - mutagen.mutation_pipeline.r6
+  kind: command
+  command: mix test test/mutagen_ex/beam_cache_test.exs
   execute: true
 ```

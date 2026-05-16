@@ -267,6 +267,61 @@ defmodule MutagenEx.MutationRunnerTest do
     end
   end
 
+  # mutagen-wrd.25.6: code-server seam for BeamCache snapshot + restore.
+  # Default returns a canned binary so prime_beam_cache lands an entry
+  # for synthetic test modules (otherwise the pre-pass would call the
+  # real `:code.get_object_code/1` and get `:error`, snapshot would be
+  # skipped, restore would be a no-op — which is fine but hides the
+  # call from these tests).
+  #
+  # `:code_server_stub_load_calls` records every load_binary call so
+  # tests can assert that restore happened via this seam (the
+  # replacement for the old "compile_quoted on original AST" check).
+  # `:code_server_stub_load_hooks` is `[{predicate, action}]`.
+  defmodule CodeServerStub do
+    @moduledoc false
+    @behaviour MutagenEx.Test.CodeServerFacade
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def get_object_code(module) do
+      case Process.get({:code_server_stub_get_response, module}) do
+        nil ->
+          filename = ~c"/tmp/" ++ Atom.to_charlist(module) ++ ~c".beam"
+          {module, <<"FAKE:", Atom.to_string(module)::binary>>, filename}
+
+        :error ->
+          :error
+
+        other ->
+          other
+      end
+    end
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def load_binary(module, filename, binary) do
+      Process.put(
+        :code_server_stub_load_calls,
+        [{module, filename, binary} | Process.get(:code_server_stub_load_calls) || []]
+      )
+
+      hooks = Process.get(:code_server_stub_load_hooks) || []
+
+      case Enum.find(hooks, fn {pred, _action} -> pred.(module, filename, binary) end) do
+        {_, {:raise, message}} ->
+          raise RuntimeError, message: message
+
+        {_, {:error, reason}} ->
+          {:error, reason}
+
+        {_, :ok} ->
+          {:module, module}
+
+        nil ->
+          {:module, module}
+      end
+    end
+  end
+
   # Predicate helpers — `contains_node?/2` walks a candidate AST looking
   # for a sub-tree equal to `target`. This lets compile-stub hooks fire
   # when the runner's full-file AST contains the mutated/original site
@@ -361,7 +416,8 @@ defmodule MutagenEx.MutationRunnerTest do
       ex_unit: ExUnitFake,
       ex_unit_server: ExUnitServerStub,
       capture_io: CaptureIoStub,
-      compiler: {CompilerStub, :compile_quoted}
+      compiler: {CompilerStub, :compile_quoted},
+      code_server: CodeServerStub
     }
   end
 
@@ -371,6 +427,13 @@ defmodule MutagenEx.MutationRunnerTest do
     Process.delete(:exunit_server_stub_calls)
     Process.delete(:compiler_stub_calls)
     Process.delete(:compiler_stub_hooks)
+    Process.delete(:code_server_stub_load_calls)
+    Process.delete(:code_server_stub_load_hooks)
+
+    for {key, _val} <- Process.get(),
+        match?({:code_server_stub_get_response, _}, key) do
+      Process.delete(key)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -833,15 +896,15 @@ defmodule MutagenEx.MutationRunnerTest do
   end
 
   # ---------------------------------------------------------------------------
-  # r6 / s5: restore via Code.compile_quoted; unrecoverable_restore_failure aborts
+  # r6 / s5: restore via BeamCache binary swap; unrecoverable_restore_failure
+  # aborts when code_server.load_binary fails (mutagen-wrd.25.6)
   # ---------------------------------------------------------------------------
 
   describe "r6: restore (s5)" do
-    test "after each site, runner calls compile_quoted with the ORIGINAL file AST" do
+    test "after each site, runner calls code_server.load_binary for the scoped module" do
       clear_stubs()
       site = build_site(id: "r1")
       cfg = base_cfg(site)
-      [{_file, {original_file_ast, _src}}] = Map.to_list(cfg.ast_cache)
 
       ExUnitFake.set_results([
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
@@ -849,35 +912,52 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert {:ok, _} = MutationRunner.run(cfg)
 
-      calls = Process.get(:compiler_stub_calls) || []
-      # Calls are pushed in reverse-time order; the LAST call should be the restore.
-      [{_last_file, last_ast} | _] = calls
+      # mutagen-wrd.25.6: restore is now `code_server.load_binary/3` via
+      # `MutagenEx.BeamCache`, NOT `Code.compile_quoted/2` on the
+      # original AST. The CodeServerStub's `load_binary/3` records every
+      # call into `:code_server_stub_load_calls`; we expect exactly one
+      # call carrying the scoped module's canned binary.
+      load_calls = Process.get(:code_server_stub_load_calls) || []
 
-      assert last_ast == original_file_ast
+      assert [{Synthetic.Foo, _filename, binary}] = load_calls,
+             "expected 1 load_binary call for the scoped module, got: #{inspect(load_calls)}"
+
+      # The CodeServerStub's default snapshot returns a canned binary
+      # tagged with the module name. Asserts the round-trip went
+      # through ETS (the cached binary was replayed verbatim).
+      assert binary == <<"FAKE:", "Elixir.Synthetic.Foo"::binary>>
+
+      # Compile_quoted is now called ONCE per site — the mutated swap.
+      # Restore does NOT round-trip through compile_quoted any more.
+      compile_calls = Process.get(:compiler_stub_calls) || []
+
+      assert length(compile_calls) == 1,
+             "expected 1 compile_quoted call (mutated swap only), got " <>
+               "#{length(compile_calls)}: #{inspect(compile_calls)}"
     end
 
-    test "aborts the pipeline with :unrecoverable_restore_failure when restore compile raises" do
+    test "aborts the pipeline with :unrecoverable_restore_failure when load_binary errors" do
       clear_stubs()
       site = build_site(id: "rf1")
       cfg = base_cfg(site)
-      [{_file, {original_file_ast, _src}}] = Map.to_list(cfg.ast_cache)
 
       ExUnitFake.set_results([
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])
 
-      # Set the compiler stub to raise specifically when called with the
-      # original AST (the restore call). The mutated-AST swap call passes
-      # a different tree (it carries `site.mutated_ast`); the restore
-      # call passes the original.
-      Process.put(:compiler_stub_hooks, [
-        {fn ast, _file -> ast == original_file_ast end, {:raise, "restore boom"}}
+      # mutagen-wrd.25.6: restore failure now comes from
+      # `code_server.load_binary/3` returning `{:error, reason}`. The
+      # runner surfaces this as `:unrecoverable_restore_failure` —
+      # same external shape, new internal seam.
+      Process.put(:code_server_stub_load_hooks, [
+        {fn _mod, _file, _bin -> true end, {:error, :badfile}}
       ])
 
       assert {:error, :unrecoverable_restore_failure, details} = MutationRunner.run(cfg)
       assert details.site_id == "rf1"
       assert details.file == site.file
       assert details.message =~ "restore"
+      assert details.message =~ "load_binary failed"
     end
   end
 
@@ -1164,70 +1244,125 @@ defmodule MutagenEx.MutationRunnerTest do
     test "round-trips a synthetic module through one mutation site" do
       clear_stubs()
 
-      source = """
-      defmodule MutationRunnerTestSynth.RealFixture do
-        def two, do: 1 + 1
+      victim = MutationRunnerTestSynth.RealFixture
+
+      # mutagen-wrd.25.6: restore is now a binary swap via
+      # `:code.load_binary/3` against a snapshot read by
+      # `:code.get_object_code/1`. The latter requires the module's
+      # `.beam` to be findable on the code path. We write the original
+      # binary to a temp ebin dir and add it to the code path so the
+      # production CodeServer (not a stub) can resolve the module.
+      tmp_ebin =
+        Path.join(
+          System.tmp_dir!(),
+          "mutagen_ex_runner_real_#{:erlang.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp_ebin)
+
+      try do
+        true = :code.add_path(String.to_charlist(tmp_ebin))
+
+        source = """
+        defmodule MutationRunnerTestSynth.RealFixture do
+          def two, do: 1 + 1
+        end
+        """
+
+        # Compile the original definition and write its .beam to disk
+        # so :code.get_object_code/1 can resolve it.
+        [{^victim, binary}] = compile_silently_runner_test(source)
+        File.write!(Path.join(tmp_ebin, "#{victim}.beam"), binary)
+        :code.purge(victim)
+        :code.delete(victim)
+        {:module, ^victim} = :code.load_file(victim)
+
+        assert {:ok, ast_cache} =
+                 AstCache.load(["synth_real.ex"], reader: fn _ -> source end)
+
+        assert {:ok, {file_ast, _src}} = AstCache.get(ast_cache, "synth_real.ex")
+
+        # Locate the `1 + 1` node in the AST so the site's metadata matches
+        # what the enumerator would produce.
+        {_, [add_node]} =
+          Macro.prewalk(file_ast, [], fn
+            {:+, _meta, [1, 1]} = node, acc -> {node, [node | acc]}
+            node, acc -> {node, acc}
+          end)
+
+        {_, meta, args} = add_node
+
+        site = %Site{
+          id: "real:1:arith",
+          file: "synth_real.ex",
+          line: Keyword.get(meta, :line),
+          column: Keyword.get(meta, :column),
+          mutator: :arith,
+          original_ast: add_node,
+          mutated_ast: {:-, meta, args}
+        }
+
+        cfg = %{
+          seed: 0,
+          timeout_ms: 500,
+          test_filter: %TestFilter{include: [], exclude: [:test], files: []},
+          ast_cache: ast_cache,
+          sites: [site],
+          scope_records: [
+            %Scope{
+              file: "synth_real.ex",
+              line_range: 1..3,
+              module: victim
+            }
+          ],
+          test_modules: [],
+          # We DO use the stub ExUnit so we don't reschedule a real test
+          # run inside ourselves. The compiler AND code-server paths are
+          # the real ones — we want to prove the real Code.compile_quoted
+          # + :code.load_binary/3 round-trip works.
+          ex_unit: ExUnitFake,
+          ex_unit_server: ExUnitServerStub,
+          capture_io: CaptureIoStub
+        }
+
+        ExUnitFake.set_results([
+          {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+        ])
+
+        assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+        assert result.status == :survived
+
+        # After the run the fixture module's `two/0` should still return 2
+        # (i.e., restore via :code.load_binary/3 succeeded). Use apply/3
+        # since the module name didn't exist at this file's compile time.
+        assert apply(victim, :two, []) == 2
+      after
+        :code.purge(victim)
+        :code.delete(victim)
+        :code.del_path(String.to_charlist(tmp_ebin))
+        File.rm_rf!(tmp_ebin)
       end
-      """
+    end
+  end
 
-      assert {:ok, ast_cache} =
-               AstCache.load(["synth_real.ex"], reader: fn _ -> source end)
+  # Helper used only by the end-to-end test. Compiles a source string
+  # silently (suppresses the "redefining module" warning) and returns
+  # `Code.compile_string/1`'s `[{module, binary}, ...]` result. Mirrors
+  # the helper in `MutagenEx.BeamCacheTest`.
+  defp compile_silently_runner_test(source) do
+    ref = make_ref()
+    parent = self()
 
-      assert {:ok, {file_ast, _src}} = AstCache.get(ast_cache, "synth_real.ex")
+    _io =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        result = Code.compile_string(source)
+        send(parent, {ref, result})
+      end)
 
-      # Locate the `1 + 1` node in the AST so the site's metadata matches
-      # what the enumerator would produce.
-      {_, [add_node]} =
-        Macro.prewalk(file_ast, [], fn
-          {:+, _meta, [1, 1]} = node, acc -> {node, [node | acc]}
-          node, acc -> {node, acc}
-        end)
-
-      {_, meta, args} = add_node
-
-      site = %Site{
-        id: "real:1:arith",
-        file: "synth_real.ex",
-        line: Keyword.get(meta, :line),
-        column: Keyword.get(meta, :column),
-        mutator: :arith,
-        original_ast: add_node,
-        mutated_ast: {:-, meta, args}
-      }
-
-      cfg = %{
-        seed: 0,
-        timeout_ms: 500,
-        test_filter: %TestFilter{include: [], exclude: [:test], files: []},
-        ast_cache: ast_cache,
-        sites: [site],
-        scope_records: [
-          %Scope{
-            file: "synth_real.ex",
-            line_range: 1..3,
-            module: MutationRunnerTestSynth.RealFixture
-          }
-        ],
-        test_modules: [],
-        # We DO use the stub ExUnit so we don't reschedule a real test
-        # run inside ourselves. The compiler path is the real one — we
-        # want to prove the real Code.compile_quoted round-trip works.
-        ex_unit: ExUnitFake,
-        ex_unit_server: ExUnitServerStub,
-        capture_io: CaptureIoStub
-      }
-
-      ExUnitFake.set_results([
-        {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
-      ])
-
-      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
-      assert result.status == :survived
-
-      # After the run the fixture module's `two/0` should still return 2
-      # (i.e., restore succeeded). Use apply/3 since the module name
-      # didn't exist at this file's compile time.
-      assert apply(MutationRunnerTestSynth.RealFixture, :two, []) == 2
+    receive do
+      {^ref, result} -> result
+    after
+      500 -> flunk("compile_silently_runner_test: no result received")
     end
   end
 

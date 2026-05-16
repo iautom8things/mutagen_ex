@@ -7,6 +7,32 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **BeamCache per-run ETS + binary-swap restore.**
+  `MutagenEx.MutationRunner.run/1` no longer restores via
+  `Code.compile_quoted/2` on the cached AST. Restore is now a binary
+  swap via `:code.load_binary/3` against a per-run `MutagenEx.BeamCache`
+  snapshot: a `:set, :public` ETS table owned by `run/1` itself
+  (created at entry, deleted in `after` — no GenServer, no supervisor
+  child, no cross-invocation staleness). A serial snapshot pre-pass
+  runs BEFORE `async_stream_nolink/4` dispatch and captures every
+  scoped module's currently-loaded `.beam` via
+  `:code.get_object_code/1`, closing the TOCTOU window two parallel
+  workers would otherwise open. Snapshot order vs. cover instrumentation
+  matters: the pre-pass runs AFTER `:cover.compile_directory/1`, so
+  the cached binary IS the cover-instrumented binary and restore
+  preserves coverage between sites. The new
+  `MutagenEx.Test.CodeServerFacade` behaviour (with default impl
+  `MutagenEx.Test.CodeServer`) is the test seam — mirrors the existing
+  `MutagenEx.Test.CompilerFacade` shape exactly. The `with_restore/4`
+  wrapper's signature and external contract are preserved; only its
+  internal restore call moved off `Code.compile_quoted/2`.
+  `MutagenEx.Application`'s supervisor child list is unchanged.
+  Revised requirement `mutagen.mutation_pipeline.r6` + new scenarios
+  `s16`/`s17` + verification stub `v9`. Two new decisions:
+  `mutagen.decision.per_run_beam_cache` (ETS-via-cfg, not GenServer)
+  and `mutagen.decision.code_server_facade` (testability seam).
+  *(mutagen-wrd.25.6.)*
+
 - **Batched grouped-by-file prewalk for the per-site AST swap.**
   `MutagenEx.MutationRunner.run/1` now pre-computes a per-file
   path index once before the per-site loop begins (one
