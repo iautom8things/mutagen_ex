@@ -14,11 +14,15 @@
     {
       "text": "ORCHESTRATOR_ESCALATION: skipping this ticket and its dependent mutagen-wrd.29.\n\nReason: the ticket spec explicitly says \"Recommended planning path: This is the largest single ticket in the landing plan. Recommend running /mega-plan against this ticket before /implement.\" Orchestrator policy forbids running /mega-plan autonomously — needs user driver.\n\nOrchestrator action:\n- mutagen-wrd.25 left open, no impl worker spawned\n- mutagen-wrd.29 left open (blocked_by .25)\n- All other open children processed via normal pipeline\n\nWhen user is ready, run /mega-plan against mutagen-wrd.25 to produce a phased subplan, then re-orchestrate (or /implement the resulting decomposed tickets).",
       "timestamp": "2026-05-15T00:09:03Z"
+    },
+    {
+      "text": "Orchestrator carved 2 scope-expansion subtickets surfaced during .25.3 execution: .25.8 (production phase_baseline cache wiring — capability landed in .25.3, runtime wiring deferred per .25.3's Allowed-touches scope) and .25.9 (flaky atom-count test originated in .25.2, surfaced during .25.3 rebase). Neither blocks the .25.5–.25.7 critical path.",
+      "timestamp": "2026-05-16T10:02:18Z"
     }
   ],
   "priority": 3,
   "status": "open",
   "title": "MEGA: AST/perf consolidation — MutagenEx.Ast + extended cache + batched prewalk + .beam restore",
   "type": "task",
-  "updated_at": "2026-05-15T11:32:16Z"
+  "updated_at": "2026-05-16T10:02:18Z"
 }
