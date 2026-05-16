@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-16T10:02:08Z",
+  "description": "Advances: none (pure test-suite flakiness fix)\n\nScope-expansion follow-up from mutagen-wrd.25.3 (S2) — orchestrator-discovered flaky test originating in mutagen-wrd.25.2 (S1).\n\n## What\n\ntest/mutagen_ex/ast_test.exs:135 \"find_module_body/2 (mutagen.ast.r2) does NOT call String.to_atom on the target string (r8 invariant)\" is order-dependent. It asserts :erlang.system_info(:atom_count) is unchanged before/after a call to Ast.find_module_body/2. In the full suite (make smoke, default seed) it passes; in isolation or under certain test orderings, the atom_count delta is non-zero (observed +2, +3, +66 across runs).\n\n## How it surfaced\n\nDuring mutagen-wrd.25.3's rebase over the epic branch (which already carried .25.2 + .25.4), the rebase-worker's make smoke with --max-failures 1 happened to pick a seed where this test landed at position #173 and failed. Reproduced the same failure on bare epic/mutagen-wrd HEAD before .25.3 was applied — confirming the flakiness is pre-existing, not regression-induced.\n\nFive subsequent runs with seeds 0, 1, 42, 100, 12345 all green at 608/608.\n\n## Root-cause hypothesis (to verify)\n\nThe test's \"before\" measurement happens AFTER a quoted_module_body/2 helper call that runs Code.string_to_quoted on a source string. If any other test runs concurrently and triggers atom interning between the before_count capture and the after_count capture, the delta reads non-zero.\n\nPossible fixes:\n1. Mark the describe block (or the test) async: false if not already\n2. Wrap the function-under-test call in a brief lock to ensure no concurrent atom-creation\n3. Replace the absolute equality check with a per-call delta that excludes concurrent leakage\n\nInvestigation needed to pick the right fix. The r8 invariant the test is checking is real and important — don't weaken the assertion semantics.\n\n## Allowed touches\n\n- test/mutagen_ex/ast_test.exs\n- test/test_helper.exs (if needed for async tagging)\n- .spec/specs/ast.spec.md (if the r8 falsifiability claim needs revising)\n\n## Out of Scope\n\n- lib/mutagen_ex/ast.ex — the production code path is correct; the test is what is wrong\n- Weakening or removing the r8 invariant — it is load-bearing for atom-table-DOS prevention",
+  "id": "mutagen-wrd.25.9",
+  "labels": [],
+  "parent": "mutagen-wrd.25",
+  "priority": 2,
+  "status": "open",
+  "title": "fix flaky atom-count test (ast_test.exs r8 invariant order-dependence)",
+  "type": "bug",
+  "updated_at": "2026-05-16T10:02:08Z"
+}
