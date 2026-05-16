@@ -692,16 +692,28 @@ defmodule MutagenEx.ScopeResolver do
 
   # F30 / CF7 determinism contract (mutagen.scope_resolution.r9): the
   # default `Path.wildcard/1` result order is file-system-dependent
-  # (HFS+ sorts; ext4 returns inode order). Sort lexicographically here
-  # so module-name target resolution visits files in a stable order
-  # regardless of host, preserving the byte-identical-output guarantee
-  # in `mutagen.mutation_pipeline.r15`. Explicit `:source_files` lists
+  # (HFS+ / APFS sort lexicographically; ext4 returns inode order;
+  # some network filesystems return creation order). Sort
+  # lexicographically here so module-name target resolution visits
+  # files in a stable order regardless of host, preserving the
+  # byte-identical-output guarantee in
+  # `mutagen.mutation_pipeline.r15`. Explicit `:source_files` lists
   # are caller-controlled and not re-sorted (the caller already chose
   # an order).
-  defp source_files(opts) do
+  #
+  # `@doc false` and exposed (not `defp`) so the r9 contract is
+  # directly testable with an injectable `:wildcard_fn` that returns
+  # a known unsorted list. Production callers never pass
+  # `:wildcard_fn` — the default `&Path.wildcard/1` is used.
+  @doc false
+  def source_files(opts) do
     case Keyword.get(opts, :source_files) do
-      nil -> @default_source_glob |> Path.wildcard() |> Enum.sort()
-      list when is_list(list) -> list
+      nil ->
+        wildcard_fn = Keyword.get(opts, :wildcard_fn, &Path.wildcard/1)
+        @default_source_glob |> wildcard_fn.() |> Enum.sort()
+
+      list when is_list(list) ->
+        list
     end
   end
 end

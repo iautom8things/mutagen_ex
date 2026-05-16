@@ -238,4 +238,10 @@ decisions:
   kind: command
   command: mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety
   execute: true
+
+- id: mutagen.scope_resolution.v5
+  covers: [mutagen.scope_resolution.r9]
+  kind: command
+  command: mix test test/mutagen_ex/scope_resolver_test.exs --only wildcard_determinism
+  execute: true
 ```

@@ -622,4 +622,86 @@ defmodule MutagenEx.ScopeResolverTest do
       assert :counters.get(counter, 1) == 1
     end
   end
+
+  describe "wildcard determinism (mutagen.scope_resolution.r9, s9)" do
+    # These tests exercise the F30 / CF7 sorted-wildcard contract for
+    # `source_files/1`. They drive the no-`:source_files` branch via an
+    # injectable `:wildcard_fn` that returns files in a known unsorted
+    # order — the production code is expected to sort that output before
+    # iteration so the resulting visit order is host-independent. Any
+    # silent removal of `|> Enum.sort()` from `source_files/1` will fail
+    # these tests on every host (the injected wildcard returns reverse-
+    # lex order, which on any filesystem differs from the sorted form).
+
+    @tag :wildcard_determinism
+    test "source_files/1 sorts the wildcard result lexicographically (r9)" do
+      unsorted = ["lib/zeta.ex", "lib/middle.ex", "lib/alpha.ex"]
+      wildcard_fn = fn "lib/**/*.ex" -> unsorted end
+
+      result = ScopeResolver.source_files(wildcard_fn: wildcard_fn)
+
+      assert result == ["lib/alpha.ex", "lib/middle.ex", "lib/zeta.ex"]
+      assert result == Enum.sort(unsorted)
+      # Falsifiability guard: the unsorted input must actually differ
+      # from its sorted form, otherwise removing `Enum.sort/1` from
+      # production would pass this test by coincidence.
+      refute unsorted == Enum.sort(unsorted)
+    end
+
+    @tag :wildcard_determinism
+    test "source_files/1 sort is stable across two calls with the same wildcard (r9, s9)" do
+      shuffled = ["lib/b/y.ex", "lib/a/z.ex", "lib/c/x.ex", "lib/a/m.ex"]
+      wildcard_fn = fn "lib/**/*.ex" -> shuffled end
+
+      first = ScopeResolver.source_files(wildcard_fn: wildcard_fn)
+      second = ScopeResolver.source_files(wildcard_fn: wildcard_fn)
+
+      assert first == second
+      assert first == Enum.sort(shuffled)
+    end
+
+    @tag :wildcard_determinism
+    test "explicit :source_files list bypasses sort entirely (r9 boundary)" do
+      # Caller-supplied lists are not re-sorted — the caller already
+      # chose an order. This pins the contract boundary so a future
+      # "always sort" refactor doesn't silently swallow caller intent.
+      caller_order = ["lib/zeta.ex", "lib/alpha.ex", "lib/middle.ex"]
+
+      result = ScopeResolver.source_files(source_files: caller_order)
+
+      assert result == caller_order
+      refute result == Enum.sort(caller_order)
+    end
+
+    @tag :wildcard_determinism
+    test "resolve/2 with no :source_files visits files in lex order via injected wildcard (r9 end-to-end)" do
+      # End-to-end: the same `:wildcard_fn` opt that `source_files/1`
+      # honours is plumbed via `resolve/2 -> resolve_module/4 ->
+      # source_files/1`. The loader records the order it's invoked in;
+      # with a reverse-lex wildcard, the recorded order must still be
+      # lex-sorted (or production has dropped `|> Enum.sort()`).
+      unsorted = ["lib/zeta.ex", "lib/middle.ex", "lib/alpha.ex"]
+      wildcard_fn = fn "lib/**/*.ex" -> unsorted end
+
+      test_pid = self()
+
+      loader = fn path ->
+        send(test_pid, {:loaded, path})
+        # Return an empty module so the search proceeds through every
+        # file in turn (no match -> :module_not_found at the end).
+        "defmodule Nothing.Here do\nend\n"
+      end
+
+      assert {:error, :module_not_found, _details} =
+               ScopeResolver.resolve("Some.Mod", loader: loader, wildcard_fn: wildcard_fn)
+
+      visited =
+        for path <- ["lib/alpha.ex", "lib/middle.ex", "lib/zeta.ex"] do
+          assert_receive {:loaded, ^path}, 100
+          path
+        end
+
+      assert visited == Enum.sort(unsorted)
+    end
+  end
 end
