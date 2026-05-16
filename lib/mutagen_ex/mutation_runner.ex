@@ -340,7 +340,18 @@ defmodule MutagenEx.MutationRunner do
     # `site.id` (content-addressed) is mandated by the ticket: keying by
     # `{line, column}` alone would collide for duplicate-position sites
     # against the same parent node.
-    cfg = Map.put(cfg, :mutated_ast_cache, build_mutated_ast_cache(sites, cfg.ast_cache))
+    mutated_ast_cache = build_mutated_ast_cache(sites, cfg.ast_cache)
+
+    # Test-only seam (`@doc false`-equivalent — not advertised in @moduledoc):
+    # `:on_cache_built` lets a test observe the post-build path-index shape
+    # so the load-bearing s14 contracts ("ONE prewalk per distinct file" and
+    # "key on site.id, not {line, column}") can be falsified by assertion
+    # rather than only by byte-identity. Production callers never pass it;
+    # default is a no-op. Receives `mutated_ast_cache :: %{file => %{id => path}}`.
+    on_cache_built = Map.get(cfg, :on_cache_built, fn _ -> :ok end)
+    _ = on_cache_built.(mutated_ast_cache)
+
+    cfg = Map.put(cfg, :mutated_ast_cache, mutated_ast_cache)
 
     initial = %{
       results: [],

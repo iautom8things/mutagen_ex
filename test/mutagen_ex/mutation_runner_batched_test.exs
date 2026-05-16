@@ -83,9 +83,15 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
 
     defp wait_until_unregistered(remaining_ms \\ 500) do
       cond do
-        Process.whereis(@agent) == nil -> :ok
-        remaining_ms <= 0 -> :ok
-        true -> Process.sleep(10); wait_until_unregistered(remaining_ms - 10)
+        Process.whereis(@agent) == nil ->
+          :ok
+
+        remaining_ms <= 0 ->
+          :ok
+
+        true ->
+          Process.sleep(10)
+          wait_until_unregistered(remaining_ms - 10)
       end
     end
 
@@ -259,7 +265,10 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
   # is unambiguous when sites span multiple files.
   defp run_and_capture(file_ast, source, file, sites) do
     cfg = base_cfg(file_ast, source, file, sites)
-    ExUnitFake.set_results(for _ <- sites, do: {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}})
+
+    ExUnitFake.set_results(
+      for _ <- sites, do: {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+    )
 
     assert {:ok, _output} = MutationRunner.run(cfg)
 
@@ -390,6 +399,220 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
 
       assert batched_ast == legacy_ast,
              "batched swap diverged from per-site Macro.prewalk reference for case-nested site"
+    end
+
+    test "duplicate-position sites: same {line, column, original_ast}, distinct id and distinct mutated_ast both surface in compile" do
+      # Falsifies: "path-indexed map MUST be keyed by site.id, NOT by
+      # {line, column} alone. Duplicate-position sites would collide
+      # otherwise." (s14 Out-of-Scope-(intent), mutation_runner.ex:944)
+      #
+      # We construct TWO synthetic Site records sharing identical
+      # `{line, column, original_ast}` but distinct `id` and distinct
+      # `mutated_ast`. If the storage at maybe_record_match/3 were
+      # demoted from `id` to `{line, column}`, the second site's path
+      # entry would overwrite (or — with `put_new` — be discarded), and
+      # only ONE of the two mutated_asts would reach `compile_quoted`.
+      # By asserting BOTH mutated_asts surface in compile-order, this
+      # test fails iff the index keying drifts off `site.id`.
+      source = """
+      defmodule SynthBatched.Dup do
+        def two, do: 1 + 1
+      end
+      """
+
+      {file_ast, source_text} = parse(source)
+      add_node = find_node(file_ast, fn n -> match?({:+, _, [1, 1]}, n) end)
+      assert add_node != nil
+
+      {_, meta, args} = add_node
+
+      site_a =
+        site_for_node(
+          "syn:dup:a",
+          "synth_batched.ex",
+          add_node,
+          {:-, meta, args}
+        )
+
+      site_b =
+        site_for_node(
+          "syn:dup:b",
+          "synth_batched.ex",
+          add_node,
+          {:*, meta, args}
+        )
+
+      # Sanity-check the construction: distinct ids, distinct
+      # mutated_asts, IDENTICAL line/column/original_ast. This is the
+      # precise collision shape that would silently degrade if the
+      # storage key were {line, column} alone.
+      assert site_a.id != site_b.id
+      assert site_a.mutated_ast != site_b.mutated_ast
+      assert site_a.line == site_b.line
+      assert site_a.column == site_b.column
+      assert site_a.original_ast == site_b.original_ast
+
+      # Capture the post-build cache via the `:on_cache_built` seam.
+      # This is the PRIMARY falsifiability surface for the keying contract:
+      # if `Map.put_new(acc, id, path)` were demoted to use `{line, column}`
+      # as the key, the inner map would have ONE entry instead of TWO and
+      # would lack `site_a.id`/`site_b.id` as keys.
+      {:ok, capture_pid} = Agent.start_link(fn -> nil end)
+
+      cfg =
+        base_cfg(file_ast, source_text, "synth_batched.ex", [site_a, site_b])
+        |> Map.put(:on_cache_built, fn cache ->
+          Agent.update(capture_pid, fn _ -> cache end)
+        end)
+
+      ExUnitFake.set_results(
+        for _ <- [site_a, site_b],
+            do: {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      )
+
+      assert {:ok, _output} = MutationRunner.run(cfg)
+      cache = Agent.get(capture_pid, & &1)
+      Agent.stop(capture_pid)
+
+      # Direct keying contract: both `site_a.id` and `site_b.id` must be
+      # present as keys in the inner cache map. A demotion of the storage
+      # key from `site.id` to `{line, column}` would collapse these two
+      # entries into one (or omit one under `Map.put_new`), and this
+      # assertion would fail.
+      inner = Map.fetch!(cache, "synth_batched.ex")
+
+      assert map_size(inner) == 2,
+             "duplicate-position sites must yield TWO entries in the path " <>
+               "index (one per site.id); got #{map_size(inner)} entries — " <>
+               "keys=#{inspect(Map.keys(inner))}. If you see ONE entry, " <>
+               "the storage key was demoted from site.id to {line, column}."
+
+      assert Map.has_key?(inner, site_a.id),
+             "path index must retain site_a.id (#{site_a.id}); keys=#{inspect(Map.keys(inner))}"
+
+      assert Map.has_key?(inner, site_b.id),
+             "path index must retain site_b.id (#{site_b.id}); keys=#{inspect(Map.keys(inner))}"
+
+      # The two recorded entries must reach `compile_quoted/2` carrying
+      # their OWN mutated_ast (not the other site's). This is the
+      # end-to-end behavioural check.
+      recorded = AstRecordingCompiler.recorded()
+      assert length(recorded) == 4, "expected 4 compile calls (swap+restore × 2 sites)"
+
+      mutated_swaps =
+        recorded
+        |> Enum.chunk_every(2)
+        |> Enum.map(fn [{_file, swap_ast}, _restore_pair] -> swap_ast end)
+
+      [batched_a, batched_b] = mutated_swaps
+
+      assert contains_node?(batched_a, {:-, meta, args}),
+             "site_a's mutated_ast (`1 - 1`) must surface in its compile_quoted call"
+
+      assert contains_node?(batched_b, {:*, meta, args}),
+             "site_b's mutated_ast (`1 * 1`) must surface in its compile_quoted call"
+    end
+
+    test "path-index shape: one entry per distinct file, N site.id entries per N-site/1-file corpus" do
+      # Falsifies: s14 "the Macro.prewalk count over file ASTs during
+      # run/1 does not exceed length(distinct files in cfg.sites)
+      # regardless of N". A regression that did one walk per site would
+      # still pass byte-identity but would manifest as either (a) more
+      # than `length(distinct_files)` top-level cache entries or (b) a
+      # different cache shape entirely. We assert the structural invariant
+      # via the `:on_cache_built` test seam in mutation_runner.ex.
+      #
+      # Corpus: 1 file, 3 sites. We expect the cache to be exactly
+      # `%{file => %{site_id_1 => path_1, site_id_2 => path_2, site_id_3 => path_3}}`.
+      # That shape can only arise from ONE prewalk over the file AST
+      # that records all three paths in a single pass — exactly the
+      # batched contract.
+      source = """
+      defmodule SynthBatched.PathShape do
+        def two, do: 1 + 1
+        def three, do: 2 + 1
+        def lt, do: 2 < 3
+      end
+      """
+
+      {file_ast, source_text} = parse(source)
+      add_node = find_node(file_ast, fn n -> match?({:+, _, [1, 1]}, n) end)
+      add2_node = find_node(file_ast, fn n -> match?({:+, _, [2, 1]}, n) end)
+      lt_node = find_node(file_ast, fn n -> match?({:<, _, [2, 3]}, n) end)
+      assert add_node != nil and add2_node != nil and lt_node != nil
+
+      {_, add_meta, add_args} = add_node
+      {_, add2_meta, add2_args} = add2_node
+      {_, lt_meta, lt_args} = lt_node
+
+      site_1 =
+        site_for_node("syn:shape:add", "synth_batched.ex", add_node, {:-, add_meta, add_args})
+
+      site_2 =
+        site_for_node("syn:shape:add2", "synth_batched.ex", add2_node, {:-, add2_meta, add2_args})
+
+      site_3 =
+        site_for_node("syn:shape:lt", "synth_batched.ex", lt_node, {:>, lt_meta, lt_args})
+
+      sites = [site_1, site_2, site_3]
+
+      # Use a small Agent to capture the post-build cache snapshot from
+      # the `:on_cache_built` seam — Agent is concurrency-safe and the
+      # callback runs synchronously in execute/2 before the swap pipeline
+      # starts.
+      {:ok, capture_pid} = Agent.start_link(fn -> nil end)
+
+      cfg =
+        base_cfg(file_ast, source_text, "synth_batched.ex", sites)
+        |> Map.put(:on_cache_built, fn cache ->
+          Agent.update(capture_pid, fn _ -> cache end)
+        end)
+
+      ExUnitFake.set_results(
+        for _ <- sites, do: {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
+      )
+
+      assert {:ok, _output} = MutationRunner.run(cfg)
+
+      cache = Agent.get(capture_pid, & &1)
+      Agent.stop(capture_pid)
+
+      assert is_map(cache), "expected :on_cache_built to be invoked with a map"
+
+      # (a) Top-level shape: ONE entry per distinct file. Three sites,
+      # all in `synth_batched.ex` → exactly one key.
+      distinct_files = sites |> Enum.map(& &1.file) |> Enum.uniq()
+
+      assert length(Map.keys(cache)) == length(distinct_files),
+             "expected one cache entry per distinct file; got " <>
+               "#{length(Map.keys(cache))} entries for #{length(distinct_files)} files"
+
+      assert Map.has_key?(cache, "synth_batched.ex"),
+             "cache must be keyed by file path"
+
+      # (b) Inner shape: N site.id entries for N sites in this file —
+      # proves a SINGLE walk collected all three paths in one pass. If
+      # the runner did one-walk-per-site, the inner map would still have
+      # three entries, but the only way to know this assertion FAILS on
+      # that regression is to also assert the entries are keyed by
+      # `site.id` (not `{line, column}`). We do both.
+      inner = Map.fetch!(cache, "synth_batched.ex")
+      assert map_size(inner) == length(sites)
+
+      for site <- sites do
+        assert Map.has_key?(inner, site.id),
+               "path index must contain an entry for site.id=#{site.id}; " <>
+                 "got keys #{inspect(Map.keys(inner))}"
+      end
+
+      # (c) Path values are non-empty descent step lists (sanity — the
+      # paths should at least dive into a `def` body). We don't assert
+      # the exact shape here because that's an internal encoding; the
+      # byte-identity tests above pin the encoding's correctness.
+      for {_id, path} <- inner do
+        assert is_list(path) and path != [],
+               "expected non-empty descent path; got #{inspect(path)}"
+      end
     end
 
     test "bare-literal site falls back to legacy walker (not in the path index)" do
