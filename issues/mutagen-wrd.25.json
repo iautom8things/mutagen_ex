@@ -23,11 +23,15 @@
     {
       "text": "DELIVER: closing epic.\n\nAll 7 critical-path children (.25.1–.25.7) closed via orchestrator verify/audit/merge-back pipeline. Epic branch epic/mutagen-wrd preserved at 0db66a0 awaiting human-checkpoint PR review against main.\n\nOpen follow-ups (intentional, non-blocking; kept open):\n- mutagen-wrd.25.8 (S2-fu: wire ast_cache into phase_baseline production path) — capability landed in .25.3; runtime wiring scope-expanded per orchestrator authority since .25.3 Allowed-touches excluded the wiring file\n- mutagen-wrd.25.9 (BUG: flaky atom-count test r8 invariant order-dependence) — pre-existing flake originating in .25.2, surfaced during .25.3 rebase\n- mutagen-wrd.36 (Triage .25 speedup shortfall to 2-4x target) — filed at mutagen-wrd level per .25.7 spec \"if speedup \u003c 2x\" clause; observed 1.66x vs 2-4x target\n\nClosing .25 unblocks mutagen-wrd.29 and mutagen-wrd.31.",
       "timestamp": "2026-05-16T11:54:59Z"
+    },
+    {
+      "text": "ORCHESTRATED\nChildren closed: 7 (.25.1, .25.2, .25.3, .25.4, .25.5, .25.6, .25.7)\nBOUNCEs encountered: 2\n  - mutagen-wrd.25.2 iter 2: missing falsifiability for scope_resolution.r9 + retroactive authorization for test_module_discovery.ex\n  - mutagen-wrd.25.5 iter 2: structural-only coverage on r16 site.id-keying + s14 prewalk-count clauses (needed dedicated tests)\nUser escalations: 0\nAudit-expanded scope authorizations: 2 retroactive (.25.2 + .25.6)\nScope-expansion follow-up subtickets filed: 2 + 1\n  - mutagen-wrd.25.8 (S2-fu prod wiring; non-blocking)\n  - mutagen-wrd.25.9 (flaky atom-count test root-cause; non-blocking)\n  - mutagen-wrd.36 (speedup-shortfall triage; filed by .25.7 worker per ticket spec)\nBookkeeping commits on epic branch: 2\n  - 792acea (mega-plan spec + 5 decisions)\n  - b343109 (mix format fix on ast_donor_equivalence_test.exs)\nFinal epic-branch tip: 0db66a0\nCritical-path test count: 517 → 628 (+111 across the 7 stages)\n\nEpic branch is ready for a single PR to main — deliberate human checkpoint per workflow rules. Orchestrator did NOT push or open a PR.",
+      "timestamp": "2026-05-16T11:55:34Z"
     }
   ],
   "priority": 3,
   "status": "closed",
   "title": "MEGA: AST/perf consolidation — MutagenEx.Ast + extended cache + batched prewalk + .beam restore",
   "type": "task",
-  "updated_at": "2026-05-16T11:55:02Z"
+  "updated_at": "2026-05-16T11:55:34Z"
 }
