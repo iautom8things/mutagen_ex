@@ -26,8 +26,10 @@ status: draft
 summary: Deterministic mutation-site enumeration with validate-aware skip tracking.
 surface:
   - lib/mutagen_ex/mutation_enumerator.ex
+  - lib/mutagen_ex/mutators/dispatch.ex
 decisions:
   - mutagen.decision.validate_predicates
+  - mutagen.decision.static_mutator_dispatch
 ```
 
 ```spec-requirements
@@ -118,6 +120,45 @@ decisions:
     `nil` and the consumer (the JSON renderer's `before_source`
     path, see `mutagen.json_schema.r4`) falls back to
     `Macro.to_string/1`.
+
+- id: mutagen.mutation_enumeration.r9
+  priority: must
+  statement: |
+    Before consulting each catalog mutator's `match?/1` at a given
+    AST node, the enumerator MUST pre-filter the mutator list to
+    a sub-sequence of the input list using a static, order-
+    preserving head-atom dispatch table
+    (`MutagenEx.Mutators.Dispatch.mutators_for_node/1`, per
+    `mutagen.decision.static_mutator_dispatch`). The pre-filter
+    has TWO contractual properties:
+
+      * **Equivalence:** for every AST node and every mutator
+        `M` in the input list, `M.match?(node) == true` if and
+        only if `M` appears in the pre-filter's output for
+        `node` AND `M.match?(node) == true`. Stated as a set:
+        the set of mutators that `match?` accepts is identical
+        whether the enumerator iterates the full input list or
+        only the pre-filtered sub-sequence.
+
+      * **Order-preservation:** the pre-filter never re-orders.
+        For any two mutators `A, B` in the pre-filtered output,
+        if `A` appears before `B` in the input list then `A`
+        appears before `B` in the output. Concretely the
+        pre-filter is a sub-sequence (in the strict
+        list-as-sequence sense) of the input list — same
+        relative order, possibly fewer elements.
+
+    Order-preservation is the property that keeps site emission
+    order byte-identical between the pre-dispatch and post-
+    dispatch implementations; combined with `r1` it locks
+    byte-identity of `mutation.results[].id` order across runs.
+
+    The dispatch behaviour is exercised against `Mutators.all/0`
+    (the legacy "iterate every catalog entry" path) via an
+    internal `:dispatch_mode` option on `enumerate/4`
+    (`:head_atom` is the production default; `:legacy` is the
+    test seam used by the equivalence test). The option is NOT
+    a public API and is NOT exposed by the Mix task.
 ```
 
 ```spec-scenarios
@@ -208,6 +249,27 @@ decisions:
     `a` at column 22) defines the source range that
     `Macro.to_string(original_ast)` printed; slicing
     `source_text` by that range yields exactly `"a + b"`.
+
+- id: mutagen.mutation_enumeration.s9
+  covers: [mutagen.mutation_enumeration.r9]
+  given: |
+    A representative corpus of source fragments exercising every
+    head atom in the dispatch table (`:+`, `:-`, `:*`, `:/`, `:==`,
+    `:!=`, `:<`, `:>`, `:<=`, `:>=`, `:and`, `:or`, `:&&`, `:||`,
+    `:not`, `:!`, `:with`, `:if`, `:case`, `:cond`, `:|>`, `:when`)
+    plus the non-3-tuple shapes the `:any` mutators target (bare
+    `true`/`false`/`0`/`1`/`-1`, `{:__block__, _, [literal]}`
+    wrappers, `{:ok, _}` / `{:error, _}` 2-tuples).
+  when: |
+    The enumerator runs against the corpus once with
+    `dispatch_mode: :head_atom` and once with
+    `dispatch_mode: :legacy`.
+  then: |
+    The two `%{sites: _, skipped: _, warnings: _}` maps are equal,
+    including site order. Per-node, the set of mutators whose
+    `match?/1` accepts that node is identical under both paths
+    (correctness), AND the order of the candidate list relative
+    to `Mutators.all/0` is the same (byte-identity).
 ```
 
 ```spec-verification
@@ -233,5 +295,11 @@ decisions:
   covers: [mutagen.mutation_enumeration.r7]
   kind: command
   command: mix test test/mutagen_ex/mutation_enumerator_test.exs
+  execute: true
+
+- id: mutagen.mutation_enumeration.v5
+  covers: [mutagen.mutation_enumeration.r9]
+  kind: command
+  command: mix test test/mutagen_ex/head_atom_dispatch_test.exs
   execute: true
 ```

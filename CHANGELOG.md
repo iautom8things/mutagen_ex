@@ -7,6 +7,30 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Head-atom dispatch table for the mutator catalog.** New module
+  `MutagenEx.Mutators.Dispatch` carries a static, order-preserving
+  mapping from AST head atom (`:+`, `:case`, `:with`, …) to mutator
+  list, plus an `:any` bucket for mutators that match non-3-tuple
+  shapes (`Literal` for bare scalars / `{:__block__, _, [v]}`
+  wrappers; `ResultTuple` for `{:ok, _}` / `{:error, _}` 2-tuples).
+  `MutagenEx.MutationEnumerator.try_mutators/6` consults
+  `Dispatch.mutators_for_node/1` to pre-filter the catalog before
+  calling `match?/1` per node — `O(nodes × catalog)` becomes
+  `O(nodes × applicable_mutators)`. No mutator behaviour change; the
+  ten mutator modules are untouched. Per
+  `mutagen.decision.static_mutator_dispatch`. The
+  `:dispatch_mode` option on `enumerate/4` (`:head_atom` default,
+  `:legacy` for the equivalence test) is an internal test seam — it
+  is NOT documented in the public API and NOT exposed via
+  `mix mutagen`. New requirement `mutagen.mutation_enumeration.r9`
+  and equivalence test
+  `test/mutagen_ex/head_atom_dispatch_test.exs` lock the
+  correctness (same mutators consulted per node) and order-
+  preservation (byte-identity / r1) properties.
+  *(mutagen-wrd.25.4.)*
+
 ### Changed
 
 - **Shared AST helpers lifted into `MutagenEx.Ast`.** The

@@ -129,6 +129,7 @@ defmodule MutagenEx.MutationEnumerator do
 
   alias MutagenEx.Ast
   alias MutagenEx.Mutators
+  alias MutagenEx.Mutators.Dispatch
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.ScopeResolver.Scope
 
@@ -171,6 +172,22 @@ defmodule MutagenEx.MutationEnumerator do
       of materialising more sites than requested. Default is unbounded
       (callers that want the cap MUST pass it; the Mix task threads
       `Config.max_sites` in).
+    * `:dispatch_mode` — `:head_atom` (default) or `:legacy`. Internal
+      test seam exposing how the per-node mutator candidate list is
+      computed:
+
+        - `:head_atom` consults
+          `MutagenEx.Mutators.Dispatch.mutators_for_node/1` to
+          pre-filter the catalog by the node's head atom before
+          calling `match?/1` on each (per
+          `mutagen.decision.static_mutator_dispatch`). This is the
+          production path.
+        - `:legacy` calls `match?/1` on every mutator in `:mutators`
+          for every node — the pre-dispatch behaviour. ONLY used by
+          the head-atom equivalence test
+          (`test/mutagen_ex/head_atom_dispatch_test.exs`) to prove the
+          two paths produce identical output. NOT a public API; the
+          Mix task does not expose this knob.
   """
   @impl MutagenEx.Pipeline.EnumeratorFacade
   @spec enumerate(map(), [Scope.t()], map(), keyword) :: result | error
@@ -178,12 +195,19 @@ defmodule MutagenEx.MutationEnumerator do
       when is_map(ast_cache) and is_list(scope_records) and is_map(covered_lines) do
     mutators = Keyword.get(opts, :mutators, Mutators.all())
     max_sites = Keyword.get(opts, :max_sites)
+    dispatch_mode = Keyword.get(opts, :dispatch_mode, :head_atom)
+
+    unless dispatch_mode in [:head_atom, :legacy] do
+      raise ArgumentError,
+            "MutagenEx.MutationEnumerator.enumerate/4: " <>
+              ":dispatch_mode must be :head_atom or :legacy, got #{inspect(dispatch_mode)}"
+    end
 
     initial = %{sites: [], skipped: [], warnings: []}
 
     final =
       Enum.reduce(scope_records, initial, fn scope, acc ->
-        enumerate_scope(scope, ast_cache, covered_lines, mutators, acc)
+        enumerate_scope(scope, ast_cache, covered_lines, mutators, dispatch_mode, acc)
       end)
 
     site_count = length(final.sites)
@@ -220,6 +244,7 @@ defmodule MutagenEx.MutationEnumerator do
          ast_cache,
          covered_lines,
          mutators,
+         dispatch_mode,
          acc
        ) do
     case Map.fetch(ast_cache, file) do
@@ -242,7 +267,7 @@ defmodule MutagenEx.MutationEnumerator do
             covered = Map.get(covered_lines, file, MapSet.new())
             before_count = {length(acc.sites), length(acc.skipped)}
 
-            acc_after = walk_body(body, scope, covered, mutators, acc)
+            acc_after = walk_body(body, scope, covered, mutators, dispatch_mode, acc)
 
             if {length(acc_after.sites), length(acc_after.skipped)} == before_count do
               # Scope produced nothing — neither sites nor skips. Warn per r5.
@@ -287,14 +312,14 @@ defmodule MutagenEx.MutationEnumerator do
   # tuple downward. When `try_one_mutator/5` is consulted for a node, it
   # uses the node's own positional metadata if present, else the ambient
   # tuple from the nearest enclosing 3-tuple.
-  defp walk_body(body, scope, covered, mutators, acc) do
-    walk_tree(body, _ambient = {nil, 1}, scope, covered, mutators, acc)
+  defp walk_body(body, scope, covered, mutators, dispatch_mode, acc) do
+    walk_tree(body, _ambient = {nil, 1}, scope, covered, mutators, dispatch_mode, acc)
   end
 
   # Pre-order recursion. The visit happens BEFORE descent, which matches
   # `Macro.prewalk` semantics. `ambient` is `{ambient_line, ambient_column}`.
-  defp walk_tree(node, ambient, scope, covered, mutators, acc) do
-    acc = try_mutators(node, ambient, scope, covered, mutators, acc)
+  defp walk_tree(node, ambient, scope, covered, mutators, dispatch_mode, acc) do
+    acc = try_mutators(node, ambient, scope, covered, mutators, dispatch_mode, acc)
 
     case node do
       {form, meta, args} when is_list(meta) ->
@@ -309,11 +334,11 @@ defmodule MutagenEx.MutationEnumerator do
         # is structured) and the args. Variables have shape
         # `{name, meta, nil}` where `args` is `nil` (no children); list-
         # valued args are children to walk.
-        acc = maybe_walk_node(form, new_ambient, scope, covered, mutators, acc)
+        acc = maybe_walk_node(form, new_ambient, scope, covered, mutators, dispatch_mode, acc)
 
         case args do
           children when is_list(children) ->
-            walk_children(children, new_ambient, scope, covered, mutators, acc)
+            walk_children(children, new_ambient, scope, covered, mutators, dispatch_mode, acc)
 
           _ ->
             acc
@@ -323,11 +348,11 @@ defmodule MutagenEx.MutationEnumerator do
         # Two-tuples in AST (e.g. keyword tuples, do/else pairs). Walk
         # both halves under the same ambient — no new positional info to
         # propagate.
-        acc = walk_tree(a, ambient, scope, covered, mutators, acc)
-        walk_tree(b, ambient, scope, covered, mutators, acc)
+        acc = walk_tree(a, ambient, scope, covered, mutators, dispatch_mode, acc)
+        walk_tree(b, ambient, scope, covered, mutators, dispatch_mode, acc)
 
       list when is_list(list) ->
-        walk_children(list, ambient, scope, covered, mutators, acc)
+        walk_children(list, ambient, scope, covered, mutators, dispatch_mode, acc)
 
       _atom_or_literal ->
         # Leaf — already visited above. Nothing to recurse into.
@@ -336,9 +361,10 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   # Walk a list of children left-to-right with a shared ambient.
-  defp walk_children(children, ambient, scope, covered, mutators, acc) when is_list(children) do
+  defp walk_children(children, ambient, scope, covered, mutators, dispatch_mode, acc)
+       when is_list(children) do
     Enum.reduce(children, acc, fn child, child_acc ->
-      walk_tree(child, ambient, scope, covered, mutators, child_acc)
+      walk_tree(child, ambient, scope, covered, mutators, dispatch_mode, child_acc)
     end)
   end
 
@@ -347,20 +373,58 @@ defmodule MutagenEx.MutationEnumerator do
   # recurse if it's a non-atom AST node — bare atoms have no further
   # structure and `try_mutators` already had its shot during the parent
   # visit (no mutator in the catalog matches a bare atom).
-  defp maybe_walk_node(form, _ambient, _scope, _covered, _mutators, acc) when is_atom(form),
-    do: acc
+  defp maybe_walk_node(form, _ambient, _scope, _covered, _mutators, _dispatch_mode, acc)
+       when is_atom(form),
+       do: acc
 
-  defp maybe_walk_node(form, ambient, scope, covered, mutators, acc) do
-    walk_tree(form, ambient, scope, covered, mutators, acc)
+  defp maybe_walk_node(form, ambient, scope, covered, mutators, dispatch_mode, acc) do
+    walk_tree(form, ambient, scope, covered, mutators, dispatch_mode, acc)
   end
 
   # Try each mutator on a single AST node. A node may match more than one
   # mutator; each matching mutator produces its own site (or skip).
-  defp try_mutators(node, ambient, scope, covered, mutators, acc) do
-    Enum.reduce(mutators, acc, fn mutator, inner_acc ->
+  #
+  # Per `mutagen.decision.static_mutator_dispatch`: when `dispatch_mode`
+  # is `:head_atom` (the production default), the catalog is pre-filtered
+  # by the node's head atom via
+  # `MutagenEx.Mutators.Dispatch.mutators_for_node/1`. Mutators whose
+  # `match?/1` could not possibly match `node` based on head alone are
+  # never asked. Order is preserved relative to `mutators` because
+  # Dispatch returns a sub-sequence of `Mutators.all/0`, and we
+  # intersect that sub-sequence with `mutators` while keeping
+  # `mutators`'s ordering (see `pre_filter_mutators/2`).
+  #
+  # When `dispatch_mode` is `:legacy`, the pre-filter is skipped and
+  # every mutator in `mutators` is asked. This path exists ONLY for the
+  # head-atom equivalence test
+  # (`test/mutagen_ex/head_atom_dispatch_test.exs`); it is not exposed
+  # via the Mix task.
+  defp try_mutators(node, ambient, scope, covered, mutators, dispatch_mode, acc) do
+    candidates = pre_filter_mutators(node, mutators, dispatch_mode)
+
+    Enum.reduce(candidates, acc, fn mutator, inner_acc ->
       try_one_mutator(mutator, node, ambient, scope, covered, inner_acc)
     end)
   end
+
+  # Filter `mutators` down to the sub-sequence that could possibly match
+  # `node`, preserving the relative order of `mutators`. When mode is
+  # `:legacy`, no filtering happens.
+  #
+  # Correctness: `Dispatch.mutators_for_node/1` returns the full set of
+  # candidates ordered as `Mutators.all/0`; we intersect against the
+  # caller-supplied `mutators` list (which may itself be a strict
+  # subset of `Mutators.all/0`, e.g. arith-only in a unit test) while
+  # keeping `mutators`'s order. The result is therefore a sub-sequence
+  # of `mutators`, identical in order. This preserves byte-identity of
+  # site emission order (r1) when callers pass a non-default
+  # `:mutators` list.
+  defp pre_filter_mutators(node, mutators, :head_atom) do
+    candidate_set = MapSet.new(Dispatch.mutators_for_node(node))
+    Enum.filter(mutators, &MapSet.member?(candidate_set, &1))
+  end
+
+  defp pre_filter_mutators(_node, mutators, :legacy), do: mutators
 
   defp try_one_mutator(mutator, node, ambient, %Scope{file: file} = _scope, covered, acc) do
     if mutator.match?(node) do
