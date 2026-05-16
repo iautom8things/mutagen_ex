@@ -88,6 +88,7 @@ defmodule MutagenEx.ScopeResolver do
   be present (e.g. `:file` for `:file_not_found`).
   """
 
+  alias MutagenEx.Ast
   alias MutagenEx.ScopeResolver.Scope
 
   @behaviour MutagenEx.Pipeline.ScopeFacade
@@ -449,7 +450,7 @@ defmodule MutagenEx.ScopeResolver do
   end
 
   defp extract_defmodule({:defmodule, _meta, [alias_ast, [do: _body]]} = node) do
-    case alias_to_module(alias_ast) do
+    case Ast.alias_to_module(alias_ast) do
       nil -> :no
       mod -> {:ok, mod, node_line_range(node)}
     end
@@ -457,28 +458,24 @@ defmodule MutagenEx.ScopeResolver do
 
   defp extract_defmodule(_), do: :no
 
-  defp alias_to_module({:__aliases__, _, parts}) when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1) do
-      Module.concat(parts)
-    else
-      nil
-    end
-  end
-
-  defp alias_to_module(mod) when is_atom(mod), do: mod
-  defp alias_to_module(_), do: nil
-
   # Locate the `defmodule mod` block specifically, returning its line range,
   # its inner body AST (the AST under `[do: ...]`), AND the matched module
   # atom (which comes from the AST — `r8`, mutagen-wrd.20). `target_mod_str`
   # is compared against `Atom.to_string/1` of each `:__aliases__`-derived
   # module atom, so the user's input is never passed through
   # `String.to_atom/1`.
+  #
+  # This is NOT the same as `MutagenEx.Ast.find_module_body/2`: this
+  # variant returns the line range and module atom too, which the
+  # resolver needs for the `%Scope{}` record. The bare body lookup in
+  # `MutagenEx.Ast` is enough for the enumerator and runner, but the
+  # resolver needs the extra metadata. The shared piece — alias→module
+  # conversion — flows through `MutagenEx.Ast.alias_to_module/1`.
   defp find_defmodule_block(ast, target_mod_str) do
     {_ast, acc} =
       Macro.prewalk(ast, :not_found, fn
         {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
-          case alias_to_module(alias_ast) do
+          case Ast.alias_to_module(alias_ast) do
             nil ->
               {node, :not_found}
 
@@ -693,9 +690,17 @@ defmodule MutagenEx.ScopeResolver do
     [inspect(description), " ", inspect(token)]
   end
 
+  # F30 / CF7 determinism contract (mutagen.scope_resolution.r9): the
+  # default `Path.wildcard/1` result order is file-system-dependent
+  # (HFS+ sorts; ext4 returns inode order). Sort lexicographically here
+  # so module-name target resolution visits files in a stable order
+  # regardless of host, preserving the byte-identical-output guarantee
+  # in `mutagen.mutation_pipeline.r15`. Explicit `:source_files` lists
+  # are caller-controlled and not re-sorted (the caller already chose
+  # an order).
   defp source_files(opts) do
     case Keyword.get(opts, :source_files) do
-      nil -> Path.wildcard(@default_source_glob)
+      nil -> @default_source_glob |> Path.wildcard() |> Enum.sort()
       list when is_list(list) -> list
     end
   end

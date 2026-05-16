@@ -102,7 +102,7 @@ defmodule MutagenEx.TestModuleDiscovery do
     {_, acc} =
       Macro.prewalk(ast, [], fn
         {:defmodule, _meta, [alias_ast, [do: _body]]} = node, acc ->
-          case alias_to_module(alias_ast) do
+          case MutagenEx.Ast.alias_to_module(alias_ast) do
             nil -> {node, acc}
             mod -> {node, [mod | acc]}
           end
@@ -114,12 +114,12 @@ defmodule MutagenEx.TestModuleDiscovery do
     Enum.reverse(acc)
   end
 
-  defp alias_to_module({:__aliases__, _meta, parts}) when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1), do: Module.concat(parts), else: nil
-  end
-
-  defp alias_to_module(mod) when is_atom(mod), do: mod
-  defp alias_to_module(_), do: nil
+  # `alias_to_module/1` was lifted to `MutagenEx.Ast` per `mutagen.ast`
+  # (mutagen-wrd.25.2). This module routes through that canonical
+  # surface so the `mutagen.ast.r4` grep contract ("no `defp
+  # alias_to_module` remains under `lib/mutagen_ex/`") holds across
+  # every donor — including this one, which the original ticket
+  # enumeration missed but the `r4` spec requirement covers.
 
   defp default_cfg, do: %{async?: false, group: nil, parameterize: nil}
 end

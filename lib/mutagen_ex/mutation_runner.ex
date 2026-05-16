@@ -123,6 +123,7 @@ defmodule MutagenEx.MutationRunner do
   or `:unrecoverable_restore_failure`.
   """
 
+  alias MutagenEx.Ast
   alias MutagenEx.AstCache
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.MutationRunner.MutationLoop
@@ -265,7 +266,7 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp uses_in_module_ast(ast, target_mod) do
-    case find_module_body(ast, target_mod) do
+    case Ast.find_module_body(ast, Atom.to_string(target_mod)) do
       :not_found ->
         []
 
@@ -273,7 +274,7 @@ defmodule MutagenEx.MutationRunner do
         {_, list} =
           Macro.prewalk(body, [], fn
             {:use, _meta, [used | _rest]} = node, acc ->
-              case alias_to_module(used) do
+              case Ast.alias_to_module(used) do
                 nil -> {node, acc}
                 mod -> {node, [mod | acc]}
               end
@@ -286,28 +287,9 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  defp find_module_body(ast, target_mod) do
-    {_ast, acc} =
-      Macro.prewalk(ast, :not_found, fn
-        {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
-          case alias_to_module(alias_ast) do
-            ^target_mod -> {node, {:ok, body}}
-            _ -> {node, :not_found}
-          end
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    acc
-  end
-
-  defp alias_to_module({:__aliases__, _, parts}) when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1), do: Module.concat(parts), else: nil
-  end
-
-  defp alias_to_module(mod) when is_atom(mod), do: mod
-  defp alias_to_module(_), do: nil
+  # `alias_to_module/1` and `find_module_body/2` were lifted to
+  # `MutagenEx.Ast` per `mutagen.ast` (mutagen-wrd.25.2). Routes through
+  # that canonical surface.
 
   # ---------------------------------------------------------------------------
   # Main per-site loop — async_stream over sites with ordered collection

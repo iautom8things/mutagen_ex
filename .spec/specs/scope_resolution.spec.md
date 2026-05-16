@@ -103,6 +103,22 @@ decisions:
     (mutagen-wrd.20): `:erlang.system_info(:atom_count)` is unchanged across
     N calls to `resolve/2` with N distinct never-registered module-shaped or
     MFA-shaped targets (e.g. `Nope.#{n}`, `Nope.#{n}.bar/1`).
+
+- id: mutagen.scope_resolution.r9
+  priority: must
+  statement: |
+    For module-shaped and MFA-shaped targets, when no explicit
+    `:source_files` option is supplied, the default
+    `Path.wildcard("lib/**/*.ex")` result is sorted lexicographically
+    (via `Enum.sort/1`) before being searched. This closes the F30 / CF7
+    determinism risk: `Path.wildcard/1`'s order is file-system-dependent
+    (HFS+ sorts; ext4 returns inode order), so two hosts could otherwise
+    pick a different file when multiple sources happen to declare the
+    same `defmodule`. The sort makes the chosen file deterministic across
+    hosts, preserving the byte-identical-output gate in
+    `mutagen.mutation_pipeline.r15`. Callers passing an explicit
+    `:source_files` list are not re-sorted — the caller already chose
+    the order.
 ```
 
 ```spec-scenarios
@@ -181,6 +197,21 @@ decisions:
     invariant holds for MFA-shaped targets (`NopeN.bar/1`): no atom is
     created from `NopeN` or from the function-name segment `bar` when
     `bar` is not already a registered atom.
+
+- id: mutagen.scope_resolution.s9
+  covers: [mutagen.scope_resolution.r9]
+  given: |
+    A project source layout where `Path.wildcard("lib/**/*.ex")` would
+    return files in some host-dependent order (the contract here is
+    properties of the resolver's behaviour, not of the underlying
+    file system).
+  when: |
+    `resolve/2` is called twice for the same module target with no
+    `:source_files` option, on the same project.
+  then: |
+    Both calls iterate the candidate file list in the same lexicographic
+    order. The implementation `MutagenEx.ScopeResolver.source_files/1`
+    wraps the wildcard result in `Enum.sort/1` before returning.
 ```
 
 ```spec-verification

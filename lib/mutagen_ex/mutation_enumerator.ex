@@ -127,6 +127,7 @@ defmodule MutagenEx.MutationEnumerator do
   The property test exercises this on randomly generated input tuples.
   """
 
+  alias MutagenEx.Ast
   alias MutagenEx.Mutators
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.ScopeResolver.Scope
@@ -231,7 +232,7 @@ defmodule MutagenEx.MutationEnumerator do
         %{acc | warnings: [{:ast_cache_miss, file, module} | acc.warnings]}
 
       {:ok, ast} ->
-        case find_module_body(ast, module) do
+        case Ast.find_module_body(ast, Atom.to_string(module)) do
           :not_found ->
             # The scope record names a module we cannot find in the cached
             # AST — same "programmer error" shape as above. Warn and move on.
@@ -423,7 +424,7 @@ defmodule MutagenEx.MutationEnumerator do
   # present; otherwise inherit from the nearest enclosing 3-tuple
   # (`ambient`).
   defp effective_position(node, {ambient_line, ambient_column}) do
-    line = node_line(node) || ambient_line
+    line = Ast.node_line(node) || ambient_line
     column = node_column_or_nil(node) || ambient_column || 1
     {line, column}
   end
@@ -439,39 +440,12 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   # --- AST helpers ----------------------------------------------------------
-
-  # Locate the body AST for `defmodule mod do ... end` inside an AST. This
-  # is r4: enumeration walks only the named module's subtree; sibling
-  # `defmodule` blocks in the same file are not visited.
-  defp find_module_body(ast, target_mod) do
-    {_ast, acc} =
-      Macro.prewalk(ast, :not_found, fn
-        {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
-          case alias_to_module(alias_ast) do
-            ^target_mod -> {node, {:ok, body}}
-            _ -> {node, :not_found}
-          end
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    acc
-  end
-
-  defp alias_to_module({:__aliases__, _, parts}) when is_list(parts) do
-    if Enum.all?(parts, &is_atom/1) do
-      Module.concat(parts)
-    else
-      nil
-    end
-  end
-
-  defp alias_to_module(mod) when is_atom(mod), do: mod
-  defp alias_to_module(_), do: nil
-
-  defp node_line({_form, meta, _args}) when is_list(meta), do: Keyword.get(meta, :line)
-  defp node_line(_), do: nil
+  #
+  # `alias_to_module/1`, `find_module_body/2`, and `node_line/1` were
+  # lifted to `MutagenEx.Ast` per `mutagen.ast` (mutagen-wrd.25.2). This
+  # module routes through that canonical surface. `node_column_or_nil/1`
+  # is enumerator-specific (only the ambient-position threading needs
+  # column-aware fallback) and stays here.
 
   # `nil` if the node has no `:column` metadata of its own. Used by
   # `effective_position/2` so missing columns can fall back to the

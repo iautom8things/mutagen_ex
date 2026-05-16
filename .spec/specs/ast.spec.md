@@ -184,7 +184,7 @@ decisions: []
   covers: [mutagen.ast.r1, mutagen.ast.r2, mutagen.ast.r3]
   kind: source_file
   path: test/mutagen_ex/ast_test.exs
-  execute: false
+  execute: true
   description: |
     Unit tests for each public function: positive cases (alias tuple,
     bare atom, target found, target missing, node with :line metadata,
@@ -194,7 +194,7 @@ decisions: []
   covers: [mutagen.ast.r4]
   kind: command
   command: "grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
-  execute: false
+  execute: true
   description: |
     Mechanical check that no donor module still carries a private duplicate
     of the lifted helpers. Expected output is empty.
@@ -203,7 +203,7 @@ decisions: []
   covers: [mutagen.ast.r5]
   kind: source_file
   path: test/mutagen_ex/ast_donor_equivalence_test.exs
-  execute: false
+  execute: true
   description: |
     Property-style equivalence test. The pre-.25 donor implementations are
     preserved verbatim as fixture functions; for each AST in a representative

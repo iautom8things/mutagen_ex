@@ -1,13 +1,13 @@
 defmodule MutagenEx.DeterminismTest do
   @moduledoc """
-  S0 pre-flight determinism baseline — bw mutagen-wrd.25.1.
+  Determinism safety-net — bw mutagen-wrd.25.1 (S0) re-targeted to the
+  wrd25 fixture in bw mutagen-wrd.25.2 (S1).
 
   This is the safety-net test that anchors the wrd25 refactor epic.
-  Before any of the AST-lift / batched-prewalk / cache-extension work
-  in S1-S6 begins, this test pins the property the whole epic must
-  preserve: **two consecutive invocations of the `mix mutagen`
-  pipeline against the same input produce byte-identical JSON
-  output**. See `mutagen.decision.serial_execution_and_seed` and
+  It pins the property the whole epic must preserve: **two
+  consecutive invocations of the `mix mutagen` pipeline against the
+  same input produce byte-identical JSON output**. See
+  `mutagen.decision.serial_execution_and_seed` and
   `mutagen.mutation_pipeline.r15` for the determinism contract.
 
   ## Why this lives here, not in EndToEndTest
@@ -22,12 +22,12 @@ defmodule MutagenEx.DeterminismTest do
 
   ## What this test does
 
-  1. Compiles the lane fixture's `arith.ex` into a tmp ebin (cover's
-     `compile_beam/1` precondition) and reloads from disk — same
-     setup `EndToEndTest` uses.
-  2. Runs `Mix.Tasks.Mutagen.run/2` against `lib/lane_fixture/arith.ex`
-     with `--seed 0` and `--timeout-ms 2000`. Captures the emitted
-     JSON iodata.
+  1. Compiles the wrd25 fixture's `arith_dense.ex` into a tmp ebin
+     (cover's `compile_beam/1` precondition) and reloads from disk —
+     same setup `EndToEndTest` uses.
+  2. Runs `Mix.Tasks.Mutagen.run/2` against
+     `lib/arith_dense.ex` with `--seed 0` and `--timeout-ms 2000`.
+     Captures the emitted JSON iodata.
   3. Resets per-scenario state (`:cover.stop`, beam reload,
      `Code.compile_file` of the cited test file).
   4. Runs the same invocation again, captures iodata.
@@ -36,12 +36,13 @@ defmodule MutagenEx.DeterminismTest do
 
   ## Targeting
 
-  Currently targets the existing lane-fixture scope
-  `lib/lane_fixture/arith.ex`. Per the bw mutagen-wrd.25.1 ticket
-  description, S1 lands a dedicated 200-site fixture at
-  `priv/helper_scripts/bench_fixtures/wrd25_200sites/` and re-points
-  this test at it. The contract being tested does not change with
-  the retarget — only the input size.
+  Targets the wrd25 200-site bench fixture at
+  `priv/helper_scripts/bench_fixtures/wrd25_200sites/`. Specifically
+  scopes to one of the fixture's dense modules
+  (`lib/arith_dense.ex`) — that's enough surface area to flush out
+  ordering drift in the helper-lift / sorted-wildcard paths without
+  pushing the e2e_slow runtime past its budget. The contract being
+  tested does not change with the retarget — only the input.
 
   ## Tagging
 
@@ -58,13 +59,18 @@ defmodule MutagenEx.DeterminismTest do
   @moduletag :integration
   @moduletag timeout: 600_000
 
-  @lane_project_dir Path.expand("../fixtures/lane_project", __DIR__)
-  @lane_lib_dir Path.join(@lane_project_dir, "lib/lane_fixture")
+  @lane_project_dir Path.expand(
+                      "../../priv/helper_scripts/bench_fixtures/wrd25_200sites",
+                      __DIR__
+                    )
+  @lane_lib_dir Path.join(@lane_project_dir, "lib")
 
-  # Minimal set sufficient for the arith scope. Keep this list short
-  # — the S0 test should be fast and self-contained.
+  # The wrd25 fixture is a Mix project (priv/helper_scripts/.../mix.exs);
+  # we only need to compile the file we're going to scope to, plus the
+  # ones its tests refer to. Keep the list short — the determinism
+  # test should be fast.
   @lane_fixture_files [
-    "arith.ex"
+    "arith_dense.ex"
   ]
 
   setup_all do
@@ -100,12 +106,12 @@ defmodule MutagenEx.DeterminismTest do
   end
 
   describe "deterministic JSON output across consecutive runs (mutagen.r2 contract)" do
-    test "two runs of mix mutagen against arith.ex produce byte-identical iodata", ctx do
+    test "two runs of mix mutagen against arith_dense.ex produce byte-identical iodata", ctx do
       argv = [
         "--scope",
-        "lib/lane_fixture/arith.ex",
+        "lib/arith_dense.ex",
         "--tests",
-        "test/lane_fixture/arith_test.exs",
+        "test/arith_dense_test.exs",
         "--timeout-ms",
         "2000",
         "--seed",

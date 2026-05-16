@@ -7,7 +7,34 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared AST helpers lifted into `MutagenEx.Ast`.** The
+  `alias_to_module/1`, `find_module_body/2`, and `node_line/1`
+  helpers — previously duplicated across `MutagenEx.ScopeResolver`,
+  `MutagenEx.MutationEnumerator`, `MutagenEx.MutationRunner`, and
+  `MutagenEx.TestModuleDiscovery` — now live in one canonical module
+  (`lib/mutagen_ex/ast.ex`). Behaviour is byte-identical to the
+  donors (pinned by `test/mutagen_ex/ast_donor_equivalence_test.exs`).
+  Closes F21 / CF10. New subject `mutagen.ast` carries the contract;
+  see `.spec/specs/ast.spec.md`. *(mutagen-wrd.25.2.)*
+- **`ScopeResolver` sorts the default `lib/**/*.ex` wildcard
+  result** before searching for module-shaped targets. Closes the
+  F30 / CF7 determinism risk: `Path.wildcard/1`'s order is
+  file-system-dependent, so two hosts could otherwise pick a
+  different match. New requirement
+  `mutagen.scope_resolution.r9`. *(mutagen-wrd.25.2.)*
+
 ### Added
+
+- **wrd25 bench fixture** at
+  `priv/helper_scripts/bench_fixtures/wrd25_200sites/` — a small
+  self-contained Mix project (5 modules + colocated tests) used by
+  the `.25` AST-perf bench harness skeleton
+  (`priv/helper_scripts/bench_ast_perf.exs`, completed in S6) and
+  by the determinism safety-net test
+  (`test/mutagen_ex/determinism_test.exs`, re-targeted from the
+  lane fixture). *(mutagen-wrd.25.2.)*
 
 - **Parallel mutation loop, telemetry, NDJSON streaming, and progress
   feedback.** The mutation runner now dispatches per-site work through
