@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: adc4689afabdd3b71\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/1932fee7-a5d3-4675-b46d-9a3eca264d33/subagents/agent-adc4689afabdd3b71.jsonl\n\nReasoning: Re-verified mechanically and semantically. (1) 8 files touched (matches verifier's count), all within Allowed globs; the only `mutagen.ex` change outside `phase_ast_cache` is the one-line caller update at :422 which is the unavoidable mechanical consequence of the new 4-arity signature — correctly treated in-scope. (2) Hard rules verified clean by direct diff/grep: `@callback load/2` byte-identical (lib/mutagen_ex/pipeline/ast_cache_facade.ex:27-29), no `files_by_category/2` impl (only doc strings stating it does not exist), no new `:persistent_term` (all refs pre-existing in mutation_runner / supervision_test), phase order intact (phase_tests :420 → phase_ast_cache :422), entry shape stays 2-tuple `{ast, source}` asserted by ast_cache_test.exs:180 and :184. (3) Falsifiability of the load-bearing r9 evidence holds: s9b uses a virtual_file that `refute File.exists?` — if cache consumption were broken the fallback would hit `:enoent` and the test's warning assertion would fail (not a happy-path-only test). s9c populates cache with a foreign key and writes the cited file to disk so only the fallback path can produce the asserted warning. s9a asserts byte-identity `with_cat == without_cat` plus a 2-tuple match against the entry — both would fail if `:categories` ever leaked into the entry. `mix test` confirmed: 561 tests, 0 failures.\n\nDeferred-must read: The verifier's classification is correct. r9's literal text describes (a) the `phase_ast_cache` flat-list composition (done — verified by reading lib/mix/tasks/mutagen.ex:584-597 against `test_filter.files`) and (b) downstream consumer behaviour (\"Baseline.detect_async_modules/1 ... looks files up by path ... on `:error` falls back\") — a module-level capability contract, not a runtime-wiring claim that `phase_baseline` MUST pass `cfg.ast_cache` into `Baseline.run/1`. The Allowed-touches glob explicitly restricts mutagen.ex to `phase_ast_cache only`, so editing `phase_baseline` would itself be a scope violation. Confirmed `phase_baseline` at lib/mix/tasks/mutagen.ex:698 builds `input = %{seed: seed, test_filter: test_filter}` with no `ast_cache` key — production runs the safety-net fallback, which the \"no ast_cache field at all\" test at baseline_test.exs:308 directly exercises. Production wiring is correctly a follow-up ticket, not a Gap against this contract.\n\nNo Out-of-Scope (intent) violations found in the diff. Approving.",
       "timestamp": "2026-05-16T09:54:22Z"
+    },
+    {
+      "text": "MERGE_CONFLICT: smoke red post-rebase (MutagenEx.AstTest find_module_body/2 r8 invariant test failure: before_count=29657 != after_count=29659 atom-count increase)",
+      "timestamp": "2026-05-16T09:56:59Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S2: AstCache categorised load + F18 Baseline cache consumer",
   "type": "task",
-  "updated_at": "2026-05-16T09:54:22Z"
+  "updated_at": "2026-05-16T09:56:59Z"
 }
