@@ -7,6 +7,28 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Batched grouped-by-file prewalk for the per-site AST swap.**
+  `MutagenEx.MutationRunner.run/1` now pre-computes a per-file
+  path index once before the per-site loop begins (one
+  `Macro.prewalk/2` per distinct file in `cfg.sites`, regardless
+  of how many sites that file carries). Each site's swap then
+  descends along the cached path in `O(depth)` via
+  `apply_swap_at_path/3` instead of running a fresh
+  `Macro.prewalk/2` over the whole file AST per site. Path entries
+  are keyed by `site.id` (content-addressed) so duplicate-position
+  sites do not collide. Bare-literal sites (`Literal` mutator on
+  bare integers/booleans; `ResultTuple` targeting bare booleans)
+  carry no static AST coordinates and fall back to the existing
+  ambient-threading walker (`replace_bare_site/2`); the legacy
+  per-site `Macro.prewalk` is also retained as a defensive
+  fallback. Byte-identity property pinned by
+  `test/mutagen_ex/mutation_runner_batched_test.exs`: for every
+  site, the mutated file AST produced by the batched path equals
+  the file AST that an unconditional per-site `Macro.prewalk/2`
+  would have produced. Closes F16 (HIGH, F-PERF-02). New
+  requirement `mutagen.mutation_pipeline.r16` + scenarios `s14` /
+  `s15` + verification stub `v8`. *(mutagen-wrd.25.5.)*
+
 ### Added
 
 - **Head-atom dispatch table for the mutator catalog.** New module

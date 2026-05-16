@@ -297,6 +297,39 @@ decisions:
     callers that have arranged for collision-free input. Advanced
     parallelism (per-task ExUnit servers, isolated Code.Server
     instances) is out of scope for v1.1 and tracked separately.
+
+- id: mutagen.mutation_pipeline.r16
+  priority: must
+  statement: |
+    `MutationRunner.run/1` builds a per-file path index once before
+    the per-site loop begins (one `Macro.prewalk/2` per distinct file
+    in `cfg.sites`, regardless of site count) and uses
+    `apply_swap_at_path/3` — an `O(depth)` descent along the cached
+    path — to produce each site's mutated file AST. The per-file
+    path index is keyed by `site.id` (the content-addressed site ID
+    per mutagen.decision.content_addressed_ids) so duplicate-position
+    sites do not collide.
+
+    Byte-identity contract: for every site, the mutated file AST
+    produced by the batched path is byte-for-byte identical to the
+    file AST that an unconditional per-site `Macro.prewalk/2` would
+    have produced (the legacy reference walker, preserved as a
+    fallback). The legacy reference path is invoked when the path
+    index lacks an entry for `site.id` — for bare-literal sites
+    (`Literal` mutator on a raw integer or boolean; `ResultTuple`
+    targeting bare booleans) whose `original_ast` carries no
+    metadata of its own, or for any caller that did not pre-populate
+    the path index. Bare-literal sites resolve via the
+    ambient-threading walker (`replace_bare_site/2`) that mirrors
+    `MutagenEx.MutationEnumerator.walk_tree/6`'s descent rules.
+
+    The pre-compute is internal to `MutationRunner` and is NOT a
+    public input — callers that pass a custom `cfg` without
+    `:mutated_ast_cache` retain the v1.0 swap semantics via the
+    fallback. The cache lives only for the duration of `run/1`.
+
+    Closes F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per
+    site → one walk per file. *(mutagen-wrd.25.5.)*
 ```
 
 ```spec-scenarios
@@ -460,6 +493,44 @@ decisions:
     `Process.registered()`, `:ets.all()`, and
     `:persistent_term.info().count` — the linked descendant was
     reaped by `terminate_child/2`'s recursive shutdown.
+
+- id: mutagen.mutation_pipeline.s14
+  covers: [mutagen.mutation_pipeline.r16]
+  given: |
+    A `cfg.sites` list containing N 3-tuple sites against the same
+    `cfg.ast_cache` file. Each site has distinct `{line, column,
+    original_ast, mutated_ast}` so the byte-identity comparison is
+    not trivially equal across sites.
+  when: |
+    `MutationRunner.run/1` executes the per-site swap for each site.
+  then: |
+    For every site, the mutated file AST handed to the compiler is
+    byte-for-byte identical (Elixir term `==`) to the file AST that
+    an unconditional per-site `Macro.prewalk/2` over the same
+    `(file_ast, site)` input would have produced. Equality is
+    asserted against an independent reference walker that mirrors
+    `node_matches_site?/2` and `Macro.prewalk/2`'s descent. The
+    `Macro.prewalk` count over file ASTs during `run/1` does not
+    exceed `length(distinct files in cfg.sites)` regardless of N
+    (the pre-compute is one walk per file).
+
+- id: mutagen.mutation_pipeline.s15
+  covers: [mutagen.mutation_pipeline.r16]
+  given: |
+    A bare-literal site (`%Site{original_ast: 1, mutated_ast: 0,
+    mutator: :literal}`) whose `line`/`column` point at the parent
+    operator/clause-head's coordinates (the enumerator's
+    ambient-threading convention).
+  when: |
+    `MutationRunner.run/1` executes the per-site swap for that site.
+  then: |
+    The site is NOT in the path index (the pre-compute deliberately
+    skips bare literals because their `original_ast` carries no
+    metadata). The runner falls back to the ambient-threading walker
+    (`replace_bare_site/2`) and produces a mutated file AST that
+    places `mutated_ast` at the bare value's position. The legacy
+    reference output (manual ambient walk) matches the runner's
+    output byte-for-byte.
 ```
 
 ```spec-verification
@@ -517,5 +588,12 @@ decisions:
     - mutagen.mutation_pipeline.r15
   kind: command
   command: mix test test/mutagen_ex/mutation_runner_parallel_test.exs
+  execute: true
+
+- id: mutagen.mutation_pipeline.v8
+  covers:
+    - mutagen.mutation_pipeline.r16
+  kind: command
+  command: mix test test/mutagen_ex/mutation_runner_batched_test.exs
   execute: true
 ```

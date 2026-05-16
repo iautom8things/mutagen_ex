@@ -324,6 +324,24 @@ defmodule MutagenEx.MutationRunner do
     max_concurrency = resolve_max_concurrency(cfg)
     on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
 
+    # r16 — Layer B (mutagen-wrd.25.5): pre-compute one path index per
+    # distinct file in `cfg.sites`. Each entry maps `site.id => path` so
+    # the per-site swap is `O(depth)` (`apply_swap_at_path/3`) instead of
+    # `O(file_size)` (`Macro.prewalk/2` over the whole file AST). One
+    # walk per file regardless of how many sites it carries — the "batched
+    # grouped-by-file prewalk" optimisation.
+    #
+    # Only 3-tuple matches (`node_matches_site?/2`) get a path entry. Bare-
+    # literal sites (Literal mutator, ResultTuple targeting bare booleans)
+    # are still resolved at swap-time via `replace_bare_site/2` because
+    # their `original_ast` carries no metadata of its own and the
+    # enumerator attributes them to the parent's ambient line/column —
+    # that's a runtime descent contract, not a static path. Keying by
+    # `site.id` (content-addressed) is mandated by the ticket: keying by
+    # `{line, column}` alone would collide for duplicate-position sites
+    # against the same parent node.
+    cfg = Map.put(cfg, :mutated_ast_cache, build_mutated_ast_cache(sites, cfg.ast_cache))
+
     initial = %{
       results: [],
       compile_errors: [],
@@ -534,7 +552,9 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp run_one_site_task(%Site{} = site, file_ast, source_text, cfg) do
-    case build_mutated_file_ast(file_ast, site) do
+    path_index = Map.get(cfg, :mutated_ast_cache, %{}) |> Map.get(site.file, %{})
+
+    case build_mutated_file_ast(file_ast, site, path_index) do
       {:ok, mutated_ast} ->
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
@@ -755,8 +775,13 @@ defmodule MutagenEx.MutationRunner do
   #
   # Two shapes are handled (bw mutagen-wrd.16):
   #
-  #   1. 3-tuple `{form, meta, args}` — the common case. The match
-  #      keys directly off `meta`. Located via `Macro.prewalk/3`.
+  #   1. 3-tuple `{form, meta, args}` — the common case. Pre-located by
+  #      `build_mutated_ast_cache/2` during a SINGLE `prewalk` per file
+  #      (mutagen-wrd.25.5 / r16). The resulting `path_index` maps
+  #      `site.id => path`; this function looks the path up and applies
+  #      the swap at `O(depth)` via `apply_swap_at_path/3`. The legacy
+  #      `Macro.prewalk` over the whole file AST per site is kept as a
+  #      defensive fallback only — see "fallback" below.
   #   2. Bare atomic literal (`0`, `1`, `-1`, `true`, `false`) — the
   #      literal mutator's bare-value clauses produce sites whose
   #      `original_ast` is the bare value. The bare node carries no
@@ -764,9 +789,40 @@ defmodule MutagenEx.MutationRunner do
   #      the *parent* operator / clause-head's `:line` and `:column`.
   #      We locate these via a custom walker that threads ambient
   #      `{line, column}` downward, mirroring the enumerator's
-  #      `walk_tree/6`. Run as a second pass only when shape (1)
-  #      didn't find a match — keeps the happy path cheap.
-  defp build_mutated_file_ast(file_ast, %Site{} = site) do
+  #      `walk_tree/6`. The path-index pre-compute deliberately SKIPS
+  #      bare-literal sites (they have no static `{form, meta, args}`
+  #      to address) — they fall back to `replace_bare_site/2` here.
+  #
+  # Fallback: if `path_index` is missing the site (e.g. an old test seam
+  # that bypasses `execute/2` and threads a custom cfg without
+  # `:mutated_ast_cache`), this function falls back to the legacy
+  # per-site `Macro.prewalk` so the byte-identity invariant (r16) holds
+  # regardless of caller. The fast path runs in production; the slow
+  # path is the safety net.
+  defp build_mutated_file_ast(file_ast, %Site{} = site, path_index)
+       when is_map(path_index) do
+    case Map.get(path_index, site.id) do
+      nil ->
+        build_mutated_file_ast_legacy(file_ast, site)
+
+      path when is_list(path) ->
+        case apply_swap_at_path(file_ast, path, site) do
+          {:ok, _} = ok -> ok
+          # Defensive: a stale path (e.g. a caller mutated the file AST
+          # between cache build and apply) re-resolves through the
+          # legacy walker. The byte-identity property only holds when
+          # both paths produce the same answer for the same `(file_ast,
+          # site)` input — which they do by construction (both implement
+          # the same `node_matches_site?` predicate).
+          {:error, :site_not_found} -> build_mutated_file_ast_legacy(file_ast, site)
+        end
+    end
+  end
+
+  # Legacy per-site `Macro.prewalk` over the full file AST. Retained as
+  # the byte-identity reference path (r16) and as the fallback for any
+  # caller that didn't populate `:mutated_ast_cache`.
+  defp build_mutated_file_ast_legacy(file_ast, %Site{} = site) do
     {ast, replaced?} =
       Macro.prewalk(file_ast, false, fn node, replaced ->
         if not replaced and node_matches_site?(node, site) do
@@ -787,6 +843,234 @@ defmodule MutagenEx.MutationRunner do
         {:error, :site_not_found}
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # r16 (mutagen-wrd.25.5): batched path-index pre-compute
+  # ---------------------------------------------------------------------------
+  #
+  # `build_mutated_ast_cache/2` runs ONE `Macro.prewalk` per distinct
+  # file in `sites` and records, for every 3-tuple site whose node
+  # matches its `{line, column, original_ast}` triple, the path from
+  # the file AST root to that node. The path is a list of descent steps
+  # (see `apply_swap_at_path/3` for the encoding).
+  #
+  # Bare-literal sites are intentionally skipped — they're resolved
+  # at swap-time via `replace_bare_site/2`, which mirrors the
+  # enumerator's ambient-threading walker (the parent's line/column,
+  # not the bare value's own metadata).
+  #
+  # Return shape: `%{file => %{site.id => path}}`. A site whose node
+  # could not be located (rare — should not happen if the enumerator's
+  # input AST matches the runner's input AST) is omitted from the inner
+  # map; the per-site path lookup then falls back to the legacy walker.
+  @spec build_mutated_ast_cache([Site.t()], map()) :: %{
+          optional(String.t()) => %{optional(String.t()) => [term()]}
+        }
+  defp build_mutated_ast_cache(sites, ast_cache) when is_list(sites) do
+    sites
+    |> Enum.reject(&bare_literal_site?/1)
+    |> Enum.group_by(& &1.file)
+    |> Enum.reduce(%{}, fn {file, file_sites}, acc ->
+      case AstCache.get(ast_cache, file) do
+        :error ->
+          acc
+
+        {:ok, {file_ast, _source}} ->
+          Map.put(acc, file, collect_paths(file_ast, file_sites))
+      end
+    end)
+  end
+
+  # Walks `file_ast` once and records the path to every site whose
+  # 3-tuple node it finds. Path-collection is a depth-first pre-order
+  # walk that mirrors `Macro.prewalk/2`'s descent shape: visit the
+  # node, then descend into the `form` of a 3-tuple (when not an atom),
+  # then descend into each `args` child; for 2-tuples descend into both
+  # elements; for lists descend into each element.
+  #
+  # `sites_by_node` is keyed by `{line, column, original_ast}` so the
+  # match check is a single map lookup per visit. Duplicate-position
+  # sites that share the same `original_ast` and mutate to the same
+  # value are coalesced into one entry — but the content-addressed
+  # `site.id` keeps them distinct in the returned map only when their
+  # mutated ASTs differ enough that the enumerator emitted both. In
+  # practice the enumerator de-dupes (see r1 byte-identity), so this
+  # is a non-issue.
+  defp collect_paths(file_ast, file_sites) do
+    sites_by_node =
+      Enum.reduce(file_sites, %{}, fn %Site{} = site, acc ->
+        key = {site.line, site.column, site.original_ast}
+        Map.update(acc, key, [site], &[site | &1])
+      end)
+
+    {_, %{paths: paths}} =
+      walk_collect(file_ast, [], %{by_node: sites_by_node, paths: %{}})
+
+    paths
+  end
+
+  # In a 2-tuple `{a, b}` carrying no metadata, we still need to walk
+  # in case the call is from `walk_collect/3` on a list-of-2-tuples
+  # (`do:` keyword block, for instance). The above `descend_collect`
+  # clauses already cover the necessary shapes.
+
+  # `walk_collect/3` returns `{_unused_node, state}` where `state`
+  # carries the running `:by_node` map (sites not yet matched) and the
+  # `:paths` map (site_id => path-from-root). We do NOT rebuild the
+  # AST during collection — only the state matters.
+  #
+  # `path_rev` is the path from root, REVERSED — we cons descent
+  # steps on the front during descent and `Enum.reverse/1` only when
+  # recording a final match. This keeps the hot path allocation-light.
+  defp walk_collect(node, path_rev, state) do
+    state = maybe_record_match(node, path_rev, state)
+    {nil, descend_collect(node, path_rev, state)}
+  end
+
+  defp maybe_record_match({_form, meta, _args} = node, path_rev, state) when is_list(meta) do
+    line = Keyword.get(meta, :line)
+    column = Keyword.get(meta, :column)
+    key = {line, column, node}
+
+    case Map.get(state.by_node, key) do
+      nil ->
+        state
+
+      sites when is_list(sites) ->
+        path = Enum.reverse(path_rev)
+
+        new_paths =
+          Enum.reduce(sites, state.paths, fn %Site{id: id}, acc ->
+            Map.put_new(acc, id, path)
+          end)
+
+        %{state | paths: new_paths, by_node: Map.delete(state.by_node, key)}
+    end
+  end
+
+  defp maybe_record_match(_node, _path_rev, state), do: state
+
+  # Descend in the same order as `Macro.prewalk/2`: into `form` (when
+  # not an atom), then into `args` children; into 2-tuple elements;
+  # into list elements. Metadata is never descended. All clauses
+  # return the threaded `state` map.
+  defp descend_collect({form, _meta, args}, path_rev, state) when is_list(args) do
+    state =
+      if is_atom(form) do
+        state
+      else
+        {_, s2} = walk_collect(form, [{:form} | path_rev], state)
+        s2
+      end
+
+    descend_collect_args(args, 0, path_rev, state)
+  end
+
+  defp descend_collect({form, _meta, _args}, _path_rev, state) when is_atom(form) do
+    # `{form, meta, args_atom}` — the args slot is not a list (rare;
+    # macro contexts). `Macro.prewalk` does not descend further, so
+    # neither do we.
+    state
+  end
+
+  defp descend_collect({a, b}, path_rev, state) do
+    {_, state} = walk_collect(a, [{:left} | path_rev], state)
+    {_, state} = walk_collect(b, [{:right} | path_rev], state)
+    state
+  end
+
+  defp descend_collect(list, path_rev, state) when is_list(list) do
+    descend_collect_list(list, 0, path_rev, state)
+  end
+
+  defp descend_collect(_other, _path_rev, state), do: state
+
+  defp descend_collect_args([], _idx, _path_rev, state), do: state
+
+  defp descend_collect_args([child | rest], idx, path_rev, state) do
+    {_, state} = walk_collect(child, [{:arg, idx} | path_rev], state)
+    descend_collect_args(rest, idx + 1, path_rev, state)
+  end
+
+  defp descend_collect_list([], _idx, _path_rev, state), do: state
+
+  defp descend_collect_list([child | rest], idx, path_rev, state) do
+    {_, state} = walk_collect(child, [{:elem, idx} | path_rev], state)
+    descend_collect_list(rest, idx + 1, path_rev, state)
+  end
+
+  # `apply_swap_at_path/3` descends `file_ast` along `path` and
+  # substitutes `site.mutated_ast` at the leaf, returning `{:ok,
+  # new_file_ast}`. Path steps:
+  #
+  #   * `{:form}` — descend into the form of a 3-tuple `{form, meta, args}`.
+  #   * `{:arg, idx}` — descend into args[idx] of a 3-tuple.
+  #   * `{:left}` / `{:right}` — descend into one half of a 2-tuple.
+  #   * `{:elem, idx}` — descend into a list element.
+  #
+  # The leaf is verified against `node_matches_site?/2` before
+  # substitution. If the stored path no longer points at a matching
+  # node (impossible under the byte-identity contract — but defensible
+  # against silent regressions), this returns `{:error, :site_not_found}`
+  # so the caller falls back to the legacy walker.
+  defp apply_swap_at_path(file_ast, [], %Site{} = site) do
+    if node_matches_site?(file_ast, site) do
+      {:ok, site.mutated_ast}
+    else
+      {:error, :site_not_found}
+    end
+  end
+
+  defp apply_swap_at_path({form, meta, args}, [{:form} | rest], site) when is_list(args) do
+    case apply_swap_at_path(form, rest, site) do
+      {:ok, new_form} -> {:ok, {new_form, meta, args}}
+      err -> err
+    end
+  end
+
+  defp apply_swap_at_path({form, meta, args}, [{:arg, idx} | rest], site)
+       when is_list(args) and is_integer(idx) and idx >= 0 do
+    case List.pop_at(args, idx) do
+      {nil, _} when idx >= length(args) ->
+        {:error, :site_not_found}
+
+      {child, _} ->
+        case apply_swap_at_path(child, rest, site) do
+          {:ok, new_child} -> {:ok, {form, meta, List.replace_at(args, idx, new_child)}}
+          err -> err
+        end
+    end
+  end
+
+  defp apply_swap_at_path({a, b}, [{:left} | rest], site) do
+    case apply_swap_at_path(a, rest, site) do
+      {:ok, new_a} -> {:ok, {new_a, b}}
+      err -> err
+    end
+  end
+
+  defp apply_swap_at_path({a, b}, [{:right} | rest], site) do
+    case apply_swap_at_path(b, rest, site) do
+      {:ok, new_b} -> {:ok, {a, new_b}}
+      err -> err
+    end
+  end
+
+  defp apply_swap_at_path(list, [{:elem, idx} | rest], site)
+       when is_list(list) and is_integer(idx) and idx >= 0 do
+    case Enum.at(list, idx, :__not_found__) do
+      :__not_found__ ->
+        {:error, :site_not_found}
+
+      child ->
+        case apply_swap_at_path(child, rest, site) do
+          {:ok, new_child} -> {:ok, List.replace_at(list, idx, new_child)}
+          err -> err
+        end
+    end
+  end
+
+  defp apply_swap_at_path(_, _, _), do: {:error, :site_not_found}
 
   defp node_matches_site?({_kind, meta, _args} = node, %Site{line: line, column: column} = site)
        when is_list(meta) do
