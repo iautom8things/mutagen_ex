@@ -3,7 +3,7 @@ defmodule MutagenEx.AstCache do
   Immutable cache of `{quoted_ast, source_text}` tuples for the in-scope
   source files of a `mix mutagen` run.
 
-  Contract: [`mutagen.coverage`](../../.spec/specs/coverage.spec.md) r6.
+  Contract: [`mutagen.coverage`](../../.spec/specs/coverage.spec.md) r6, r9.
 
   ## Why both AST and verbatim source text
 
@@ -33,6 +33,22 @@ defmodule MutagenEx.AstCache do
   Critical invariant (r6): `source_text` is byte-identical to
   `File.read!(file)` at the moment `load/1` was called. Each file is read
   exactly once.
+
+  ## Categorised input (r9)
+
+  `load/2` accepts an optional `:categories` opt whose value is a map
+  from category name (atom) to a list of file paths
+  (e.g. `categories: %{scope: scope_files, test: test_files}`). This is
+  **input-only diagnostic metadata** — the cache entry shape is unchanged
+  (`{Macro.t(), String.t()}`); there is no per-entry category tag, no
+  3-tuple, no `files_by_category/2` consumer API. Categorisation is logged
+  to telemetry-style diagnostics so observers can see "we loaded N scope
+  files + M test files" without changing how downstream phases look up
+  entries (they still call `get(cache, file)` by path).
+
+  The flat `files` arg remains the source of truth for what gets read;
+  category lists should be a partition of `files` (the implementation
+  does NOT enforce this — categorisation is advisory).
 
   ## Immutability
 
@@ -68,12 +84,20 @@ defmodule MutagenEx.AstCache do
       `Code.compiler_options(debug_info: true)` don't bleed into this
       module: the cache is purely about source bytes + parsed AST and is
       tested against in-memory strings without touching disk.
+
+    * `:categories` — `%{atom() => [String.t()]}`. Optional diagnostic
+      partitioning of the flat `files` list (e.g.
+      `%{scope: [...], test: [...]}`). Per r9 this is **input-only**: it
+      does NOT change the cache entry shape, and there is no consumer API
+      for looking up entries by category. The implementation logs the
+      per-category counts to `Logger.debug/1` for observability.
   """
   @impl MutagenEx.Pipeline.AstCacheFacade
   @spec load([String.t()], keyword) ::
           {:ok, t()} | {:error, load_reason(), map()}
   def load(files, opts \\ []) when is_list(files) do
     reader = Keyword.get(opts, :reader, &File.read!/1)
+    _ = log_categories(files, Keyword.get(opts, :categories))
 
     Enum.reduce_while(files, {:ok, %{}}, fn file, {:ok, acc} ->
       case load_one(file, reader) do
@@ -98,6 +122,32 @@ defmodule MutagenEx.AstCache do
   def files(cache) when is_map(cache), do: Map.keys(cache)
 
   # ---- internals ----
+
+  require Logger
+
+  # r9 diagnostics. We log the per-category count (not the file lists
+  # themselves — those can be long) at debug level so a pipeline observer
+  # can see "loaded N scope files + M test files" without forcing this
+  # information into the entry shape. Returns :ok regardless; logging
+  # failures are not load failures.
+  defp log_categories(_files, nil), do: :ok
+
+  defp log_categories(files, %{} = categories) do
+    counts =
+      Enum.map(categories, fn {name, list} when is_atom(name) and is_list(list) ->
+        {name, length(list)}
+      end)
+
+    Logger.debug(fn ->
+      "AstCache.load/2: total=#{length(files)} categories=#{inspect(counts)}"
+    end)
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  defp log_categories(_files, _other), do: :ok
 
   defp load_one(file, reader) do
     case read(file, reader) do

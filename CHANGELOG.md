@@ -33,6 +33,24 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **`AstCache.load/2` accepts categorised input.** A new `opts[:categories]`
+  map (e.g. `categories: %{scope: scope_files, test: test_files}`) lets
+  callers partition the flat `files` list for diagnostic visibility
+  without changing the cache entry shape. Entries remain
+  `{Macro.t(), String.t()}` 2-tuples per
+  `mutagen.decision.ast_cache_facade_preserved`; the
+  `Pipeline.AstCacheFacade` `@callback load/2` signature is preserved
+  verbatim. Per-category counts are logged at debug level. The
+  `phase_ast_cache` step of `mix mutagen` now loads scope files AND
+  cited test files (`test_filter.files`) in one pass. New requirement
+  `mutagen.coverage.r9`. Closes F18 / F40. *(mutagen-wrd.25.3.)*
+- **`Baseline.detect_async_modules/1` consumes the AST cache when
+  provided.** When `Baseline.run/1`'s input map carries `:ast_cache`,
+  the async-warning path looks each cited test file up via
+  `AstCache.get/2` and consumes the cached `{ast, _source}` directly
+  — no re-read of test files from disk. On cache miss the
+  implementation falls back to `File.read/1` + parse (pre-`.25`
+  behaviour) and logs the miss for diagnostics. *(mutagen-wrd.25.3.)*
 - **Shared AST helpers lifted into `MutagenEx.Ast`.** The
   `alias_to_module/1`, `find_module_body/2`, and `node_line/1`
   helpers — previously duplicated across `MutagenEx.ScopeResolver`,

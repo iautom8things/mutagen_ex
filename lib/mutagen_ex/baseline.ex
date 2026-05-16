@@ -42,8 +42,20 @@ defmodule MutagenEx.Baseline do
       to the real `ExUnit`. Tests pass their own module with the same
       callback surface.
     * `:test_loader` — `(path -> any)` overriding `Code.require_file/1`.
+    * `:ast_cache` — `MutagenEx.AstCache.t()`. Optional. When present,
+      `detect_async_modules/1` (the r2 async-warning path) looks each
+      cited test file up in the cache via `AstCache.get/2` and consumes
+      the cached `{ast, _source}` directly — no re-read from disk. On
+      `:error` (cache miss), the implementation falls back to the
+      pre-`.25` `File.read/1` path as a safety net and logs the miss.
+      When `:ast_cache` is absent, the fall-back path is the only path
+      (preserves pre-`.25` behaviour for callers that haven't wired the
+      cache through yet). See `mutagen.coverage.r9`.
   """
 
+  require Logger
+
+  alias MutagenEx.AstCache
   alias MutagenEx.TestSelector.TestFilter
 
   @behaviour MutagenEx.Pipeline.BaselineFacade
@@ -194,13 +206,41 @@ defmodule MutagenEx.Baseline do
   # filter and surface them as warnings. We inspect each test file's AST
   # for `use ExUnit.Case, async: true` without loading the module — that
   # would defeat the once-per-run load contract.
+  #
+  # Post-`.25.3` (F18 / mutagen.coverage.r9): when the caller hands us an
+  # `:ast_cache` we consult it via `AstCache.get/2` and consume the
+  # cached `{ast, _source}` directly — no re-read of test files from
+  # disk. On `:error` (cache miss) we fall back to the pre-`.25`
+  # `File.read/1` path as a safety net and log the miss for diagnostics.
+  # When no cache is supplied, the fall-back path is the only path.
   defp async_warnings(cfg) do
+    cache = Map.get(cfg, :ast_cache)
+
     cfg.test_filter.files
-    |> Enum.flat_map(&detect_async_modules/1)
+    |> Enum.flat_map(&detect_async_modules(&1, cache))
     |> Enum.uniq()
   end
 
-  defp detect_async_modules(file) do
+  defp detect_async_modules(file, nil) do
+    fallback_detect(file)
+  end
+
+  defp detect_async_modules(file, cache) when is_map(cache) do
+    case AstCache.get(cache, file) do
+      {:ok, {ast, _source}} ->
+        collect_async_modules(ast)
+
+      :error ->
+        Logger.debug(fn ->
+          "Baseline.detect_async_modules: cache miss for #{inspect(file)}; " <>
+            "falling back to File.read/1"
+        end)
+
+        fallback_detect(file)
+    end
+  end
+
+  defp fallback_detect(file) do
     with {:ok, source} <- File.read(file),
          {:ok, ast} <- Code.string_to_quoted(source, columns: true, file: file) do
       collect_async_modules(ast)

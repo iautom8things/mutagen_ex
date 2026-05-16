@@ -8,6 +8,10 @@ defmodule MutagenEx.AstCacheTest do
       source kept together.
     * `mutagen.coverage.s6` — `get/2` returns the same entry the cache was
       built with.
+    * `mutagen.coverage.r9` — categorised load: `opts[:categories]` is
+      input-only diagnostic metadata; entry shape is unchanged.
+    * `mutagen.coverage.s9a` — categorised input produces a cache
+      byte-identical to the same flat load without `:categories`.
   """
 
   use ExUnit.Case, async: false
@@ -154,6 +158,80 @@ defmodule MutagenEx.AstCacheTest do
       reader = fn _ -> @sample_module end
       assert {:ok, cache} = AstCache.load(["a.ex", "b.ex", "c.ex"], reader: reader)
       assert Enum.sort(AstCache.files(cache)) == ["a.ex", "b.ex", "c.ex"]
+    end
+  end
+
+  describe "load/2 — r9: categorised input (input-only diagnostic metadata)" do
+    test "s9a: categorised load produces a cache byte-identical to the flat load" do
+      reader = fn _ -> @sample_module end
+
+      files = ["lib/a.ex", "test/a_test.exs"]
+
+      categories = %{scope: ["lib/a.ex"], test: ["test/a_test.exs"]}
+
+      assert {:ok, with_cat} = AstCache.load(files, reader: reader, categories: categories)
+      assert {:ok, without_cat} = AstCache.load(files, reader: reader)
+
+      # The entry shape must NOT carry a category tag: each value is a
+      # 2-tuple. If a future refactor expanded entries to 3-tuples to
+      # carry a category, the line below would fail (tuple_size mismatch
+      # on the match below).
+      Enum.each(files, fn f ->
+        assert {:ok, {ast, source}} = AstCache.get(with_cat, f)
+        assert is_binary(source)
+        assert tuple_size({ast, source}) == 2
+      end)
+
+      # Byte-identical to the no-categories load — categorisation must
+      # NOT change what we stored. If the implementation ever started
+      # threading the category into the entry (or the source text),
+      # this equality would break.
+      assert with_cat == without_cat
+    end
+
+    test "entry shape stays {ast, source} regardless of category presence (r9)" do
+      reader = fn _ -> @sample_module end
+
+      assert {:ok, cache} =
+               AstCache.load(["x.ex"], reader: reader, categories: %{scope: ["x.ex"]})
+
+      assert {:ok, entry} = AstCache.get(cache, "x.ex")
+
+      # Exactly a 2-tuple of {ast, source}. Match guards this against
+      # a 3-tuple category-tagged shape.
+      assert {_ast, source} = entry
+      assert is_binary(source)
+      assert source == @sample_module
+    end
+
+    test "reader is still called exactly once per file when :categories is set" do
+      counter = :counters.new(1, [])
+
+      reader = fn _ ->
+        :counters.add(counter, 1, 1)
+        @sample_module
+      end
+
+      files = ["lib/a.ex", "test/b_test.exs"]
+
+      assert {:ok, _cache} =
+               AstCache.load(files,
+                 reader: reader,
+                 categories: %{scope: ["lib/a.ex"], test: ["test/b_test.exs"]}
+               )
+
+      # No double-read. Categorisation is metadata only; it does not
+      # trigger any extra read pass.
+      assert :counters.get(counter, 1) == 2
+    end
+
+    test "load/2 ignores a malformed :categories value (does not crash)" do
+      reader = fn _ -> @sample_module end
+
+      # Non-map value should be silently ignored — :categories is
+      # advisory diagnostic metadata, not part of the load contract.
+      assert {:ok, _cache} =
+               AstCache.load(["x.ex"], reader: reader, categories: :not_a_map)
     end
   end
 end

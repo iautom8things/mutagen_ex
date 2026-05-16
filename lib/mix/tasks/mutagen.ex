@@ -419,7 +419,7 @@ defmodule Mix.Tasks.Mutagen do
          report2 = %Report{report1 | scope: scope_records},
          {:ok, test_filter} <- phase_tests(config, dispatch, report2),
          report3 = %Report{report2 | tests: test_filter_to_wire(test_filter)},
-         {:ok, ast_cache} <- phase_ast_cache(scope_records, dispatch, report3),
+         {:ok, ast_cache} <- phase_ast_cache(scope_records, test_filter, dispatch, report3),
          {:ok, coverage_result} <-
            phase_coverage(config, scope_records, test_filter, dispatch, report3),
          report4 = %Report{report3 | coverage: coverage_to_report(coverage_result)},
@@ -567,12 +567,30 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp phase_ast_cache(scope_records, dispatch, report) do
+  # Post-`.25.3` (F18 / F40): the AST cache now covers BOTH scope files
+  # AND the cited test files in a single load step. Baseline's
+  # async-module detection (see baseline.ex) consumes the cached test-file
+  # ASTs directly so it does not re-read those files from disk.
+  #
+  # The flat `files` list is the union of scope files + test files (deduped).
+  # The `categories` opt is input-only diagnostic metadata per
+  # mutagen.coverage.r9 — the cache entry shape stays
+  # `{Macro.t(), String.t()}`. There is no category tag in entries and no
+  # `files_by_category/2` consumer API (decision: lookups stay by file path).
+  #
+  # The test set is `test_filter.files` (the resolved cited test files
+  # from phase_tests), NOT the full `test/**/*.exs` tree (F19 was
+  # explicitly descoped — see mutagen.decision.f19_descoped).
+  defp phase_ast_cache(scope_records, test_filter, dispatch, report) do
     mod = Map.fetch!(dispatch, :ast_cache)
 
-    files = scope_records |> Enum.map(& &1.file) |> Enum.uniq()
+    scope_files = scope_records |> Enum.map(& &1.file) |> Enum.uniq()
+    test_files = test_filter.files |> Enum.uniq()
+    files = (scope_files ++ test_files) |> Enum.uniq()
 
-    case mod.load(files, []) do
+    opts = [categories: %{scope: scope_files, test: test_files}]
+
+    case mod.load(files, opts) do
       {:ok, cache} ->
         {:ok, cache}
 

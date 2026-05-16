@@ -2,12 +2,18 @@ defmodule MutagenEx.BaselineTest do
   @moduledoc """
   Tests for `MutagenEx.Baseline`.
 
-  Subjects advanced (see `.spec/specs/mutation_pipeline.spec.md`):
+  Subjects advanced (see `.spec/specs/mutation_pipeline.spec.md` and
+  `.spec/specs/coverage.spec.md`):
 
     * `mutagen.mutation_pipeline.r1` / `s1` — baseline red aborts with the
       `:baseline_red` reason and a `failures` list.
     * `mutagen.mutation_pipeline.r2` — forces `max_cases: 1` + the
       configured seed; async-true modules surface as warnings.
+    * `mutagen.coverage.r9` / `s9b` — when `cfg.ast_cache` is populated,
+      async-detection consumes the cached AST and does NOT read the
+      test file from disk.
+    * `mutagen.coverage.r9` / `s9c` — when `cfg.ast_cache` is populated
+      but the cited file is absent, fall back to `File.read/1` + parse.
 
   Most tests use a stub ExUnit (a module masquerading as the real
   `ExUnit` for `configure/1`/`run/0`). The async-warning test does a
@@ -183,6 +189,140 @@ defmodule MutagenEx.BaselineTest do
 
       assert {:ok, result} = Baseline.run(input)
       refute Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.SerialFixtureTest"))
+    end
+  end
+
+  describe "r9: ast_cache integration (post-`.25.3`)" do
+    @async_fixture_source """
+    defmodule Mutagen.Baseline.CachedAsyncFixtureTest do
+      use ExUnit.Case, async: true
+      test "fast", do: assert true
+    end
+    """
+
+    @serial_fixture_source """
+    defmodule Mutagen.Baseline.CachedSerialFixtureTest do
+      use ExUnit.Case, async: false
+      test "slow", do: assert true
+    end
+    """
+
+    test "s9b: cache hit — async warning surfaces without reading the file from disk" do
+      # The test_filter cites a virtual path that DOES NOT exist on the
+      # real filesystem. If detect_async_modules ever falls through to
+      # File.read/1 against this path, the read will return :enoent and
+      # produce zero warnings. The only way to see the warning below is
+      # for detect_async_modules to consume the cached AST.
+      virtual_file = "virtual_paths/cached_async_test.exs"
+      refute File.exists?(virtual_file)
+
+      {:ok, ast} = Code.string_to_quoted(@async_fixture_source, columns: true, file: virtual_file)
+      cache = %{virtual_file => {ast, @async_fixture_source}}
+
+      input = %{
+        seed: 0,
+        test_filter: %TestFilter{include: [], exclude: [:test], files: [virtual_file]},
+        ex_unit: ExUnitFake,
+        test_loader: fn _ -> :ok end,
+        ast_cache: cache
+      }
+
+      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
+
+      assert {:ok, result} = Baseline.run(input)
+
+      assert Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.CachedAsyncFixtureTest")),
+             "expected cached AST to produce the async warning; " <>
+               "got warnings=#{inspect(result.warnings)}"
+
+      assert Enum.any?(result.warnings, &(&1 =~ "async_module"))
+    end
+
+    test "s9b: cache hit with async: false — no warning, and still no disk read" do
+      virtual_file = "virtual_paths/cached_serial_test.exs"
+      refute File.exists?(virtual_file)
+
+      {:ok, ast} =
+        Code.string_to_quoted(@serial_fixture_source, columns: true, file: virtual_file)
+
+      cache = %{virtual_file => {ast, @serial_fixture_source}}
+
+      input = %{
+        seed: 0,
+        test_filter: %TestFilter{include: [], exclude: [:test], files: [virtual_file]},
+        ex_unit: ExUnitFake,
+        test_loader: fn _ -> :ok end,
+        ast_cache: cache
+      }
+
+      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
+
+      assert {:ok, result} = Baseline.run(input)
+
+      refute Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.CachedSerialFixtureTest"))
+    end
+
+    test "s9c: cache miss — falls back to File.read/1 + parse" do
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mutagen_ex_baseline_cache_miss_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+
+      file = Path.join(tmp, "async_test.exs")
+      File.write!(file, @async_fixture_source)
+
+      # Cache is populated but does NOT contain `file` — this is the
+      # miss path. The implementation must fall back to File.read.
+      cache = %{"some_other_file.ex" => {{:ok, nil}, ""}}
+
+      input = %{
+        seed: 0,
+        test_filter: %TestFilter{include: [], exclude: [:test], files: [file]},
+        ex_unit: ExUnitFake,
+        test_loader: fn _ -> :ok end,
+        ast_cache: cache
+      }
+
+      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
+
+      assert {:ok, result} = Baseline.run(input)
+
+      # Fallback read+parse produced the warning — same result as the
+      # no-cache path would have.
+      assert Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.CachedAsyncFixtureTest")),
+             "expected fallback path to read the on-disk file and produce a warning; " <>
+               "got warnings=#{inspect(result.warnings)}"
+    end
+
+    test "no ast_cache field at all — fallback path stays intact (pre-`.25` behaviour)" do
+      tmp =
+        Path.join(
+          System.tmp_dir!(),
+          "mutagen_ex_baseline_no_cache_#{System.unique_integer([:positive])}"
+        )
+
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf!(tmp) end)
+
+      file = Path.join(tmp, "async_test.exs")
+      File.write!(file, @async_fixture_source)
+
+      # No :ast_cache in input — should still work via File.read.
+      input = %{
+        seed: 0,
+        test_filter: %TestFilter{include: [], exclude: [:test], files: [file]},
+        ex_unit: ExUnitFake,
+        test_loader: fn _ -> :ok end
+      }
+
+      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
+
+      assert {:ok, result} = Baseline.run(input)
+      assert Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.CachedAsyncFixtureTest"))
     end
   end
 

@@ -89,12 +89,14 @@ decisions:
 - id: mutagen.coverage.r6
   priority: must
   statement: |
-    `AstCache.load/1` reads each in-scope source file exactly once,
-    parses with `Code.string_to_quoted/2` requesting line/column metadata,
-    and stores both the AST and the verbatim source text. The cache is
-    immutable after the first build; no later phase mutates it. The
-    `source_text` is byte-identical to `File.read!(file)` at the moment of
-    load — critical for `before_source` slice correctness.
+    `AstCache.load/2` reads each file in the flat `files` list exactly
+    once, parses with `Code.string_to_quoted/2` requesting line/column
+    metadata, and stores both the AST and the verbatim source text. The
+    cache is immutable after the first build; no later phase mutates it.
+    The `source_text` is byte-identical to `File.read!(file)` at the moment
+    of load — critical for `before_source` slice correctness. The
+    `files` list MAY contain both scope files and cited test files (see
+    r9); the entry shape is the same regardless of category.
 
 - id: mutagen.coverage.r7
   priority: must
@@ -130,6 +132,33 @@ decisions:
     `{:error, {:already_started, _pid}} -> :ok` path. Closing this
     window is a v2 mitigation target (see
     `.spec/decisions/supervision_tree.md` §"Won't-Have").
+
+- id: mutagen.coverage.r9
+  priority: must
+  statement: |
+    `AstCache.load/2` accepts an optional `opts[:categories]` map of
+    shape `%{atom() => [String.t()]}` whose values partition the flat
+    `files` list (e.g. `%{scope: scope_files, test: test_files}`).
+    Categorisation is **input-only diagnostic metadata**: the cache
+    entry shape stays `{Macro.t(), String.t()}` per
+    `mutagen.decision.ast_cache_facade_preserved` (no 3-tuple, no
+    category tag, no category-keyed consumer API). Two cache entries
+    built from the same `(file, source_text)` pair are byte-identical
+    whether `:categories` was passed or not.
+
+    The `Pipeline.AstCacheFacade.@callback load/2` signature is
+    preserved verbatim (also per the decision). The
+    `phase_ast_cache` step of `Mix.Tasks.Mutagen` passes both
+    scope files and cited test files in the flat list, with
+    `:categories` set for observability. Cited test files are
+    `test_filter.files` only — NOT the full `test/**/*.exs` tree
+    (F19 was descoped, see
+    `mutagen.decision.f19_descoped`).
+
+    Downstream consumers (notably `Baseline.detect_async_modules/1`)
+    look files up by path via `AstCache.get/2`. On `:error` (cache
+    miss) consumers fall back to a per-file `File.read/1` + parse
+    path as a safety net and log the miss; they do NOT halt.
 ```
 
 ```spec-scenarios
@@ -216,6 +245,45 @@ decisions:
     The call returns `{:error, :cover_already_running, %{message: msg}}`
     immediately, without entering the cover lifecycle. `msg` names
     `MutagenEx.TaskSup` as the singleton owner.
+
+- id: mutagen.coverage.s9a
+  covers: [mutagen.coverage.r9]
+  given: |
+    A flat list `files = ["lib/a.ex", "test/a_test.exs"]` and
+    `opts = [categories: %{scope: ["lib/a.ex"], test: ["test/a_test.exs"]}]`.
+  when: |
+    `AstCache.load(files, opts)` runs against a stub reader.
+  then: |
+    The resulting cache has exactly the keys `"lib/a.ex"` and
+    `"test/a_test.exs"`. Each value is a 2-tuple
+    `{Macro.t(), String.t()}` — no category tag. The cache produced is
+    byte-identical to what `AstCache.load(files, reader: same_reader)`
+    (without `:categories`) would have returned.
+
+- id: mutagen.coverage.s9b
+  covers: [mutagen.coverage.r9]
+  given: |
+    A baseline call with `cfg.ast_cache` populated containing the
+    cited test file's entry.
+  when: |
+    `Baseline.run/1` runs (which calls `detect_async_modules/1`
+    internally).
+  then: |
+    The async-detection path consumes the cached `{ast, _source}`;
+    no `File.read/1` call lands against the cited test file. The
+    returned warnings reflect the cached AST.
+
+- id: mutagen.coverage.s9c
+  covers: [mutagen.coverage.r9]
+  given: |
+    A baseline call with `cfg.ast_cache` populated but the cited
+    test file is NOT present in the cache.
+  when: |
+    `Baseline.run/1` runs.
+  then: |
+    `detect_async_modules/1` falls back to `File.read/1` + parse for
+    that file. The cache miss is logged. The returned warnings are
+    the same as the no-cache path for that file.
 ```
 
 ```spec-verification
@@ -247,5 +315,11 @@ decisions:
   covers: [mutagen.coverage.r1, mutagen.coverage.r8]
   kind: command
   command: mix test test/mutagen_ex/supervision_test.exs
+  execute: true
+
+- id: mutagen.coverage.v6
+  covers: [mutagen.coverage.r9]
+  kind: command
+  command: mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs
   execute: true
 ```
