@@ -137,13 +137,13 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
          "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
        ), Multi, :found},
       # `defmodule Inner` nested inside `defmodule Multi` has the AST
-       # alias `[:Inner]` (NOT `[:Multi, :Inner]`) — the qualified
-       # `Multi.Inner` atom is only resolved at compile time. Both
-       # donor and lifted match on AST alias atoms, so the target
-       # `Inner` (not `Multi.Inner`) is what finds the nested block.
-       {source_ast(
-          "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
-        ), Inner, :found},
+      # alias `[:Inner]` (NOT `[:Multi, :Inner]`) — the qualified
+      # `Multi.Inner` atom is only resolved at compile time. Both
+      # donor and lifted match on AST alias atoms, so the target
+      # `Inner` (not `Multi.Inner`) is what finds the nested block.
+      {source_ast(
+         "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
+       ), Inner, :found},
       {source_ast(
          "defmodule First do\n  def f, do: 1\nend\n\ndefmodule Second do\n  def g, do: 2\nend\n"
        ), Second, :found},
