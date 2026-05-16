@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit, orchestrated)\nSession: 1932fee7-a5d3-4675-b46d-9a3eca264d33\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/1932fee7-a5d3-4675-b46d-9a3eca264d33.jsonl\n\nReasoning: VERIFY (2026-05-16) reported PASS with 9/9 stubs, full per-requirement coverage with concrete failure modes for all 7 deliverable items (bench harness + capture + before/after compare + SHA + memory test + CHANGELOG + README + sub-2× follow-up artifact), zero out-of-Allowed touches, zero Out-of-Scope file matches, and project verification green. The literal merge-gate language explicitly accommodates sub-2× outcomes via the \"follow-up exists + CHANGELOG explains\" clause; both artifacts (mutagen-wrd.36 + speedup-shortfall triage section) are present. The bench-fixture corrections (mix4/chain2 arithmetic) are within the \"minor fixture tuning needed\" Allowed glob. No Gaps; only methodology-fairness Notes. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-16T11:53:23Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd (fast-forward, post-merge smoke 628/0/17-excluded + format clean + deps clean). Closing per orchestrator sign-off. This was the last critical-path child of .25.",
+      "timestamp": "2026-05-16T11:53:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "S6: bench harness + memory test + .25 CHANGELOG",
   "type": "task",
-  "updated_at": "2026-05-16T11:53:23Z"
+  "updated_at": "2026-05-16T11:53:39Z"
 }
