@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "mutagen-wrd.39.4"
+  ],
   "created": "2026-05-17T12:50:38Z",
   "description": "Advances: mutagen.cli\n\nDeliverable:\nAdd a runtime preamble to Mix.Tasks.Mutagen.run/1 BEFORE delegating to run/2:\n  1. Mix.Task.run(\"loadpaths\") — adds host's _build/\u003cenv\u003e/lib/\u003capp\u003e/ebin to :code paths\n  2. Mix.Task.run(\"compile\") — compiles host project (no-op when already compiled)\n  3. Application.ensure_all_started(:mutagen_ex) — boots MutagenEx.Application\n  4. ExUnit.start(autorun: false) — starts :ex_unit application\n\nExtract to a private helper (ensure_runtime/0) so run/1 body stays readable.\n\nrun/2 stays preamble-free — test seam stays clean per mutagen.decision.preamble_in_run1_only. README's library-entry paragraph gets a one-sentence note that callers of MutagenEx.MutationRunner.run/1 must ensure :mutagen_ex is started themselves.\n\nVerification:\n- Tests to pass:\n  - mutagen.cli.v9 (mix test test/integration/downstream_adoption_test.exs --include integration) — gated by S4 landing\n  - existing mix test passes with no regression\n- Behaviors to demonstrate:\n  - mutagen.cli.s14a — fresh-shell downstream invocation succeeds (currently aborts with module_beam_missing)\n  - mutagen.cli.s14b — run/2 from inside mix test does NOT invoke the preamble\n\nOut of Scope (files):\n- lib/mutagen_ex/json_reporter.ex (owned by S2)\n- lib/mutagen_ex/ast_cache.ex (owned by S3)\n- test/mutagen_ex/golden/*.json (owned by S2)\n- test/integration/** (owned by S4)\n- lib/mutagen_ex/mutation_runner.ex and any other phase implementations\n\nAllowed touches:\n- lib/mix/tasks/mutagen.ex (run/1 body, optional private helper)\n- test/mix/tasks/mutagen_test.exs (additive — preamble idempotency unit test, default_dispatch shape regression guard)\n- README.md (one-sentence library-callers note)\n- .spec/specs/cli.spec.md (already updated by /distill — DO NOT re-edit unless adding missed coverage)\n\nOut of Scope (intent):\n- No changes to run/2's signature or behavior (the test seam)\n- No new CLI flags (e.g. --skip-compile is explicitly out)\n- No changes to MutagenEx.MutationRunner or any library-entry surface\n- No new dependencies\n- No refactor of unrelated mix task internals (resist the urge while you're in the file)\n\nMerge gate:\n- [ ] Code compiles cleanly (mix compile --warnings-as-errors)\n- [ ] mix test green\n- [ ] Spec verification: cli.r14 stub (cli.v9) referenced but execute: false until S4 lands\n- [ ] Scope check: diff touches only Allowed globs\n- [ ] Auditor APPROVE comment on the ticket",
   "id": "mutagen-wrd.39.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "S1: Mix task entry-point setup (boot app + ExUnit + compile host)",
   "type": "task",
-  "updated_at": "2026-05-17T12:50:38Z"
+  "updated_at": "2026-05-17T12:51:49Z"
 }
