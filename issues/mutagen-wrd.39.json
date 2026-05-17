@@ -12,11 +12,15 @@
     {
       "text": "Epic complete. All four children landed on think-vm5/downstream-adoption-fixes:\n- S1 (mutagen-wrd.39.1): Mix task preamble (boot app + ExUnit + compile host)\n- S2 (mutagen-wrd.39.2): Error JSON details field\n- S3 (mutagen-wrd.39.3): Path-safety hardening + log hygiene\n- S4 (mutagen-wrd.39.4): Downstream-adoption integration test\n\nClosing epic via /deliver.",
       "timestamp": "2026-05-17T15:14:53Z"
+    },
+    {
+      "text": "ORCHESTRATED\nChildren closed: 4 (S1: mix task preamble; S2: error JSON details; S3: path-safety + log hygiene; S4: downstream-adoption integration test)\nBOUNCEs encountered: 2 (S4: audit→verifier then verify-FAIL→implementer over the :integration vs :downstream_integration tag collision)\nUser escalations: 1 (Codex sandbox seatbelt blocked writes to .git/worktrees gitdir during S1/S2/S3; orchestrator committed Codex's existing diffs on behalf as bookkeeping equivalent to ff-merge — see push notification at 09:53)\n\nEpic branch think-vm5/downstream-adoption-fixes is ready for human PR review. Default mix test: 638/0; mix test.integration: 1/0; mix test --include integration (strict gate) trips only on pre-existing scenario_5_baseline_red golden drift (e2e_slow lane, unrelated to this epic).",
+      "timestamp": "2026-05-17T15:15:20Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Downstream adoption fixes (1.0 prep)",
   "type": "epic",
-  "updated_at": "2026-05-17T15:14:55Z"
+  "updated_at": "2026-05-17T15:15:20Z"
 }
