@@ -36,6 +36,7 @@ surface:
 decisions:
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.content_addressed_ids
+  - mutagen.decision.details_always_present
 ```
 
 ## Schema (v1)
@@ -60,6 +61,8 @@ Top-level keys, all present in every variant unless noted:
   mutation phase exited early because an aggregate budget elapsed. See
   r13 for the contract and [mutagen.cli.r13](cli.spec.md) for the
   `--budget-ms` flag that drives it.
+- `details`: map. `{}` on successful (`aborted: false`) runs; populated
+  with the phase-supplied diagnostic context on aborts. See r16.
 
 ```spec-requirements
 - id: mutagen.json_schema.r1
@@ -308,6 +311,54 @@ Top-level keys, all present in every variant unless noted:
     `r6` (the aggregate reporter is also I/O-free) and lets unit
     tests of the streamer assert wire shape without touching the
     filesystem.
+
+- id: mutagen.json_schema.r16
+  priority: must
+  statement: |
+    The top-level `details` field is always present on every emitted
+    document — never absent, never `null`, always a JSON object (map).
+
+    Shape contract:
+
+      - On successful (`aborted: false`) runs: `details == %{}` (empty
+        map). The successful run carries no failing-phase diagnostic
+        context to surface.
+      - On aborted (`aborted: true`) runs: `details` contains the
+        phase-supplied diagnostic context for the abort. Concrete
+        examples from the production phases:
+          * `:test_file_load_failed` → `{file: "test/foo_test.exs",
+             message: "could not load test file ..."}`
+          * `:module_beam_missing` → `{module: "Elixir.Foo", file:
+             "lib/foo.ex", message: "no .beam file located ..."}`
+          * `:cover_already_running` → `{message: "another :cover
+             session is running"}`
+          * `:too_many_targets` → `{flag: "--scope", kind: :scope,
+             cap: 100, count: 101}`
+        Phases own the shape of their own details map; this subject
+        does not enumerate the keys, only the outer envelope.
+
+    Leaf encoding: atom values are stringified (e.g. `kind: :scope` →
+    `"kind": "scope"`); integer/boolean values pass through; binary
+    leaves are sanitized through the r10 truncation + r11 redaction
+    pipeline before emission. Map values may nest one layer deep
+    (e.g. `failures: [...]` from baseline-red details).
+
+    The `details` envelope is additive to the v1 schema. Consumers
+    parsing v1 documents prior to this requirement see no `details`
+    field at all; after this requirement the key is always present.
+    Per the schema-evolution policy in this subject's intent
+    (`adding fields is allowed`), `version` stays at `"1"`.
+
+    Decision: mutagen.decision.details_always_present.
+
+    Counter-example (pre-fix): a downstream user's `mix mutagen` aborts
+    with `abort_reason: "test_file_load_failed"`. The emitted JSON
+    contains only `abort_reason` and no detail context — the user
+    cannot tell which test file failed to load, what the underlying
+    Elixir exception was, or how to fix their input. After this
+    requirement, the same abort emits `details: {file:
+    "test/foo_test.exs", message: "cannot use ExUnit.Case without
+    starting the ExUnit application, ..."}`.
 ```
 
 ```spec-scenarios
@@ -416,6 +467,46 @@ Top-level keys, all present in every variant unless noted:
     AT MOST `2 * N` regardless of how the N results split between
     slice and fallback (the slice path uses byte indexing, not
     `Macro.to_string`).
+
+- id: mutagen.json_schema.s16a
+  covers: [mutagen.json_schema.r16]
+  given: |
+    A successful pipeline run that completes with 5 mutation sites,
+    all classified normally.
+  when: `JsonReporter.emit_report/1` renders the document.
+  then: |
+    The decoded JSON has `"details": {}` at the top level. The
+    map is empty (no keys). The document round-trips through
+    `:json.decode/1` per r7 with the `details` key present.
+
+- id: mutagen.json_schema.s16b
+  covers: [mutagen.json_schema.r16]
+  given: |
+    A pipeline run that aborts in the coverage phase with
+    `:test_file_load_failed` because the cited test file raises on
+    load. The phase returns
+    `{:error, :test_file_load_failed, %{file: "test/foo_test.exs",
+    message: "could not load test file \"test/foo_test.exs\": cannot
+    use ExUnit.Case ..."}}`.
+  when: `JsonReporter.emit_error/2` renders the error document.
+  then: |
+    The decoded JSON has `"aborted": true`, `"abort_reason":
+    "test_file_load_failed"`, AND a populated `"details"` map
+    containing keys `"file"` (string `"test/foo_test.exs"`) and
+    `"message"` (the binary, possibly truncated and/or redacted per
+    r10/r11). The `details` map is NOT empty.
+
+- id: mutagen.json_schema.s16c
+  covers: [mutagen.json_schema.r16, mutagen.json_schema.r10]
+  given: |
+    A pipeline run that aborts with a `details.message` of 10_240
+    bytes (over the 4 KiB r10 cap).
+  when: `JsonReporter.emit_error/2` renders the error document.
+  then: |
+    The decoded JSON's `details.message` is exactly 4096 bytes of
+    payload followed by ` ... <6144 bytes truncated>`. The sanitizer
+    pipeline applied to abort-detail string leaves matches the
+    sanitizer applied to `mutation.results[].warnings[]`.
 ```
 
 ```spec-verification
@@ -471,4 +562,16 @@ Top-level keys, all present in every variant unless noted:
   kind: command
   command: mix test test/mutagen_ex/json_streamer_test.exs
   execute: true
+
+- id: mutagen.json_schema.v8
+  covers: [mutagen.json_schema.r16]
+  kind: command
+  command: mix test test/mutagen_ex/json_reporter_test.exs --only details_field
+  execute: false
+
+- id: mutagen.json_schema.v9
+  covers: [mutagen.json_schema.r16]
+  kind: command
+  command: mix test test/mutagen_ex/json_reporter_golden_test.exs
+  execute: false
 ```

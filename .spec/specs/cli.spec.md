@@ -36,6 +36,7 @@ decisions:
   - mutagen.decision.no_pretty_output_v1
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.self_mutation_refused
+  - mutagen.decision.preamble_in_run1_only
 ```
 
 ```spec-requirements
@@ -203,6 +204,73 @@ decisions:
     overshoot is one `timeout_ms`. Non-positive or non-integer
     `--budget-ms` values cause an error-JSON exit with `reason:
     :invalid_budget_ms`.
+
+- id: mutagen.cli.r14
+  priority: must
+  statement: |
+    Before the first pipeline phase runs, `mix mutagen` ensures the host
+    project's modules are loaded into the BEAM, the `:ex_unit` application
+    is started, and the `:mutagen_ex` application is started. Concretely,
+    `Mix.Tasks.Mutagen.run/1` invokes (in order):
+
+      1. `Mix.Task.run("loadpaths")` — adds the host project's
+         `_build/<env>/lib/<app>/ebin` to `:code` paths so
+         `:code.which/1` can locate scope modules.
+      2. `Mix.Task.run("compile")` — compiles the host project (no-op
+         when already compiled).
+      3. `Application.ensure_all_started(:mutagen_ex)` — boots
+         `MutagenEx.Application` so `MutagenEx.TaskSup` is alive when
+         `MutationLoop` dispatches per-site tasks (see
+         [mutagen.mutation_pipeline](mutation_pipeline.spec.md) and
+         mutagen.decision.supervision_tree).
+      4. `ExUnit.start(autorun: false)` — starts the `:ex_unit`
+         application so cited test files (which `use ExUnit.Case`) can
+         load. `autorun: false` is critical: `CoverageRunner`,
+         `Baseline`, and `MutationLoop` each drive `ExUnit.run/0`
+         themselves per the in-process pipeline contract.
+
+    Without this preamble, a downstream caller invoking `mix mutagen`
+    from a fresh shell against their own project aborts with
+    `:module_beam_missing` (modules not loaded), `:test_file_load_failed`
+    (ExUnit not started, raising `cannot use ExUnit.Case without
+    starting the ExUnit application`), or a no-process crash on
+    `MutagenEx.TaskSup` (`:mutagen_ex` application not started).
+
+    The preamble lives in `run/1` ONLY. `run/2` (the documented test
+    seam) stays preamble-free per
+    mutagen.decision.preamble_in_run1_only. The existing test suite
+    drives the Mix task via `run/2` from inside an already-running
+    `mix test` invocation; running the preamble again would risk
+    double-compile and ExUnit ordering conflicts.
+
+    Library callers invoking `MutagenEx.MutationRunner.run/1` directly
+    (the documented library entry per `README.md`) are responsible for
+    ensuring `:mutagen_ex` is started themselves. The library entry is
+    NOT in this requirement's surface — `r14` covers the CLI entry only.
+
+- id: mutagen.cli.r15
+  priority: must
+  statement: |
+    When `--json <path>` is refused under r10's path-safety contract
+    (either the parse-time `..`/NUL pure-string check or the filesystem
+    canonicalisation symlink-escape check), the error-JSON document
+    does NOT land at the rejected path. It is written to stdout
+    instead. This refines r10: the safety check rejects the path
+    semantically AND ensures no write touches the rejected target.
+
+    Implementation: when the json-path validation phase returns
+    `{:abort, _report, _config, :unsafe_json_path, _details}`, the
+    abort emission path MUST clear `Config.json_path` (set to `nil`)
+    before invoking the IO sink. Downstream IO routing keys on
+    `json_path: nil` to emit to stdout per r5.
+
+    Counter-example (pre-fix bug): a user runs
+    `mix mutagen --json /tmp/foo.json` outside the project root with
+    no `--unsafe-json-outside-project`. r10 correctly rejects with
+    `abort_reason: "unsafe_json_path"`, but the error JSON is then
+    written to `/tmp/foo.json` anyway — undermining the safety
+    guarantee a downstream consumer relies on. The fix is mandatory:
+    the rejected path must not be written to under any abort variant.
 ```
 
 ```spec-scenarios
@@ -414,6 +482,48 @@ decisions:
   then: |
     An error-JSON document with `reason: :invalid_budget_ms` is
     emitted. `Config.budget_ms` is never set to 0.
+
+- id: mutagen.cli.s14a
+  covers: [mutagen.cli.r14]
+  given: |
+    A downstream project freshly cloned and installed with `mutagen_ex`
+    as a dependency. A user invokes
+    `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` from
+    the project root in a fresh shell — no prior `mix test`, no IEx
+    session, no manual preload.
+  when: `Mix.Tasks.Mutagen.run/1` starts.
+  then: |
+    The preamble runs before any phase. After the preamble:
+    `:code.which(Foo)` returns a charlist path (modules loaded);
+    `Application.started_applications/0` includes both `:mutagen_ex`
+    and `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.
+    The coverage, baseline, and mutation phases then run normally and
+    the document emitted has `aborted: false`.
+
+- id: mutagen.cli.s14b
+  covers: [mutagen.cli.r14]
+  given: |
+    The mutagen_ex test suite (`mix test`) is running. ExUnit drives
+    a test that calls `Mix.Tasks.Mutagen.run/2` with a custom
+    dispatch.
+  when: `run/2` executes.
+  then: |
+    `run/2` does NOT invoke the preamble — no `Mix.Task.run("compile")`,
+    no `ExUnit.start/1`, no `Application.ensure_all_started/1`. The
+    test seam is preamble-free per
+    mutagen.decision.preamble_in_run1_only.
+
+- id: mutagen.cli.s15
+  covers: [mutagen.cli.r15, mutagen.cli.r10]
+  given: |
+    A user invokes
+    `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs --json /tmp/foo.json`
+    from a project whose root is `/Users/.../my_project`.
+  when: `phase_json_path` runs.
+  then: |
+    The path is refused with `abort_reason: "unsafe_json_path"` per
+    r10. The error-JSON document lands on stdout. No file is created
+    at `/tmp/foo.json`. The exit code is non-zero per r6.
 ```
 
 ```spec-verification
@@ -464,4 +574,16 @@ decisions:
   kind: command
   command: mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs
   execute: true
+
+- id: mutagen.cli.v9
+  covers: [mutagen.cli.r14]
+  kind: command
+  command: mix test test/integration/downstream_adoption_test.exs --include integration
+  execute: false
+
+- id: mutagen.cli.v10
+  covers: [mutagen.cli.r15]
+  kind: command
+  command: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
+  execute: false
 ```
