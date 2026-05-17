@@ -4,6 +4,7 @@
   "blocks": [
     "mutagen-wrd.39.4"
   ],
+  "closed_at": "2026-05-17T14:20:55Z",
   "created": "2026-05-17T12:51:21Z",
   "description": "Advances: mutagen.cli\n\nDeliverable:\nTwo small, independent fixes bundled because their touch surfaces don't overlap with each other or with S1/S2.\n\nD5 fix (path safety still writes):\nIn Mix.Tasks.Mutagen.phase_json_path, on the error branch (when JsonPath.canonicalize returns the :unsafe_json_path failure), return {:abort, report, %Config{config | json_path: nil}, reason, details}. The downstream emit_abort -\u003e DefaultIo.emit then routes the error JSON to stdout instead of the rejected path. One-line change.\n\nD3 fix (debug log leak):\nDrop the Logger.debug/1 call in MutagenEx.AstCache.log_categories/2 entirely. Coordinate: also drop the 'require Logger' directive in the same module if no other call uses it (grep confirms it's the only one).\n\nVerification:\n- Tests to pass:\n  - mutagen.cli.v10 (mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path)\n  - new ast_cache_test.exs test asserting capture_log around AstCache.load/2 is empty\n  - existing mix test passes with no regression\n- Behaviors to demonstrate:\n  - mutagen.cli.s15 — --json /tmp/foo.json rejected; no file created at rejected path; error JSON on stdout\n  - mix mutagen invocation produces no [debug] AstCache.load/2: ... line on stderr\n\nOut of Scope (files):\n- lib/mix/tasks/mutagen.ex run/1 body (owned by S1)\n- lib/mix/tasks/mutagen.ex emit_abort/5 (owned by S2)\n- lib/mutagen_ex/json_reporter.ex (owned by S2)\n- test/mutagen_ex/golden/** (owned by S2)\n- test/integration/** (owned by S4)\n- lib/mutagen_ex/json_path.ex — the canonicalize logic itself is correct, only IO routing is wrong\n\nAllowed touches:\n- lib/mix/tasks/mutagen.ex (phase_json_path error branch ONLY — one-line nil-out of json_path)\n- lib/mutagen_ex/ast_cache.ex (drop Logger.debug call + require Logger directive)\n- test/mix/tasks/mutagen_test.exs (additive — unsafe-path test asserts no file at rejected path)\n- test/mutagen_ex/ast_cache_test.exs (additive — no-debug-log test)\n\nOut of Scope (intent):\n- No change to JsonPath.canonicalize/2 behavior — the safety check is correct\n- No change to DefaultIo.emit/3 — IO sink is correct; only the abort glue is wrong\n- No new logging system or debug flag (we're deleting a stray debug log, not introducing config surface)\n- No change to --unsafe-json-outside-project — the documented escape hatch stays\n- No new dependencies\n\nMerge gate:\n- [ ] Code compiles cleanly (mix compile --warnings-as-errors)\n- [ ] mix test green\n- [ ] Spec verification: cli.r15 stub (v10) referenced\n- [ ] Scope check: diff touches only Allowed globs\n- [ ] Auditor APPROVE comment on the ticket",
   "id": "mutagen-wrd.39.3",
@@ -28,7 +29,7 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "S3: Path-safety hardening + log hygiene",
   "type": "task",
   "updated_at": "2026-05-17T14:20:55Z"
