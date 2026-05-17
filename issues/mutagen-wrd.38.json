@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.38",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nSession: 1e41bb27-d2f3-456c-b493-6daf6d330d4d\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/1e41bb27-d2f3-456c-b493-6daf6d330d4d.jsonl\n\nStage worktree: /Users/mz/dev/mz/mutagen_ex-coverage-reregister\nStage branch: wrd.38/coverage-reregister (off main; rebased onto 361eb9b)\nCommit: a758b24 mutagen-wrd.38: coverage re-registers cited test modules before ExUnit.run/0\n\nAllowed touches honored — files changed:\n  - lib/mutagen_ex/coverage_runner.ex\n  - lib/mix/tasks/mutagen.ex\n  - test/mutagen_ex/end_to_end_test.exs\n  - test/mutagen_ex/coverage_runner_test.exs\n  - .spec/specs/coverage.spec.md\n  - .spec/specs/mutation_pipeline.spec.md\n\nTests added (test/mutagen_ex/coverage_runner_test.exs, describe\n\"mutagen-wrd.38: re-registers cited test modules before ExUnit.run/0\"):\n  - \":test_modules entries are passed to :ex_unit_server.add_module/2 in order\"\n  - \"add_module/2 happens BEFORE ExUnit.run/0\"\n  - \"default for :test_modules is [] — no add_module calls when payload absent\"\n  - \"empty :test_modules with default :ex_unit_server does not crash\"\n\nStubs flipped: coverage.r10 / s10 / v7 are new and ship with execute:\ntrue (mix test test/mutagen_ex/coverage_runner_test.exs). The\nmutation_pipeline.r10 statement is extended; its v7 verification stub\n(mutation_pipeline_test.exs r10 block) continues to execute: true.\n\nEndToEndTest dispatch now routes `coverage:` directly to\n`MutagenEx.CoverageRunner` (CoverageCollaborator retired, helper\nregister_test_modules_for_phase!/1 removed). Scenarios 3c + 3d (both\ncite test/lane_fixture/withblock_test.exs) continue to pass against\nthe production re-registration path — that's the regression this fix\nguards against.\n\nVerification:\n  - mix compile --warnings-as-errors: clean\n  - mix test: 632 tests, 0 failures (17 excluded) — 8 consecutive\n    clean runs to rule out flake\n  - mix test test/mutagen_ex/coverage_runner_test.exs: 16 tests, 0\n    failures (4 new wrd.38 tests)\n  - mix test test/mutagen_ex/end_to_end_test.exs --include e2e_slow:\n    13 tests, 0 failures\n\nDeferred must requirements: none. No follow-up tickets needed.\n\nOut-of-Scope honored: no changes to MutationRunner, Baseline,\nExUnitServer facade, AstCache, scope_resolution, or test selector.",
+      "timestamp": "2026-05-17T10:17:08Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "[BUG] Coverage phase silently runs zero tests on repeated cited-file scenarios (require_file cache collision symmetric to wrd.37)",
   "type": "bug",
-  "updated_at": "2026-05-17T10:06:57Z"
+  "updated_at": "2026-05-17T10:17:08Z"
 }
