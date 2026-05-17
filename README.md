@@ -267,57 +267,25 @@ The behavioural contract for the document lives in
 
 ## Known limitations
 
-These are real production gaps in v0.1.0. Each has an open follow-up
-ticket; the v0.1.0 cut ships the surface and the contract, not the fix.
+1. **Baseline phase runs zero tests in production — `:baseline_red`
+   guard rail does not trip.** The `coverage → baseline → mutation`
+   phase order means `Code.require_file/1` (used by both coverage and
+   baseline to load cited test files) is cached by the time baseline
+   runs. `ExUnit.Server` has already been drained by coverage's
+   `ExUnit.run/0`, so baseline's `ExUnit.run/0` reports `failures: 0`
+   regardless of whether the cited tests actually pass. Survived/killed
+   classification is **unaffected** — the mutation phase explicitly
+   re-registers each module with `ExUnit.Server.add_module/2` before
+   every per-site run. Tracked as `mutagen-wrd.37`. Workaround until
+   fixed: confirm the cited tests pass via a normal `mix test` before
+   running `mix mutagen`; mutagen_ex will not warn if they're red.
 
-1. **File-cited `--tests` selects zero tests.**
-   `--tests test/foo_test.exs` (or any test-file path) currently produces
-   a filter that excludes every test, so every mutation lands in the
-   `survived` bucket. Tag-cited and `file:line`-cited tests are not
-   affected. Workaround: use `--tests tag:<name>` until fixed.
-   *(mutagen-wrd.11)*
-
-2. **The production mix task does not populate ExUnit modules for the
-   mutation phase.** Even when test selection is correct, the mix task
-   wires the mutation runner with an empty `test_modules` list, so
-   `ExUnit.run/0` reports zero tests during the mutation phase and every
-   mutation classifies as `survived`. End-to-end correctness today
-   requires the test-side driver fork. *(mutagen-wrd.12)*
-
-3. **`:case_drop` on a guarded base case classifies `:killed`, not
-   `:timeout`.** When the dropped clause is the only non-recursing
-   branch, the surviving recursive clause's guard rejects the base value
-   and the BEAM raises `CaseClauseError` — the mutator catalog's
-   stated `:timeout` outcome does not happen. *(mutagen-wrd.14)*
-
-4. **The `literal` mutator never fires.** The AST cache parses with
-   `token_metadata: true`, which wraps atomic literals in
-   `{:__block__, _, [value]}` tuples. `Literal.match?/1` only matches
-   bare literals, so the mutator skips every candidate site. The other
-   mutators (`compare`, `boolean`, `case_drop`, `else_removal`,
-   `withblock_*`) are unaffected. *(mutagen-wrd.15)*
-
-5. ~~**End-to-end Scenario 7 (`:ecto_user_scenario`) is `@tag :skip`.**~~
-   **Resolved in mutagen-wrd.32 (the .19b follow-up to mutagen-wrd.19's
-   Option B disposition).** The fixture-test assertion at
-   `test/fixtures/lane_project/test/lane_fixture/ecto_user_test.exs:30`
-   was a list-of-lists membership bug: `persist: true` attributes wrap
-   the value in a list before serialising into the BEAM attributes
-   chunk, so `Keyword.get_values(attrs, :lane_schema_kind)` returns
-   `[[:registered]]` and `:registered in [[:registered]]` is `false`.
-   The assertion was rewritten against the flattened value plus a
-   direct `Keyword.fetch!` equality, and Scenario 7's `@tag :skip` was
-   removed in `test/mutagen_ex/end_to_end_test.exs`. The mutagen-wrd.19
-   spike confirmed every macro-injected callback (`__schema_kind__/0`,
-   `field/2`-generated functions, the persisted `:lane_schema_kind`
-   attribute) survives the full `:cover.compile_beam/1` ->
-   `:cover.stop/0` -> `:code.purge/1` -> `:code.load_file/1` cycle
-   byte-for-byte, so the Spike-I bytecode-identical-restore invariant
-   is now exercised end-to-end against the hand-rolled DSL.
-
-In items 1-4 above the JSON document is well-formed and the contract
-is honoured; the gap is in upstream classification fidelity, not in the
-output schema.
+2. **`:case_drop` on a guarded recursive-base-case classifies
+   `:killed`, not `:timeout`.** Documented behavior (per
+   `mutagen-wrd.14`): when the dropped clause is the only non-recursing
+   branch, the surviving recursive clause's guard rejects the base
+   value and the BEAM raises `CaseClauseError`. The mutator catalog
+   reflects this; the classification is intentional, not a bug.
 
 ## Performance
 
