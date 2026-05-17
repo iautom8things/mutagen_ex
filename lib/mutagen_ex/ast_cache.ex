@@ -89,8 +89,7 @@ defmodule MutagenEx.AstCache do
       partitioning of the flat `files` list (e.g.
       `%{scope: [...], test: [...]}`). Per r9 this is **input-only**: it
       does NOT change the cache entry shape, and there is no consumer API
-      for looking up entries by category. The implementation logs the
-      per-category counts to `Logger.debug/1` for observability.
+      for looking up entries by category.
   """
   @impl MutagenEx.Pipeline.AstCacheFacade
   @spec load([String.t()], keyword) ::
@@ -123,29 +122,9 @@ defmodule MutagenEx.AstCache do
 
   # ---- internals ----
 
-  require Logger
-
-  # r9 diagnostics. We log the per-category count (not the file lists
-  # themselves — those can be long) at debug level so a pipeline observer
-  # can see "loaded N scope files + M test files" without forcing this
-  # information into the entry shape. Returns :ok regardless; logging
-  # failures are not load failures.
   defp log_categories(_files, nil), do: :ok
 
-  defp log_categories(files, %{} = categories) do
-    counts =
-      Enum.map(categories, fn {name, list} when is_atom(name) and is_list(list) ->
-        {name, length(list)}
-      end)
-
-    Logger.debug(fn ->
-      "AstCache.load/2: total=#{length(files)} categories=#{inspect(counts)}"
-    end)
-
-    :ok
-  rescue
-    _ -> :ok
-  end
+  defp log_categories(_files, %{}), do: :ok
 
   defp log_categories(_files, _other), do: :ok
 

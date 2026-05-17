@@ -16,6 +16,8 @@ defmodule MutagenEx.AstCacheTest do
 
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias MutagenEx.AstCache
 
   @sample_module ~S"""
@@ -232,6 +234,21 @@ defmodule MutagenEx.AstCacheTest do
       # advisory diagnostic metadata, not part of the load contract.
       assert {:ok, _cache} =
                AstCache.load(["x.ex"], reader: reader, categories: :not_a_map)
+    end
+
+    test "load/2 emits no debug log for category diagnostics" do
+      reader = fn _ -> @sample_module end
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert {:ok, _cache} =
+                   AstCache.load(["x.ex"],
+                     reader: reader,
+                     categories: %{scope: ["x.ex"]}
+                   )
+        end)
+
+      assert log == ""
     end
   end
 end

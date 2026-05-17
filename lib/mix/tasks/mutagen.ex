@@ -524,7 +524,7 @@ defmodule Mix.Tasks.Mutagen do
         {:ok, %Config{config | json_path: canonical}}
 
       {:error, reason, details} ->
-        {:abort, report, config, reason, details}
+        {:abort, report, %Config{config | json_path: nil}, reason, details}
     end
   end
 

@@ -585,5 +585,5 @@ decisions:
   covers: [mutagen.cli.r15]
   kind: command
   command: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
-  execute: false
+  execute: true
 ```
