@@ -50,6 +50,49 @@ defmodule MutagenEx.CoverageRunner do
     * `:test_loader` — `(path :: String.t() -> any())` — overrides
       `Code.require_file/1`. Tests use this to track that test files are
       loaded once, not per-phase.
+    * `:test_modules` — `[{module(), MutagenEx.TestModuleDiscovery.module_cfg()}]`.
+      Re-registered with `ExUnit.Server.add_module/2` before the
+      coverage phase's `ExUnit.run/0` so the cited modules appear in
+      the registry whenever a prior `ExUnit.run/0` in the same BEAM
+      drained it (the in-suite multi-scenario hazard documented in
+      `mutagen.mutation_pipeline.r10`). Defaults to `[]` (preserves
+      pre-mutagen-wrd.38 behaviour for callers that haven't wired the
+      production payload through; in that mode coverage is vulnerable
+      to the `Code.require_file/1` cache hazard whenever it runs after
+      another `ExUnit.run/0` in the same BEAM).
+    * `:ex_unit_server` — module implementing
+      `MutagenEx.Test.ExUnitServerFacade` (the registration seam).
+      Defaults to `MutagenEx.Test.ExUnitServer`.
+
+  ## Why coverage re-registers cited test modules
+
+  `ExUnit.Server` consumes its registered-module list at every
+  `ExUnit.run/0` invocation. The `use ExUnit.Case`
+  `__after_compile__` hook that performs the initial registration only
+  fires when the cited test file is freshly evaluated, and
+  `Code.require_file/1` is one-shot per path in a BEAM lifetime.
+
+  Production callers running a single `mix mutagen` invocation per
+  BEAM are unaffected — coverage is the first phase to call
+  `ExUnit.run/0`, so the `__after_compile__` registration is still in
+  the server's registry when coverage runs.
+
+  The hazard appears when two scenarios in the same BEAM cite the same
+  `*_test.exs` file: by the time the second scenario's coverage phase
+  runs, the prior scenario's `ExUnit.run/0` has drained the registry
+  and `Code.require_file/1` on the same path is a cached no-op.
+  Without explicit re-registration, coverage's `ExUnit.run/0` would
+  see zero modules, record zero covered lines, and downstream
+  enumeration would silently produce zero sites (mutagen-wrd.38).
+
+  The fix mirrors `MutagenEx.Baseline` (mutagen-wrd.37) and
+  `MutagenEx.MutationRunner.MutationLoop` (per site): explicitly call
+  `ExUnit.Server.add_module/2` for each cited test module before
+  invoking `ExUnit.run/0`. The orchestrator hands
+  `CoverageRunner.run/1` a `:test_modules` list derived from
+  `MutagenEx.TestModuleDiscovery.discover/1`; the `:ex_unit_server`
+  seam defaults to `MutagenEx.Test.ExUnitServer` (delegates to
+  `ExUnit.Server`) and lets tests record the calls.
 
   ## S2 spike findings carried forward
 
@@ -146,6 +189,7 @@ defmodule MutagenEx.CoverageRunner do
          {:ok, instrumented} <- cover_compile_modules(cfg),
          :ok <- configure_exunit(cfg),
          :ok <- load_test_files(cfg),
+         :ok <- register_test_modules(cfg),
          {:ok, _exunit_result} <- run_exunit(cfg),
          {:ok, covered} <- gather_covered_lines(cfg, instrumented) do
       {:ok,
@@ -352,6 +396,25 @@ defmodule MutagenEx.CoverageRunner do
             }}}
       end
     end)
+  end
+
+  # See "Why coverage re-registers cited test modules" in the moduledoc:
+  # `ExUnit.Server` consumes its registered-module list at every
+  # `ExUnit.run/0`, so we must put the cited modules back into the
+  # registry before the coverage phase's own run when a prior
+  # `ExUnit.run/0` in the same BEAM has already drained it. Symmetric
+  # with `MutagenEx.Baseline.register_test_modules/1` (mutagen-wrd.37)
+  # and `MutagenEx.MutationRunner.MutationLoop.execute_with_timeout/1`
+  # per site.
+  defp register_test_modules(cfg) do
+    server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
+    test_modules = Map.get(cfg, :test_modules, [])
+
+    Enum.each(test_modules, fn {mod, mod_cfg} ->
+      server.add_module(mod, mod_cfg)
+    end)
+
+    :ok
   end
 
   defp run_exunit(cfg) do

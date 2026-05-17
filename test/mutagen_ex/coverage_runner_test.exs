@@ -393,6 +393,110 @@ defmodule MutagenEx.CoverageRunnerTest do
   # Error-shape sanity
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # mutagen-wrd.38: cited-module re-registration seam
+  # ---------------------------------------------------------------------------
+
+  defmodule ExUnitServerFake do
+    @moduledoc false
+    def add_module(module, cfg) do
+      list = Process.get(:ex_unit_server_fake_calls, [])
+      Process.put(:ex_unit_server_fake_calls, [{module, cfg} | list])
+      :ok
+    end
+  end
+
+  defmodule OrderingExUnitServer do
+    @moduledoc false
+    # Records `add_module/2` calls into the shared `:wrd38_order`
+    # process-dict list so the ordering test can assert `add_module`
+    # ran before `ExUnit.run/0`.
+    def add_module(module, _cfg) do
+      list = Process.get(:wrd38_order, [])
+      Process.put(:wrd38_order, [{:add_module, module} | list])
+      :ok
+    end
+  end
+
+  defmodule OrderingExUnit do
+    @moduledoc false
+    def configure(_opts), do: :ok
+
+    def run do
+      list = Process.get(:wrd38_order, [])
+      Process.put(:wrd38_order, [:run | list])
+      %{failures: 0, total: 0, excluded: 0, skipped: 0}
+    end
+  end
+
+  describe "mutagen-wrd.38: re-registers cited test modules before ExUnit.run/0" do
+    setup do
+      Process.delete(:ex_unit_server_fake_calls)
+      Process.delete(:wrd38_order)
+      :ok
+    end
+
+    test ":test_modules entries are passed to :ex_unit_server.add_module/2 in order" do
+      mod_cfg = %{async?: false, group: nil, parameterize: nil}
+
+      cfg =
+        base_cfg_with_fakes(
+          test_modules: [
+            {Some.Cited.ATest, mod_cfg},
+            {Some.Cited.BTest, mod_cfg}
+          ],
+          ex_unit_server: ExUnitServerFake
+        )
+
+      assert {:ok, _} = CoverageRunner.run(cfg)
+
+      calls = Process.get(:ex_unit_server_fake_calls) |> Enum.reverse()
+
+      assert calls == [
+               {Some.Cited.ATest, mod_cfg},
+               {Some.Cited.BTest, mod_cfg}
+             ]
+    end
+
+    test "add_module/2 happens BEFORE ExUnit.run/0" do
+      mod_cfg = %{async?: false, group: nil, parameterize: nil}
+
+      cfg =
+        base_cfg_with_fakes(
+          test_modules: [{Some.Cited.OrderingTest, mod_cfg}],
+          ex_unit_server: OrderingExUnitServer,
+          ex_unit: OrderingExUnit
+        )
+
+      assert {:ok, _} = CoverageRunner.run(cfg)
+
+      order = Process.get(:wrd38_order) |> Enum.reverse()
+
+      assert order == [
+               {:add_module, Some.Cited.OrderingTest},
+               :run
+             ]
+    end
+
+    test "default for :test_modules is [] — no add_module calls when payload absent" do
+      cfg =
+        base_cfg_with_fakes(ex_unit_server: ExUnitServerFake)
+        |> Map.delete(:test_modules)
+
+      assert {:ok, _} = CoverageRunner.run(cfg)
+      assert Process.get(:ex_unit_server_fake_calls) == nil
+    end
+
+    test "empty :test_modules with default :ex_unit_server does not crash" do
+      # No `:ex_unit_server` override and an empty `:test_modules` list.
+      # The default seam must not be exercised (`Enum.each` over `[]` is
+      # a no-op) — this asserts the default lookup path doesn't crash
+      # when the real `MutagenEx.Test.ExUnitServer` is the seam value.
+      cfg = base_cfg_with_fakes() |> Map.put(:test_modules, [])
+      assert {:ok, _} = CoverageRunner.run(cfg)
+    end
+  end
+
   describe "input validation" do
     test "rejects malformed inputs with :invalid_input" do
       assert {:error, :invalid_input, _} = CoverageRunner.run(%{})
@@ -416,7 +520,7 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---- helpers ----
 
   defp base_cfg_with_fakes(overrides \\ []) do
-    %{
+    base = %{
       seed: Keyword.get(overrides, :seed, 0),
       in_scope_modules:
         Keyword.get(overrides, :in_scope_modules, [
@@ -428,8 +532,17 @@ defmodule MutagenEx.CoverageRunnerTest do
           exclude: [:test],
           files: []
         }),
-      ex_unit: ExUnitFake,
-      cover: CoverFakeOk
+      ex_unit: Keyword.get(overrides, :ex_unit, ExUnitFake),
+      cover: Keyword.get(overrides, :cover, CoverFakeOk)
     }
+
+    # Optional keys: only set when the test specifies them so default
+    # behaviour matches production lookup paths.
+    Enum.reduce([:test_modules, :ex_unit_server], base, fn key, acc ->
+      case Keyword.fetch(overrides, key) do
+        {:ok, value} -> Map.put(acc, key, value)
+        :error -> acc
+      end
+    end)
   end
 end

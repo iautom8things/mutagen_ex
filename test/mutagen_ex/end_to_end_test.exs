@@ -64,16 +64,16 @@ defmodule MutagenEx.EndToEndTest do
      fixture-local files.
   3. Invokes the pipeline via `Mix.Tasks.Mutagen.run/2` with a custom
      `:io` collaborator that captures `{iodata, exit_code}` instead of
-     calling `System.halt/1`. The `:coverage` collaborator wraps the
-     production one to inject the `Code.compile_file/1` re-evaluation
-     so the `use ExUnit.Case` `__after_compile__` side effect re-fires
-     on the second scenario that cites the same test file (the
-     `Code.require_file/1` cache hazard documented in
-     `mutagen.mutation_pipeline.r10`). The `:tests`, `:baseline`, and
-     `:mutation` collaborators are the production ones
+     calling `System.halt/1`. The `:tests`, `:baseline`, `:coverage`,
+     and `:mutation` collaborators are the production ones
      (`MutagenEx.TestSelector.resolve/2` per mutagen-wrd.11,
      `MutagenEx.Baseline.run/1` per mutagen-wrd.37,
-     `MutagenEx.MutationRunner.run/1` per mutagen-wrd.12).
+     `MutagenEx.CoverageRunner.run/1` per mutagen-wrd.38,
+     `MutagenEx.MutationRunner.run/1` per mutagen-wrd.12). Each phase
+     re-registers the cited test modules with `ExUnit.Server` via the
+     `:test_modules` payload threaded through `Mix.Tasks.Mutagen` (the
+     `Code.require_file/1` cache hazard documented in
+     `mutagen.mutation_pipeline.r10`).
   4. Decodes the captured JSON and asserts shape and outcome.
 
   Per-scenario state isolation (`reset_e2e_state!/1`) keeps every
@@ -82,10 +82,11 @@ defmodule MutagenEx.EndToEndTest do
       a prior scenario;
     * `:code.purge/1` + `:code.load_file/1` on every lane-fixture
       module to restore a disk-resident `.beam` (cover's precondition);
-    * a fresh `Code.compile_file/1` of every cited test file per phase,
-      which re-fires the `use ExUnit.Case` `__after_compile__` hook so
-      `ExUnit.Server` re-registers the cited modules (`Code.require_file/1`
-      caches by path and would otherwise no-op on the second scenario).
+    * each production phase (baseline / coverage / mutation) re-registers
+      its cited modules with `ExUnit.Server` via the `:test_modules`
+      payload threaded through `Mix.Tasks.Mutagen` (the
+      `Code.require_file/1` cache hazard documented in
+      `mutagen.mutation_pipeline.r10`).
 
   Marked `async: false` because the pipeline reconfigures the running
   ExUnit instance via `ExUnit.configure/1` and `:cover` is a global
@@ -259,11 +260,14 @@ defmodule MutagenEx.EndToEndTest do
     # server's `loaded` field back at an integer (per
     # `ExUnit.Server.handle_call(:take_sync_modules)` line 83) — so by
     # the time the next setup runs, the server already accepts
-    # add_module again. The `prime_exunit_server!` helper called from
-    # the baseline/coverage collaborators reissues `modules_loaded(false)`
-    # which is a no-op against integer state and the `:done`-state
-    # short-circuit (server.ex line 108), making the priming safe to
-    # call any number of times.
+    # `add_module/2` again. The production
+    # `MutagenEx.Baseline.run/1`, `MutagenEx.CoverageRunner.run/1`, and
+    # `MutagenEx.MutationRunner.MutationLoop.execute_with_timeout/1`
+    # each call `ExUnit.Server.add_module/2` per cited module before
+    # their own `ExUnit.run/0` invocation (mutagen-wrd.37 /
+    # mutagen-wrd.38), making the registry guaranteed-populated at the
+    # moment each phase runs regardless of what a prior scenario
+    # drained.
     Process.delete(:e2e_capture_target)
     Process.delete(:e2e_capture_ref)
 
@@ -898,7 +902,19 @@ defmodule MutagenEx.EndToEndTest do
       # the production `MutagenEx.Baseline` module directly; the
       # `BaselineCollaborator` fork was retired in the same commit.
       baseline: MutagenEx.Baseline,
-      coverage: __MODULE__.CoverageCollaborator,
+      # `mutagen-wrd.38` fixed `MutagenEx.CoverageRunner.run/1` to
+      # re-register each cited test module via
+      # `ExUnit.Server.add_module/2` before its `ExUnit.run/0` (the
+      # symmetric half of the `Code.require_file/1` cache hazard
+      # documented in `mutagen.mutation_pipeline.r10`). The e2e suite
+      # now consumes the production `MutagenEx.CoverageRunner` module
+      # directly; the `CoverageCollaborator` fork (and the
+      # `register_test_modules_for_phase!/1` helper that prepended
+      # `Code.compile_file/1` to mask the gap) was retired in the same
+      # commit. Scenarios 3c + 3d both cite
+      # `test/lane_fixture/withblock_test.exs` and are the regression
+      # the production re-registration guards against.
+      coverage: MutagenEx.CoverageRunner,
       # `mutagen-wrd.12` fixed `Mix.Tasks.Mutagen.phase_mutation/7` to
       # derive `test_modules` from the resolved `test_filter.files` via
       # `MutagenEx.TestModuleDiscovery.discover/1`, so the e2e suite now
@@ -972,66 +988,6 @@ defmodule MutagenEx.EndToEndTest do
           IO.write(iodata)
       end
     end
-  end
-
-  defmodule CoverageCollaborator do
-    @moduledoc false
-    # `Code.require_file/1` is one-shot per path — the second call on
-    # the same file is cached and the `use ExUnit.Case`
-    # `__after_compile__` hook does not re-fire, so the cited test
-    # module is not re-registered with `ExUnit.Server` on the second
-    # `ExUnit.run/0` in the same BEAM (a hazard internal to ExUnit's
-    # registry-consumed-per-run semantics). For scenarios that cite the
-    # same test file across two scenarios in this suite (e.g.
-    # Scenarios 3c + 3d both cite `withblock_test.exs`), the second
-    # scenario's coverage phase would otherwise run zero tests and
-    # produce empty coverage data. This collaborator prepends a
-    # `Code.compile_file/1` to re-evaluate the cited file so the
-    # `__after_compile__` hook re-fires.
-    #
-    # Production `MutagenEx.Baseline` solved its half of this hazard
-    # in mutagen-wrd.37 via explicit `ExUnit.Server.add_module/2`
-    # (see `BaselineFacade`); the symmetric fix for
-    # `MutagenEx.CoverageRunner` is tracked separately because it
-    # touches `lib/mutagen_ex/coverage_runner.ex`, which falls
-    # outside mutagen-wrd.37's allowed scope.
-    @behaviour MutagenEx.Pipeline.CoverageFacade
-
-    @impl MutagenEx.Pipeline.CoverageFacade
-    def run(input) do
-      MutagenEx.EndToEndTest.register_test_modules_for_phase!(input.test_filter.files)
-      MutagenEx.CoverageRunner.run(input)
-    end
-  end
-
-  # Compile every cited test file via `Code.compile_file/1`, which
-  # unconditionally re-evaluates the source (unlike `Code.require_file/1`
-  # which caches by path). The re-evaluation fires the `use ExUnit.Case`
-  # `__after_compile__` hook, which itself calls `ExUnit.Server.add_module`
-  # — so each scenario gets its cited test modules freshly registered
-  # without us needing a parallel explicit add_module call (doing both
-  # would register the module twice and make the cited tests run twice).
-  #
-  # Rationale for compile_file vs require_file: `Code.require_file/1` is
-  # one-shot per path. Across scenarios the second citation of the same
-  # file becomes a no-op and the `__after_compile__` hook does NOT
-  # re-fire, leaving the cited test module unregistered for the second
-  # scenario's `ExUnit.run/0`. `Code.compile_file/1` sidesteps the cache
-  # at the cost of one "warning: redefining module" message per cited
-  # file per scenario; the e2e driver swallows stderr in `run_pipeline!/1`.
-  @doc false
-  def register_test_modules_for_phase!(files) do
-    Enum.each(files, fn file ->
-      try do
-        _ = Code.compile_file(file)
-      rescue
-        _ -> :ok
-      catch
-        _, _ -> :ok
-      end
-    end)
-
-    :ok
   end
 
   # ---------------------------------------------------------------------------

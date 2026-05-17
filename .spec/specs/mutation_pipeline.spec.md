@@ -185,14 +185,17 @@ decisions:
     only fires when a file is freshly evaluated, every phase that calls
     `ExUnit.run/0` after the first one MUST re-register the cited test
     modules via `ExUnit.Server.add_module/2` before its run. The
-    orchestrator hands `Baseline.run/1` and `MutationRunner.run/1` a
-    `test_modules` payload derived from
-    `MutagenEx.TestModuleDiscovery.discover/1`; `MutationLoop` and
-    `Baseline` each call the registration seam per
-    `ExUnit.run/0`. Without this, the affected phase would silently
-    classify every run as zero-test (`%{total: 0, failures: 0}`) and
-    the `:baseline_red` guard rail would never trigger
-    (mutagen-wrd.37).
+    orchestrator hands `CoverageRunner.run/1`, `Baseline.run/1`, and
+    `MutationRunner.run/1` a `test_modules` payload derived from
+    `MutagenEx.TestModuleDiscovery.discover/1`; `CoverageRunner` (per
+    `mutagen.coverage.r10`), `Baseline`, and `MutationLoop` each call
+    the registration seam per `ExUnit.run/0`. Without this, the
+    affected phase would silently classify every run as zero-test
+    (`%{total: 0, failures: 0}`); for baseline that disables the
+    `:baseline_red` guard rail (mutagen-wrd.37), and for coverage
+    that produces empty coverage data and zero downstream enumeration
+    sites whenever two `mix mutagen` invocations in the same BEAM
+    cite the same test file (mutagen-wrd.38).
 
 - id: mutagen.mutation_pipeline.r11
   priority: must

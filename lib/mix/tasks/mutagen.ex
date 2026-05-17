@@ -607,10 +607,21 @@ defmodule Mix.Tasks.Mutagen do
       |> Enum.map(&{&1.module, &1.file})
       |> Enum.uniq()
 
+    # `CoverageRunner.run/1` re-registers each cited test module with
+    # `ExUnit.Server` before its own `ExUnit.run/0`, so a second
+    # `mix mutagen` invocation in the same BEAM that cites a
+    # previously-cited test file still sees the cited modules in the
+    # server's registry (the prior `ExUnit.run/0` drained them and
+    # `Code.require_file/1` is one-shot per path). Without this
+    # payload, coverage would silently record zero covered lines on
+    # the second invocation and downstream enumeration would emit
+    # zero sites (mutagen-wrd.38). See
+    # `mutagen.mutation_pipeline.r10`.
     input = %{
       seed: seed,
       in_scope_modules: in_scope_modules,
-      test_filter: test_filter
+      test_filter: test_filter,
+      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
     }
 
     # `mutagen.mutation_pipeline.r15`: `[:mutagen_ex, :coverage, :start

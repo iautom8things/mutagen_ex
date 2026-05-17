@@ -133,6 +133,29 @@ decisions:
     window is a v2 mitigation target (see
     `.spec/decisions/supervision_tree.md` §"Won't-Have").
 
+- id: mutagen.coverage.r10
+  priority: must
+  statement: |
+    `CoverageRunner.run/1` accepts a `:test_modules` payload of shape
+    `[{module(), MutagenEx.TestModuleDiscovery.module_cfg()}]` and calls
+    `ExUnit.Server.add_module/2` (via the `:ex_unit_server` seam,
+    defaulting to `MutagenEx.Test.ExUnitServer`) once per entry,
+    **before** `ExUnit.run/0`. This re-registers the cited modules
+    whenever a prior `ExUnit.run/0` in the same BEAM has drained
+    `ExUnit.Server`'s registry — the multi-invocation hazard captured
+    in `mutagen.mutation_pipeline.r10`. Without this, coverage's
+    `ExUnit.run/0` would silently observe `%{total: 0, failures: 0}`
+    on a repeated cited-file scenario, record zero covered lines, and
+    downstream enumeration would produce zero sites (mutagen-wrd.38).
+
+    `:test_modules` defaults to `[]` — a single-invocation `mix mutagen`
+    is unaffected because the coverage phase is the first
+    `ExUnit.run/0` in the run and the cited modules' `use ExUnit.Case`
+    `__after_compile__` registration is still in the server's
+    registry. The orchestrator (`Mix.Tasks.Mutagen.phase_coverage/5`)
+    derives the payload from `MutagenEx.TestModuleDiscovery.discover/1`
+    against the resolved `test_filter.files`.
+
 - id: mutagen.coverage.r9
   priority: must
   statement: |
@@ -284,6 +307,20 @@ decisions:
     `detect_async_modules/1` falls back to `File.read/1` + parse for
     that file. The cache miss is logged. The returned warnings are
     the same as the no-cache path for that file.
+
+- id: mutagen.coverage.s10
+  covers: [mutagen.coverage.r10]
+  given: |
+    A `CoverageRunner.run/1` call with
+    `test_modules: [{Some.CitedTest, %{async?: false, group: nil, parameterize: nil}}]`
+    and an `:ex_unit_server` seam that records each `add_module/2`
+    invocation.
+  when: |
+    The runner reaches `ExUnit.run/0`.
+  then: |
+    The seam recorded one `add_module(Some.CitedTest, cfg)` call
+    BEFORE `ExUnit.run/0` was invoked. With `test_modules: []`
+    (the default), the seam records zero calls.
 ```
 
 ```spec-verification
@@ -321,5 +358,11 @@ decisions:
   covers: [mutagen.coverage.r9]
   kind: command
   command: mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs
+  execute: true
+
+- id: mutagen.coverage.v7
+  covers: [mutagen.coverage.r10]
+  kind: command
+  command: mix test test/mutagen_ex/coverage_runner_test.exs
   execute: true
 ```
