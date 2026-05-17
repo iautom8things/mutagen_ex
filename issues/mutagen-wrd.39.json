@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-05-17T12:50:16Z",
+  "description": "Jira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nNo spec subject (epic groups stages; each stage carries its own Advances:)\n\nDistilled from /mini-plan run 20260517-073236-claude-mini.\nPlan source: ~/Documents/my-vault/LLMs/plans/-Users-mz-dev-mz-mutagen_ex/2026-05-17-downstream-adoption-fixes/runs/20260517-073236-claude-mini/05-refined-plan.md\nPlan epic: think-tz4 (bw-plan, closed)\nImplementation epic mirror: think-vm5 (bw-plan, will close at end of /distill)\n\nGoal: land the minimum implementation work that unblocks downstream adoption of mutagen_ex (a downstream user installing as a dep and running 'mix mutagen' on their own project), so the remaining 1.0 work can be focused entirely on packaging (Hex), README polish, and developer experience — with no further bug-hunting.\n\nValidated against: ~/dev/mz/elixir-test-critic (stdlib-only Elixir project with 3 modules and 19 tests). Real-world test transcript confirmed three functional blockers (host BEAMs not loaded, ExUnit not started, :mutagen_ex app not started) plus the diagnostic-blocker (error JSON has no details field) and two DX gaps (debug log leak, --json path safety still writes).\n\nBranch: think-vm5/downstream-adoption-fixes (worktree at /Users/mz/dev/mz/mutagen_ex-downstream-adoption-fixes).\n\nVerification command: mix test (strict pre-merge: mix compile --warnings-as-errors \u0026\u0026 mix test --include integration).\n\nStage children correspond to the refined plan's S1-S4.",
+  "id": "mutagen-wrd.39",
+  "labels": [],
+  "parent": "mutagen-wrd",
+  "priority": 2,
+  "status": "open",
+  "title": "Downstream adoption fixes (1.0 prep)",
+  "type": "epic",
+  "updated_at": "2026-05-17T12:50:16Z"
+}
