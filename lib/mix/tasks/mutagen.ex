@@ -226,7 +226,16 @@ defmodule Mix.Tasks.Mutagen do
 
   @impl Mix.Task
   def run(argv) do
+    ensure_runtime()
     run(argv, default_dispatch())
+  end
+
+  defp ensure_runtime do
+    Mix.Task.run("loadpaths")
+    Mix.Task.run("compile")
+    {:ok, _apps} = Application.ensure_all_started(:mutagen_ex)
+    ExUnit.start(autorun: false)
+    :ok
   end
 
   @doc """

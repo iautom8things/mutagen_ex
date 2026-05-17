@@ -46,6 +46,8 @@ User-facing entrypoint surfaces:
   documented and supported route.
 - **Library**: `MutagenEx.MutationRunner.run/1` for callers depending on
   `:mutagen_ex` directly. Same in-process pipeline, no CLI parsing.
+  Library callers must ensure the `:mutagen_ex` application is started
+  before invoking this entrypoint.
 
 Only one concurrent MutagenEx mutation cycle per BEAM is supported;
 concurrent callers are refused with `{:error, :cover_already_running, _}`.
