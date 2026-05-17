@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.39",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "Epic complete. All four children landed on think-vm5/downstream-adoption-fixes:\n- S1 (mutagen-wrd.39.1): Mix task preamble (boot app + ExUnit + compile host)\n- S2 (mutagen-wrd.39.2): Error JSON details field\n- S3 (mutagen-wrd.39.3): Path-safety hardening + log hygiene\n- S4 (mutagen-wrd.39.4): Downstream-adoption integration test\n\nClosing epic via /deliver.",
+      "timestamp": "2026-05-17T15:14:53Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Downstream adoption fixes (1.0 prep)",
   "type": "epic",
-  "updated_at": "2026-05-17T12:50:16Z"
+  "updated_at": "2026-05-17T15:14:53Z"
 }
