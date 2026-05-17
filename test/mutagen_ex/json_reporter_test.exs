@@ -100,7 +100,7 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
 
-      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted) do
+      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted details) do
         refute decoded[key] == :null, "key #{key} should not be null on success"
         assert Map.has_key?(decoded, key), "key #{key} missing from success document"
       end
@@ -340,7 +340,7 @@ defmodule MutagenEx.JsonReporterTest do
       decoded = decode(iodata)
 
       for key <-
-            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason) do
+            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason details) do
         assert Map.has_key?(decoded, key), "abort doc missing top-level key #{key}"
       end
     end
@@ -362,6 +362,60 @@ defmodule MutagenEx.JsonReporterTest do
       assert decoded["abort_reason"] == "baseline_red"
       assert decoded["baseline"]["failed"] == 1
       assert length(decoded["baseline"]["failures"]) == 1
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # s16, r16 — details field is always present
+  # ---------------------------------------------------------------------------
+
+  describe "details field (mutagen.json_schema.s16, r16)" do
+    @tag :details_field
+    test "success document has an empty details map (s16a)" do
+      {iodata, _code} = JsonReporter.emit_report(full_report())
+      decoded = decode(iodata)
+
+      assert decoded["details"] == %{}
+    end
+
+    @tag :details_field
+    test "test_file_load_failed abort has populated sanitized details (s16b)" do
+      report = %Report{
+        meta: meta_minimum(),
+        details: %{
+          file: "test/foo_test.exs",
+          message: "could not load test file \"test/foo_test.exs\"",
+          kind: :coverage,
+          count: 2,
+          retryable: false
+        }
+      }
+
+      {iodata, _code} = JsonReporter.emit_error(report, :test_file_load_failed)
+      decoded = decode(iodata)
+
+      assert decoded["aborted"] == true
+      assert decoded["abort_reason"] == "test_file_load_failed"
+      assert decoded["details"]["file"] == "test/foo_test.exs"
+      assert decoded["details"]["message"] == "could not load test file \"test/foo_test.exs\""
+      assert decoded["details"]["kind"] == "coverage"
+      assert decoded["details"]["count"] == 2
+      assert decoded["details"]["retryable"] == false
+      assert decoded["details"] != %{}
+    end
+
+    @tag :details_field
+    test "long details message is truncated through the sanitizer (s16c)" do
+      report = %Report{
+        meta: meta_minimum(),
+        details: %{message: String.duplicate("x", 10_240)}
+      }
+
+      {iodata, _code} = JsonReporter.emit_error(report, :test_file_load_failed)
+      decoded = decode(iodata)
+
+      assert decoded["details"]["message"] ==
+               String.duplicate("x", 4096) <> " ... <6144 bytes truncated>"
     end
   end
 

@@ -567,11 +567,11 @@ Top-level keys, all present in every variant unless noted:
   covers: [mutagen.json_schema.r16]
   kind: command
   command: mix test test/mutagen_ex/json_reporter_test.exs --only details_field
-  execute: false
+  execute: true
 
 - id: mutagen.json_schema.v9
   covers: [mutagen.json_schema.r16]
   kind: command
   command: mix test test/mutagen_ex/json_reporter_golden_test.exs
-  execute: false
+  execute: true
 ```

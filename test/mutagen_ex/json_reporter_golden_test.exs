@@ -114,7 +114,12 @@ defmodule MutagenEx.JsonReporterGoldenTest do
       mutation: nil,
       warnings: [],
       aborted: false,
-      abort_reason: nil
+      abort_reason: nil,
+      details: %{
+        passed: 4,
+        failed: 1,
+        failures: [%{module: MyApp.FooTest, name: "computes wrong"}]
+      }
     }
 
     {iodata, code} = JsonReporter.emit_error(report, :baseline_red)
@@ -230,7 +235,11 @@ defmodule MutagenEx.JsonReporterGoldenTest do
       mutation: nil,
       warnings: [],
       aborted: false,
-      abort_reason: nil
+      abort_reason: nil,
+      details: %{
+        module: "Elixir.MyApp.Missing",
+        message: "module Elixir.MyApp.Missing could not be resolved"
+      }
     }
 
     {iodata, code} = JsonReporter.emit_error(report, :module_not_found)
@@ -313,7 +322,8 @@ defmodule MutagenEx.JsonReporterGoldenTest do
       mutation: nil,
       warnings: [],
       aborted: false,
-      abort_reason: nil
+      abort_reason: nil,
+      details: %{message: "another :cover session is running"}
     }
 
     {iodata, code} = JsonReporter.emit_error(report, :cover_already_running)

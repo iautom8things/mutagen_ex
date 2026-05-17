@@ -224,6 +224,8 @@ defmodule MutagenEx.JsonReporter.Report do
     * `:aborted` — boolean. `false` for full success, `true` for any
       pre-completion exit.
     * `:abort_reason` — string or `nil`. Populated iff `aborted == true`.
+    * `:details` — map or `nil`. Phase-supplied diagnostic context for
+      aborts; emitted as an empty map on success/non-abort documents.
     * `:truncated` — boolean. `true` when the run completed only a
       prefix of the enumerated mutation sites because the aggregate
       `--budget-ms` wall-clock was exhausted (per `mutagen.cli.r13`).
@@ -241,6 +243,7 @@ defmodule MutagenEx.JsonReporter.Report do
             warnings: [],
             aborted: false,
             abort_reason: nil,
+            details: nil,
             truncated: false
 
   @type t :: %__MODULE__{
@@ -253,6 +256,7 @@ defmodule MutagenEx.JsonReporter.Report do
           warnings: [String.t()],
           aborted: boolean(),
           abort_reason: String.t() | nil,
+          details: map() | nil,
           truncated: boolean()
         }
 end
@@ -301,6 +305,7 @@ defmodule MutagenEx.JsonReporter do
   """
 
   alias MutagenEx.JsonReporter.Report
+  alias MutagenEx.JsonReporter.Sanitizer
 
   @behaviour MutagenEx.Pipeline.ReporterOkFacade
   @behaviour MutagenEx.Pipeline.ReporterErrorFacade
@@ -410,9 +415,36 @@ defmodule MutagenEx.JsonReporter do
       "warnings" => r.warnings || [],
       "aborted" => r.aborted == true,
       "abort_reason" => r.abort_reason,
+      "details" => details_to_wire(r.details),
       "truncated" => r.truncated == true
     }
   end
+
+  defp details_to_wire(nil), do: %{}
+  defp details_to_wire(%{} = details), do: detail_value_to_wire(details)
+
+  defp detail_value_to_wire(%{} = map) do
+    Enum.into(map, %{}, fn {key, value} ->
+      {detail_key_to_wire(key), detail_value_to_wire(value)}
+    end)
+  end
+
+  defp detail_value_to_wire(list) when is_list(list), do: Enum.map(list, &detail_value_to_wire/1)
+  defp detail_value_to_wire(value) when is_boolean(value), do: value
+  defp detail_value_to_wire(value) when is_atom(value), do: Atom.to_string(value)
+  defp detail_value_to_wire(value) when is_binary(value), do: Sanitizer.clean(value)
+  defp detail_value_to_wire(value) when is_integer(value), do: value
+  defp detail_value_to_wire(nil), do: nil
+
+  defp detail_value_to_wire(value) do
+    value
+    |> inspect()
+    |> Sanitizer.clean()
+  end
+
+  defp detail_key_to_wire(key) when is_atom(key), do: Atom.to_string(key)
+  defp detail_key_to_wire(key) when is_binary(key), do: key
+  defp detail_key_to_wire(key), do: to_string(key)
 
   # `meta` is always populated even on early errors (r5: "we know our
   # tool/elixir/otp version even on early error").

@@ -1229,8 +1229,9 @@ defmodule Mix.Tasks.Mutagen do
     :ok
   end
 
-  defp emit_abort(%Report{} = report, config, reason, _details, dispatch) do
+  defp emit_abort(%Report{} = report, config, reason, details, dispatch) do
     mod = Map.fetch!(dispatch, :reporter_error)
+    report = %Report{report | details: details}
     {iodata, code} = mod.emit_error(report, reason)
 
     io_mod = Map.fetch!(dispatch, :io)
