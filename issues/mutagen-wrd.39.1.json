@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.39.1",
   "labels": [],
   "parent": "mutagen-wrd.39",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: orchestrator-proxy (codex-3ac4a77f could not commit due to macOS-seatbelt sandbox blocking writes to .git/worktrees/ gitdir; orchestrator committed Codex's work)\nLog: /Users/mz/dev/mz/mutagen_ex-mix-task-entry-point/.codex-runs/mutagen-wrd.39.1.log\n\nCommit: dc643405b83145ca4f3a944318f7aeeea1b88c5c\nFiles touched: README.md, lib/mix/tasks/mutagen.ex, test/mix/tasks/mutagen_test.exs\nTests added: Mix.Tasks.MutagenTest \"run/2 does not invoke the runtime preamble\" (mutagen.cli.s14b)\nVerification stubs flipped: (cli.v9 deliberately left execute: false per ticket — gated by S4 landing)\n\nSummary: Mix.Tasks.Mutagen.run/1 now invokes ensure_runtime/0 which calls\nMix.Task.run(\"loadpaths\"), Mix.Task.run(\"compile\"), Application.ensure_all_started(:mutagen_ex),\nand ExUnit.start(autorun: false) before delegating to run/2. run/2 stays preamble-free\nper mutagen.decision.preamble_in_run1_only — verified by the new boundary test that traces\nMix.Task.run/1 calls during run/2 invocation. mix test: 633 tests, 0 failures.",
+      "timestamp": "2026-05-17T13:59:34Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "S1: Mix task entry-point setup (boot app + ExUnit + compile host)",
   "type": "task",
-  "updated_at": "2026-05-17T12:51:49Z"
+  "updated_at": "2026-05-17T13:59:34Z"
 }
