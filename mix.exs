@@ -8,6 +8,7 @@ defmodule MutagenEx.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      aliases: aliases(),
       # Lane fixture (test/fixtures/lane_project/**) is a self-contained
       # mini-mix-project; its `_test.exs` files exist only to be cited by
       # `mix mutagen --tests` from the end-to-end test driver, never run
@@ -32,6 +33,28 @@ defmodule MutagenEx.MixProject do
     [
       extra_applications: [:logger],
       mod: {MutagenEx.Application, []}
+    ]
+  end
+
+  # Pin `mix test.integration` to MIX_ENV=test so the alias is usable
+  # without an explicit `MIX_ENV=test` prefix (Mix otherwise errors with
+  # "mix test is running in the dev environment").
+  def cli do
+    [preferred_envs: ["test.integration": :test]]
+  end
+
+  # `mix test.integration` runs the downstream-adoption integration suite
+  # (test/integration/**) which is excluded from the default `mix test` run
+  # via the `:integration` tag in `test/test_helper.exs`. These tests boot
+  # a tmp Mix project and drive `mix mutagen` via `System.cmd/3` to gate
+  # the runtime preamble contract (`mutagen.cli.r14`). The alias scopes to
+  # `test/integration` so it does not also pick up the existing
+  # `:e2e_slow`-tagged suites under `test/mutagen_ex/`, which share the
+  # `:integration` moduletag but belong to the long-running e2e lane that
+  # has its own gate (`mix test --only e2e_slow`).
+  defp aliases do
+    [
+      "test.integration": "test --include integration test/integration"
     ]
   end
 

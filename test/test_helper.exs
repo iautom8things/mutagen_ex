@@ -13,4 +13,12 @@
 #   `mix test --only spike`. Override the C2 iteration count with
 #   `MUTAGEN_SPIKE_ITERATIONS=<n>` (default `10`, set to `100` to
 #   reproduce the original gating run).
-ExUnit.start(exclude: [:e2e_slow, :spike])
+#
+# - `:integration` covers downstream-adoption integration tests under
+#   `test/integration/` that boot a tmp Mix project, add `mutagen_ex`
+#   as a `path:` dep, and drive `mix mutagen` via `System.cmd/3`. These
+#   are the load-bearing regression gate for the `mix mutagen` runtime
+#   preamble (see `mutagen.cli.r14`) but spawn a child OS process per
+#   test and so are skipped by default. Run explicitly via
+#   `mix test --include integration` or `mix test.integration`.
+ExUnit.start(exclude: [:e2e_slow, :spike, :integration])
