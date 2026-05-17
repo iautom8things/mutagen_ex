@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: 85b2234d-9f34-4283-b82c-0e4e638329a2\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-downstream-adoption-fixes/85b2234d-9f34-4283-b82c-0e4e638329a2.jsonl\n\nReasoning: r16's four shape obligations are each tested by a test that would actually fail if violated. (a) \"always present\" is enforced by test/mutagen_ex/json_reporter_test.exs:103 (success top-level-key loop now includes \"details\") and :340 (abort loop) — drop the to_wire entry and both fail. (b) \"{} on success\" is tested at :378 — drop the nil-\u003e%{} clause in details_to_wire and it fails. (c) \"populated on abort with phase-supplied context\" is tested at :397-404 (test_file_load_failed with file/message + atom/integer/boolean leaf coverage) — drop the underscore-removal in mutagen.ex:1223 and the populated assertions fail. (d) \"sanitized via r10\" is tested at :417 (exact \" ... \u003c6144 bytes truncated\u003e\" marker requires Sanitizer.clean/1 to actually run on a binary leaf). Mechanical recount confirms 22 files (17 goldens + 2 lib + 1 spec + 2 tests), 0 outside Allowed if you accept the verifier's classification — which holds: the 3 abort %Report{} fixture-struct edits in json_reporter_golden_test.exs (lines 118-122, 239-242, 326) are pure additive `details:` field additions with no logic changes, and are the strict mechanical corollary of deliverable item #5 (populated abort goldens cannot byte-match unless their fixture struct supplies the same details map). One minor implementer-overrun-but-spec-correct: deliverable named only 3 abort goldens (5_baseline_red, error_unresolvable_scope, baseline_red), but the diff populated 4 — partial_report_cover_failure.json also got `details: {message: \"another :cover session is running\"}`. Per r16's \"On aborted runs: details contains the phase-supplied diagnostic context\", this is the more spec-faithful choice (leaving an aborted doc with details: {} would silently contradict r16's stated shape contract), and the corresponding fixture edit at golden_test.exs:326 is the same pure-additive pattern. Out-of-Scope (intent) audited cold: no abort_reason atoms added/changed (type list at json_reporter.ex:319-349 unmodified), exit code stays at 2 (line 387), no other top-level keys touched (only \"details\" added to to_wire), Sanitizer reused without new rules, version still \"1\" across all goldens, mix.exs/mix.lock untouched. Spec edit is strictly the v8/v9 execute false-\u003etrue flip per ticket Verification block. mix compile --warnings-as-errors clean; mix test 635/0.",
       "timestamp": "2026-05-17T14:12:59Z"
+    },
+    {
+      "text": "AUDIT: APPROVE acknowledged.\nAPPROVED. Merged into think-vm5/downstream-adoption-fixes. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-17T14:14:07Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S2: Error JSON details field",
   "type": "task",
-  "updated_at": "2026-05-17T14:12:59Z"
+  "updated_at": "2026-05-17T14:14:07Z"
 }
