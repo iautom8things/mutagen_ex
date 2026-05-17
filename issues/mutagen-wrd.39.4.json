@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "mutagen-wrd.39.1",
-    "mutagen-wrd.39.2"
+    "mutagen-wrd.39.2",
+    "mutagen-wrd.39.3"
   ],
   "blocks": [],
   "created": "2026-05-17T12:51:44Z",
@@ -14,5 +15,5 @@
   "status": "open",
   "title": "S4: Downstream-adoption integration test",
   "type": "task",
-  "updated_at": "2026-05-17T12:51:50Z"
+  "updated_at": "2026-05-17T12:51:51Z"
 }
