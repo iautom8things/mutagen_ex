@@ -578,7 +578,7 @@ decisions:
 - id: mutagen.cli.v9
   covers: [mutagen.cli.r14]
   kind: command
-  command: mix test test/integration/downstream_adoption_test.exs --include integration
+  command: mix test test/integration/downstream_adoption_test.exs --include downstream_integration
   execute: true
 
 - id: mutagen.cli.v10

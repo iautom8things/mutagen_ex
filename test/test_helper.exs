@@ -14,11 +14,16 @@
 #   `MUTAGEN_SPIKE_ITERATIONS=<n>` (default `10`, set to `100` to
 #   reproduce the original gating run).
 #
-# - `:integration` covers downstream-adoption integration tests under
-#   `test/integration/` that boot a tmp Mix project, add `mutagen_ex`
-#   as a `path:` dep, and drive `mix mutagen` via `System.cmd/3`. These
-#   are the load-bearing regression gate for the `mix mutagen` runtime
-#   preamble (see `mutagen.cli.r14`) but spawn a child OS process per
-#   test and so are skipped by default. Run explicitly via
-#   `mix test --include integration` or `mix test.integration`.
-ExUnit.start(exclude: [:e2e_slow, :spike, :integration])
+# - `:downstream_integration` covers downstream-adoption integration
+#   tests under `test/integration/` that boot a tmp Mix project, add
+#   `mutagen_ex` as a `path:` dep, and drive `mix mutagen` via
+#   `System.cmd/3`. These are the load-bearing regression gate for the
+#   `mix mutagen` runtime preamble (see `mutagen.cli.r14`) but spawn a
+#   child OS process per test and so are skipped by default. The tag is
+#   intentionally distinct from the shared `:integration` tag used by
+#   pre-existing in-process tests (e.g. beam_cache, mutation_runner,
+#   head_atom_dispatch) so that excluding this lane does not silently
+#   demote those tests out of the default `mix test` run. Run
+#   explicitly via `mix test --include downstream_integration` or
+#   `mix test.integration`.
+ExUnit.start(exclude: [:e2e_slow, :spike, :downstream_integration])

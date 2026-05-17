@@ -20,15 +20,18 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
   If S1/S2/S3's preamble pieces regress (loadpaths, compile,
   ensure_all_started, ExUnit.start(autorun: false)), this test fails.
 
-  Tagged `:integration` so the default `mix test` run skips it (it spawns
-  an OS child process per run and is slower than the in-process suite).
-  Run explicitly via `mix test --include integration` or
-  `mix test.integration`.
+  Tagged `:downstream_integration` so the default `mix test` run skips
+  it (it spawns an OS child process per run and is slower than the
+  in-process suite). The dedicated tag (rather than the shared
+  `:integration` tag) avoids accidentally demoting pre-existing
+  `:integration`-tagged tests in the in-process suite from the default
+  lane. Run explicitly via `mix test --include downstream_integration`
+  or `mix test.integration`.
   """
 
   use ExUnit.Case, async: false
 
-  @moduletag :integration
+  @moduletag :downstream_integration
 
   # Path to this project's root, used to wire `mutagen_ex` as a `path:` dep
   # in the generated downstream project. `__DIR__` is the directory of this

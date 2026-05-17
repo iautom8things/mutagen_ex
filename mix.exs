@@ -45,16 +45,18 @@ defmodule MutagenEx.MixProject do
 
   # `mix test.integration` runs the downstream-adoption integration suite
   # (test/integration/**) which is excluded from the default `mix test` run
-  # via the `:integration` tag in `test/test_helper.exs`. These tests boot
-  # a tmp Mix project and drive `mix mutagen` via `System.cmd/3` to gate
-  # the runtime preamble contract (`mutagen.cli.r14`). The alias scopes to
-  # `test/integration` so it does not also pick up the existing
-  # `:e2e_slow`-tagged suites under `test/mutagen_ex/`, which share the
-  # `:integration` moduletag but belong to the long-running e2e lane that
-  # has its own gate (`mix test --only e2e_slow`).
+  # via the `:downstream_integration` tag in `test/test_helper.exs`. These
+  # tests boot a tmp Mix project and drive `mix mutagen` via
+  # `System.cmd/3` to gate the runtime preamble contract
+  # (`mutagen.cli.r14`). The dedicated `:downstream_integration` tag (vs.
+  # the shared `:integration` tag) is intentional: pre-existing
+  # in-process tests (beam_cache, mutation_runner, head_atom_dispatch)
+  # carry `:integration` and must continue to run in the default lane.
+  # The alias scopes to `test/integration` so it does not also pick up
+  # the existing `:e2e_slow`-tagged suites under `test/mutagen_ex/`.
   defp aliases do
     [
-      "test.integration": "test --include integration test/integration"
+      "test.integration": "test --include downstream_integration test/integration"
     ]
   end
 
