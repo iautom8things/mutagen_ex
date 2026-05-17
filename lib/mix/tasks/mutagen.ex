@@ -695,7 +695,18 @@ defmodule Mix.Tasks.Mutagen do
   defp phase_baseline(%Config{seed: seed} = config, test_filter, dispatch, %Report{} = report) do
     mod = Map.fetch!(dispatch, :baseline)
 
-    input = %{seed: seed, test_filter: test_filter}
+    # `Baseline.run/1` re-registers each cited test module with
+    # `ExUnit.Server` before its own `ExUnit.run/0`, because the
+    # coverage phase that ran just before it consumed the registered
+    # modules and `Code.require_file/1` is one-shot per path. Without
+    # this payload, baseline would silently run zero tests and miss
+    # every red baseline (mutagen-wrd.37). See
+    # `mutagen.mutation_pipeline.r1`.
+    input = %{
+      seed: seed,
+      test_filter: test_filter,
+      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
+    }
 
     # `mutagen.mutation_pipeline.r15`: `[:mutagen_ex, :baseline, :start
     # | :stop]` brackets baseline. The `.stop` metadata carries

@@ -174,11 +174,25 @@ decisions:
 - id: mutagen.mutation_pipeline.r10
   priority: must
   statement: |
-    The pipeline phases do not reload test modules between runs. Test files
-    are loaded once via `Code.require_file/1` before baseline; subsequent
-    runs against the same `ExUnit` module registry reuse the same loaded
-    code. The known caveat: edits to test files mid-run are silently
+    The pipeline phases do not reload test modules between runs. Test
+    files are loaded once via `Code.require_file/1` before the first
+    `ExUnit.run/0` in the run; subsequent phases reuse the already-loaded
+    bytecode. The known caveat: edits to test files mid-run are silently
     ignored. This caveat is documented in `mix help mutagen`.
+
+    Because `ExUnit.Server` consumes its registered-module list at every
+    `ExUnit.run/0` and the `use ExUnit.Case` `__after_compile__` hook
+    only fires when a file is freshly evaluated, every phase that calls
+    `ExUnit.run/0` after the first one MUST re-register the cited test
+    modules via `ExUnit.Server.add_module/2` before its run. The
+    orchestrator hands `Baseline.run/1` and `MutationRunner.run/1` a
+    `test_modules` payload derived from
+    `MutagenEx.TestModuleDiscovery.discover/1`; `MutationLoop` and
+    `Baseline` each call the registration seam per
+    `ExUnit.run/0`. Without this, the affected phase would silently
+    classify every run as zero-test (`%{total: 0, failures: 0}`) and
+    the `:baseline_red` guard rail would never trigger
+    (mutagen-wrd.37).
 
 - id: mutagen.mutation_pipeline.r11
   priority: must

@@ -28,6 +28,30 @@ defmodule MutagenEx.Baseline do
       `MutagenEx.CoverageRunner` for the precedent; baseline does it once
       because tests can run only once per `require_file` per `r10`).
 
+  ## Why baseline re-registers cited test modules
+
+  `ExUnit.Server` consumes its registered-module list at every
+  `ExUnit.run/0` invocation. The `use ExUnit.Case`
+  `__after_compile__` hook that performs the initial registration only
+  fires when the cited test file is freshly evaluated, and
+  `Code.require_file/1` is one-shot per path in a BEAM lifetime.
+
+  When the coverage phase runs first it loads the cited test files,
+  fires the hook, and consumes the registered modules during its own
+  `ExUnit.run/0`. By the time baseline runs, the registry is empty and
+  `Code.require_file/1` on the same paths is a cached no-op — without
+  explicit re-registration, baseline's `ExUnit.run/0` would see zero
+  modules and return `%{total: 0, failures: 0}`, silently classifying
+  every red baseline as green (mutagen-wrd.37).
+
+  The fix mirrors what `MutagenEx.MutationRunner.MutationLoop` already
+  does per site: explicitly call `ExUnit.Server.add_module/2` for each
+  cited test module before invoking `ExUnit.run/0`. The orchestrator
+  hands `Baseline.run/1` a `:test_modules` list derived from
+  `MutagenEx.TestModuleDiscovery.discover/1`; the `:ex_unit_server`
+  seam defaults to `MutagenEx.Test.ExUnitServer` (delegates to
+  `ExUnit.Server`) and lets tests record the calls.
+
   ## Input shape
 
   A map with:
@@ -42,6 +66,17 @@ defmodule MutagenEx.Baseline do
       to the real `ExUnit`. Tests pass their own module with the same
       callback surface.
     * `:test_loader` — `(path -> any)` overriding `Code.require_file/1`.
+    * `:test_modules` — `[{module(), MutagenEx.TestModuleDiscovery.module_cfg()}]`.
+      Re-registered with `ExUnit.Server.add_module/2` before
+      `ExUnit.run/0` so the cited modules appear in the registry that
+      the prior phase's `ExUnit.run/0` drained. Defaults to `[]`
+      (preserves pre-mutagen-wrd.37 behaviour for callers that haven't
+      wired the production payload through; in that mode baseline is
+      vulnerable to the `Code.require_file/1` cache hazard whenever it
+      runs after another `ExUnit.run/0` in the same BEAM).
+    * `:ex_unit_server` — module implementing
+      `MutagenEx.Test.ExUnitServerFacade` (the registration seam).
+      Defaults to `MutagenEx.Test.ExUnitServer`.
     * `:ast_cache` — `MutagenEx.AstCache.t()`. Optional. When present,
       `detect_async_modules/1` (the r2 async-warning path) looks each
       cited test file up in the cache via `AstCache.get/2` and consumes
@@ -86,6 +121,7 @@ defmodule MutagenEx.Baseline do
     with {:ok, cfg} <- normalise(input),
          :ok <- configure_exunit(cfg),
          :ok <- load_test_files(cfg),
+         :ok <- register_test_modules(cfg),
          {:ok, exunit_result} <- run_exunit(cfg) do
       classify(exunit_result, cfg)
     end
@@ -128,6 +164,23 @@ defmodule MutagenEx.Baseline do
             }}}
       end
     end)
+  end
+
+  # See "Why baseline re-registers cited test modules" in the moduledoc:
+  # `ExUnit.Server` consumes its registered-module list at every
+  # `ExUnit.run/0`, so we must put the cited modules back into the
+  # registry before the baseline's own run. Symmetric with what
+  # `MutagenEx.MutationRunner.MutationLoop.execute_with_timeout/1`
+  # does per site.
+  defp register_test_modules(cfg) do
+    server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
+    test_modules = Map.get(cfg, :test_modules, [])
+
+    Enum.each(test_modules, fn {mod, mod_cfg} ->
+      server.add_module(mod, mod_cfg)
+    end)
+
+    :ok
   end
 
   defp run_exunit(cfg) do
