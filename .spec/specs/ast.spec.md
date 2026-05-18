@@ -93,9 +93,13 @@ realized_by:
   statement: |
     For every AST shape currently handled by any donor's pre-`.25`
     `alias_to_module/1` or `find_module_body/2`, the lifted version returns
-    the same result. This is the donor-equivalence invariant — a property-
-    style test exercises a representative AST corpus and asserts identical
-    output across donor and lifted versions.
+    the same result, except that nested `defmodule` lookup follows
+    `mutagen.ast.r2` lexical qualification semantics: the lifted helper finds
+    `Outer.Inner` and does not match unqualified `Inner`, while the preserved
+    donor records its legacy AST-alias-only match for `Inner`. This is the
+    donor-equivalence invariant — a property-style test exercises a
+    representative AST corpus and asserts identical output across donor and
+    lifted versions outside that documented nested-module carve-out.
 ```
 
 ```spec-scenarios
@@ -187,29 +191,31 @@ realized_by:
 
 - id: mutagen.ast.s8
   covers: [mutagen.ast.r4]
-  given:
-    - The codebase after `mutagen-wrd.25.01` has landed.
-  when:
-    - "`grep -rn \"defp alias_to_module\" lib/mutagen_ex/ | wc -l` runs."
-  then:
-    - |
-      Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).
-      A similar grep for `defp find_module_body` returns `0`.
+  given: |
+    The codebase after `mutagen-wrd.25.01` has landed.
+  when: |
+    `grep -rn "defp alias_to_module" lib/mutagen_ex/ | wc -l` runs.
+  then: |
+    Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).
+    A similar grep for `defp find_module_body` returns hits only inside the
+    canonical owner `lib/mutagen_ex/ast.ex`; it returns no hits in donor
+    modules.
 
 - id: mutagen.ast.s9
   covers: [mutagen.ast.r5]
-  given:
-    - |
-      A corpus of 20+ AST shapes representative of the existing test fixtures
-      (quoted modules with aliases, nested aliases, attributes, function
-      heads, guards).
-  when:
-    - |
-      The donor-equivalence test runs each AST through the pre-`.25` version
-      of `alias_to_module/1` (preserved as a test fixture function) and the
-      new `MutagenEx.Ast.alias_to_module/1`.
-  then:
-    - Output is identical for every input.
+  given: |
+    A corpus of 20+ AST shapes representative of the existing test fixtures
+    (quoted modules with aliases, nested aliases, attributes, function
+    heads, guards).
+  when: |
+    The donor-equivalence test runs each AST through the pre-`.25` donor
+    versions (preserved as test fixture functions) and the new
+    `MutagenEx.Ast` helpers.
+  then: |
+    Output is identical for every input except the documented nested-module
+    qualification carve-out: lifted lookup finds `Multi.Inner` and rejects
+    unqualified `Inner`, while the preserved donor still records the legacy
+    unqualified `Inner` match.
 ```
 
 ```spec-verification
@@ -230,7 +236,9 @@ realized_by:
   execute: true
   description: |
     Mechanical check that no donor module still carries a private duplicate
-    of the lifted helpers. Expected output is empty.
+    of the lifted helpers. Expected output is empty outside
+    `lib/mutagen_ex/ast.ex`; private `find_module_body` clauses may exist
+    inside the canonical owner.
 
 - id: mutagen.ast.v3
   covers: [mutagen.ast.r5]
@@ -240,7 +248,8 @@ realized_by:
   description: |
     Property-style equivalence test. The pre-.25 donor implementations are
     preserved verbatim as fixture functions; for each AST in a representative
-    corpus, the test asserts donor output == lifted output. Locks in the
-    safety net so a future change to the lifted version cannot silently
-    diverge from established donor behaviour.
+    corpus, the test asserts donor output == lifted output except for the
+    nested-module r2 qualification carve-out. Locks in the safety net so a
+    future change to the lifted version cannot silently diverge from
+    established donor behaviour.
 ```
