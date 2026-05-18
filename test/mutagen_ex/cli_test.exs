@@ -39,7 +39,7 @@ defmodule MutagenEx.CLITest do
 
       assert config.scopes == ["lib/foo.ex"]
       assert config.tests == ["test/foo_test.exs"]
-      assert config.timeout_ms == 5_000
+      assert config.timeout_ms == 30_000
       assert config.seed == 0
       assert config.json_path == nil
     end
@@ -95,8 +95,8 @@ defmodule MutagenEx.CLITest do
                ])
     end
 
-    test "default is 5000 when flag absent" do
-      assert {:ok, %Config{timeout_ms: 5_000}} =
+    test "default is 30000 when flag absent" do
+      assert {:ok, %Config{timeout_ms: 30_000}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
     end
 

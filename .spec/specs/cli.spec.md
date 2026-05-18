@@ -67,7 +67,7 @@ realized_by:
   priority: must
   statement: |
     `--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.
-    Default is 5000. Non-positive or non-integer values cause an error-JSON
+    Default is 30000. Non-positive or non-integer values cause an error-JSON
     exit before any pipeline phase runs.
 
 - id: mutagen.cli.r4

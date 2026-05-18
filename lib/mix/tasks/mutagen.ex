@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Mutagen do
       mutations. One of: a test file path, a `file:line` reference, or
       `tag:<name>`. Repeat the flag to add more targets.
     * `--timeout-ms <int>` — wall-clock budget per mutation run, in
-      milliseconds. Default `5000`. Must be a positive integer.
+      milliseconds. Default `30000`. Must be a positive integer.
     * `--seed <int>` — ExUnit seed, propagated to every test-running phase.
       Default `0`. See Constraints.
     * `--json <path>` — write the final JSON document to `<path>` instead

@@ -14,7 +14,7 @@ defmodule MutagenEx.Config do
   validation on individual targets (that lives in S3a / S3b — see the
   ticket's Out of Scope (intent) notes).
 
-  Per `mutagen.cli.r3`, `timeout_ms` defaults to 5000.
+  Per `mutagen.cli.r3`, `timeout_ms` defaults to 30_000.
   Per `mutagen.cli.r4`, `seed` defaults to 0.
   Per `mutagen.cli.r5`, `json_path` is `nil` when output should go to stdout.
   Per `mutagen.cli.r10`, `unsafe_json_outside_project` defaults to `false`.
@@ -46,7 +46,7 @@ defmodule MutagenEx.Config do
   @enforce_keys [:scopes, :tests]
   defstruct scopes: [],
             tests: [],
-            timeout_ms: 5_000,
+            timeout_ms: 30_000,
             seed: 0,
             json_path: nil,
             unsafe_json_outside_project: false,
