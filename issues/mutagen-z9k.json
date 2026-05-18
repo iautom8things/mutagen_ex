@@ -11,11 +11,15 @@
     {
       "text": "ORCHESTRATOR: scope annotation (no implementation yet)\n\nAllowed touches:\n- lib/mutagen_ex/mutators/literal.ex\n- lib/mutagen_ex/mutators/literal/**.ex (if helpers carved out)\n- test/mutagen_ex/mutators/literal_test.exs\n- test/fixtures/**/*.ex (new fixture with captures/ranges allowed)\n- .spec/specs/mutators.spec.md (only if a requirement must be recorded)\n\nOut of Scope (files):\n- lib/mutagen_ex/mutators/*.ex (other mutators — do not touch)\n- lib/mutagen_ex/ast.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mix/tasks/**\n- lib/mutagen_ex/cli.ex\n- lib/mutagen_ex/json_*.ex\n\nOut of Scope (intent):\n- Do not change mutator dispatch / registration logic.\n- Do not refactor other mutators while in this file.\n- Existing non-capture / non-range literal mutations must keep producing the same sites.\n- No new external runtime deps.\n\nVerification command: mix compile --warnings-as-errors \u0026\u0026 mix test",
       "timestamp": "2026-05-18T19:06:38Z"
+    },
+    {
+      "text": "WORKER_ERROR\nSession: codex-274c8e7b\nLog: /Users/mz/dev/mz/mutagen_ex-literal-mutator-validate/.codex-runs/mutagen-z9k.log\n\nReason: The scope annotation is too narrow for the requested fix. `MutagenEx.Mutators.Literal.match?/1`, `mutate/1`, and `validate/1` receive only the current AST node or swapped AST node; the invalid cases require knowing the parent/context (`{:\u0026, _, [n]}`, `{:..//, _, [_, _, step]}`, and `Range.new(_, _, step)`). Bare integer child nodes are what currently produce the invalid `1 -\u003e 0` and step `1/2 -\u003e 0` sites, and `literal.ex` cannot distinguish those from ordinary non-capture/non-range integer literals without context from `MutationEnumerator` or dispatch traversal.\n\nScope conflict: Correct implementation needs an allowed change to pass parent/path context into literal validation or to let the enumerator filter context-sensitive invalid literal candidates before emitting sites. The scope annotation explicitly marks `lib/mutagen_ex/mutation_enumerator.ex` and other dispatch/registration logic out of scope, so widening silently would violate the ticket rules.",
+      "timestamp": "2026-05-18T19:08:41Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Literal mutator: pre-validate AST shape (Range step, capture args)",
   "type": "bug",
-  "updated_at": "2026-05-18T19:06:38Z"
+  "updated_at": "2026-05-18T19:08:41Z"
 }
