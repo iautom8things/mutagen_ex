@@ -23,11 +23,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 90ec767b-9d9f-4997-9c96-09f1db6d916f\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/90ec767b-9d9f-4997-9c96-09f1db6d916f/events.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage, full requirement coverage,\nzero mechanical or intent-level scope violations, and passing project verification.\nNo auditor was spawned per selective-audit policy.",
       "timestamp": "2026-05-18T03:14:43Z"
+    },
+    {
+      "text": "MERGE_CONFLICT: smoke red post-rebase",
+      "timestamp": "2026-05-18T03:16:12Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S3: README install-via-archive subsection + CHANGELOG entry",
   "type": "task",
-  "updated_at": "2026-05-18T03:14:43Z"
+  "updated_at": "2026-05-18T03:16:12Z"
 }
