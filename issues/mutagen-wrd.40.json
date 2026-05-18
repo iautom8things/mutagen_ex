@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-18T10:21:12Z",
   "created": "2026-05-18T00:39:46Z",
   "description": "Jira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nNo spec subject (epic groups stages; each stage carries its own Advances:)\n\nDistilled from /mini-plan run 20260517-200928-claude-mini.\nPlan source: ~/Documents/my-vault/LLMs/plans/-Users-mz-dev-mz-mutagen-ex/2026-05-17-archive-install-fix/runs/20260517-200928-claude-mini/05-refined-plan.md\nPlan epic: think-ijk (bw-plan, closed)\nImplementation epic mirror: think-pvr (bw-plan, will close at end of /distill)\n\nGoal: repair the mix mutagen runtime preamble so that mix archive.install ./mutagen_ex-X.Y.Z.ez followed by mix mutagen works in a host project that does NOT declare :mutagen_ex in its mix.exs. Adds mutagen.cli.r16, scenarios s14c/s14d, verification v11 to .spec/specs/cli.spec.md. The path: / hex / git dep adoption paths covered by r14 are byte-for-byte unaffected — the repair branch is gated by the failure-tuple shape from Application.ensure_all_started/1 and never runs on the success path.\n\nBranch already created: think-pvr/archive-install-fix (worktree: /Users/mz/dev/mz/mutagen_ex-archive-install-fix).",
   "id": "mutagen-wrd.40",
@@ -22,7 +23,7 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "Archive-install adoption",
   "type": "epic",
   "updated_at": "2026-05-18T10:21:12Z"
