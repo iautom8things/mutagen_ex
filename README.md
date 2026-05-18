@@ -34,6 +34,36 @@ mix deps.get
 mix help mutagen
 ```
 
+### Install via `mix archive` (no `mix.exs` change required)
+
+For ad-hoc use, downstream developers can install the `mix mutagen` task
+globally without changing a project's deps. This is useful for consultants
+running mutagen against client repos, or for one-off mutation-testing audits
+where the target project should stay untouched.
+
+From the `mutagen_ex` repo root, build the archive:
+
+```bash
+mix archive.build
+```
+
+Then install the generated archive:
+
+```bash
+mix archive.install ./mutagen_ex-<version>.ez
+```
+
+From any project, verify the task is available and run it against a target:
+
+```bash
+mix help mutagen
+mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
+```
+
+The `mix.exs` install above remains the recommended posture for projects
+that want `mutagen_ex` pinned per repo for CI and SOC-style traceability.
+The archive install is additive: suitable for ad-hoc local use, not for CI.
+
 ## Entrypoints
 
 `mutagen_ex` boots `MutagenEx.Application` whenever the `:mutagen_ex`
