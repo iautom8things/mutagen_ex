@@ -230,12 +230,119 @@ defmodule Mix.Tasks.Mutagen do
     run(argv, default_dispatch())
   end
 
+  @doc false
+  @spec __ensure_runtime__(module()) :: :ok | {:aborted, :runtime_load_failed, Report.t()}
+  def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo), do: ensure_runtime(io_mod)
+
   defp ensure_runtime do
+    ensure_runtime(MutagenEx.Pipeline.DefaultIo)
+  end
+
+  defp ensure_runtime(io_mod) do
     Mix.Task.run("loadpaths")
     Mix.Task.run("compile")
-    {:ok, _apps} = Application.ensure_all_started(:mutagen_ex)
-    ExUnit.start(autorun: false)
-    :ok
+
+    case ensure_mutagen_started() do
+      {:ok, _apps} ->
+        ExUnit.start(autorun: false)
+        :ok
+
+      {:error, _reason} = error ->
+        handle_runtime_load_failure(error, io_mod)
+    end
+  end
+
+  defp ensure_mutagen_started do
+    case runtime_ensure_all_started() do
+      {:ok, _apps} = ok ->
+        ok
+
+      {:error, _reason} = error ->
+        maybe_repair_archive_context(error)
+    end
+  end
+
+  defp maybe_repair_archive_context(error) do
+    if archive_context_failure?(error) do
+      # Primary repair uses Mix's documented intent-level archive path helper;
+      # the ebin scan is a defensive fallback if archive appending regresses.
+      Mix.Local.append_archives()
+
+      case runtime_ensure_all_started() do
+        {:ok, _apps} = ok ->
+          ok
+
+        {:error, _reason} = retry_error ->
+          _ = add_first_mutagen_archive_ebin()
+          retry_after_archive_scan(retry_error)
+      end
+    else
+      error
+    end
+  end
+
+  defp retry_after_archive_scan(previous_error) do
+    case runtime_ensure_all_started() do
+      {:ok, _apps} = ok -> ok
+      {:error, _reason} -> previous_error
+    end
+  end
+
+  defp runtime_ensure_all_started do
+    case Process.get(:mutagen_ensure_runtime_force_failure) do
+      nil ->
+        Application.ensure_all_started(:mutagen_ex)
+
+      fun when is_function(fun, 0) ->
+        fun.()
+
+      [result | rest] ->
+        Process.put(:mutagen_ensure_runtime_force_failure, rest)
+        result
+
+      result ->
+        result
+    end
+  end
+
+  defp archive_context_failure?({:error, {:mutagen_ex, :non_existing}}), do: true
+  defp archive_context_failure?({:error, {:mutagen_ex, {:non_existing, _}}}), do: true
+  defp archive_context_failure?({:error, {:mutagen_ex, {_, ~c"mutagen_ex.app"}}}), do: true
+  defp archive_context_failure?(_), do: false
+
+  defp add_first_mutagen_archive_ebin do
+    Mix.path_for(:archives)
+    |> Path.join("*")
+    |> Path.wildcard()
+    |> Enum.find_value(:not_found, fn archive ->
+      ebin = Mix.Local.archive_ebin(archive)
+      app_file = Path.join(to_string(ebin), "mutagen_ex.app")
+
+      if File.exists?(app_file) do
+        :code.add_pathz(ebin)
+      else
+        false
+      end
+    end)
+  end
+
+  defp handle_runtime_load_failure(error, io_mod) do
+    report = %Report{
+      base_report(nil)
+      | details: %{
+          message:
+            "mutagen_ex could not start from the installed archive after repairing code paths. " <>
+              "Reinstall it with `mix archive.uninstall mutagen_ex && mix archive.install <ez>` " <>
+              "or add `{:mutagen_ex, ...}` as a dependency, then retry. Last error: " <>
+              inspect(error)
+        }
+    }
+
+    {iodata, code} = MutagenEx.JsonReporter.emit_error(report, :runtime_load_failed)
+    io_mod.emit(iodata, code, %Config{scopes: [], tests: [], json_path: nil})
+
+    {:aborted, :runtime_load_failed,
+     %Report{report | aborted: true, abort_reason: "runtime_load_failed"}}
   end
 
   @doc """
