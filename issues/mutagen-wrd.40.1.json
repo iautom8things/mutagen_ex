@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: f6817170-50ba-42d7-a1a7-b823900b34ba\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex--git/f6817170-50ba-42d7-a1a7-b823900b34ba.jsonl\n\nReasoning: Re-counted diff scope from base 38e970b: 2 files (lib/mix/tasks/mutagen.ex, test/mix/tasks/mutagen_test.exs), both in Allowed globs, none Out-of-Scope — verifier's mechanical counts hold. Re-ran `mix test test/mix/tasks/mutagen_test.exs --only archive_context` (2/2 pass), `mix compile --warnings-as-errors` (clean), and `make smoke` (640/0) — all confirm. For r16's structured-error contract (s14d), the failure test at test/mix/tasks/mutagen_test.exs:91 seeds the override with [failure, failure, failure] which forces all three attempts to fail and genuinely exercises archive_context_failure?/1, Mix.Local.append_archives/0, and add_first_mutagen_archive_ebin/0 in sequence; it would fail if a MatchError raised, if abort_reason != \"runtime_load_failed\", if exit code != 2, if Config.json_path were not nil, or if the details.message lacked the `mix archive.uninstall mutagen_ex` troubleshooting copy. For r16's no-op-on-dep-adoption discipline, the success test at test/mix/tasks/mutagen_test.exs:79 seeds a single {:ok, _} and refute_received's on IO; entering the repair branch would either skip the short-circuit or call CapturingIoStub.emit which would `send(nil, ...)` and crash the test (no :capture_target set), so the test does catch a wrong-direction regression. Source-claim trace verified: spec r16 names Mix.Local.append_archives/0 (lib/mix/tasks/mutagen.ex:269), Mix.path_for(:archives) (:314), Mix.Local.archive_ebin/1 (:318), :code.add_pathz/1 (:322) — all four live on the maybe_repair_archive_context → add_first_mutagen_archive_ebin call chain, not dead code. Out-of-Scope (intent) re-checked: mix.exs untouched, no env/config gate (gate is solely failure-tuple shape), test/integration/downstream_adoption_test.exs untouched, public surface of run/1 and run/2 unchanged (only @doc false __ensure_runtime__/1 added per ticket-authorized seam), only one new abort_reason atom (:runtime_load_failed). Production exit reaches non-zero via DefaultIo.emit/3 halting; the {:aborted, ...} return is the test-observable analogue, consistent with the rest of the module. Verifier's advisory Note about JsonReporter's @type abort_reason enum missing :runtime_load_failed is correctly downgraded — runtime contract holds (emit_error only guards is_atom/1), and lib/mutagen_ex/json_reporter.ex is explicitly Out-of-Scope (files). The :non_existing predicate clauses (lines 308–309) are not directly exercised by unit tests (only the {_, ~c\"mutagen_ex.app\"} clause is), but the ticket Verification enumerates exactly the two test cases that were written, so the deliverable matches scope; the full predicate is exercised end-to-end by S2's archive_install_test.exs which owns v11.execute=true.",
       "timestamp": "2026-05-18T02:10:19Z"
+    },
+    {
+      "text": "APPROVED. Merged into think-pvr/archive-install-fix. Closing per orchestrator sign-off.",
+      "timestamp": "2026-05-18T02:10:59Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S1: Runtime preamble repair + mutagen.cli.r16 (archive-context self-heal)",
   "type": "task",
-  "updated_at": "2026-05-18T02:10:19Z"
+  "updated_at": "2026-05-18T02:10:59Z"
 }
