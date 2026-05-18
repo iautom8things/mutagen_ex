@@ -25,11 +25,15 @@
     {
       "text": "IMPLEMENTED\nSession: codex-3a5e7c20\nLog: /Users/mz/dev/mz/mutagen_ex-archive-install-test/.codex-runs/mutagen-wrd.40.2-r2.log\n\nCommit: ae68d59c6fd915a6efe9f6f0ac6745a70a49e305\nFiles touched: test/integration/archive_install_test.exs, mix.exs, test/test_helper.exs, .spec/specs/cli.spec.md\nTests added: MutagenEx.Integration.ArchiveInstallTest test \"fresh-shell `mix mutagen` succeeds when mutagen_ex is installed as an archive\"\nVerification stubs flipped: mutagen.cli.v11\nAudit-expanded scope: test/test_helper.exs — prior AUDIT: BOUNCE → implementer comment at 2026-05-18T03:12:51Z confirmed the ticket intent authorizes adding :archive_integration to the default exclusion list.\n\nSummary: Redesigned the archive-install integration test body to avoid nested child Mix invocations against the active project root. The test now builds the current versioned archive in-process with Mix.Task.run(\"archive.build\"), installs the absolute .ez into a hermetic MIX_ARCHIVES directory from a neutral temp working directory, then runs a generated host project with no :mutagen_ex dependency and asserts the JSON report completed with aborted false and mutation.total \u003e 0.",
       "timestamp": "2026-05-18T03:16:31Z"
+    },
+    {
+      "text": "-m",
+      "timestamp": "2026-05-18T03:22:21Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S2: Archive-install integration test (mirrors downstream-adoption)",
   "type": "task",
-  "updated_at": "2026-05-18T03:16:31Z"
+  "updated_at": "2026-05-18T03:22:21Z"
 }
