@@ -35,22 +35,15 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
       File.rm_rf!(archive_path)
     end)
 
-    {build_out, build_code} =
-      System.cmd("mix", ["archive.build"],
-        cd: @project_root,
-        stderr_to_stdout: true,
-        env: clean_env(scratch_dir)
-      )
-
-    assert build_code == 0,
-           "`mix archive.build` failed (exit #{build_code}):\n#{build_out}"
+    Mix.Task.reenable("archive.build")
+    Mix.Task.run("archive.build")
 
     assert File.exists?(archive_path),
-           "expected `mix archive.build` to create #{archive_path}"
+           "expected `Mix.Task.run(\"archive.build\")` to create #{archive_path}"
 
     {install_out, install_code} =
-      System.cmd("mix", ["archive.install", "--force", "./#{archive_filename}"],
-        cd: @project_root,
+      System.cmd("mix", ["archive.install", "--force", archive_path],
+        cd: System.tmp_dir!(),
         stderr_to_stdout: true,
         env: scoped_env(scratch_dir)
       )
