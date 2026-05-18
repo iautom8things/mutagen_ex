@@ -216,8 +216,9 @@ realized_by:
   priority: must
   statement: |
     Before the first pipeline phase runs, `mix mutagen` ensures the host
-    project's modules are loaded into the BEAM, the `:ex_unit` application
-    is started, and the `:mutagen_ex` application is started. Concretely,
+    project's modules are loaded into the BEAM, the host OTP application
+    is started, the `:ex_unit` application is started, and the
+    `:mutagen_ex` application is started. Concretely,
     `Mix.Tasks.Mutagen.run/1` invokes (in order):
 
       1. `Mix.Task.run("loadpaths")` — adds the host project's
@@ -225,12 +226,18 @@ realized_by:
          `:code.which/1` can locate scope modules.
       2. `Mix.Task.run("compile")` — compiles the host project (no-op
          when already compiled).
-      3. `Application.ensure_all_started(:mutagen_ex)` — boots
+      3. `Mix.Task.run("app.start")` — starts the consumer project's OTP
+         application so Repo/Sandbox, PubSub, Mox, and supervised support
+         processes required by tests are alive. Immediately after
+         `app.start`, the preamble calls `Mix.Local.append_archives/0` so
+         archive-installed `mutagen_ex` remains visible if `app.start`
+         reset Mix archive code paths.
+      4. `Application.ensure_all_started(:mutagen_ex)` — boots
          `MutagenEx.Application` so `MutagenEx.TaskSup` is alive when
          `MutationLoop` dispatches per-site tasks (see
          [mutagen.mutation_pipeline](mutation_pipeline.spec.md) and
          mutagen.decision.supervision_tree).
-      4. `ExUnit.start(autorun: false)` — starts the `:ex_unit`
+      5. `ExUnit.start(autorun: false)` — starts the `:ex_unit`
          application so cited test files (which `use ExUnit.Case`) can
          load. `autorun: false` is critical: `CoverageRunner`,
          `Baseline`, and `MutationLoop` each drive `ExUnit.run/0`
@@ -240,8 +247,15 @@ realized_by:
     from a fresh shell against their own project aborts with
     `:module_beam_missing` (modules not loaded), `:test_file_load_failed`
     (ExUnit not started, raising `cannot use ExUnit.Case without
-    starting the ExUnit application`), or a no-process crash on
-    `MutagenEx.TaskSup` (`:mutagen_ex` application not started).
+    starting the ExUnit application`), a no-process crash on
+    `MutagenEx.TaskSup` (`:mutagen_ex` application not started), or
+    host-test setup failures because the host OTP supervision tree was
+    never started.
+
+    `--no-host-app` and `MUTAGEN_NO_HOST_APP=1|true|yes` opt out of the
+    `app.start` step only. The rest of the preamble still runs. This is
+    reserved for self-test sandboxes and libraries that deliberately want
+    minimal host boot.
 
     The preamble lives in `run/1` ONLY. `run/2` (the documented test
     seam) stays preamble-free per
@@ -594,8 +608,9 @@ realized_by:
     - |
       The preamble runs before any phase. After the preamble:
       `:code.which(Foo)` returns a charlist path (modules loaded);
-      `Application.started_applications/0` includes both `:mutagen_ex`
-      and `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.
+      `Application.started_applications/0` includes the host application,
+      `:mutagen_ex`, and `:ex_unit`; host supervised processes are live;
+      `Process.whereis(MutagenEx.TaskSup)` is a live PID.
       The coverage, baseline, and mutation phases then run normally and
       the document emitted has `aborted: false`.
 

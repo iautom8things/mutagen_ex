@@ -62,6 +62,10 @@ defmodule MutagenEx.CLI do
       readable progress bar / counter is never written to stderr.
       Default behaviour is to emit progress only when stderr is a TTY
       (`:io.getopts/0` reports `:terminal`).
+    * `--no-host-app` — preamble-only boolean consumed by
+      `Mix.Tasks.Mutagen.run/1` before this parser runs. It skips
+      `Mix.Task.run("app.start")` for self-test sandboxes and libraries
+      that intentionally want a minimal host boot.
 
   ## Refused flags
 
