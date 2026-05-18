@@ -91,18 +91,18 @@ defmodule Mix.Tasks.MutagenTest do
     @tag :archive_context
     test "ensure_runtime/0 starts the host OTP app before mutagen_ex by default" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
-      :erlang.trace(self(), true, [:call])
-      :erlang.trace_pattern({Mix.Task, :run, 1}, true, [:local])
+      Process.put(:mutagen_runtime_event_target, self())
 
       try do
         assert :ok = Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub)
 
-        assert_received {:trace, _pid, :call, {Mix.Task, :run, ["loadpaths"]}}
-        assert_received {:trace, _pid, :call, {Mix.Task, :run, ["compile"]}}
-        assert_received {:trace, _pid, :call, {Mix.Task, :run, ["app.start"]}}
+        assert_received {:mutagen_runtime_event, {:mix_task_run, "loadpaths"}}
+        assert_received {:mutagen_runtime_event, {:mix_task_run, "compile"}}
+        assert_received {:mutagen_runtime_event, {:mix_task_run, "app.start"}}
+        assert_received {:mutagen_runtime_event, :append_archives_after_app_start}
+        refute_received {:mutagen_runtime_event, :app_start_skipped}
       after
-        :erlang.trace_pattern({Mix.Task, :run, 1}, false, [:local])
-        :erlang.trace(self(), false, [:call])
+        Process.delete(:mutagen_runtime_event_target)
         Process.delete(:mutagen_ensure_runtime_force_failure)
       end
     end
@@ -110,18 +110,18 @@ defmodule Mix.Tasks.MutagenTest do
     @tag :archive_context
     test "ensure_runtime/0 skips host OTP app when opted out" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
-      :erlang.trace(self(), true, [:call])
-      :erlang.trace_pattern({Mix.Task, :run, 1}, true, [:local])
+      Process.put(:mutagen_runtime_event_target, self())
 
       try do
         assert :ok = Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub, host_app: false)
 
-        assert_received {:trace, _pid, :call, {Mix.Task, :run, ["loadpaths"]}}
-        assert_received {:trace, _pid, :call, {Mix.Task, :run, ["compile"]}}
-        refute_received {:trace, _pid, :call, {Mix.Task, :run, ["app.start"]}}
+        assert_received {:mutagen_runtime_event, {:mix_task_run, "loadpaths"}}
+        assert_received {:mutagen_runtime_event, {:mix_task_run, "compile"}}
+        assert_received {:mutagen_runtime_event, :app_start_skipped}
+        refute_received {:mutagen_runtime_event, {:mix_task_run, "app.start"}}
+        refute_received {:mutagen_runtime_event, :append_archives_after_app_start}
       after
-        :erlang.trace_pattern({Mix.Task, :run, 1}, false, [:local])
-        :erlang.trace(self(), false, [:call])
+        Process.delete(:mutagen_runtime_event_target)
         Process.delete(:mutagen_ensure_runtime_force_failure)
       end
     end
