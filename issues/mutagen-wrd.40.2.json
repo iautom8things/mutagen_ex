@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "mutagen-wrd.40.1"
+    "mutagen-wrd.40.1",
+    "mutagen-wrd.40.4"
   ],
   "blocks": [],
   "created": "2026-05-18T00:41:03Z",
@@ -39,5 +40,5 @@
   "status": "open",
   "title": "S2: Archive-install integration test (mirrors downstream-adoption)",
   "type": "task",
-  "updated_at": "2026-05-18T03:27:17Z"
+  "updated_at": "2026-05-18T03:29:28Z"
 }
