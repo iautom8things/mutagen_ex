@@ -53,7 +53,7 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
 
     # ── 1. Bootstrap a fresh Mix project. ────────────────────────────────
     {new_out, new_code} =
-      System.cmd("mix", ["new", app_name],
+      System.cmd("mix", ["new", "--sup", app_name],
         cd: System.tmp_dir!(),
         stderr_to_stdout: true,
         env: clean_env()
@@ -95,7 +95,29 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
 
     File.write!(mix_exs_path, patched_mix_exs)
 
-    # ── 3. Write a trivial scope module. ─────────────────────────────────
+    # ── 3. Write a host OTP application child plus a scope module that
+    #      depends on it. This makes `Mix.Task.run("app.start")` observable
+    #      without pulling Phoenix/Ecto into the fixture. ─────────────────
+    app_module = Macro.camelize(app_name) <> ".Application"
+    agent_name = Macro.camelize(app_name) <> ".Store"
+    app_path = Path.join([tmp_dir, "lib", app_name, "application.ex"])
+
+    File.write!(app_path, """
+    defmodule #{app_module} do
+      @moduledoc false
+      use Application
+
+      @impl Application
+      def start(_type, _args) do
+        children = [
+          {Agent, fn -> 41 end, name: #{agent_name}}
+        ]
+
+        Supervisor.start_link(children, strategy: :one_for_one, name: #{app_module}.Supervisor)
+      end
+    end
+    """)
+
     calc_module = Macro.camelize(app_name) <> ".Calc"
     calc_path = Path.join([tmp_dir, "lib", app_name, "calc.ex"])
     File.mkdir_p!(Path.dirname(calc_path))
@@ -105,10 +127,11 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
       @moduledoc false
 
       def add(a, b), do: a + b
+      def stored, do: Agent.get(#{agent_name}, & &1)
     end
     """)
 
-    # ── 4. Write a trivial test file. ────────────────────────────────────
+    # ── 4. Write a test file that needs the host OTP application. ────────
     calc_test_path = Path.join([tmp_dir, "test", app_name, "calc_test.exs"])
     File.mkdir_p!(Path.dirname(calc_test_path))
 
@@ -122,6 +145,10 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
 
       test "add/2 is commutative for integers" do
         assert #{calc_module}.add(2, 3) == #{calc_module}.add(3, 2)
+      end
+
+      test "stored/0 reads the host OTP supervision tree" do
+        assert #{calc_module}.stored() == 41
       end
     end
     """)

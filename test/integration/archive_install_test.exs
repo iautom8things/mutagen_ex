@@ -52,7 +52,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
            "`mix archive.install` failed (exit #{install_code}):\n#{install_out}"
 
     {new_out, new_code} =
-      System.cmd("mix", ["new", app_name],
+      System.cmd("mix", ["new", "--sup", app_name],
         cd: System.tmp_dir!(),
         stderr_to_stdout: true,
         env: clean_env(scratch_dir)
@@ -64,6 +64,26 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
     assert File.dir?(tmp_dir),
            "expected `mix new` to create #{tmp_dir}, but it does not exist"
 
+    app_module = Macro.camelize(app_name) <> ".Application"
+    agent_name = Macro.camelize(app_name) <> ".Store"
+    app_path = Path.join([tmp_dir, "lib", app_name, "application.ex"])
+
+    File.write!(app_path, """
+    defmodule #{app_module} do
+      @moduledoc false
+      use Application
+
+      @impl Application
+      def start(_type, _args) do
+        children = [
+          {Agent, fn -> 41 end, name: #{agent_name}}
+        ]
+
+        Supervisor.start_link(children, strategy: :one_for_one, name: #{app_module}.Supervisor)
+      end
+    end
+    """)
+
     calc_module = Macro.camelize(app_name) <> ".Calc"
     calc_path = Path.join([tmp_dir, "lib", app_name, "calc.ex"])
     File.mkdir_p!(Path.dirname(calc_path))
@@ -73,6 +93,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
       @moduledoc false
 
       def add(a, b), do: a + b
+      def stored, do: Agent.get(#{agent_name}, & &1)
     end
     """)
 
@@ -89,6 +110,10 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
       test "add/2 is commutative for integers" do
         assert #{calc_module}.add(2, 3) == #{calc_module}.add(3, 2)
+      end
+
+      test "stored/0 reads the host OTP supervision tree" do
+        assert #{calc_module}.stored() == 41
       end
     end
     """)

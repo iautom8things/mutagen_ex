@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -50,6 +50,11 @@ defmodule Mix.Tasks.Mutagen do
       EXPERIMENTAL and emit a one-shot stderr warning because real
       ExUnit/:cover backends can produce incorrect kill/survive
       classification and corrupted coverage under parallel dispatch.
+    * `--no-host-app` — skip starting the host OTP application in the
+      runtime preamble. Reserved for self-test sandboxes and libraries
+      that intentionally need a minimal boot; the default is to start
+      the host app so Repo/Sandbox, PubSub, Mox, and supervised test
+      support are available.
 
   ## Caps
 
@@ -236,21 +241,30 @@ defmodule Mix.Tasks.Mutagen do
 
   @impl Mix.Task
   def run(argv) do
-    ensure_runtime()
+    {runtime_opts, argv} = runtime_opts_from_argv(argv)
+
+    ensure_runtime(runtime_opts)
     run(argv, default_dispatch())
   end
 
   @doc false
-  @spec __ensure_runtime__(module()) :: :ok | {:aborted, :runtime_load_failed, Report.t()}
-  def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo), do: ensure_runtime(io_mod)
+  @spec __ensure_runtime__(module(), keyword()) ::
+          :ok | {:aborted, :runtime_load_failed, Report.t()}
+  def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo, opts \\ []),
+    do: ensure_runtime(io_mod, opts)
 
   defp ensure_runtime do
-    ensure_runtime(MutagenEx.Pipeline.DefaultIo)
+    ensure_runtime([])
   end
 
-  defp ensure_runtime(io_mod) do
+  defp ensure_runtime(opts) do
+    ensure_runtime(MutagenEx.Pipeline.DefaultIo, opts)
+  end
+
+  defp ensure_runtime(io_mod, opts) do
     Mix.Task.run("loadpaths")
     Mix.Task.run("compile")
+    maybe_start_host_app(opts)
 
     case ensure_mutagen_started() do
       {:ok, _apps} ->
@@ -260,6 +274,29 @@ defmodule Mix.Tasks.Mutagen do
       {:error, _reason} = error ->
         handle_runtime_load_failure(error, io_mod)
     end
+  end
+
+  defp runtime_opts_from_argv(argv) do
+    Enum.reduce(argv, {[], []}, fn
+      "--no-host-app", {opts, rest} ->
+        {Keyword.put(opts, :host_app, false), rest}
+
+      arg, {opts, rest} ->
+        {opts, [arg | rest]}
+    end)
+    |> then(fn {opts, rest} -> {opts, Enum.reverse(rest)} end)
+  end
+
+  defp maybe_start_host_app(opts) do
+    if host_app_enabled?(opts) do
+      Mix.Task.run("app.start")
+      Mix.Local.append_archives()
+    end
+  end
+
+  defp host_app_enabled?(opts) do
+    Keyword.get(opts, :host_app, true) and
+      System.get_env("MUTAGEN_NO_HOST_APP") not in ["1", "true", "TRUE", "yes", "YES"]
   end
 
   defp ensure_mutagen_started do
