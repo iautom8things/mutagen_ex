@@ -7,6 +7,26 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+- **Archive-installed CLI runtime self-heal.** Fixed the archive adoption
+  path where invoking `mix mutagen` from a host project without
+  `:mutagen_ex` in deps, but with the task installed globally via
+  `mix archive.install`, could crash with a `MatchError` at
+  `lib/mix/tasks/mutagen.ex:236` instead of emitting the CLI's structured
+  error surface. The runtime preamble now gates repair on the
+  `Application.ensure_all_started(:mutagen_ex)` failure tuple, calls
+  `Mix.Local.append_archives/0`, retries, then defensively scans
+  `Mix.path_for(:archives)` for an archive ebin containing
+  `mutagen_ex.app` before a final retry. If the archive remains
+  unrecoverable, the task emits error JSON with
+  `abort_reason: "runtime_load_failed"` rather than leaking a traceback.
+  Regression coverage lives in `test/integration/archive_install_test.exs`
+  under tag `:archive_integration`; the spec records
+  `mutagen.cli.r16`, scenarios `mutagen.cli.s14c` /
+  `mutagen.cli.s14d`, and verification `mutagen.cli.v11`. The existing
+  `path:` / Hex / git dependency adoption paths are preserved
+  byte-for-byte because they succeed on the first runtime-start attempt
+  and never enter the archive repair branch. *(mutagen-wrd.40.x.)*
+
 - **`.25` epic capstone: bench harness, large-scope memory test, and
   measured speedup.** The `.25` AST/perf epic (S1–S6) is complete.
   This entry summarises what the epic shipped, the perf number the
