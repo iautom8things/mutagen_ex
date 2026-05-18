@@ -253,17 +253,13 @@ defmodule Mix.Tasks.Mutagen do
   def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo, opts \\ []),
     do: ensure_runtime(io_mod, opts)
 
-  defp ensure_runtime do
-    ensure_runtime([])
-  end
-
   defp ensure_runtime(opts) do
     ensure_runtime(MutagenEx.Pipeline.DefaultIo, opts)
   end
 
   defp ensure_runtime(io_mod, opts) do
-    Mix.Task.run("loadpaths")
-    Mix.Task.run("compile")
+    run_runtime_mix_task("loadpaths")
+    run_runtime_mix_task("compile")
     maybe_start_host_app(opts)
 
     case ensure_mutagen_started() do
@@ -289,8 +285,22 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_start_host_app(opts) do
     if host_app_enabled?(opts) do
-      Mix.Task.run("app.start")
+      run_runtime_mix_task("app.start")
+      record_runtime_event(:append_archives_after_app_start)
       Mix.Local.append_archives()
+    else
+      record_runtime_event(:app_start_skipped)
+    end
+  end
+
+  defp run_runtime_mix_task(task) do
+    Mix.Task.run(task)
+    record_runtime_event({:mix_task_run, task})
+  end
+
+  defp record_runtime_event(event) do
+    if target = Process.get(:mutagen_runtime_event_target) do
+      send(target, {:mutagen_runtime_event, event})
     end
   end
 

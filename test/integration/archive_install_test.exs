@@ -68,6 +68,8 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
     agent_name = Macro.camelize(app_name) <> ".Store"
     app_path = Path.join([tmp_dir, "lib", app_name, "application.ex"])
 
+    File.mkdir_p!(Path.dirname(app_path))
+
     File.write!(app_path, """
     defmodule #{app_module} do
       @moduledoc false
