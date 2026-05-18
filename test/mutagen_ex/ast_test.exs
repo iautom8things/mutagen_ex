@@ -120,6 +120,26 @@ defmodule MutagenEx.AstTest do
       refute body_a == body_b
     end
 
+    test "qualifies nested defmodule aliases with their enclosing module" do
+      source = """
+      defmodule Outer do
+        def outer(x), do: x + 1
+
+        defmodule Inner do
+          def inner(x), do: x * 2
+        end
+      end
+      """
+
+      {:ok, ast} = Code.string_to_quoted(source, columns: true, token_metadata: true)
+
+      assert {:ok, outer_body} = Ast.find_module_body(ast, "Outer")
+      assert {:ok, inner_body} = Ast.find_module_body(ast, "Outer.Inner")
+      assert match?({:__block__, _, _}, outer_body)
+      assert match?({:def, _, _}, inner_body)
+      assert Ast.find_module_body(ast, "Inner") == :not_found
+    end
+
     test "is total: never raises on a degenerate AST" do
       assert Ast.find_module_body(:not_an_ast_node, "Foo") == :not_found
       assert Ast.find_module_body(42, "Foo") == :not_found

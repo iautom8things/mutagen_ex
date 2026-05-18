@@ -438,25 +438,40 @@ defmodule MutagenEx.ScopeResolver do
   # Find every (possibly nested) `defmodule` block in an AST. Returns a list
   # of `{module_atom, line_range}` in source order.
   defp find_defmodules(ast) do
-    {_ast, acc} =
-      Macro.prewalk(ast, [], fn node, acc ->
-        case extract_defmodule(node) do
-          {:ok, mod, range} -> {node, [{mod, range} | acc]}
-          :no -> {node, acc}
-        end
-      end)
-
-    Enum.reverse(acc)
+    ast
+    |> collect_defmodules(nil, [])
+    |> Enum.reverse()
   end
 
-  defp extract_defmodule({:defmodule, _meta, [alias_ast, [do: _body]]} = node) do
-    case Ast.alias_to_module(alias_ast) do
-      nil -> :no
-      mod -> {:ok, mod, node_line_range(node)}
+  defp collect_defmodules({:defmodule, _meta, [alias_ast, [do: body]]} = node, parent, acc) do
+    case qualify_module(alias_ast, parent) do
+      nil ->
+        collect_defmodules(body, parent, acc)
+
+      mod ->
+        body
+        |> collect_defmodules(mod, [{mod, node_line_range(node)} | acc])
     end
   end
 
-  defp extract_defmodule(_), do: :no
+  defp collect_defmodules({left, right}, parent, acc) do
+    acc = collect_defmodules(left, parent, acc)
+    collect_defmodules(right, parent, acc)
+  end
+
+  defp collect_defmodules(tuple, parent, acc) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> collect_defmodules(parent, acc)
+  end
+
+  defp collect_defmodules([head | tail], parent, acc) do
+    acc = collect_defmodules(head, parent, acc)
+    collect_defmodules(tail, parent, acc)
+  end
+
+  defp collect_defmodules([], _parent, acc), do: acc
+  defp collect_defmodules(_literal, _parent, acc), do: acc
 
   # Locate the `defmodule mod` block specifically, returning its line range,
   # its inner body AST (the AST under `[do: ...]`), AND the matched module
@@ -472,26 +487,53 @@ defmodule MutagenEx.ScopeResolver do
   # resolver needs the extra metadata. The shared piece — alias→module
   # conversion — flows through `MutagenEx.Ast.alias_to_module/1`.
   defp find_defmodule_block(ast, target_mod_str) do
-    {_ast, acc} =
-      Macro.prewalk(ast, :not_found, fn
-        {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
-          case Ast.alias_to_module(alias_ast) do
-            nil ->
-              {node, :not_found}
+    find_defmodule_block(ast, target_mod_str, nil)
+  end
 
-            mod_atom ->
-              if Atom.to_string(mod_atom) == target_mod_str do
-                {node, {:ok, node_line_range(node), body, mod_atom}}
-              else
-                {node, :not_found}
-              end
-          end
+  defp find_defmodule_block({:defmodule, _meta, [alias_ast, [do: body]]} = node, target, parent) do
+    case qualify_module(alias_ast, parent) do
+      nil ->
+        find_defmodule_block(body, target, parent)
 
-        node, acc ->
-          {node, acc}
-      end)
+      mod_atom ->
+        if Atom.to_string(mod_atom) == target do
+          {:ok, node_line_range(node), body, mod_atom}
+        else
+          find_defmodule_block(body, target, mod_atom)
+        end
+    end
+  end
 
-    acc
+  defp find_defmodule_block({left, right}, target, parent) do
+    case find_defmodule_block(left, target, parent) do
+      :not_found -> find_defmodule_block(right, target, parent)
+      {:ok, _range, _body, _mod_atom} = found -> found
+    end
+  end
+
+  defp find_defmodule_block(tuple, target, parent) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> find_defmodule_block(target, parent)
+  end
+
+  defp find_defmodule_block([head | tail], target, parent) do
+    case find_defmodule_block(head, target, parent) do
+      :not_found -> find_defmodule_block(tail, target, parent)
+      {:ok, _range, _body, _mod_atom} = found -> found
+    end
+  end
+
+  defp find_defmodule_block([], _target, _parent), do: :not_found
+  defp find_defmodule_block(_literal, _target, _parent), do: :not_found
+
+  defp qualify_module(alias_ast, nil), do: Ast.alias_to_module(alias_ast)
+
+  defp qualify_module(alias_ast, parent) when is_atom(parent) do
+    case Ast.alias_to_module(alias_ast) do
+      nil -> nil
+      mod when is_atom(mod) -> Module.concat(parent, mod)
+    end
   end
 
   # Find every `def`/`defp`/`defmacro`/`defmacrop` clause matching the given

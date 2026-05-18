@@ -66,6 +66,9 @@ realized_by:
   statement: |
     For multi-`defmodule` files, enumeration only walks the in-scope module's
     AST sub-tree. Sibling modules' nodes never appear as candidate sites.
+    If a `defmodule` is nested inside another `defmodule`, the nested
+    module is matched by its fully qualified module name
+    (`Outer.Inner`), not by the unqualified inner alias (`Inner`).
 
 - id: mutagen.mutation_enumeration.r5
   priority: must
@@ -196,12 +199,15 @@ realized_by:
 
 - id: mutagen.mutation_enumeration.s4
   covers: [mutagen.mutation_enumeration.r4]
-  given:
-    - "`lib/multi.ex` defines `Mod.A` and `Mod.B`. The scope record targets only `Mod.A`."
-  when:
-    - The enumerator runs.
-  then:
-    - Every emitted site's AST hash belongs to a node inside `Mod.A`'s `defmodule` block; no site has a hash from `Mod.B`'s AST.
+  given: |
+    `lib/multi.ex` defines `Mod.A` and `Mod.B`. Another file defines
+    `Outer` with nested `defmodule Inner`. The scope record targets only
+    `Mod.A` or the fully qualified nested module `Outer.Inner`.
+  when: The enumerator runs.
+  then: |
+    Every emitted site's AST hash belongs to a node inside the targeted
+    `defmodule` block; no site has a hash from sibling modules' ASTs, and
+    a nested module is not looked up by the unqualified `Inner` name.
 
 - id: mutagen.mutation_enumeration.s5
   covers: [mutagen.mutation_enumeration.r5]
