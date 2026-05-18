@@ -29,11 +29,15 @@
     {
       "text": "-m",
       "timestamp": "2026-05-18T03:22:21Z"
+    },
+    {
+      "text": "AUDIT: BOUNCE → orchestrator (scope expansion)\n\nSession: 90ec767b-9d9f-4997-9c96-09f1db6d916f\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/90ec767b-9d9f-4997-9c96-09f1db6d916f.jsonl\n\nReasoning: Verifier's diagnosis confirmed cold. Reproduced `mix test test/integration/archive_install_test.exs --include archive_integration` — the subprocess `mix mutagen` raises `FunctionClauseError` in `:code.add_pathz/2` because `lib/mix/tasks/mutagen.ex:322` calls `:code.add_pathz(ebin)` where `ebin = Mix.Local.archive_ebin(archive)` returns a binary (`\"/var/folders/.../mutagen_ex-0.1.0/ebin\"`), but `:code.add_pathz/1` requires a charlist (OTP `:code` API). Stack trace exactly matches: `(mutagen_ex 0.1.0) lib/mix/tasks/mutagen.ex:276` → `Enum.find_value_list/3` → `lib/mix/tasks/mutagen.ex:322`. The S2 test body (`test/integration/archive_install_test.exs`) is structurally correct: hermetic scratch `MIX_ARCHIVES`, all `mix` invocations as `System.cmd` subprocesses with scoped env (no mix-in-mix lock deadlock), correct on_exit cleanup, matches the ticket deliverable spec. `git diff 5a958ce..HEAD -- lib/ test/mutagen_ex/` is empty — the `ast_test.exs:135` smoke failure is a base-ref pre-existing condition, not introduced by S2. `lib/mix/tasks/mutagen.ex` is explicitly in S2's Out-of-Scope (files) list (\"owned by S1\"), so S2 cannot legitimately fix this.\n\nNew ticket title: \"S1b: archive ebin charlist cast for `:code.add_pathz/1` (r16 MatchError/FunctionClauseError leak)\"\nFile to fix: `lib/mix/tasks/mutagen.ex`\nExact line: `lib/mix/tasks/mutagen.ex:322`\nContract violation: r16's \"MUST NOT raise a `MatchError` or leak a traceback\" clause — the repair branch currently raises `FunctionClauseError` (same family of contract violation: an unhandled exception with traceback escapes from the runtime preamble instead of being caught and routed through `handle_runtime_load_failure/2` → `abort_reason: \"runtime_load_failed\"` per r6). Spec line: `.spec/specs/cli.spec.md:292`.\nSuggested fix: cast the ebin path before passing to OTP — change `:code.add_pathz(ebin)` at line 322 to `:code.add_pathz(to_charlist(ebin))` (one-line change; `Mix.Local.archive_ebin/1` returns a binary, `:code.add_pathz/1` requires a charlist).\n\nConfirming: S2's deliverable (`test/integration/archive_install_test.exs`, the `mix.exs` `test.integration` alias edit, the `test_helper.exs` exclude addition, the `v11.execute: true` flip) is correct and merge-ready. Once the new S1b ticket lands the one-line fix in `lib/mix/tasks/mutagen.ex:322`, S2's test will go green and this stage can merge.",
+      "timestamp": "2026-05-18T03:27:17Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S2: Archive-install integration test (mirrors downstream-adoption)",
   "type": "task",
-  "updated_at": "2026-05-18T03:22:21Z"
+  "updated_at": "2026-05-18T03:27:17Z"
 }
