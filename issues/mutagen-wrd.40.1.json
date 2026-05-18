@@ -9,9 +9,15 @@
   "id": "mutagen-wrd.40.1",
   "labels": [],
   "parent": "mutagen-wrd.40",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: codex-9f1a2b34\nLog: /Users/mz/dev/mz/mutagen_ex-runtime-preamble-repair/.codex-runs/mutagen-wrd.40.1.log\n\nCommit: 5a958ceb87f0cbc4f2d831cae6aa0e6e78e114e7\nFiles touched: lib/mix/tasks/mutagen.ex; test/mix/tasks/mutagen_test.exs\nTests added: Mix.Tasks.MutagenTest \"ensure_runtime/0 succeeds when :mutagen_ex is already loaded (dep-adoption shape)\"; Mix.Tasks.MutagenTest \"ensure_runtime/0 routes to structured-error JSON on unrecoverable load failure\"\nVerification stubs flipped: none\n\nSummary: Added a hidden ensure-runtime seam plus archive-context repair behind the existing run/1 preamble. The first successful Application.ensure_all_started/1 result bypasses repair, archive-context failure tuples trigger append_archives plus targeted ebin fallback, and unrecoverable failures now emit runtime_load_failed JSON through the existing reporter/io path instead of raising MatchError.",
+      "timestamp": "2026-05-18T02:00:02Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "S1: Runtime preamble repair + mutagen.cli.r16 (archive-context self-heal)",
   "type": "task",
-  "updated_at": "2026-05-18T00:41:46Z"
+  "updated_at": "2026-05-18T02:00:02Z"
 }
