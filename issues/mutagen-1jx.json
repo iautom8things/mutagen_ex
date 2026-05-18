@@ -41,11 +41,15 @@
     {
       "text": "WORKER_ERROR\nSession: codex-f4bf49fc\nLog: /Users/mz/dev/mz/mutagen_ex-runtime-preamble-host-app/.codex-runs/mutagen-1jx.3.log\n\nWorker exited without posting IMPLEMENTED. The audit-named fix WAS applied\n(uncommitted in the stage worktree) — but a NEW failure was uncovered while\nverifying integration lanes. Worker tail:\n\n```\n- mix compile --warnings-as-errors: green\n- mix test: green on rerun, 642 tests, 0 failures\n- downstream_integration: green (the path-collision fix from the prior\n  audit landed cleanly)\n- archive_integration: still failing with `runtime_load_failed` because\n  archive-installed mutagen_ex cannot start :telemetry from the isolated\n  archive path\n```\n\nThe worker also changed the generated Agent child spec in both fixtures\nbeyond what the audit asked for (\"so `app.start` can actually start the\nhost app on Elixir 1.19\"). Both changes are still uncommitted on\nmutagen-1jx/runtime-preamble-host-app at `/Users/mz/dev/mz/mutagen_ex-runtime-preamble-host-app`.\n\nPath-fix diff is in `.codex-runs/mutagen-1jx.3.log` (search for\n`app_dir = String.replace` to find both hunks).",
       "timestamp": "2026-05-18T19:47:47Z"
+    },
+    {
+      "text": "ESCALATED\nSession: orchestrator-7209748f\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/7209748f-d9d1-4fd8-bd5a-a127a7a27b9d.jsonl\n\nTotal bounces hit cap (2). Three impl attempts: (1) trace assertion broken\n+ path collision + dead defp; (2) defp + trace fixed but path collision\nunresolved; (3) path collision RESOLVED but archive_integration uncovered\na separate runtime_load_failed (:telemetry from isolated archive path),\nno IMPLEMENTED.\n\nThe structural code for r14/r16 (maybe_start_host_app, opt-out, event hook)\nis correct per both audit passes. Unit coverage for r14 is sound. The\ndownstream_integration witness for r14 works after the path fix lands.\nOnly the archive_integration witness for r16 remains red — and the new\nfailure mode is *not* the path collision but a deeper archive-mode\n:telemetry boot issue that may predate this ticket (note prior commits\n7bc77e1 \"Cast archive ebin path for code loading\" + 36ccbb1 \"Fix archive\ninstall integration build path\" suggest the archive runtime has known\nsharp edges).\n\nSuggested user actions (one of):\n- /descope the archive_install integration witness (v11) from this ticket\n  and file a follow-up bug for the :telemetry archive boot issue. r16's\n  contract is otherwise covered by the unit tests (the host_app gate\n  itself doesn't depend on archive mode).\n- Investigate the archive :telemetry failure manually in the stage worktree\n  at /Users/mz/dev/mz/mutagen_ex-runtime-preamble-host-app — the worker\n  left uncommitted path-fix diffs that need to land first to actually see\n  the failure cleanly.\n\nThe stage worktree is preserved. The worker's path fix is uncommitted\nthere for review/commit. Bounce attempts exhausted; cannot respawn\nwithout operator intervention.",
+      "timestamp": "2026-05-18T19:47:59Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "Runtime preamble: start host OTP application before tests in archive-install mode",
   "type": "bug",
-  "updated_at": "2026-05-18T19:47:47Z"
+  "updated_at": "2026-05-18T19:47:59Z"
 }
