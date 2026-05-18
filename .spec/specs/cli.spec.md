@@ -271,6 +271,33 @@ decisions:
     written to `/tmp/foo.json` anyway — undermining the safety
     guarantee a downstream consumer relies on. The fix is mandatory:
     the rejected path must not be written to under any abort variant.
+
+- id: mutagen.cli.r16
+  priority: must
+  statement: |
+    When `mix mutagen` is invoked via a globally-installed archive
+    (`mix archive.install ./mutagen_ex-X.Y.Z.ez`) from a project that
+    does NOT carry `:mutagen_ex` as a dependency in its `mix.exs`, the
+    runtime preamble self-heals the `:code` path so the OTP application
+    can boot. Concretely: if `Application.ensure_all_started(:mutagen_ex)`
+    in the preamble returns an error tuple of the shape
+    `{:error, {:mutagen_ex, {_, ~c"mutagen_ex.app"}}}` (or the related
+    `:non_existing` variant), `ensure_runtime/0` calls
+    `Mix.Local.append_archives/0` and retries; if the retry still errors,
+    it scans `Mix.path_for(:archives)` for a directory whose
+    `Mix.Local.archive_ebin/1` contains `mutagen_ex.app`, calls
+    `:code.add_pathz/1` on that ebin, and retries a third time. If all
+    three attempts fail, the task emits an error-JSON document with
+    `abort_reason: "runtime_load_failed"` to stdout and exits non-zero
+    per r6 — it MUST NOT raise a `MatchError` or leak a traceback.
+
+    The repair branch is gated by the failure-tuple shape from
+    `Application.ensure_all_started/1`. It runs zero code on the
+    `path:` / `hex` / `git` dep adoption paths covered by r14, because
+    those paths return `{:ok, _apps}` from the first attempt and never
+    enter the repair branch. This refines r14: the preamble's contract
+    covers both adoption shapes — dep-style and archive-installed —
+    with identical observable behaviour.
 ```
 
 ```spec-scenarios
@@ -513,6 +540,45 @@ decisions:
     test seam is preamble-free per
     mutagen.decision.preamble_in_run1_only.
 
+- id: mutagen.cli.s14c
+  covers: [mutagen.cli.r16]
+  given: |
+    A host project that does NOT carry `:mutagen_ex` in its `mix.exs`,
+    with `mutagen_ex-X.Y.Z.ez` previously installed via
+    `mix archive.install ./mutagen_ex-X.Y.Z.ez` so the task is visible
+    globally (`mix help mutagen` lists it).
+  when: |
+    The user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`
+    from the host project root in a fresh shell.
+  then: |
+    `ensure_runtime/0`'s first `Application.ensure_all_started(:mutagen_ex)`
+    returns `{:error, {:mutagen_ex, {_, ~c"mutagen_ex.app"}}}`. The preamble
+    calls `Mix.Local.append_archives/0`, retries, and the retry returns
+    `{:ok, _apps}` (or, if necessary, the targeted ebin scan fires and the
+    third attempt succeeds). `Process.whereis(MutagenEx.TaskSup)` is then a
+    live PID. The coverage, baseline, and mutation phases run normally.
+    The final JSON document on stdout has `aborted: false` and a populated
+    `mutation` block.
+
+- id: mutagen.cli.s14d
+  covers: [mutagen.cli.r16]
+  given: |
+    A host project as in s14c, but the installed archive is
+    unrecoverable (the archive directory was deleted between
+    `mix archive.install` and `mix mutagen`, or `~/.mix/archives`
+    is unreadable). Both `Mix.Local.append_archives/0` and the
+    targeted `Mix.path_for(:archives)` scan fail to make
+    `mutagen_ex.app` reachable on `:code.get_path/0`.
+  when: `mix mutagen ...` runs.
+  then: |
+    `ensure_runtime/0` does NOT raise a `MatchError`. It emits a
+    structured error-JSON document to stdout with
+    `aborted: true`, `abort_reason: "runtime_load_failed"`, and a
+    `details.message` pointing the user at archive-install
+    troubleshooting (e.g. "reinstall via `mix archive.uninstall mutagen_ex
+    && mix archive.install <ez>`"). The task exits with a non-zero code
+    per r6.
+
 - id: mutagen.cli.s15
   covers: [mutagen.cli.r15, mutagen.cli.r10]
   given: |
@@ -586,4 +652,10 @@ decisions:
   kind: command
   command: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
   execute: true
+
+- id: mutagen.cli.v11
+  covers: [mutagen.cli.r16]
+  kind: command
+  command: mix test test/integration/archive_install_test.exs --include archive_integration
+  execute: false
 ```
