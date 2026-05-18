@@ -7,9 +7,10 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
   `find_module_body/2` are preserved verbatim below as private fixture
   functions. For each AST in the representative corpus, this test
   asserts that the lifted `MutagenEx.Ast` version produces output
-  identical to the donor. This locks in the safety net so a future
-  change to the lifted helpers cannot silently diverge from established
-  donor behaviour.
+  identical to the donor, except for the documented nested-defmodule
+  qualification change from `mutagen.ast.r2`. This locks in the safety
+  net so a future change to the lifted helpers cannot silently diverge
+  from established donor behaviour.
 
   The donor variants were copy-pasted from:
 
@@ -124,7 +125,8 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
   end
 
   # Build a corpus of full module ASTs paired with the module atom we
-  # expect (or `:not_found` for negative cases).
+  # expect from the lifted helper (or `:not_found` for negative cases).
+  # A fourth element records intentional donor divergence.
   defp module_body_corpus do
     [
       {source_ast("defmodule Foo do\n  def bar, do: :ok\nend\n"), Foo, :found},
@@ -136,14 +138,15 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
       {source_ast(
          "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
        ), Multi, :found},
-      # `defmodule Inner` nested inside `defmodule Multi` has the AST
-      # alias `[:Inner]` (NOT `[:Multi, :Inner]`) — the qualified
-      # `Multi.Inner` atom is only resolved at compile time. Both
-      # donor and lifted match on AST alias atoms, so the target
-      # `Inner` (not `Multi.Inner`) is what finds the nested block.
+      # r2 now resolves lexical nesting. The lifted helper finds the
+      # qualified `Multi.Inner`; the preserved donor still records the
+      # legacy AST-alias-only behaviour where unqualified `Inner` matched.
       {source_ast(
          "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
-       ), Inner, :found},
+       ), Multi.Inner, :found, donor: :not_found},
+      {source_ast(
+         "defmodule Multi do\n  defmodule Inner do\n    def inner, do: 1\n  end\n  def outer, do: 2\nend\n"
+       ), Inner, :not_found, donor: :found},
       {source_ast(
          "defmodule First do\n  def f, do: 1\nend\n\ndefmodule Second do\n  def g, do: 2\nend\n"
        ), Second, :found},
@@ -223,27 +226,33 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
 
   describe "find_module_body/2 donor equivalence (mutagen.ast.s9)" do
     test "lifted version matches donor for every corpus entry" do
-      for {ast, target_atom, expected_kind} <- module_body_corpus() do
+      for entry <- module_body_corpus() do
+        {ast, target_atom, expected_kind, donor_expected_kind} =
+          normalize_module_body_entry(entry)
+
         donor_out = donor_find_module_body(ast, target_atom)
         lifted_out = Ast.find_module_body(ast, Atom.to_string(target_atom))
 
         # The two results have the same SHAPE — both either :not_found
         # or {:ok, body} with byte-identical body terms.
-        assert kind_of(donor_out) == kind_of(lifted_out),
-               "find_module_body shape mismatch on target=#{inspect(target_atom)}: " <>
-                 "donor=#{inspect(donor_out)} lifted=#{inspect(lifted_out)}"
+        if donor_expected_kind == expected_kind do
+          assert kind_of(donor_out) == kind_of(lifted_out),
+                 "find_module_body shape mismatch on target=#{inspect(target_atom)}: " <>
+                   "donor=#{inspect(donor_out)} lifted=#{inspect(lifted_out)}"
 
-        case {donor_out, lifted_out} do
-          {{:ok, donor_body}, {:ok, lifted_body}} ->
-            assert donor_body == lifted_body,
-                   "find_module_body body mismatch on target=#{inspect(target_atom)}"
+          case {donor_out, lifted_out} do
+            {{:ok, donor_body}, {:ok, lifted_body}} ->
+              assert donor_body == lifted_body,
+                     "find_module_body body mismatch on target=#{inspect(target_atom)}"
 
-          {:not_found, :not_found} ->
-            :ok
+            {:not_found, :not_found} ->
+              :ok
+          end
         end
 
         # Sanity vs the table's expected kind.
-        assert kind_of(donor_out) == expected_kind
+        assert kind_of(lifted_out) == expected_kind
+        assert kind_of(donor_out) == donor_expected_kind
       end
     end
   end
@@ -263,4 +272,12 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
 
   defp kind_of({:ok, _}), do: :found
   defp kind_of(:not_found), do: :not_found
+
+  defp normalize_module_body_entry({ast, target_atom, expected_kind}) do
+    {ast, target_atom, expected_kind, expected_kind}
+  end
+
+  defp normalize_module_body_entry({ast, target_atom, expected_kind, donor: donor_expected_kind}) do
+    {ast, target_atom, expected_kind, donor_expected_kind}
+  end
 end
