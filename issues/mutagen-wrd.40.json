@@ -15,11 +15,15 @@
     {
       "text": "Orchestrator paused — second product-level gap discovered in S2's integration test after S1b's charlist fix landed. mutagen_ex's transitive dep `telemetry` is not bundled in `mix archive.build`'s output, so an archive-installed `mix mutagen` against a host that doesn't declare telemetry can't start. See mutagen-wrd.40.2 most recent comment (ORCHESTRATOR_ESCALATION) for the five options A-E and full diagnostic. Not carving another subticket autonomously — this is a design decision, not a one-line bug fix.\n\nCurrent epic state:\n- 40.1 (S1) closed at 5a958ce\n- 40.3 (S3) closed at 677a209\n- 40.4 (S1b) closed at ebcd4e1 — scope-expansion subticket\n- 40.2 (S2) open, blocked pending direction. Test rebased to e8c04aa, still red on telemetry.app missing.",
       "timestamp": "2026-05-18T03:38:48Z"
+    },
+    {
+      "text": "ORCHESTRATED\nChildren closed: 4 (S1, S2, S3 + S1b scope expansion)\nBOUNCEs encountered: 1 (S2 round 1 — mix-in-mix lock deadlock; respawn redesigned with Mix.Task.run in-process)\nScope expansions: 1 (S1b for :code.add_pathz charlist cast)\nUser escalations: 1 (telemetry transitive-dep gap; user overrode with \"merge and clean up\")\n\nEpic branch think-pvr/archive-install-fix at e8c04aa. make smoke 640/0 (19 excluded). Default lane unaffected.\n\nKnown limitation persisting at close: mix archive.build does not bundle mutagen_ex's telemetry runtime dep, so `mix archive.install ./mutagen_ex-X.Y.Z.ez \u0026\u0026 mix mutagen` against a host with no telemetry dep still aborts with runtime_load_failed (rather than the original MatchError). The v11 stub command `mix test test/integration/archive_install_test.exs --include archive_integration` is red on that scenario. S2's test correctly documents the failure mode; resolution is deferred per user direction (see options A-E on mutagen-wrd.40.2's ORCHESTRATOR_ESCALATION comment).",
+      "timestamp": "2026-05-18T10:21:12Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Archive-install adoption",
   "type": "epic",
-  "updated_at": "2026-05-18T03:38:48Z"
+  "updated_at": "2026-05-18T10:21:12Z"
 }
