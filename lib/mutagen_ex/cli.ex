@@ -24,7 +24,7 @@ defmodule MutagenEx.CLI do
       target string; shape validation happens during scope resolution.
     * `--tests <target>` — required, repeatable (max 100 occurrences). Raw
       target string; shape validation happens during test selection.
-    * `--timeout-ms <int>` — positive integer, default 5000.
+    * `--timeout-ms <int>` — positive integer, default 30000.
     * `--seed <int>` — non-negative integer, default 0.
     * `--json <path>` — optional file path; when omitted, the final document
       is written to stdout. The path is validated at parse time (NUL bytes
@@ -299,7 +299,7 @@ defmodule MutagenEx.CLI do
   defp pick_timeout(parsed) do
     case List.keyfind(parsed, :timeout_ms, 0, :default) do
       :default ->
-        {:ok, 5_000}
+        {:ok, 30_000}
 
       {:timeout_ms, n} when is_integer(n) and n > 0 ->
         {:ok, n}
