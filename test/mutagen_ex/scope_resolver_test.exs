@@ -122,6 +122,29 @@ defmodule MutagenEx.ScopeResolverTest do
       assert b_scope.line_range.last == 25
     end
 
+    test "nested defmodules are returned with fully qualified module atoms" do
+      source = """
+      defmodule Outer do
+        def outer, do: :ok
+
+        defmodule Inner do
+          def inner, do: :ok
+        end
+      end
+      """
+
+      loader = loader_for(%{"lib/nested.ex" => source})
+
+      assert {:ok, scopes} = ScopeResolver.resolve("lib/nested.ex", loader: loader)
+      assert Enum.map(scopes, & &1.module) == [Outer, Outer.Inner]
+
+      [outer_scope, inner_scope] = scopes
+      assert outer_scope.line_range.first == 1
+      assert outer_scope.line_range.last == 7
+      assert inner_scope.line_range.first == 4
+      assert inner_scope.line_range.last == 6
+    end
+
     test "file with no defmodule returns an empty list" do
       loader = loader_for(%{"lib/empty.ex" => "# nothing here\n"})
 
@@ -188,6 +211,35 @@ defmodule MutagenEx.ScopeResolverTest do
       # round-tripping through `String.to_atom/1`.
       assert details.module == "Elixir.Nope.Missing"
       assert is_binary(details.message)
+    end
+
+    test "nested module target resolves by its fully qualified name" do
+      source = """
+      defmodule Outer do
+        def outer, do: :ok
+
+        defmodule Inner do
+          def inner, do: :ok
+        end
+      end
+      """
+
+      loader = loader_for(%{"lib/nested.ex" => source})
+
+      assert {:ok, [%Scope{file: "lib/nested.ex", module: Outer.Inner} = scope]} =
+               ScopeResolver.resolve("Outer.Inner",
+                 loader: loader,
+                 source_files: ["lib/nested.ex"]
+               )
+
+      assert scope.line_range.first == 4
+      assert scope.line_range.last == 6
+
+      assert {:error, :module_not_found, _details} =
+               ScopeResolver.resolve("Inner",
+                 loader: loader,
+                 source_files: ["lib/nested.ex"]
+               )
     end
   end
 

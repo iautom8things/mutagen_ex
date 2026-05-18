@@ -324,6 +324,39 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
       assert Enum.all?(mod_b_hashes, &(&1 not in site_hashes))
     end
+
+    test "enumeration finds a nested in-scope module by its qualified module name" do
+      source = """
+      defmodule Atlas.KB.SchemaRegistry do
+        def outer(x), do: x + 1
+
+        defmodule KindEntry do
+          def enabled?(x), do: x == :kind
+        end
+
+        defmodule RelTypeEntry do
+          def enabled?(x), do: x == :rel
+        end
+      end
+      """
+
+      cache = ast_cache("lib/atlas/kb/schema_registry.ex", source)
+      scopes = [scope("lib/atlas/kb/schema_registry.ex", Atlas.KB.SchemaRegistry.KindEntry)]
+      covered = covered_lines("lib/atlas/kb/schema_registry.ex", Enum.to_list(1..20))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      assert result.warnings == []
+
+      equality_sites =
+        Enum.filter(result.sites, fn site ->
+          site.mutator == :compare and site.file == "lib/atlas/kb/schema_registry.ex"
+        end)
+
+      assert length(equality_sites) == 1
+      [site] = equality_sites
+      assert site.line == 5
+    end
   end
 
   describe "scenario s5 — behaviour-only module yields a warning (mutagen.mutation_enumeration.r5)" do

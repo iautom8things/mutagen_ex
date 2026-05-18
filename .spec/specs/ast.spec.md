@@ -65,9 +65,10 @@ realized_by:
     `MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name
     string `target_mod_str` and returns `{:ok, body_ast}` if a node
     `{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose
-    `alias_to_module(alias_ast) |> Atom.to_string()` (with the `Elixir.`
-    prefix stripped) equals `target_mod_str`. Otherwise it returns
-    `:not_found`. The function is total: it never raises, throws, or exits.
+    lexical module name (including enclosing `defmodule` parents for nested
+    definitions) equals `target_mod_str`, comparing both `Elixir.*` and
+    prefix-stripped forms. Otherwise it returns `:not_found`. The function
+    is total: it never raises, throws, or exits.
 
 - id: mutagen.ast.r3
   priority: must
@@ -152,6 +153,17 @@ realized_by:
     - "`MutagenEx.Ast.find_module_body/2` is called."
   then:
     - Returns `:not_found`.
+
+- id: mutagen.ast.s5a
+  covers: [mutagen.ast.r2]
+  given: |
+    Quoted source `defmodule Outer do defmodule Inner do ... end end`.
+  when: |
+    `MutagenEx.Ast.find_module_body/2` is called with `"Outer.Inner"`
+    and with `"Inner"`.
+  then: |
+    The fully qualified target returns `{:ok, body_ast}` and the unqualified
+    inner target returns `:not_found`.
 
 - id: mutagen.ast.s6
   covers: [mutagen.ast.r3]

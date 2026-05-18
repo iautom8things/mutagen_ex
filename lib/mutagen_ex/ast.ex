@@ -113,26 +113,53 @@ defmodule MutagenEx.Ast do
   """
   @spec find_module_body(ast, String.t()) :: {:ok, ast} | :not_found
   def find_module_body(ast, target_mod_str) when is_binary(target_mod_str) do
-    {_ast, acc} =
-      Macro.prewalk(ast, :not_found, fn
-        {:defmodule, _meta, [alias_ast, [do: body]]} = node, :not_found ->
-          case alias_to_module(alias_ast) do
-            nil ->
-              {node, :not_found}
+    find_module_body(ast, target_mod_str, nil)
+  end
 
-            mod_atom ->
-              if module_string_matches?(mod_atom, target_mod_str) do
-                {node, {:ok, body}}
-              else
-                {node, :not_found}
-              end
-          end
+  defp find_module_body({:defmodule, _meta, [alias_ast, [do: body]]}, target_mod_str, parent) do
+    case qualify_module(alias_ast, parent) do
+      nil ->
+        find_module_body(body, target_mod_str, parent)
 
-        node, acc ->
-          {node, acc}
-      end)
+      mod_atom ->
+        if module_string_matches?(mod_atom, target_mod_str) do
+          {:ok, body}
+        else
+          find_module_body(body, target_mod_str, mod_atom)
+        end
+    end
+  end
 
-    acc
+  defp find_module_body({left, right}, target_mod_str, parent) do
+    case find_module_body(left, target_mod_str, parent) do
+      :not_found -> find_module_body(right, target_mod_str, parent)
+      {:ok, _body} = found -> found
+    end
+  end
+
+  defp find_module_body(tuple, target_mod_str, parent) when is_tuple(tuple) do
+    tuple
+    |> Tuple.to_list()
+    |> find_module_body(target_mod_str, parent)
+  end
+
+  defp find_module_body([head | tail], target_mod_str, parent) do
+    case find_module_body(head, target_mod_str, parent) do
+      :not_found -> find_module_body(tail, target_mod_str, parent)
+      {:ok, _body} = found -> found
+    end
+  end
+
+  defp find_module_body([], _target_mod_str, _parent), do: :not_found
+  defp find_module_body(_literal, _target_mod_str, _parent), do: :not_found
+
+  defp qualify_module(alias_ast, nil), do: alias_to_module(alias_ast)
+
+  defp qualify_module(alias_ast, parent) when is_atom(parent) do
+    case alias_to_module(alias_ast) do
+      nil -> nil
+      mod when is_atom(mod) -> Module.concat(parent, mod)
+    end
   end
 
   # Compare an AST-derived module atom against a `target_mod_str` per
