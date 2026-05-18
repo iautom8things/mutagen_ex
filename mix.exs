@@ -56,7 +56,8 @@ defmodule MutagenEx.MixProject do
   # the existing `:e2e_slow`-tagged suites under `test/mutagen_ex/`.
   defp aliases do
     [
-      "test.integration": "test --include downstream_integration test/integration"
+      "test.integration":
+        "test --include downstream_integration --include archive_integration test/integration"
     ]
   end
 

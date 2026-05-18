@@ -657,5 +657,5 @@ decisions:
   covers: [mutagen.cli.r16]
   kind: command
   command: mix test test/integration/archive_install_test.exs --include archive_integration
-  execute: false
+  execute: true
 ```
