@@ -7,6 +7,6 @@ Detailed rules live in `.claude/rules/`. Each file has frontmatter describing wh
 
 | Rule | Covers |
 | --- | --- |
-| `worktree.md` | Worktree-first workflow - all dev in worktrees, never main checkout |
+| `worktree.md` | Worktree-first workflow for host-run Elixir projects. |
 <!-- agentic.rules:end -->
 
