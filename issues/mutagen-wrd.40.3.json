@@ -27,11 +27,15 @@
     {
       "text": "MERGE_CONFLICT: smoke red post-rebase",
       "timestamp": "2026-05-18T03:16:12Z"
+    },
+    {
+      "text": "APPROVED. Merged into think-pvr/archive-install-fix. Closing per orchestrator sign-off.\n\n(Note on the prior MERGE_CONFLICT: smoke red post-rebase comment — that was a transient false alarm. Re-running `make smoke` on the rebased worktree at 677a209 immediately afterward passed 640/0. The ast atom-count test (`mutagen.ast.r2 / r8 invariant`) is inherently sensitive to BEAM atom-table state and likely just saw a stale counter. Verified clean on both the rebased S3 worktree AND the epic worktree post-ff-merge.)",
+      "timestamp": "2026-05-18T03:17:24Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S3: README install-via-archive subsection + CHANGELOG entry",
   "type": "task",
-  "updated_at": "2026-05-18T03:16:12Z"
+  "updated_at": "2026-05-18T03:17:24Z"
 }
