@@ -7,9 +7,15 @@
   "id": "mutagen-1jx",
   "labels": [],
   "parent": "mutagen-3fa",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: scope annotation (no implementation yet)\n\nAllowed touches:\n- lib/mix/tasks/mutagen.ex\n- lib/mutagen_ex/cli.ex\n- lib/mutagen_ex/application.ex\n- lib/mutagen_ex/runtime_preamble.ex (new file allowed if needed for extraction)\n- test/integration/**/*.exs\n- test/mix/tasks/mutagen_test.exs\n- test/mutagen_ex/cli_test.exs\n- test/mutagen_ex/runtime_preamble_test.exs (new test allowed)\n- .spec/specs/cli.spec.md (only if a new requirement must be recorded — otherwise no spec edits)\n\nOut of Scope (files):\n- lib/mutagen_ex/mutators/**\n- lib/mutagen_ex/ast.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mutagen_ex/scope_resolver.ex\n- lib/mutagen_ex/json_*.ex\n\nOut of Scope (intent):\n- No new external runtime deps.\n- Self-test sandbox (Lab.*) must continue to work with the minimal boot — confirm via existing tests.\n- Do not add HEEx/LiveView mutators or features unrelated to host-app startup.\n\nVerification command: mix compile --warnings-as-errors \u0026\u0026 mix test",
+      "timestamp": "2026-05-18T19:06:28Z"
+    }
+  ],
   "priority": 1,
   "status": "open",
   "title": "Runtime preamble: start host OTP application before tests in archive-install mode",
   "type": "bug",
-  "updated_at": "2026-05-18T19:01:21Z"
+  "updated_at": "2026-05-18T19:06:28Z"
 }
