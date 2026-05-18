@@ -319,7 +319,7 @@ defmodule Mix.Tasks.Mutagen do
       app_file = Path.join(to_string(ebin), "mutagen_ex.app")
 
       if File.exists?(app_file) do
-        :code.add_pathz(ebin)
+        :code.add_pathz(to_charlist(ebin))
       else
         false
       end
