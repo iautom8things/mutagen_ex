@@ -11,11 +11,15 @@
     {
       "text": "Orchestrator scope expansion: spawned mutagen-wrd.40.4 to fix a :code.add_pathz/1 charlist/binary bug in S1's runtime preamble repair that S2's end-to-end integration test exposed (the test S1 explicitly deferred to S2). S2 (mutagen-wrd.40.2) is now blocked by mutagen-wrd.40.4. S1 (mutagen-wrd.40.1) was unit-test green but the s14c success-after-self-heal scenario could only be validated end-to-end in S2 — and it is what surfaced the bug. S3 (mutagen-wrd.40.3) already closed independently and is merged into the epic at 677a209.",
       "timestamp": "2026-05-18T03:29:43Z"
+    },
+    {
+      "text": "Orchestrator paused — second product-level gap discovered in S2's integration test after S1b's charlist fix landed. mutagen_ex's transitive dep `telemetry` is not bundled in `mix archive.build`'s output, so an archive-installed `mix mutagen` against a host that doesn't declare telemetry can't start. See mutagen-wrd.40.2 most recent comment (ORCHESTRATOR_ESCALATION) for the five options A-E and full diagnostic. Not carving another subticket autonomously — this is a design decision, not a one-line bug fix.\n\nCurrent epic state:\n- 40.1 (S1) closed at 5a958ce\n- 40.3 (S3) closed at 677a209\n- 40.4 (S1b) closed at ebcd4e1 — scope-expansion subticket\n- 40.2 (S2) open, blocked pending direction. Test rebased to e8c04aa, still red on telemetry.app missing.",
+      "timestamp": "2026-05-18T03:38:48Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "Archive-install adoption",
   "type": "epic",
-  "updated_at": "2026-05-18T03:29:43Z"
+  "updated_at": "2026-05-18T03:38:48Z"
 }
