@@ -26,4 +26,11 @@
 #   demote those tests out of the default `mix test` run. Run
 #   explicitly via `mix test --include downstream_integration` or
 #   `mix test.integration`.
-ExUnit.start(exclude: [:e2e_slow, :spike, :downstream_integration])
+#
+# - `:archive_integration` covers archive-install adoption under
+#   `test/integration/`. It builds and installs the local archive into a
+#   scoped `MIX_ARCHIVES` directory, then drives `mix mutagen` from a
+#   generated host project with no `:mutagen_ex` dependency declaration.
+#   Run explicitly via `mix test --include archive_integration` or
+#   `mix test.integration`.
+ExUnit.start(exclude: [:e2e_slow, :spike, :downstream_integration, :archive_integration])
