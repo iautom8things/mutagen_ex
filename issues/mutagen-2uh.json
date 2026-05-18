@@ -7,9 +7,15 @@
   "id": "mutagen-2uh",
   "labels": [],
   "parent": "mutagen-3fa",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: scope annotation (no implementation yet)\n\nAllowed touches:\n- lib/mutagen_ex/ast.ex\n- lib/mutagen_ex/beam_cache.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mutagen_ex/scope_resolver.ex\n- test/mutagen_ex/ast_test.exs\n- test/mutagen_ex/beam_cache_test.exs\n- test/mutagen_ex/mutation_enumerator_test.exs\n- test/mutagen_ex/scope_resolver_test.exs\n- test/fixtures/**/*.ex (new multi-module fixture allowed)\n- .spec/specs/ast.spec.md (only if a requirement must be recorded)\n- .spec/specs/mutation_enumeration.spec.md (only if a requirement must be recorded)\n\nOut of Scope (files):\n- lib/mutagen_ex/mutators/**\n- lib/mix/tasks/mutagen.ex\n- lib/mutagen_ex/cli.ex\n- lib/mutagen_ex/coverage_runner.ex\n- lib/mutagen_ex/json_*.ex\n\nOut of Scope (intent):\n- Do not change the public API of MutagenEx.Ast unless strictly required by the fix.\n- Top-level-only files must keep working with no behavior change.\n- No new external runtime deps.\n\nVerification command: mix compile --warnings-as-errors \u0026\u0026 mix test",
+      "timestamp": "2026-05-18T19:06:33Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Nested-module BEAM lookup uses non-qualified module name",
   "type": "bug",
-  "updated_at": "2026-05-18T19:01:21Z"
+  "updated_at": "2026-05-18T19:06:33Z"
 }
