@@ -7,9 +7,15 @@
   "id": "mutagen-wrd.40",
   "labels": [],
   "parent": "mutagen-wrd",
+  "comments": [
+    {
+      "text": "Orchestrator scope expansion: spawned mutagen-wrd.40.4 to fix a :code.add_pathz/1 charlist/binary bug in S1's runtime preamble repair that S2's end-to-end integration test exposed (the test S1 explicitly deferred to S2). S2 (mutagen-wrd.40.2) is now blocked by mutagen-wrd.40.4. S1 (mutagen-wrd.40.1) was unit-test green but the s14c success-after-self-heal scenario could only be validated end-to-end in S2 — and it is what surfaced the bug. S3 (mutagen-wrd.40.3) already closed independently and is merged into the epic at 677a209.",
+      "timestamp": "2026-05-18T03:29:43Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Archive-install adoption",
   "type": "epic",
-  "updated_at": "2026-05-18T00:39:46Z"
+  "updated_at": "2026-05-18T03:29:43Z"
 }
