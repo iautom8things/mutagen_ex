@@ -38,11 +38,15 @@
     {
       "text": "SCOPE_EXPANSION: spawned mutagen-wrd.40.4 to fix the :code.add_pathz/1 charlist/binary mismatch at lib/mix/tasks/mutagen.ex:322 that S2's end-to-end test exposed.\n\nS2's test body (commit ae68d59c) is structurally correct and merge-ready. The failure surfaced by `mix test test/integration/archive_install_test.exs --include archive_integration` is in S1-owned code (lib/mix/tasks/mutagen.ex), which is in S2's Out-of-Scope (files) list. Per /orchestrate-epic skill's scope-expansion authority, the right routing is to carve out a new subticket rather than bounce S2 to fix code S2 is not allowed to touch.\n\nmutagen-wrd.40.4 now blocks mutagen-wrd.40.2. S2 will pick up automatically once .40.4 closes.\n\nThis SCOPE_EXPANSION does NOT consume a bounce attempt — it is a re-plan, not a failure. S2 has used 1 of 2 bounces so far (the original mix-in-mix lock deadlock bounce, now resolved by the test redesign in ae68d59c).",
       "timestamp": "2026-05-18T03:29:37Z"
+    },
+    {
+      "text": "MERGE_CONFLICT: rebase onto think-pvr/archive-install-fix (ebcd4e1) was clean (no file conflicts), but the integration test mix test test/integration/archive_install_test.exs --include archive_integration still fails. The original S2-exposed FunctionClauseError leak is GONE (S1b's charlist cast fixed it). New failure mode: runtime_load_failed because telemetry.app cannot be found from the installed archive. Output: {:error, {:telemetry, {~c\"no such file or directory\", ~c\"telemetry.app\"}}}. This is a real downstream code-path issue (archive install does not bring transitive deps' .app files into code path), not a rebase conflict. Stage branch left rebased at e8c04aa on top of ebcd4e1; no abort performed. make smoke NOT run because test failed first.",
+      "timestamp": "2026-05-18T03:36:48Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S2: Archive-install integration test (mirrors downstream-adoption)",
   "type": "task",
-  "updated_at": "2026-05-18T03:29:37Z"
+  "updated_at": "2026-05-18T03:36:48Z"
 }
