@@ -7,9 +7,15 @@
   "id": "mutagen-csv",
   "labels": [],
   "parent": "mutagen-3fa",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: scope annotation (no implementation yet)\n\nAllowed touches:\n- lib/mutagen_ex/cli.ex (timeout default + option parsing)\n- lib/mutagen_ex/config.ex (timeout default + config layering)\n- lib/mix/tasks/mutagen.ex (only if CLI option default lives here, not in cli.ex)\n- lib/mutagen_ex/mutation_runner.ex (only if the timeout default flows through and needs adjustment)\n- README.md (timeout guidance for adopters)\n- test/mutagen_ex/cli_test.exs\n- test/mutagen_ex/config_test.exs\n- test/mix/tasks/mutagen_test.exs\n- .spec/specs/cli.spec.md (record the new default + auto-raise behavior if implemented)\n\nOut of Scope (files):\n- lib/mutagen_ex/mutators/**\n- lib/mutagen_ex/ast.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mutagen_ex/scope_resolver.ex\n- lib/mutagen_ex/json_*.ex\n- lib/mutagen_ex/coverage_runner.ex\n\nOut of Scope (intent):\n- No new external runtime deps.\n- Existing small-lib test runs must not regress in wall-clock time (mutagen_ex self-tests should still finish in reasonable time).\n- Auto-detection (if implemented) must NOT add network calls or Mix archive lookups beyond what's already in scope; checking `Mix.Dep.cached/0` or similar in-tree is fine.\n\nRecommendation: implement Option 4 (auto-detect Phoenix/Ecto deps and raise default to 30000) + Option 2 (document in README). If auto-detect proves intrusive, fall back to Option 1 (raise default to 30000 for everyone) — that's the minimum viable fix. Either way, the existing `--timeout-ms` flag must continue to override.\n\nVerification command: mix compile --warnings-as-errors \u0026\u0026 mix test",
+      "timestamp": "2026-05-18T19:22:53Z"
+    }
+  ],
   "priority": 3,
   "status": "open",
   "title": "Default --timeout-ms too tight for app-shaped projects (Phoenix/Ecto)",
   "type": "task",
-  "updated_at": "2026-05-18T19:01:21Z"
+  "updated_at": "2026-05-18T19:22:53Z"
 }
