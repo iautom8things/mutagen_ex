@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-05-18T19:30:54Z",
   "created": "2026-05-18T19:00:14Z",
   "description": "The default `--timeout-ms 5000` is too tight for mutation runs on functions\ntouched by many supplemental tests, particularly in Phoenix/Ecto apps where\ntest setup (DataCase sandbox checkout, Mox expectations, PubSub subscribes)\ninflates per-mutation cycle time.\n\n## Reproduction\n\nFrom the atlas mutagen efficacy study (2026-05-18):\n\n- File: `lib/atlas/kb/knowledge_base.ex`\n- Mutations: 2 `pipeline` sites on Ecto changesets\n- Result: both sites **timed out at 5s**\n- Root cause: the host function is touched by ~12 supplemental tests across\n  multiple modules, so ExUnit cycle time per mutation exceeded the budget.\n- Adjudication: not a real test gap — mutagen just didn't have enough time\n  to know whether the mutation was killed or survived.\n\n## Why this matters\n\nTimeouts are reported as `aborted` runs in the JSON. Adopters interpreting\nthe JSON have to either:\n- treat aborts as failures (false positives — mutation might have been\n  killed quickly with more budget)\n- treat aborts as passes (false negatives — masks real gaps)\n- raise `--timeout-ms` per run (requires per-project tuning, easy to\n  forget, no documentation guidance)\n\nA bad default produces confusing first-run experiences for adopters,\nexactly the wrong signal for a tool being pitched as \"works on real apps.\"\n\n## Options (pick one or stack)\n\n1. **Raise default to 30000 (30s)** for everyone. Simple, slight cost on\n   small libs where mutations actually do finish in \u003c5s.\n2. **Document prominently in README** so adopters know to set\n   `--timeout-ms 30000` on first run against a Phoenix/Ecto codebase.\n3. **Make timeout config-driven** via a `.mutagen.exs` per-project config\n   or a `config :mutagen_ex, timeout_ms: 30_000` Mix config.\n4. **Auto-detect app-shaped projects** (Phoenix dep present, Ecto dep\n   present in deps tree) and auto-raise to 30s in that case. Logs a\n   one-liner noting the auto-raise.\n\nOption 4 + option 2 (docs) is the most polished combination. Option 1 alone\nis the smallest change.\n\n## Evidence\n\n- Atlas study Finding 3:\n  ~/Documents/my-vault/LLMs/reports/atlas/2026-05-18-efficacy-study.md\n- Cross-project synthesis Finding 4.4\n\n## Acceptance\n\n- A re-run of the atlas study against `lib/atlas/kb/knowledge_base.ex`\n  produces non-aborted outcomes for both pipeline mutations (regardless\n  of whether the new default is high enough, or auto-raise kicked in,\n  or the README told the user to set it).\n- A re-run of the mutagen_ex v1 study sandboxes still finishes in\n  reasonable time — no regression on small-lib performance.",
   "id": "mutagen-csv",
@@ -30,7 +31,7 @@
     }
   ],
   "priority": 3,
-  "status": "open",
+  "status": "closed",
   "title": "Default --timeout-ms too tight for app-shaped projects (Phoenix/Ecto)",
   "type": "task",
   "updated_at": "2026-05-18T19:30:54Z"
