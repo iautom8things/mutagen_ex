@@ -771,6 +771,80 @@ defmodule MutagenEx.MutationEnumeratorTest do
     end
   end
 
+  describe "context-sensitive literal validation (bw mutagen-z9k)" do
+    test "capture positional args do not emit invalid &0 literal sites" do
+      source = """
+      defmodule CaptureFixture do
+        def member?(set), do: Enum.any?([:a], &MapSet.member?(set, &1))
+      end
+      """
+
+      cache = ast_cache("lib/capture_fixture.ex", source)
+      scopes = [scope("lib/capture_fixture.ex", CaptureFixture)]
+      covered = covered_lines("lib/capture_fixture.ex", Enum.to_list(1..5))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      literal_sites = Enum.filter(result.sites, &(&1.mutator == :literal))
+
+      refute Enum.any?(literal_sites, fn site ->
+               site.original_ast == 1 and site.mutated_ast == 0
+             end)
+
+      assert Enum.any?(result.skipped, fn skip ->
+               skip.mutator == :literal and skip.reason == :structurally_invalid
+             end)
+    end
+
+    test "range step literals do not emit invalid step-zero sites" do
+      source = """
+      defmodule RangeFixture do
+        def stepped, do: 2..10//1
+        def constructed(a, b), do: Range.new(a, b, 1)
+        def endpoint, do: 1..10
+      end
+      """
+
+      cache = ast_cache("lib/range_fixture.ex", source)
+      scopes = [scope("lib/range_fixture.ex", RangeFixture)]
+      covered = covered_lines("lib/range_fixture.ex", Enum.to_list(1..8))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      step_zero_sites =
+        Enum.filter(result.sites, fn site ->
+          site.mutator == :literal and site.original_ast == 1 and site.mutated_ast == 0 and
+            site.line in [2, 3]
+        end)
+
+      assert step_zero_sites == []
+
+      # Endpoint literals on the same expression family still mutate.
+      assert Enum.any?(result.sites, fn site ->
+               site.mutator == :literal and site.original_ast == 1 and site.mutated_ast == 0 and
+                 site.line == 4
+             end)
+    end
+
+    test "ordinary non-capture integer literals still produce literal sites" do
+      source = """
+      defmodule OrdinaryLiteral do
+        def one, do: 1
+      end
+      """
+
+      cache = ast_cache("lib/ordinary_literal.ex", source)
+      scopes = [scope("lib/ordinary_literal.ex", OrdinaryLiteral)]
+      covered = covered_lines("lib/ordinary_literal.ex", Enum.to_list(1..4))
+
+      result = MutationEnumerator.enumerate(cache, scopes, covered)
+
+      assert Enum.any?(result.sites, fn site ->
+               site.mutator == :literal and site.original_ast == 1 and site.mutated_ast == 0
+             end)
+    end
+  end
+
   describe "r7 — --max-sites cap (mutagen.mutation_enumeration.r7)" do
     # The cap is structural: when sites exceed `:max_sites` the enumerator
     # returns `{:error, :too_many_sites, details}` instead of materialising

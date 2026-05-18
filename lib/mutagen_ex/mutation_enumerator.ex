@@ -313,13 +313,22 @@ defmodule MutagenEx.MutationEnumerator do
   # uses the node's own positional metadata if present, else the ambient
   # tuple from the nearest enclosing 3-tuple.
   defp walk_body(body, scope, covered, mutators, dispatch_mode, acc) do
-    walk_tree(body, _ambient = {nil, 1}, scope, covered, mutators, dispatch_mode, acc)
+    walk_tree(
+      body,
+      _ambient = {nil, 1},
+      _context = nil,
+      scope,
+      covered,
+      mutators,
+      dispatch_mode,
+      acc
+    )
   end
 
   # Pre-order recursion. The visit happens BEFORE descent, which matches
   # `Macro.prewalk` semantics. `ambient` is `{ambient_line, ambient_column}`.
-  defp walk_tree(node, ambient, scope, covered, mutators, dispatch_mode, acc) do
-    acc = try_mutators(node, ambient, scope, covered, mutators, dispatch_mode, acc)
+  defp walk_tree(node, ambient, context, scope, covered, mutators, dispatch_mode, acc) do
+    acc = try_mutators(node, ambient, context, scope, covered, mutators, dispatch_mode, acc)
 
     case node do
       {form, meta, args} when is_list(meta) ->
@@ -334,11 +343,21 @@ defmodule MutagenEx.MutationEnumerator do
         # is structured) and the args. Variables have shape
         # `{name, meta, nil}` where `args` is `nil` (no children); list-
         # valued args are children to walk.
-        acc = maybe_walk_node(form, new_ambient, scope, covered, mutators, dispatch_mode, acc)
+        acc =
+          maybe_walk_node(form, new_ambient, node, scope, covered, mutators, dispatch_mode, acc)
 
         case args do
           children when is_list(children) ->
-            walk_children(children, new_ambient, scope, covered, mutators, dispatch_mode, acc)
+            walk_children(
+              children,
+              new_ambient,
+              node,
+              scope,
+              covered,
+              mutators,
+              dispatch_mode,
+              acc
+            )
 
           _ ->
             acc
@@ -348,11 +367,31 @@ defmodule MutagenEx.MutationEnumerator do
         # Two-tuples in AST (e.g. keyword tuples, do/else pairs). Walk
         # both halves under the same ambient — no new positional info to
         # propagate.
-        acc = walk_tree(a, ambient, scope, covered, mutators, dispatch_mode, acc)
-        walk_tree(b, ambient, scope, covered, mutators, dispatch_mode, acc)
+        acc =
+          walk_tree(
+            a,
+            ambient,
+            %{parent: node, index: 0},
+            scope,
+            covered,
+            mutators,
+            dispatch_mode,
+            acc
+          )
+
+        walk_tree(
+          b,
+          ambient,
+          %{parent: node, index: 1},
+          scope,
+          covered,
+          mutators,
+          dispatch_mode,
+          acc
+        )
 
       list when is_list(list) ->
-        walk_children(list, ambient, scope, covered, mutators, dispatch_mode, acc)
+        walk_children(list, ambient, list, scope, covered, mutators, dispatch_mode, acc)
 
       _atom_or_literal ->
         # Leaf — already visited above. Nothing to recurse into.
@@ -361,10 +400,21 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   # Walk a list of children left-to-right with a shared ambient.
-  defp walk_children(children, ambient, scope, covered, mutators, dispatch_mode, acc)
+  defp walk_children(children, ambient, parent, scope, covered, mutators, dispatch_mode, acc)
        when is_list(children) do
-    Enum.reduce(children, acc, fn child, child_acc ->
-      walk_tree(child, ambient, scope, covered, mutators, dispatch_mode, child_acc)
+    children
+    |> Enum.with_index()
+    |> Enum.reduce(acc, fn {child, index}, child_acc ->
+      walk_tree(
+        child,
+        ambient,
+        %{parent: parent, index: index},
+        scope,
+        covered,
+        mutators,
+        dispatch_mode,
+        child_acc
+      )
     end)
   end
 
@@ -373,12 +423,21 @@ defmodule MutagenEx.MutationEnumerator do
   # recurse if it's a non-atom AST node — bare atoms have no further
   # structure and `try_mutators` already had its shot during the parent
   # visit (no mutator in the catalog matches a bare atom).
-  defp maybe_walk_node(form, _ambient, _scope, _covered, _mutators, _dispatch_mode, acc)
+  defp maybe_walk_node(form, _ambient, _parent, _scope, _covered, _mutators, _dispatch_mode, acc)
        when is_atom(form),
        do: acc
 
-  defp maybe_walk_node(form, ambient, scope, covered, mutators, dispatch_mode, acc) do
-    walk_tree(form, ambient, scope, covered, mutators, dispatch_mode, acc)
+  defp maybe_walk_node(form, ambient, parent, scope, covered, mutators, dispatch_mode, acc) do
+    walk_tree(
+      form,
+      ambient,
+      %{parent: parent, index: :form},
+      scope,
+      covered,
+      mutators,
+      dispatch_mode,
+      acc
+    )
   end
 
   # Try each mutator on a single AST node. A node may match more than one
@@ -399,11 +458,11 @@ defmodule MutagenEx.MutationEnumerator do
   # head-atom equivalence test
   # (`test/mutagen_ex/head_atom_dispatch_test.exs`); it is not exposed
   # via the Mix task.
-  defp try_mutators(node, ambient, scope, covered, mutators, dispatch_mode, acc) do
+  defp try_mutators(node, ambient, context, scope, covered, mutators, dispatch_mode, acc) do
     candidates = pre_filter_mutators(node, mutators, dispatch_mode)
 
     Enum.reduce(candidates, acc, fn mutator, inner_acc ->
-      try_one_mutator(mutator, node, ambient, scope, covered, inner_acc)
+      try_one_mutator(mutator, node, ambient, context, scope, covered, inner_acc)
     end)
   end
 
@@ -426,7 +485,7 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp pre_filter_mutators(_node, mutators, :legacy), do: mutators
 
-  defp try_one_mutator(mutator, node, ambient, %Scope{file: file} = _scope, covered, acc) do
+  defp try_one_mutator(mutator, node, ambient, context, %Scope{file: file} = _scope, covered, acc) do
     if mutator.match?(node) do
       {line, column} = effective_position(node, ambient)
 
@@ -443,19 +502,26 @@ defmodule MutagenEx.MutationEnumerator do
           acc
 
         true ->
-          run_mutator(mutator, node, file, line, column, acc)
+          run_mutator(mutator, node, context, file, line, column, acc)
       end
     else
       acc
     end
   end
 
-  defp run_mutator(mutator, node, file, line, column, acc) do
+  defp run_mutator(mutator, node, context, file, line, column, acc) do
     mutated = mutator.mutate(node)
     name = mutator.name()
     id = Mutators.site_id(file, node, name)
 
-    case mutator.validate(mutated) do
+    validation =
+      if contextually_invalid_literal?(name, mutated, context) do
+        {:skip, :structurally_invalid}
+      else
+        mutator.validate(mutated)
+      end
+
+    case validation do
       :ok ->
         # Per `mutagen.mutation_enumeration.r8`: derive the exclusive
         # end position of `node` best-effort. Nil when not derivable;
@@ -482,6 +548,37 @@ defmodule MutagenEx.MutationEnumerator do
         %{acc | skipped: [entry | acc.skipped]}
     end
   end
+
+  defp contextually_invalid_literal?(:literal, mutated, context) do
+    literal_zero?(mutated) and invalid_zero_literal_context?(context)
+  end
+
+  defp contextually_invalid_literal?(_name, _mutated, _context), do: false
+
+  defp literal_zero?(0), do: true
+  defp literal_zero?({:__block__, meta, [0]}) when is_list(meta), do: true
+  defp literal_zero?(_), do: false
+
+  # Capture positional arguments are 1-based. A literal mutation from
+  # `&1` to `&0` is therefore structurally invalid and should be skipped
+  # before it reaches compile/run classification.
+  defp invalid_zero_literal_context?(%{parent: {:&, _meta, [_arg]}, index: 0}), do: true
+
+  # `a..b//0` and `Range.new(a, b, 0)` are invalid range-step forms.
+  # Only the third argument is rejected; endpoint literals keep their
+  # normal literal mutations.
+  defp invalid_zero_literal_context?(%{parent: {:..//, _meta, [_first, _last, _step]}, index: 2}),
+    do: true
+
+  defp invalid_zero_literal_context?(%{
+         parent:
+           {{:., _dot_meta, [{:__aliases__, _alias_meta, [:Range]}, :new]}, _call_meta, args},
+         index: 2
+       })
+       when is_list(args),
+       do: true
+
+  defp invalid_zero_literal_context?(_context), do: false
 
   # Resolve a node's effective `{line, column}` for coverage filtering and
   # for the Site's positional fields. The node's own metadata wins when
