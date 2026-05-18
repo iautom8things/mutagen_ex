@@ -7,9 +7,15 @@
   "id": "mutagen-z9k",
   "labels": [],
   "parent": "mutagen-3fa",
+  "comments": [
+    {
+      "text": "ORCHESTRATOR: scope annotation (no implementation yet)\n\nAllowed touches:\n- lib/mutagen_ex/mutators/literal.ex\n- lib/mutagen_ex/mutators/literal/**.ex (if helpers carved out)\n- test/mutagen_ex/mutators/literal_test.exs\n- test/fixtures/**/*.ex (new fixture with captures/ranges allowed)\n- .spec/specs/mutators.spec.md (only if a requirement must be recorded)\n\nOut of Scope (files):\n- lib/mutagen_ex/mutators/*.ex (other mutators — do not touch)\n- lib/mutagen_ex/ast.ex\n- lib/mutagen_ex/mutation_enumerator.ex\n- lib/mix/tasks/**\n- lib/mutagen_ex/cli.ex\n- lib/mutagen_ex/json_*.ex\n\nOut of Scope (intent):\n- Do not change mutator dispatch / registration logic.\n- Do not refactor other mutators while in this file.\n- Existing non-capture / non-range literal mutations must keep producing the same sites.\n- No new external runtime deps.\n\nVerification command: mix compile --warnings-as-errors \u0026\u0026 mix test",
+      "timestamp": "2026-05-18T19:06:38Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Literal mutator: pre-validate AST shape (Range step, capture args)",
   "type": "bug",
-  "updated_at": "2026-05-18T19:01:21Z"
+  "updated_at": "2026-05-18T19:06:38Z"
 }
