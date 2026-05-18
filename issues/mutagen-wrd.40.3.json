@@ -11,11 +11,15 @@
     {
       "text": "WORKER_ERROR: codex exec hung indefinitely with no IMPLEMENTED after ~1h13m. Process state was sleeping (idle 0.23s CPU); no rollout jsonl was written; stdout log captured only the cx banner + prompt echo. No diagnostic output beyond the banner. Killed via TaskStop. Respawning with a fresh session tag.\n\nTail of log (banner + prompt echo only):\n\\`\\`\\`\nprofile: personal (~/.codex-personal)\nOpenAI Codex v0.130.0\nworkdir: /Users/mz/dev/mz/mutagen_ex-readme-changelog\nmodel: gpt-5.5\nsandbox: workspace-write [workdir, /tmp, $TMPDIR, /Users/mz/dev/mz/mutagen_ex/.git, /Users/mz/.codex-personal/memories]\nreasoning effort: low\nsession id: 019e38ca-c99c-76c2-863f-e39ea02da23b\n\\`\\`\\`",
       "timestamp": "2026-05-18T03:07:58Z"
+    },
+    {
+      "text": "IMPLEMENTED\nSession: codex-7c8d4e22\nLog: /Users/mz/dev/mz/mutagen_ex-readme-changelog/.codex-runs/mutagen-wrd.40.3-r2.log\n\nCommit: 7224aeff1d1313b1d4cfb3240d4b7dcce4cc8d76\nFiles touched: README.md, CHANGELOG.md\nTests added: none (docs-only ticket)\nVerification stubs flipped: none\n\nSummary: Added the README archive-install subsection under `## Install` immediately after the existing `mix.exs` install flow, including build/install/verification commands and the CI traceability recommendation for pinned deps. Added the top `[Unreleased]` changelog entry documenting the archive-installed CLI `MatchError` fix, self-heal/fallback behavior, regression test/spec IDs, ticket reference, and preservation of dep-based adoption paths. `mix smoke` could not run in this sandbox because Mix failed before project code with `Mix.Sync.PubSub.subscribe/1` TCP `:eperm`; the durable log contains both attempts.",
+      "timestamp": "2026-05-18T03:10:14Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "S3: README install-via-archive subsection + CHANGELOG entry",
   "type": "task",
-  "updated_at": "2026-05-18T03:07:58Z"
+  "updated_at": "2026-05-18T03:10:14Z"
 }
