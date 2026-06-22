@@ -25,11 +25,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: 0eb050fa-440a-426e-9f51-bfd4d1ee50de\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/0eb050fa-440a-426e-9f51-bfd4d1ee50de.jsonl\n\nReasoning: Independently re-ran mix spec.validate — ZERO errors AND zero warnings reference subject mutagen.cli (the 250 corpus findings all belong to the 8 unmigrated subjects; none touch cli.spec.md), and .spec/state.json shows mutagen.cli status: active, so the contract bar is met. The diff is exactly 2 files (cli.spec.md + exempt generated state.json): no lib/**, no test/**, no other *.spec.md, no realized_by bindings — Out of Scope respected; requirement set is byte-identical (16 before, 16 after, no id added/removed/renamed) and every r1-r16 has a covering verification entry whose covers refs all resolve. The command:-\u003etarget: rename is schema-correct (coverage.ex:180 / verifier.ex read target for kind: command) and execute: false is a first-class opt-out field (verifier.ex:1002), so v3/r8 is a legitimate declared-not-run, not a defect. v11/r16 RED is a pre-existing telemetry.app packaging defect on clean main (corroborated by independent auto-memory and the zero-code-touch diff) — out of this spec-authoring ticket's mandate; r16's statement (lines 275-300) correctly captures the MatchError-avoidance + structured runtime_load_failed contract regardless of the code's current red state. Follow-up: the telemetry.app .ez packaging defect blocking r16 should be filed against the phase that owns r16's packaging (mutagen-835.3 or a dedicated bug).",
       "timestamp": "2026-06-22T13:11:19Z"
+    },
+    {
+      "text": "APPROVED (auditor APPROVE). Rebased onto epic (state.json regenerated for cli+pipeline), ff-merged into spec-led/bootstrap @ ae5a3c1. Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T13:28:08Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.cli to SpecLedEx schema (12 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:26:55Z"
+  "updated_at": "2026-06-22T13:28:08Z"
 }
