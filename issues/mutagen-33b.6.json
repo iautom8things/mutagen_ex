@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-33b.1"
+  ],
   "blocks": [],
   "created": "2026-06-22T12:47:10Z",
   "description": "Gate the epic closed. Blocked by CF1, CF2a, F2b (F2b transitively covers F2a). CF2b is DEFERRED and intentionally NOT a blocker.\n\n## Verify\n- CF1 worker-crash test green; no mutated module survives an aborted parallel run.\n- CF2a experimental warning present + documented.\n- F2b per-mutant selection produces byte-identical kill/survive vs the full-suite baseline (the F2b correctness test), with the empty-index fallback exercised.\n- Full suite green incl. e2e / downstream_integration; a parallel (--max-concurrency 2) e2e run completes without leaving global :cover/code-server/ExUnit state dirty.\n\n## Done\n- All Tier-1 child tickets closed and the above checks pass on the epic branch.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Capstone: Tier-1 verified — parallel-path correctness + per-mutant selection parity",
   "type": "task",
-  "updated_at": "2026-06-22T12:47:10Z"
+  "updated_at": "2026-06-22T12:47:15Z"
 }
