@@ -8,7 +8,7 @@
   "description": "Add ex_doc and a `docs:` config so hexdocs renders (moduledoc coverage is already excellent — 57/57 modules, @spec on all public fns — but nothing renders it today).\n\n- dep: `{:ex_doc, \"~\u003e 0.34\", only: :dev, runtime: false}`\n- `docs:` with `main: \"Mix.Tasks.Mutagen\"` (or README), `extras: [\"README.md\", \"CHANGELOG.md\"]`, and `groups_for_modules:` grouping mutators / pipeline facades / core.\n\nAcceptance: `mix docs` builds without error and the README is the landing page.",
   "id": "mutagen-y8o.3",
   "labels": [
-    "phase:verifying"
+    "phase:merging"
   ],
   "parent": "mutagen-y8o",
   "comments": [
