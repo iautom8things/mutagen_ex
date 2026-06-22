@@ -1,7 +1,9 @@
 {
   "assignee": "",
   "blocked_by": [],
-  "blocks": [],
+  "blocks": [
+    "mutagen-835.2.1"
+  ],
   "created": "2026-06-22T11:30:24Z",
   "description": "Advances: mutagen.decision.adopt_specled_tooling (workspace)\nDeliverable: DONE + committed as feb5675 on spec-led/bootstrap. Adds the\nspec_led_ex dep (dev/test, runtime:false), .spec/config.yml (adoption-soft\nseverities, test_tags off), the reversal ADR, and the AGENTS.md schema-notes\nupdate.\nVerification: mix deps.get \u0026\u0026 mix compile succeeds; mix spec.validate RUNS with\nzero config/decision errors (remaining ~340 findings are un-migrated specs).\nThis ticket is a checkpoint for the committed scaffolding; closed at creation.\nMerge gate: already on branch HEAD (feb5675).",
   "id": "mutagen-835.1",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "phase0: land spec_led_ex tooling scaffolding",
   "type": "task",
-  "updated_at": "2026-06-22T11:30:24Z"
+  "updated_at": "2026-06-22T11:32:52Z"
 }
