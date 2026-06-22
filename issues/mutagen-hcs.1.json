@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-y8o.1"
+  ],
   "blocks": [],
   "created": "2026-06-22T11:30:18Z",
   "description": "Without a `files:` override, hex's default globs would ship dev cruft from `priv/helper_scripts/` (bench/spike scripts + a nested fixture mix project under wrd25_200sites/) while OMITTING the golden fixtures the README points users to.\n\nAdd an explicit whitelist to the `package:` block (created in the hard-blockers epic, mutagen-y8o.1), e.g.:\n  files: ~w(lib mix.exs mix.lock README.md CHANGELOG.md LICENSE)\n\nThis excludes priv/helper_scripts, .spec/, CLAUDE.md, AGENTS.md, Makefile, make/. Decide whether any golden fixture or example needs to ship; if the README references golden JSON, either inline an example (see H6) or include the needed files.\n\nAcceptance: `mix hex.build` then inspect the tarball file list — only intended files present.",
@@ -11,5 +13,5 @@
   "status": "open",
   "title": "Add package files: whitelist",
   "type": "task",
-  "updated_at": "2026-06-22T11:30:18Z"
+  "updated_at": "2026-06-22T11:30:19Z"
 }
