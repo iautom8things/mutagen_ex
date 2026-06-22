@@ -5,11 +5,13 @@
   "created": "2026-06-22T11:30:18Z",
   "description": "Package version is 0.1.0, but README leaks internal sprint labels as if published SemVer:\n- README.md:143 — \"The flag surface above is exhaustive for v1.1.0.\"\n- README.md:149 — \"v1.1 adds the wiring for parallel per-site dispatch, NDJSON streaming...\"\n- README.md:139 — \"byte-equivalent to v1.0\"\n\nA reader who installed 0.1.0 will be confused. Rewrite to use 0.1.x SemVer or clearly mark these as internal feature-cycle labels.\n\nAcceptance: no bare v1.x references in README that read as published versions.",
   "id": "mutagen-hcs.3",
-  "labels": [],
+  "labels": [
+    "phase:implementing"
+  ],
   "parent": "mutagen-hcs",
   "priority": 2,
   "status": "in_progress",
   "title": "Reconcile README v1.0/v1.1 version labels with 0.1.0",
   "type": "task",
-  "updated_at": "2026-06-22T13:44:18Z"
+  "updated_at": "2026-06-22T13:44:19Z"
 }
