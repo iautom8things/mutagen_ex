@@ -7,9 +7,15 @@
   "id": "mutagen-835.2",
   "labels": [],
   "parent": "mutagen-835",
+  "comments": [
+    {
+      "text": "PHASE1 COMPLETE. All 9 subject-migration children (mutagen-835.2.1 … 2.9) are closed and merged into spec-led/bootstrap. Full-corpus `mix spec.validate` passes (errors=0, warnings=0); all 9 subjects are status:active in .spec/state.json. Closing this phase-1 umbrella ticket.",
+      "timestamp": "2026-06-22T14:03:22Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "phase1: migrate .spec corpus to SpecLedEx schema + promote to active",
   "type": "epic",
-  "updated_at": "2026-06-22T11:30:24Z"
+  "updated_at": "2026-06-22T14:03:22Z"
 }
