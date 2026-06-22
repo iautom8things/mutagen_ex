@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:29:43Z",
+  "description": "Verification capstone for the hard-blockers epic. Depends on B1+B2+B3.\n\n- Run `mix hex.publish --dry-run` and confirm it passes with no refusals/warnings about missing metadata.\n- Confirm the public GitHub repo (autom8things/mutagen_ex) exists and the v0.1.0 tag/release referenced by CHANGELOG footer links resolves.\n\nAcceptance: dry-run is clean; links in package metadata resolve.",
+  "id": "mutagen-y8o.4",
+  "labels": [],
+  "parent": "mutagen-y8o",
+  "priority": 1,
+  "status": "open",
+  "title": "Capstone: mix hex.publish --dry-run green + confirm GitHub repo/tag",
+  "type": "task",
+  "updated_at": "2026-06-22T11:29:43Z"
+}
