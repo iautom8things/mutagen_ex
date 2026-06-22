@@ -15,9 +15,7 @@
   "created": "2026-06-22T11:30:25Z",
   "description": "Advances: all 9 subjects (api_boundary tier).\nDeliverable: add realized_by.api_boundary: MFA list to each subject's spec-meta\nblock, pointing at the real public functions that realize it. Draft with\n`mix spec.suggest_binding`, then verify each MFA resolves.\nVerification: mix spec.suggest_binding reports no subjects-without-binding;\nmix spec.check has zero branch_guard_dangling_binding findings; mix spec.validate still 0 errors.\nOut of Scope (files): lib/**, test/** (binding points AT code; does not change it).\nAllowed touches: .spec/specs/*.spec.md (spec-meta realized_by block only).\nOut of Scope (intent): do NOT opt into implementation/expanded_behavior/use/\ntypespecs tiers; do NOT wire test tags or coverage (phase3/phase4 follow-on).\nMerge gate: mix spec.check (zero dangling) \u0026\u0026 mix spec.validate (0 errors) \u0026\u0026 mix test",
   "id": "mutagen-835.3",
-  "labels": [
-    "phase:merging"
-  ],
+  "labels": [],
   "parent": "mutagen-835",
   "comments": [
     {
@@ -45,5 +43,5 @@
   "status": "in_progress",
   "title": "phase2: author realized_by.api_boundary bindings for all subjects",
   "type": "task",
-  "updated_at": "2026-06-22T14:41:57Z"
+  "updated_at": "2026-06-22T14:41:58Z"
 }
