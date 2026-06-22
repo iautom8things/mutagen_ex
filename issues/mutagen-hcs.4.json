@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:30:19Z",
+  "description": "README known-limitation #1 (README.md:300-313): the `:baseline_red` guard rail does NOT trip in production — coverage's ExUnit.run/0 drains ExUnit.Server before baseline runs, so baseline reports failures: 0 regardless of whether cited tests pass.\n\nImportant nuance (verified): mutation kill/survive classification is UNAFFECTED — the mutation phase re-registers each module via ExUnit.Server.add_module/2 before every per-site run. So results aren't corrupted; the tool just won't WARN you if your suite is already red.\n\nPreviously tracked as mutagen-wrd.37 (now CLOSED but the limitation still ships). Decide: actually fix the guard rail, or make the limitation much louder (e.g. CLI warning banner). Shipping a mutation tool whose 'is your baseline green?' check is documented-broken will generate immediate issues.\n\nAcceptance: either baseline_red fires correctly on a red suite, OR a prominent runtime warning is emitted.",
+  "id": "mutagen-hcs.4",
+  "labels": [],
+  "parent": "mutagen-hcs",
+  "priority": 2,
+  "status": "open",
+  "title": "Fix or escalate baseline_red guard rail",
+  "type": "bug",
+  "updated_at": "2026-06-22T11:30:19Z"
+}
