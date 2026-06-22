@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T12:46:19Z",
+  "description": "Roll-up epic for the Tier-1 (must-fix) findings from the 2026-06-22 multi-persona critical review of the complete library (commit 196bb8c). Source report: ~/vaults/rmbrs-vault/code_review/critical/mutagen_ex/2026-06-22/complete-library/20260622-071209-consolidated.md\n\nAfter calibration the review found 0 Critical / 2 High in the DEFAULT (--max-concurrency 1) config. Both Highs plus the top consensus Medium live on the opt-in parallel path or in a missed optimization. This epic closes them.\n\n## Two workstreams\nA. Parallel-path correctness (CF1, CF2) — the opt-in `--max-concurrency \u003e 1` path is the soft underbelly: a killed worker can leave a module loaded as its mutant with no rollback, and concurrent workers share global ExUnit/:cover/code-server state and corrupt each other's kill/survive classification.\nB. Coverage-driven test selection (F2) — coverage already drives SITE enumeration but never per-mutant TEST selection, so every mutant re-runs the full cited suite: O(S*N) where O(S*k) is achievable with data already collected.\n\n## Done =\n- A killed parallel worker never leaves a mutated module loaded (restore sweep on outer-task :exit), proven by a worker-crash test.\n- `--max-concurrency \u003e 1` is honestly gated (warned-experimental) until module-partitioned parallelism lands.\n- Per-mutant test selection narrows each mutant to its covering test modules, with a safe empty-index -\u003e all-tests fallback, proven kill/survive-equivalent to the full-suite baseline.\n\n## Children\n- CF1: restore-on-exit + crash test (P1)\n- CF2a: gate --max-concurrency\u003e1 as warned-experimental (P1)\n- CF2b: module-partitioned safe parallelism (P2, DEFERRED — design fork, see epic discussion)\n- F2a: coverage emits line-\u003e{test module} index (P1)\n- F2b: runner narrows test_modules per site (P1, needs F2a)\n- Capstone: Tier-1 verified (P1)",
+  "id": "mutagen-33b",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[EPIC] Tier-1 review hardening — parallel-path correctness + coverage-driven test selection",
+  "type": "task",
+  "updated_at": "2026-06-22T12:46:19Z"
+}
