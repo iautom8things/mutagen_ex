@@ -13,11 +13,15 @@
     {
       "text": "ORCHESTRATION SUMMARY (paused on capstone)\n\nChildren landed on epic/y8o (3 of 4 closed):\n- mutagen-y8o.2 LICENSE + licenses key — closed (c7f4a01)\n- mutagen-y8o.1 description + package metadata — closed (f42a4ca)\n- mutagen-y8o.3 ex_doc dep + docs config — closed (918bc37)\n\nCapstone mutagen-y8o.4 — OPEN/ESCALATED. Metadata half PASSES (`mix hex.build` clean, no missing-metadata refusals; all hard blockers resolved). Remaining blockers are human ship-checkpoints the orchestrator does not perform:\n  1. Create public GitHub repo autom8things/mutagen_ex + remote + push epic/y8o + v0.1.0 tag/release.\n  2. hex auth + real `mix hex.publish`.\n\nBounces: 0. Scope expansions: 0. User escalations: 1 (capstone human actions).\nEpic stays in_progress; not closing (that's /deliver's job post-publish).",
       "timestamp": "2026-06-22T13:34:58Z"
+    },
+    {
+      "text": "SHIPPED TO MAIN (per user, 2026-06-22). Username corrected autom8things -\u003e iautom8things (commit 37ee6b4). Remote origin set to https://github.com/iautom8things/mutagen_ex (HTTPS, gh account iautom8things). epic/y8o fast-forwarded into main; pushed `main` to origin (new repo, main is default branch). All three hard-blocker children (.1/.2/.3) are live on main with metadata verified clean (mix hex.build green).\n\nCapstone .4 deferred until 2026-06-24 — hex publish on hold until other work lands. On resume: tag v0.1.0 on main, hex auth, real publish. Epic stays in_progress (not closing until publish lands). files: whitelist remains deferred to hygiene epic mutagen-hcs.",
+      "timestamp": "2026-06-22T13:53:23Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hard blockers",
   "type": "epic",
-  "updated_at": "2026-06-22T13:34:58Z"
+  "updated_at": "2026-06-22T13:53:23Z"
 }
