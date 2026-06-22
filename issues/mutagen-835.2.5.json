@@ -10,7 +10,8 @@
   "description": "Advances: mutagen.scope_resolution\n\nDeliverable: migrate .spec/specs/scope_resolution.spec.md to the SpecLedEx schema:\n- spec-scenarios block: reshape each scenario to given:/when:/then: arrays (bespoke shape fails parse with 'expected array').\n- spec-verification block: replace execute:/source_file: stubs with command: and target: entries; every requirement gets a verification entry.\n- spec-meta: flip status: draft -\u003e active once the file validates.\n- keep prose, intent, id, surface, and decisions links intact.\n\nVerification:\n- mix spec.validate emits ZERO errors for mutagen.scope_resolution (baseline: 6 errors on this file).\n- subject status is active in .spec/state.json.\n\nOut of Scope (files): every .spec.md EXCEPT scope_resolution.spec.md; lib/**; test/**.\nAllowed touches: .spec/specs/scope_resolution.spec.md only.\nOut of Scope (intent): no realized_by bindings (phase2); no code/test edits; do not alter requirement ids or delete requirements.\nMerge gate: mix spec.validate (0 errors for mutagen.scope_resolution) \u0026\u0026 mix compile --warnings-as-errors \u0026\u0026 mix test",
   "id": "mutagen-835.2.5",
   "labels": [
-    "phase:implementing"
+    "phase:implementing",
+    "phase:merging"
   ],
   "parent": "mutagen-835.2",
   "comments": [
