@@ -21,11 +21,15 @@
     {
       "text": "IMPLEMENTED (bounce fix): Deleted the single README.md line documenting the top-level mutation.error count (`\"error\": 0,  // the mutated code raised at runtime`) from the 'Successful run' jsonc example. This count field is never emitted by the tool (mutation_to_report/2 and json_reporter mutation_to_wire emit no top-level `error` key; golden fixture confirms).\n\nVerified: stripped // comments and confirmed the jsonc example still parses as valid JSON (no dangling comma — preceding `\"timeout\": 0,` trailing comma correct before `\"compile_error\": 0,`).\n\nLeft UNTOUCHED: the per-site results[].status enum annotation (line 379: `// killed | survived | timeout | error | compile_error`), which correctly lists `error` as a real per-site status. Also untouched: the telemetry stop-event line listing per-site statuses.\n\nCommit: 6b67e55 (amended onto bb2e7df, base a76ed83) on mutagen-hcs.6/readme-json-changelog.",
       "timestamp": "2026-06-22T14:13:39Z"
+    },
+    {
+      "text": "VERIFY: PASS (orchestrator-confirmed targeted re-verify of the one-line bounce fix)\n- Prior cold VERIFY validated every field/claim accurate except the phantom top-level `mutation.error` count.\n- Bounce fix (6b67e55) removed exactly that line. Re-confirmed: both README jsonc blocks parse after //-strip; block 1 mutation keys = [compile_error, compile_errors, completed, kill_rate, killed, results, skipped, state_drift_warning, survived, timeout, total] — matches mutation_to_report/2 exactly, no `error` key, no dangling comma. results[].status enum (which lists `error` as a per-site status) correctly left intact. Scope unchanged: README.md + CHANGELOG.md only.\n\nAUDIT: APPROVE (auto — selective audit)\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3.jsonl\nReasoning: docs-only change, 0 product/test changes, JSON example now matches the reporter + golden fixtures field-for-field, CHANGELOG rewrite verified free of invented features with internal IDs stripped to an appendix. No judgment call remaining after the one-line factual fix.",
+      "timestamp": "2026-06-22T14:15:01Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "README annotated JSON example + user-facing CHANGELOG pass",
   "type": "task",
-  "updated_at": "2026-06-22T14:13:39Z"
+  "updated_at": "2026-06-22T14:15:01Z"
 }
