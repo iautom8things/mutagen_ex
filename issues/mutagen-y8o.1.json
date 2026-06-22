@@ -4,6 +4,7 @@
     "mutagen-y8o.2"
   ],
   "blocks": [
+    "mutagen-hcs.1",
     "mutagen-y8o.4"
   ],
   "created": "2026-06-22T11:29:43Z",
@@ -15,5 +16,5 @@
   "status": "open",
   "title": "Add description + package metadata to mix.exs",
   "type": "task",
-  "updated_at": "2026-06-22T11:29:44Z"
+  "updated_at": "2026-06-22T11:30:19Z"
 }
