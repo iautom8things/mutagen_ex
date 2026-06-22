@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T12:47:09Z",
+  "description": "First half of High F2 (performance). Coverage output is consumed in exactly two places today (enumerator + JSON report) and never turned into a line-\u003etest mapping, so per-mutant test selection is impossible. Build the index.\n\nFile: lib/mutagen_ex/coverage_runner.ex (gather_covered_lines/analyse), threaded out alongside covered_lines.\n\n## Approach (per-test-MODULE granularity — the cheap, high-value cut)\nRun cover once per cited test module (or capture per-module deltas) so the result is %{scope_file =\u003e %{line =\u003e MapSet.t(test_module)}}. Per-test precision (one cover run per test) is a later refinement; per-module already collapses N -\u003e \"modules touching this line\". Document the up-front cost (one cover pass per module) and that it amortizes across S sites.\n\n## Done\n- CoverageRunner produces the line-\u003e{test module} index for the scope under test.\n- Empty/missing entries are representable (drives the safe fallback in F2b).\n- Unit test pins the index shape against a small fixture with two test modules touching disjoint lines.",
+  "id": "mutagen-33b.4",
+  "labels": [],
+  "parent": "mutagen-33b",
+  "priority": 1,
+  "status": "open",
+  "title": "F2a: CoverageRunner emits a line -\u003e {test module} index",
+  "type": "task",
+  "updated_at": "2026-06-22T12:47:09Z"
+}
