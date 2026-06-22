@@ -11,7 +11,7 @@
   "description": "Add the hex-required `description:` to `project/0` and a `package:` block to `mix.exs`.\n\nRequired for publish to succeed:\n- `description:` — one-sentence summary (e.g. \"Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.\").\n- `package:` with `licenses:` (see B2), `links:` (`%{\"GitHub\" =\u003e \"https://github.com/autom8things/mutagen_ex\"}`), `maintainers:`.\n\nNote: `files:` whitelist is intentionally NOT here — it's a hygiene concern handled in the hygiene epic.\n\nAcceptance: `mix hex.build` lists the metadata; no \"missing description\" error.",
   "id": "mutagen-y8o.1",
   "labels": [
-    "phase:verifying"
+    "phase:merging"
   ],
   "parent": "mutagen-y8o",
   "comments": [
@@ -32,5 +32,5 @@
   "status": "in_progress",
   "title": "Add description + package metadata to mix.exs",
   "type": "task",
-  "updated_at": "2026-06-22T13:01:56Z"
+  "updated_at": "2026-06-22T13:01:57Z"
 }
