@@ -8,6 +8,7 @@ defmodule MutagenEx.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
+      package: package(),
       aliases: aliases(),
       # Lane fixture (test/fixtures/lane_project/**) is a self-contained
       # mini-mix-project; its `_test.exs` files exist only to be cited by
@@ -33,6 +34,15 @@ defmodule MutagenEx.MixProject do
     [
       extra_applications: [:logger],
       mod: {MutagenEx.Application, []}
+    ]
+  end
+
+  # Hex package metadata. This ticket (mutagen-y8o.2) seeds only the
+  # `:licenses` key alongside the root `LICENSE` file; the fuller package
+  # block (description, links, maintainers) is added by mutagen-y8o.1.
+  defp package do
+    [
+      licenses: ["MIT"]
     ]
   end
 
