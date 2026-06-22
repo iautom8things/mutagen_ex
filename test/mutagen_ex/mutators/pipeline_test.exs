@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.PipelineTest do
 
   alias MutagenEx.Mutators.Pipeline
 
-  test "name is :pipeline" do
-    assert Pipeline.name() == :pipeline
+  describe "name/0" do
+    test "name is :pipeline" do
+      assert Pipeline.name() == :pipeline
+    end
   end
 
   describe "match?/1" do

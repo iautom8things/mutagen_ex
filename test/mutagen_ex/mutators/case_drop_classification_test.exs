@@ -48,7 +48,7 @@ defmodule MutagenEx.Mutators.CaseDropClassificationTest do
 
       # The surviving clause has the n > 0 guard. Binding n = 0 falls
       # through every remaining clause and Elixir raises CaseClauseError.
-      assert_raise CaseClauseError, fn ->
+      assert_raise CaseClauseError, ~r/no case clause matching/, fn ->
         Code.eval_quoted(mutated, n: 0)
       end
     end

@@ -19,7 +19,6 @@ defmodule MutagenEx.MutatorsTest do
       ]
 
       assert Mutators.all() == expected
-      assert length(Mutators.all()) == 10
     end
 
     test "names/0 returns one snake_case atom per catalog entry" do
@@ -66,7 +65,6 @@ defmodule MutagenEx.MutatorsTest do
     test "every catalog module's name/0 returns an atom matching its position in Mutators.names/0" do
       for {module, name} <- Enum.zip(Mutators.all(), Mutators.names()) do
         assert module.name() == name
-        assert is_atom(name)
       end
     end
   end
@@ -184,13 +182,18 @@ defmodule MutagenEx.MutatorsTest do
 
       # Sanity: each mutator's validate/1 either returns :ok or {:skip, atom in vocab}
       # for AST shapes we can throw at it.
+      swapped_with =
+        MutagenEx.Mutators.WithSwap.mutate(
+          Code.string_to_quoted!("with {:ok, x} <- f(), {:ok, y} <- g(x), do: y")
+        )
+
       sample_nodes = [
         Code.string_to_quoted!("a + b"),
         Code.string_to_quoted!("a == b"),
         Code.string_to_quoted!("a |> b() |> b()"),
         true,
         0,
-        Code.string_to_quoted!("with {:ok, x} <- f(), {:ok, y} <- g(x), do: y"),
+        swapped_with,
         Code.string_to_quoted!("case x do 1 -> :a; 2 -> :b end")
       ]
 

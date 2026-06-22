@@ -45,29 +45,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     @agent :mutagen_ex_parallel_test_exunit_fake
 
     def start_link do
-      case Agent.start_link(fn -> %{outcome: nil, sleep_ms: 0} end, name: @agent) do
-        {:ok, pid} ->
-          {:ok, pid}
-
-        {:error, {:already_started, stale}} ->
-          Process.exit(stale, :kill)
-          wait_unregister()
-          Agent.start_link(fn -> %{outcome: nil, sleep_ms: 0} end, name: @agent)
-      end
-    end
-
-    defp wait_unregister(remaining \\ 500) do
-      cond do
-        Process.whereis(@agent) == nil ->
-          :ok
-
-        remaining <= 0 ->
-          :ok
-
-        true ->
-          Process.sleep(5)
-          wait_unregister(remaining - 5)
-      end
+      Agent.start_link(fn -> %{outcome: nil, sleep_ms: 0} end, name: @agent)
     end
 
     def set_outcome(outcome, sleep_ms \\ 0),
@@ -100,7 +78,10 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   end
 
   setup do
-    {:ok, _pid} = ExUnitFake.start_link()
+    # Start the fake's Agent under ExUnit's supervisor so it is torn down
+    # SYNCHRONOUSLY at the end of each test — the fixed name is always
+    # free before the next test's setup.
+    start_supervised!(%{id: ExUnitFake, start: {ExUnitFake, :start_link, []}})
     :ok
   end
 
@@ -227,22 +208,21 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       assert Enum.all?(output.results, &(&1.status == :killed))
     end
 
-    test "max_concurrency: 1 keeps execution in the caller process" do
-      # When max_concurrency: 1 the runner is in-process; the test
-      # task's `self()` is the same pid that executes per-site work.
-      # Verify by stashing the calling pid in the process dict from
-      # within the ExUnit run.
+    test "max_concurrency: 1 returns a single correct result without crashing" do
+      # The serial path (`if max_concurrency == 1` in mutation_runner.ex)
+      # folds a lazy `Stream.map/2` over the sites rather than dispatching
+      # through `Task.Supervisor.async_stream_nolink/4`. The in-caller
+      # dispatch is an implementation detail that is not cleanly observable
+      # (per-site `ExUnit.run/0` is executed in a separate timeout-isolation
+      # process in BOTH modes), so this test pins the observable serial-mode
+      # contract: one site in, exactly one matching result out.
       ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0})
 
       sites = [build_site("only", 2)]
       cfg = build_cfg(sites, max_concurrency: 1)
 
-      caller_pid = self()
-      # Run; if execution had been moved off-process the test would
-      # still pass — we just assert the runner didn't crash and the
-      # result came back in the calling test process.
-      assert {:ok, %{results: [_]}} = MutationRunner.run(cfg)
-      assert self() == caller_pid
+      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert result.id == "only"
     end
   end
 

@@ -25,6 +25,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
   use ExUnit.Case, async: true
 
+  Code.require_file("../support/path_helpers.exs", __DIR__)
+
   alias MutagenEx.Config
 
   setup do
@@ -92,7 +94,15 @@ defmodule MutagenEx.JsonCanonicalisationTest do
                  dispatch
                )
 
-      assert_received {:io, _iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
+
+      decoded =
+        iodata
+        |> IO.iodata_to_binary()
+        |> :json.decode()
+
+      assert decoded["abort_reason"] == "unsafe_json_path"
     end
   end
 
@@ -318,46 +328,5 @@ defmodule MutagenEx.JsonCanonicalisationTest do
     path
   end
 
-  # Mirror of the production canonicaliser's symlink resolution. Tests
-  # use this to predict the canonical absolute path the production code
-  # will produce on a host whose tmp / etc / var paths are themselves
-  # symlinks (macOS).
-  defp resolve_symlinks(path) do
-    absolute = Path.expand(path)
-    segments = Path.split(absolute)
-
-    {head, rest} =
-      case segments do
-        ["/" | tail] -> {"/", tail}
-        other -> {"", other}
-      end
-
-    walk(rest, head)
-  end
-
-  defp walk([], acc), do: acc
-
-  defp walk([segment | rest], acc) do
-    candidate = Path.join(acc, segment)
-
-    case File.lstat(candidate) do
-      {:ok, %File.Stat{type: :symlink}} ->
-        {:ok, target} = File.read_link(candidate)
-        resolved_target = Path.expand(target, acc)
-
-        new_segments =
-          case Path.split(resolved_target) do
-            ["/" | inner] -> inner ++ rest
-            inner -> inner ++ rest
-          end
-
-        walk(new_segments, "/")
-
-      {:ok, _stat} ->
-        walk(rest, candidate)
-
-      {:error, :enoent} ->
-        Path.join([candidate | rest])
-    end
-  end
+  defp resolve_symlinks(path), do: MutagenEx.Test.PathHelpers.resolve_symlinks(path)
 end
