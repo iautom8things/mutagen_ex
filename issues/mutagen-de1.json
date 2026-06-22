@@ -5,10 +5,12 @@
   "created": "2026-06-22T15:56:53Z",
   "description": "Surfaced during the mutagen-835 SpecLedEx-adoption orchestration (verifier on mutagen-835.2.7 and the mutagen-835.3 auditor both observed it).\n\nSymptom: `make smoke` / `mix test` (which run `--max-failures 1` with a RANDOM seed) intermittently fails in the in-process mutation pipeline / coverage suite — flagged at coverage_runner_test.exs:318. It is timing/telemetry-sensitive and order-dependent (an earlier sibling test leaks a tmp dir / cover state). It is NOT a regression — it reproduces independent of any spec change and passes deterministically under `mix test --seed 0`.\n\nImpact: any orchestration/CI step that treats a single random-seed `make smoke` failure as a hard gate will flake. Throughout mutagen-835 the workaround was to re-run or use `--seed 0`.\n\nLikely fix direction: make the coverage/cover-server teardown deterministic (ensure `:cover.stop/0` + tmp-dir cleanup is idempotent and not leaked across tests), or tag/isolate the offending test so async ordering can't interleave it. See also the auto-memory note `flaky-test-random-seed-smoke`.\n\nRepro: run `mix test` a handful of times without a fixed seed; or bisect with the seeds that fail.",
   "id": "mutagen-de1",
-  "labels": [],
+  "labels": [
+    "phase:implementing"
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "coverage_runner_test order-dependent tmp-leak flake under random seed",
   "type": "bug",
-  "updated_at": "2026-06-22T19:54:54Z"
+  "updated_at": "2026-06-22T19:54:55Z"
 }
