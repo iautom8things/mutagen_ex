@@ -39,12 +39,33 @@
 #   driven only through that test's own nested `ExUnit.run/0` calls (which
 #   re-`include` the tag). Excluding it here keeps the parent suite from
 #   running the deliberately-red fixture as a spurious top-level failure.
+#
+# - `:cover_lifecycle` covers tests that manipulate the BEAM-wide
+#   `:cover_server` singleton — they start/stop `:cover`, register a
+#   sentinel under `:cover_server`, or call
+#   `MutagenEx.CoverageRunner.run/1` (the documented singleton owner that
+#   refuses to run when `:cover_server` is already registered). Under
+#   `mix test --cover` the Mix harness owns `:cover_server` and has
+#   cover-compiled the whole project before the suite starts, so these
+#   tests cannot run as written: `CoverageRunner.run/1` correctly refuses
+#   with `:cover_already_running`, and a test stopping `:cover` would
+#   discard the harness's instrumentation (crashing the coverage reporter
+#   with `Enum.EmptyError` because zero modules remain compiled). They run
+#   on every normal `mix test`; only `--cover` excludes them.
+cover_exclusions =
+  if Process.whereis(:cover_server) do
+    [:cover_lifecycle]
+  else
+    []
+  end
+
 ExUnit.start(
-  exclude: [
-    :e2e_slow,
-    :spike,
-    :downstream_integration,
-    :archive_integration,
-    :mutagen_baseline_red_guard
-  ]
+  exclude:
+    [
+      :e2e_slow,
+      :spike,
+      :downstream_integration,
+      :archive_integration,
+      :mutagen_baseline_red_guard
+    ] ++ cover_exclusions
 )

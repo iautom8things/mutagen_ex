@@ -371,10 +371,15 @@ defmodule MutagenEx.ScopeResolverTest do
     test "no Cover server is started or cover/ directory created by resolver" do
       loader = loader_for(%{"lib/foo.ex" => mfa_source()})
 
-      refute Process.whereis(:cover_server)
+      # Under `mix test --cover` the harness owns :cover_server and creates a
+      # `cover/` directory, so we can't assert either is absent. The invariant
+      # under test is that the *resolver* does not start cover or create the
+      # directory, so assert both are unchanged across the call.
+      cover_server_before = Process.whereis(:cover_server)
+      cover_dir_before = File.exists?("cover")
       assert {:ok, _} = ScopeResolver.resolve("Foo", loader: loader, source_files: ["lib/foo.ex"])
-      refute Process.whereis(:cover_server)
-      refute File.exists?("cover")
+      assert Process.whereis(:cover_server) == cover_server_before
+      assert File.exists?("cover") == cover_dir_before
     end
   end
 

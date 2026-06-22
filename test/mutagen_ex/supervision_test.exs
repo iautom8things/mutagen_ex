@@ -220,6 +220,10 @@ defmodule MutagenEx.SupervisionTest do
   # ---------------------------------------------------------------------------
 
   describe "scenario 4 — concurrent-caller rejection (s8 ↔ r1/r8)" do
+    # Registers a sentinel under :cover_server and unregisters whatever is
+    # already there — under `mix test --cover` that would evict the
+    # harness's cover server. Excluded in --cover mode via test_helper.exs.
+    @describetag :cover_lifecycle
     test "cover_already_running message names MutagenEx.TaskSup as singleton owner" do
       # Register a sentinel pid as :cover_server to simulate an in-flight
       # MutagenEx mutation cycle (or any other competing cover session).

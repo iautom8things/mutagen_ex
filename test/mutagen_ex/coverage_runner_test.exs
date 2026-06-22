@@ -33,6 +33,13 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   use ExUnit.Case, async: false
 
+  # Every test here drives `CoverageRunner.run/1` (the documented
+  # `:cover_server` singleton owner) or otherwise manipulates the real
+  # `:cover` lifecycle, so the whole module is cover-hostile. Under
+  # `mix test --cover` the harness owns `:cover_server`; test_helper.exs
+  # excludes this tag in that mode. See test_helper.exs for the rationale.
+  @moduletag :cover_lifecycle
+
   alias MutagenEx.CoverageRunner
   alias MutagenEx.TestSelector.TestFilter
 

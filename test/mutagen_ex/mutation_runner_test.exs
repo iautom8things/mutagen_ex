@@ -32,6 +32,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # coverage_runner_test.exs). require_file is idempotent — loading
   # twice from two test modules is a no-op.
   Code.require_file("../support/disk_snapshot_helper.exs", __DIR__)
+  Code.require_file("../support/cover_guard.exs", __DIR__)
 
   use ExUnit.Case, async: false
 
@@ -54,12 +55,18 @@ defmodule MutagenEx.MutationRunnerTest do
     {:ok, _pid} = ExUnitFake.start_link()
 
     on_exit(fn ->
-      try do
-        apply(:cover, :stop, [])
-      rescue
-        _ -> :ok
-      catch
-        _, _ -> :ok
+      # Under `mix test --cover` the harness owns :cover_server; stopping it
+      # here would discard its instrumentation and crash the coverage
+      # reporter with Enum.EmptyError. These tests never instrument cover
+      # themselves, so the defensive stop is only needed in normal runs.
+      unless MutagenEx.Test.CoverGuard.running_under_cover?() do
+        try do
+          apply(:cover, :stop, [])
+        rescue
+          _ -> :ok
+        catch
+          _, _ -> :ok
+        end
       end
     end)
 
