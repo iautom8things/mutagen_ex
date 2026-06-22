@@ -21,11 +21,15 @@
     {
       "text": "-F",
       "timestamp": "2026-06-22T13:59:30Z"
+    },
+    {
+      "text": "ORCHESTRATOR NOTE: the prior verifier exited having done its checks but its bw comment was malformed (posted literally '-F'); verdict body was lost. Respawning the verifier (no bounce consumed — posting failure, not a FAIL verdict). The malformed '-F' comment above is superseded by the next VERIFY comment.",
+      "timestamp": "2026-06-22T14:01:04Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Dogfood: child-BEAM self-mutation score",
   "type": "task",
-  "updated_at": "2026-06-22T13:59:30Z"
+  "updated_at": "2026-06-22T14:01:04Z"
 }
