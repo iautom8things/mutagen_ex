@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T12:47:09Z",
+  "description": "The REAL fix for CF2 (the other arm of the partition-or-gate fork). DEFERRED pending design discussion — not a blocker for the Tier-1 capstone; CF2a gates the hazard in the meantime.\n\nGoal: make --max-concurrency \u003e 1 correct, not just warned. Two candidate designs (decision pending):\n  (a) Collision-free partition: group sites by module, one async_stream per module-group, serial WITHIN a group so two workers never touch the same module / interleave its compile-load-restore. Cheaper; still shares one global ExUnit.Server/:cover across groups, so needs care (or per-group cover scoping).\n  (b) Per-mutant process isolation: each mutant compiles+restores+tests under its own BEAM node or isolated cover+ExUnit server. The true unlock for \u003e1 core; composes with F2 toward O(S*k/cores). Large architectural change — the moduledoc already flags it out of scope.\n\nDo NOT simply raise the default concurrency — it breaks the byte-identity gate.\n\n## Done (when un-deferred)\n- A chosen design lands; --max-concurrency \u003e 1 produces byte-identical classification + correct coverage on a REAL backend (not just fakes); the CF2a experimental warning is removed.",
+  "id": "mutagen-33b.3",
+  "labels": [],
+  "parent": "mutagen-33b",
+  "priority": 2,
+  "status": "open",
+  "title": "CF2b: Module-partitioned safe parallelism (DEFERRED — design fork)",
+  "type": "task",
+  "updated_at": "2026-06-22T12:47:09Z"
+}
