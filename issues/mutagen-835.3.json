@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "mutagen-835.2.1"
+    "mutagen-835.2.1",
+    "mutagen-835.2.2"
   ],
   "blocks": [],
   "created": "2026-06-22T11:30:25Z",
