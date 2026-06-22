@@ -28,5 +28,5 @@
   "status": "in_progress",
   "title": "bw comment: add -F/--file (or stdin) for body; reject bare -F silently posted as comment text",
   "type": "bug",
-  "updated_at": "2026-06-22T20:20:58Z"
+  "updated_at": "2026-06-22T20:20:59Z"
 }
