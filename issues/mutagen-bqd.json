@@ -6,6 +6,7 @@
   "description": "Roll-up epic for the most strategic public-launch risk from the cold-context assessment (2026-06-22): the repo has no public answer to 'why mutagen_ex and not muzak?'.\n\nThe differentiator is real but buried in internal ADRs: a JSON-first, content-addressed, deterministic mutation tester explicitly designed so an LLM verifier/judge (not a human) consumes the output (.spec/decisions/no_pretty_output_v1.md, content_addressed_ids.md). Without surfacing this, the tool reads as a weaker muzak clone to a skeptical ElixirForum/HN audience.\n\nAlso: no empirical efficacy data is public, and the tool has never reported a mutation score on its own code (self_mutation_refused is architecturally necessary in-process).\n\nThis epic makes the value legible and credible. Independent of the other two epics; can proceed in parallel but should land before a public announcement.\n\n## Children\n- W1: README positioning section (why mutagen_ex, vs muzak/muzak_pro, LLM-oracle thesis)\n- W2: real-world mutation score in README (run on a small real library)\n- W3: dogfood — child-BEAM self-mutation score for mutagen_ex itself\n- W4: mutation-testing literature grounding",
   "id": "mutagen-bqd",
   "labels": [
+    "phase:implementing",
     "slug:hex-pm-publish-why"
   ],
   "priority": 2,
