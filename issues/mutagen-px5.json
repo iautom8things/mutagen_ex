@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T15:56:53Z",
+  "description": "Surfaced during mutagen-835 (SpecLedEx adoption). `.spec/state.json` is now a TRACKED generated-state file (SpecLedEx uses `git show \u003cbase\u003e:.spec/state.json` as the append-only baseline, so it must be committed, not gitignored).\n\nProblem: two mix tasks write it and they DIVERGE.\n- `mix spec.index` — the canonical state-writer (\"Builds index state and writes .spec/state.json\"); compact and STABLE (re-running leaves no diff).\n- `mix spec.validate` — also rewrites state.json, in a more verbose form (~1100-1200 extra lines of findings detail). Running validate on a tree whose committed state.json came from `index` leaves the working tree DIRTY.\n\nThroughout mutagen-835 the committed form was standardized to `mix spec.index` output (each stage regenerated via spec.index before merge; final epic commit cdfad67 canonicalizes it).\n\nDecision to make before wiring CI:\n1. Which generator is the committed canonical — `spec.index` or `spec.validate`?\n2. If CI runs `mix spec.validate` and then asserts a clean working tree, it WILL show drift against the index-form commit. Either have CI run `mix spec.index` (not validate) for the cleanliness check, or commit the validate form, or gitignore state.json and drop the append-only baseline feature.\n\nSee auto-memory note `spec-state-json-canonical-generator`. Possibly also worth an upstream question to spec_led_ex about whether index/validate should converge on state.json output.",
+  "id": "mutagen-px5",
+  "labels": [],
+  "priority": 3,
+  "status": "open",
+  "title": "Decide canonical .spec/state.json generator (mix spec.index vs spec.validate) before CI",
+  "type": "task",
+  "updated_at": "2026-06-22T15:56:53Z"
+}
