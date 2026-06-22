@@ -10,7 +10,7 @@
   "description": "Advances: mutagen.mutation_enumeration\n\nDeliverable: migrate .spec/specs/mutation_enumeration.spec.md to the SpecLedEx schema:\n- spec-scenarios block: reshape each scenario to given:/when:/then: arrays (bespoke shape fails parse with 'expected array').\n- spec-verification block: replace execute:/source_file: stubs with command: and target: entries; every requirement gets a verification entry.\n- spec-meta: flip status: draft -\u003e active once the file validates.\n- keep prose, intent, id, surface, and decisions links intact.\n\nVerification:\n- mix spec.validate emits ZERO errors for mutagen.mutation_enumeration (baseline: 6 errors on this file).\n- subject status is active in .spec/state.json.\n\nOut of Scope (files): every .spec.md EXCEPT mutation_enumeration.spec.md; lib/**; test/**.\nAllowed touches: .spec/specs/mutation_enumeration.spec.md only.\nOut of Scope (intent): no realized_by bindings (phase2); no code/test edits; do not alter requirement ids or delete requirements.\nMerge gate: mix spec.validate (0 errors for mutagen.mutation_enumeration) \u0026\u0026 mix compile --warnings-as-errors \u0026\u0026 mix test",
   "id": "mutagen-835.2.7",
   "labels": [
-    "phase:verifying"
+    "phase:merging"
   ],
   "parent": "mutagen-835.2",
   "comments": [
@@ -31,5 +31,5 @@
   "status": "in_progress",
   "title": "migrate mutagen.mutation_enumeration to SpecLedEx schema (6 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:45:51Z"
+  "updated_at": "2026-06-22T13:45:52Z"
 }
