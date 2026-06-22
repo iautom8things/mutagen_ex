@@ -33,4 +33,15 @@
 #   generated host project with no `:mutagen_ex` dependency declaration.
 #   Run explicitly via `mix test --include archive_integration` or
 #   `mix test.integration`.
-ExUnit.start(exclude: [:e2e_slow, :spike, :downstream_integration, :archive_integration])
+#
+# - `:self_mutation` covers the self-mutation dogfood under
+#   `test/integration/`. It shadow-copies mutagen_ex's own source under a
+#   rewritten namespace and drives `mix mutagen` against each high-value
+#   module via `System.cmd/3` to produce a reproducible self-mutation score
+#   (see `mutagen.decision.self_mutation_refused` for why the shadow copy is
+#   required). It spawns a `mix mutagen` child process per target and is the
+#   slowest suite in the project, so it is skipped by default. Run explicitly
+#   via `mix test --include self_mutation` or `mix test.integration`.
+ExUnit.start(
+  exclude: [:e2e_slow, :spike, :downstream_integration, :archive_integration, :self_mutation]
+)
