@@ -285,17 +285,183 @@ applies whether `:redact` is set or not.
 
 ## JSON output
 
-The v1 document shape is defined by-example. The authoritative reference
-is the golden fixture set under `test/mutagen_ex/golden/`:
+`mix mutagen` emits exactly one JSON document — to stdout, or to the file
+named by `--json <path>`. It always ends with a single trailing newline.
+The same shape is used for a successful run and for an aborted one; the
+`aborted` flag tells the two apart.
 
-- `end_to_end_scenario_1_arith.json` — canonical successful run.
-- `end_to_end_scenario_5_baseline_red.json` — abort on red baseline.
-- `end_to_end_scenario_6_zero_coverage.json` — clean run with empty
-  `mutation.results`.
-- `error_unresolvable_scope.json` — abort before the mutation phase.
+### Successful run
 
-The behavioural contract for the document lives in
-`.spec/specs/json_schema.spec.md`.
+Below is a real, annotated example of a completed run that mutated one
+arithmetic helper. (Comments are added here for explanation — the actual
+output is plain JSON with no comments.)
+
+```jsonc
+{
+  // Schema version of this document. Fixed to the literal "1" for v0.1.x.
+  "version": "1",
+
+  // false  → the pipeline ran to completion (exit code 0).
+  // true   → the run was aborted before finishing (non-zero exit).
+  "aborted": false,
+  // The abort reason as a string, or null when "aborted" is false.
+  "abort_reason": null,
+  // true if a --budget-ms cap stopped the run early. A graceful partial
+  // result, NOT an abort — "aborted" stays false and the exit code is 0.
+  "truncated": false,
+
+  // Environment + run parameters this document was produced under.
+  "meta": {
+    "tool_version": "0.1.0",     // mutagen_ex version
+    "elixir_version": "1.19.5",
+    "otp_version": "28",
+    "exunit_seed": 0             // the --seed value used for test ordering
+  },
+
+  // What was mutated, resolved from --scope.
+  "scope": [
+    {
+      "module": "LaneFixture.Arith",
+      "file": "lib/lane_fixture/arith.ex",
+      "line_range": [1, 19]
+    }
+  ],
+
+  // Which tests judged the mutations, resolved from --tests.
+  "tests": {
+    "files": ["test/lane_fixture/arith_test.exs"],
+    "include": [],               // ExUnit include filters (e.g. from tag:)
+    "exclude": []
+  },
+
+  // The unmodified-code baseline. The run aborts before mutating if any
+  // cited test fails here (see "Baseline guard rail").
+  "baseline": {
+    "passed": 5,
+    "failed": 0,
+    "failures": []
+  },
+
+  // Lines that were covered by the cited tests, per file. Only covered
+  // lines are eligible for mutation.
+  "coverage": {
+    "covered_lines": {
+      "lib/lane_fixture/arith.ex": { "bytes": 4 }
+    }
+  },
+
+  // The heart of the report: every mutation that was applied and judged.
+  "mutation": {
+    "total": 6,        // mutation sites enumerated
+    "completed": 6,    // sites actually run
+    "killed": 5,       // a cited test caught the mutation (good)
+    "survived": 1,     // no test caught it — a possible coverage gap
+    "timeout": 0,      // the mutated code exceeded --timeout-ms
+    "compile_error": 0, // the mutation did not compile
+
+    // Fraction of completed mutations that were killed: killed / completed.
+    // 1.0 is a perfect score; 0.0 is valid (still exit 0), not a failure.
+    "kill_rate": 0.8333333333333334,
+
+    // One entry per mutation that ran. Each describes the edit and verdict.
+    "results": [
+      {
+        // Stable, content-addressed id: file:hash:mutator. Survives
+        // `mix format` because it is keyed on AST content, not line number.
+        "id": "lib/lane_fixture/arith.ex:88475230:arith",
+        "file": "lib/lane_fixture/arith.ex",
+        "line": 12,
+        "column": 24,
+        "mutator": "arith",     // which mutator produced this edit
+        "before": "a + b",      // original source at the site
+        "after": "a - b",       // the mutated source that was tested
+        "before_source": "a + b",
+        // killed | survived | timeout | error | compile_error
+        "status": "killed",
+        "tainted_predecessors": false,
+        "warnings": { "count": 1 } // count of advisory warnings for this site
+      },
+      {
+        "id": "lib/lane_fixture/arith.ex:88723725:literal",
+        "file": "lib/lane_fixture/arith.ex",
+        "line": 18,
+        "column": 29,
+        "mutator": "literal",
+        "before": "0",
+        "after": "1",
+        "before_source": "0",
+        "status": "survived",   // no cited test failed on this edit
+        "tainted_predecessors": false,
+        "warnings": { "count": 1 }
+      }
+      // ... remaining results elided ...
+    ],
+
+    // Sites that failed to compile when mutated. Same outer shape as a
+    // result, plus a "message" field; empty here.
+    "compile_errors": [],
+
+    // Sites that were enumerated but not run, with a reason.
+    "skipped": [
+      {
+        "site_id": "lib/lane_fixture/arith.ex:10714624:guard_drop",
+        "file": "lib/lane_fixture/arith.ex",
+        "mutator": "guard_drop",
+        "reason": "structurally_invalid"
+      }
+    ],
+    "state_drift_warning": {}
+  },
+
+  // Populated only on an abort (see below); empty on success.
+  "details": {},
+  // Run-level advisory warning count.
+  "warnings": { "count": 0 }
+}
+```
+
+### Aborted run
+
+When the run cannot proceed — for example, `--scope` names a module that
+does not exist — `aborted` is `true`, the phase blocks that never ran are
+`null`, and `details` carries a human-readable `message` plus any
+reason-specific fields. The exit code is non-zero. The reason strings are
+enumerated in the [Exit codes](#exit-codes) section.
+
+```jsonc
+{
+  "version": "1",
+  "aborted": true,
+  "abort_reason": "module_not_found",   // names which guard tripped
+  "truncated": false,
+  "meta": {
+    "tool_version": "0.1.0",
+    "elixir_version": "1.19.5",
+    "otp_version": "28",
+    "exunit_seed": 0
+  },
+  // Phases that never ran are null rather than empty objects.
+  "scope": [],
+  "tests": null,
+  "baseline": null,
+  "coverage": null,
+  "mutation": null,
+  // Why the run aborted, plus reason-specific fields.
+  "details": {
+    "message": "module Elixir.MyApp.Missing could not be resolved",
+    "module": "Elixir.MyApp.Missing"
+  },
+  "warnings": []
+}
+```
+
+The two examples above are derived directly from the project's golden
+fixtures — `test/mutagen_ex/golden/end_to_end_scenario_1_arith.json` and
+`error_unresolvable_scope.json` — so the field names and shapes match the
+real output byte-for-byte. The full fixture set is the authoritative
+schema-by-example, and the behavioural contract lives in
+`.spec/specs/json_schema.spec.md`; both ship in the source repository
+rather than the published package.
 
 ## Baseline guard rail
 
