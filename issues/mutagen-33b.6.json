@@ -12,7 +12,7 @@
   "parent": "mutagen-33b",
   "priority": 1,
   "status": "open",
-  "title": "Capstone: Tier-1 verified — parallel-path correctness + per-mutant selection parity",
+  "title": "Capstone: parallel-path correctness verified (CF1 restore + CF2a gate)",
   "type": "task",
-  "updated_at": "2026-06-22T18:54:01Z"
+  "updated_at": "2026-06-22T18:54:29Z"
 }
