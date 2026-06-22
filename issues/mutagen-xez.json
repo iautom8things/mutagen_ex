@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T18:50:58Z",
+  "description": "",
+  "id": "mutagen-xez",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[EPIC] Coverage-driven per-mutant test selection (O(S*N) -\u003e O(S*k))",
+  "type": "task",
+  "updated_at": "2026-06-22T18:50:58Z"
+}
