@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:30:18Z",
+  "description": "Roll-up epic for the non-blocking-but-must-fix-before-a-public-launch gaps from the cold-context ship-readiness assessment (2026-06-22). These don't stop `mix hex.publish` from running, but shipping without them yields a messy/embarrassing first public release.\n\nIndependent of the hard-blockers epic (mutagen-y8o) except where noted — most can land in parallel.\n\n## Children\n- H1: `package: [files:]` whitelist (control what ships; exclude dev cruft)\n- H2: fix `mix test --cover` (currently 3 failures + a crash)\n- H3: reconcile README v1.0/v1.1 version labels with 0.1.0\n- H4: fix or escalate baseline_red guard rail (relates mutagen-wrd.37)\n- H5: GitHub Actions CI (mix test + mix test.integration)\n- H6: README annotated JSON output example + user-facing CHANGELOG pass",
+  "id": "mutagen-hcs",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
+  "type": "epic",
+  "updated_at": "2026-06-22T11:30:18Z"
+}
