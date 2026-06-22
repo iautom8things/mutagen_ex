@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-22T20:20:59Z",
   "created": "2026-06-22T16:21:09Z",
   "description": "Target repo: beadwork CLI (~/src/beadwork; remotes iautom8things/beadwork upstream, jallum/beadwork origin).\n\nProblem\n`bw comment \u003cid\u003e \u003ctext\u003e` takes the body only as a positional arg, with no flag to read it from a file or stdin. `bw comment --help` lists only `-a/--author` and `--json` — there is NO `-F/--file`. When a scripted/automated caller builds a command that lands a flag-looking token (e.g. `-F`) in the \u003ctext\u003e position, bw SILENTLY accepts the bare `-F` as the comment text and drops the intended (often multi-line) body. No error is raised.\n\nObserved impact\nDuring an /orchestrate-epic run (mutagen-835, ~13 subagent verify/audit cycles), multiple worker subagents lost their entire VERIFY:/AUDIT: comment bodies — only a literal \"-F\" landed on the ticket (see e.g. several stray \"-F\" comments). Each lost verdict had to be reconstructed (re-verify / re-audit / inline confirmation). Multi-line comment bodies are exactly what graders, CI bots, and LLM agents post, so this is a sharp edge for any automated bw user.\n\nRequested fixes (either/both)\n1. Add `-F, --file \u003cpath\u003e` to `bw comment`, and support `-F -` to read the body from stdin — mirroring `gh issue comment -F/--body-file` and `git commit -F`. This gives scripted callers a robust way to pass multi-line bodies without shell-quoting/heredoc fragility.\n2. Make arg parsing reject (error on) an unknown `-`-prefixed token in the \u003ctext\u003e position instead of silently treating it as comment text. A lone `-F` should fail loudly (\"unknown flag -F; did you mean --file?\"), not post \"-F\".\n\nRepro\n  bw comment \u003cid\u003e -F            # posts a comment whose text is literally \"-F\" (expected: error)\n  bw comment \u003cid\u003e -F body.txt   # no --file support; \"-F\" becomes the text, \"body.txt\" is an extra arg\n\nRelated: existing plan-board ticket to upgrade bw to 0.13.2.",
   "id": "mutagen-10h",
@@ -25,7 +26,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "bw comment: add -F/--file (or stdin) for body; reject bare -F silently posted as comment text",
   "type": "bug",
   "updated_at": "2026-06-22T20:20:59Z"
