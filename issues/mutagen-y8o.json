@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:29:25Z",
+  "description": "Roll-up epic for the blockers that make `mix hex.publish` refuse to run (or produce a legally unusable / docs-less package). Source: cold-context ship-readiness assessment (2026-06-22), packaging grade D, docs grade D+.\n\nUntil every child here lands, the package CANNOT be published. The library internals are strong (tests B+, ADRs solid); this epic is purely the publishable-envelope mechanics.\n\n## Verified findings\n- `mix.exs` has NO `description:` — hex hard-refuses without it.\n- NO `LICENSE` file and no `licenses:` key — hex requires a declared license; without the file the package is legally unusable.\n- NO `package:` block at all (licenses/links/maintainers).\n- NO `ex_doc` dep and no `docs:` config — hexdocs page would be empty despite excellent moduledoc coverage (57/57 modules, all public fns have @spec).\n\n## Done = `mix hex.publish --dry-run` is green.\n\n## Children\n- B1: description + package metadata (licenses, links, maintainers)\n- B2: LICENSE file\n- B3: ex_doc dep + docs config\n- B4: dry-run capstone — verify publish + confirm GitHub repo/tag exist",
+  "id": "mutagen-y8o",
+  "labels": [],
+  "priority": 1,
+  "status": "open",
+  "title": "[EPIC] hex.pm publish — hard blockers",
+  "type": "epic",
+  "updated_at": "2026-06-22T11:29:25Z"
+}
