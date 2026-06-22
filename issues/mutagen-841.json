@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:05Z",
+  "description": "Roll-up epic for the test-COVERAGE gaps from the 2026-06-22 multi-persona critical review's testing-persona report (commit 196bb8c). Source: ~/vaults/rmbrs-vault/code_review/critical/mutagen_ex/2026-06-22/complete-library/20260622-071209-testing.md\n\nDistinct from mutagen-33b (Tier-1 review hardening, production correctness/perf) and from the test-SOUNDNESS audit landed in commit 30ba328 (which fixed existing-test assertion quality). This epic is about MISSING coverage the soundness pass did not add.\n\nThe review called the suite 'genuinely strong for a mutation-testing tool'; these are the residual gaps, none currently ticketed. H2 is the highest-value (a raise during enumeration aborts the whole run on weird-but-valid source). H2/M3/M4 were notably NOT caught by the elixir-test-critic soundness pass because that pass audited existing tests, not coverage.\n\n## Children\n- H2: mutate/1 malformed-AST resilience (P1)\n- M2: control-flow mutator edge cases + case_drop involution (P2)\n- M1: self-dogfooding lane with kill-rate floor (P2)\n- M3: direct config.ex + telemetry.ex tests (P3)\n- M4: json_streamer sink-write-failure path (P3)\n\n## Done =\n- Every child closed; new tests green; smoke stays green.\n- mutate/1 never raises on head-matching-but-degenerate AST (clean transform or structured skip).\n- A documented dogfooding run reports mutagen_ex's kill-rate over its own mutators.",
+  "id": "mutagen-841",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "[EPIC] Tier-2 test-coverage hardening — review-surfaced gaps",
+  "type": "epic",
+  "updated_at": "2026-06-22T14:26:05Z"
+}
