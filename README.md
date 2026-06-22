@@ -73,6 +73,50 @@ mutation tester for interactive use — reach for muzak. If you are building
 an LLM-graded or agent-driven test-quality pipeline and need stable,
 machine-first output, that gap is the one mutagen_ex was built to fill.
 
+## The mutator catalog and its lineage
+
+mutagen_ex ships ten AST mutators (`.spec/specs/mutators.spec.md`). They fall
+into two groups: four that are direct Elixir realizations of the classic,
+language-agnostic mutation operators studied since the Mothra era, and six
+that are Elixir-idiomatic and have no clean parallel in the C/Java mutation
+literature.
+
+The first group maps onto the *selective mutation* operator set — the small
+family Offutt et al. found sufficient to retain almost all of a full operator
+set's fault-detection power at a fraction of the mutant count (Offutt, Lee,
+Rothermel, Untch & Zapf, "An Experimental Determination of Sufficient Mutant
+Operators," *ACM TOSEM* 5(2), 1996, [doi:10.1145/227607.227610](https://doi.org/10.1145/227607.227610);
+see also Jia & Harman's survey, *IEEE TSE* 37(5), 2011,
+[doi:10.1109/TSE.2010.62](https://doi.org/10.1109/TSE.2010.62) for the broader
+taxonomy these abbreviations come from):
+
+| mutagen_ex mutator | Standard operator | What it does |
+|---|---|---|
+| `arith` | **AOR** — Arithmetic Operator Replacement | swaps `+ ↔ -`, `* ↔ /` on numeric binary ops |
+| `compare` | **ROR** — Relational Operator Replacement | swaps `== ↔ !=`, `< ↔ >=`, `> ↔ <=` |
+| `boolean` | **LCR** — Logical Connector Replacement | swaps `and ↔ or`, `&& ↔ \|\|`, drops `not`/`!` |
+| `literal` | **CRP** — Constant Replacement | flips `true ↔ false`, swaps small integer literals |
+
+The remaining six mutate constructs that are idiomatic to Elixir/Erlang and
+have no language-agnostic equivalent in the standard catalogs — they exist
+because the standard operators say nothing about tagged tuples, multi-clause
+guards, `with`, or the pipe:
+
+| mutagen_ex mutator | What it does | Why it has no classic parallel |
+|---|---|---|
+| `result_tuple` | flips `{:ok, x}` ↔ `{:error, x}` | targets Elixir's tagged-tuple result convention |
+| `guard_drop` | drops a function-clause `when` guard | guards are an Elixir/Erlang dispatch construct |
+| `with_swap` | reorders `with` clauses | `with` is an Elixir control structure |
+| `else_removal` | drops the `else` branch of `if`/`with` | shaped to Elixir's `if`/`with` else semantics |
+| `case_drop` | drops the last `case`/`cond` clause | closest to the classic statement/clause-deletion (SDL) family, but Elixir's exhaustiveness and `CaseClauseError` behaviour make it its own thing (see Known limitations) |
+| `pipeline` | reorders adjacent `\|>` segments | the pipe operator is Elixir-idiomatic |
+
+The split is deliberate: the four classic operators give the catalog a
+well-understood, citable backbone, while the six idiomatic operators cover the
+fault classes that only show up in Elixir code. Treat the standard-operator
+names above as the vocabulary a reviewer (human or LLM judge) already knows;
+treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
+
 ## Install
 
 `mutagen_ex` is a development-time Mix task. Add it to your `mix.exs`:
