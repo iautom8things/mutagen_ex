@@ -6,6 +6,8 @@ defmodule MutagenEx.MixProject do
       app: :mutagen_ex,
       version: "0.1.0",
       elixir: "~> 1.19",
+      description:
+        "Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       package: package(),
@@ -37,12 +39,14 @@ defmodule MutagenEx.MixProject do
     ]
   end
 
-  # Hex package metadata. This ticket (mutagen-y8o.2) seeds only the
-  # `:licenses` key alongside the root `LICENSE` file; the fuller package
-  # block (description, links, maintainers) is added by mutagen-y8o.1.
+  # Hex package metadata. The root `LICENSE` file backs the `:licenses` key.
+  # A `:files` whitelist is intentionally deferred to a separate packaging
+  # hygiene epic.
   defp package do
     [
-      licenses: ["MIT"]
+      licenses: ["MIT"],
+      links: %{"GitHub" => "https://github.com/autom8things/mutagen_ex"},
+      maintainers: ["Manuel Zubieta"]
     ]
   end
 
