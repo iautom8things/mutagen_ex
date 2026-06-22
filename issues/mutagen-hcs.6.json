@@ -9,9 +9,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-hcs",
+  "comments": [
+    {
+      "text": "IMPLEMENTED (commit bb2e7df, branch mutagen-hcs.6/readme-json-changelog)\n\nDocs-only change. Scope held to README.md + CHANGELOG.md; no lib/**, tests, version strings, or JSON-schema \"version\":\"1\" semantics touched.\n\nREADME — JSON output section rewritten:\n- Replaced the fixture-pointer punt (former lines ~286-298) with two INLINE, annotated examples under '## JSON output':\n  - 'Successful run' — annotated full v1 document: version, aborted, abort_reason, truncated, meta{tool_version,elixir_version,otp_version,exunit_seed}, scope[], tests{files,include,exclude}, baseline{passed,failed,failures}, coverage.covered_lines, mutation{total,completed,killed,survived,timeout,error,compile_error,kill_rate,results[],compile_errors[],skipped[],state_drift_warning}, results[].{id,file,line,column,mutator,before,after,before_source,status,tainted_predecessors,warnings}, details, warnings.\n  - 'Aborted run' — annotated abort document (aborted:true, abort_reason, null phases, details.message+reason fields).\n- Examples use a no-comment JSON in reality / //-annotated jsonc in the doc; both validated to parse as JSON after comment-strip.\n\nCHANGELOG — user-facing pass:\n- [Unreleased]: rewritten into Keep-a-Changelog Added/Changed/Fixed/Security/Removed bullets in user-visible terms; stripped internal IDs (mutagen-wrd.X, S1-S6, F/CF numbers, r-numbers, mutagen.decision.* pointers, .25 epic codenames).\n- [0.1.0]: stripped mutagen.decision.* pointers from Added bullets; rewrote 'Known limitations' from mutagen-wrd.11-15 ticket keys into plain-English user-facing limitations.\n- Original ticket-keyed engineering log preserved verbatim as an 'Internal development log (Unreleased)' appendix at end of file for traceability. Header note updated to point at it.\n\nCross-check: JSON example field names/shapes/values derived directly from real golden fixtures test/mutagen_ex/golden/end_to_end_scenario_1_arith.json (canonical successful run) and error_unresolvable_scope.json (abort), and confirmed against MutagenEx.JsonReporter (@schema_version \"1\" at json_reporter.ex:313/408). All documented keys match the fixtures byte-for-byte, including the intentional success-vs-error 'warnings' shape difference ({\"count\":N} object vs []). No invented fields.",
+      "timestamp": "2026-06-22T14:06:23Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "README annotated JSON example + user-facing CHANGELOG pass",
   "type": "task",
-  "updated_at": "2026-06-22T14:01:44Z"
+  "updated_at": "2026-06-22T14:06:23Z"
 }
