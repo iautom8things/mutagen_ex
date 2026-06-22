@@ -13,9 +13,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835.2",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nMigrated .spec/specs/coverage.spec.md to the SpecLedEx schema.\n\nChanges (Allowed touches only: .spec/specs/coverage.spec.md + generated .spec/state.json):\n- spec-scenarios: reshaped all 12 scenarios (s1-s10, s9a/b/c) to given:/when:/then: arrays (single-element lists, prose preserved verbatim).\n- spec-verification: replaced command:/execute: stubs with kind: command + target: \u003ccmd\u003e + execute: true + covers: arrays for v1-v7. (Schema treats target: as the command string for kind: command.)\n- spec-meta: status draft -\u003e active.\n- Prose, intent, id, surface, decisions links, requirement ids, and requirement set all unchanged. No realized_by bindings added (phase2). No lib/** or test/** edits.\n\nMerge gate (all green):\n- mix spec.validate: ZERO errors AND zero warnings for subject mutagen.coverage (baseline was 8 errors). Other unmigrated subjects still show errors, as expected this phase.\n- subject status is 'active' in regenerated .spec/state.json.\n- mix compile --warnings-as-errors: clean.\n- mix test: 640 tests, 0 failures (19 excluded).\n\nCommitted a2c28c9 on branch mutagen-835.2.4/migrate-coverage (spec edit + regenerated state.json together).",
+      "timestamp": "2026-06-22T13:28:26Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.coverage to SpecLedEx schema (8 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:25:34Z"
+  "updated_at": "2026-06-22T13:28:26Z"
 }
