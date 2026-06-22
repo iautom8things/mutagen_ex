@@ -11,7 +11,7 @@
   ],
   "priority": 1,
   "status": "open",
-  "title": "[EPIC] Tier-1 review hardening — parallel-path correctness + coverage-driven test selection",
+  "title": "[EPIC] Parallel-path correctness hardening (gate + warn; real isolation deferred)",
   "type": "task",
-  "updated_at": "2026-06-22T18:54:01Z"
+  "updated_at": "2026-06-22T18:54:29Z"
 }
