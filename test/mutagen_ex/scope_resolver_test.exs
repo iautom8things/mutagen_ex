@@ -371,10 +371,21 @@ defmodule MutagenEx.ScopeResolverTest do
     test "no Cover server is started or cover/ directory created by resolver" do
       loader = loader_for(%{"lib/foo.ex" => mfa_source()})
 
-      refute Process.whereis(:cover_server)
+      # Assert the *resolver* does not start a cover server or create a
+      # cover/ directory — snapshot before/after rather than asserting the
+      # global :cover_server singleton is absent. This test is async; a
+      # concurrent cover-using test (coverage_runner_test r1 registers a
+      # sentinel :cover_server, r3 starts real cover) can legitimately have
+      # the singleton registered while this runs. The invariant under test
+      # is "the resolver leaves cover state unchanged", not "no cover server
+      # exists anywhere in the suite".
+      cover_before = Process.whereis(:cover_server)
+      cover_dir_before = File.exists?("cover")
+
       assert {:ok, _} = ScopeResolver.resolve("Foo", loader: loader, source_files: ["lib/foo.ex"])
-      refute Process.whereis(:cover_server)
-      refute File.exists?("cover")
+
+      assert Process.whereis(:cover_server) == cover_before
+      assert File.exists?("cover") == cover_dir_before
     end
   end
 

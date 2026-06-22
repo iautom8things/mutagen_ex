@@ -176,7 +176,13 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
     end
 
     test "no on-disk side effects across all random inputs" do
-      refute Process.whereis(:cover_server)
+      # Snapshot cover state before/after rather than asserting the global
+      # :cover_server singleton is absent. This test is async; a concurrent
+      # cover-using test (coverage_runner_test r1/r3) may legitimately have
+      # the singleton registered while this runs. The invariant under test is
+      # "the resolver leaves cover state unchanged across all random inputs".
+      cover_before = Process.whereis(:cover_server)
+      cover_dir_before = File.exists?("cover")
 
       for _ <- 1..@iterations do
         {source, _module_name, _defs} = synthesize_module()
@@ -184,8 +190,8 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
         _ = ScopeResolver.resolve("lib/synth.ex", loader: loader)
       end
 
-      refute Process.whereis(:cover_server)
-      refute File.exists?("cover")
+      assert Process.whereis(:cover_server) == cover_before
+      assert File.exists?("cover") == cover_dir_before
     end
   end
 
