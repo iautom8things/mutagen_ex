@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3.jsonl\n\nReasoning: The premise inversion holds. The guard fires because Baseline.register_test_modules (lib/mutagen_ex/baseline.ex:175-184) calls server.add_module/2 for each :test_modules entry before run_exunit, repopulating the registry that the prior ExUnit.run/0 drained — and production wires this via phase_baseline threading test_modules: TestModuleDiscovery.discover(...) into Baseline.run/1 (lib/mix/tasks/mutagen.ex:835). I did NOT trust the trace: I temporarily neutered register_test_modules and ran baseline_red_guard_test.exs — the red case (line 95) failed with MatchError on exactly {:ok, %{failed: 0, ...}}, the documented silent-pass bug; the green control still passed; then I restored lib/ (git diff lib/ clean). The test uses production default seams (no :ex_unit/:ex_unit_server override in the input map; MutagenEx.Test.ExUnit and .ExUnitServer are pure defdelegate to real ExUnit/ExUnit.Server), not the ExUnitFake — so the real drain hazard is exercised. e2e :baseline_red_scenario (end_to_end_test.exs:706) covers the standalone-pipeline condition asserting aborted/abort_reason=baseline_red through production Baseline. Scope: git diff 196bb8c..HEAD = 5 files (README.md + test/**), 0 lib/** product changes. The red fixture is excluded from default mix test via :mutagen_baseline_red_guard in test_helper.exs (full suite 642 tests, 0 failures, 21 excluded — no spurious top-level failure) and the guard test re-includes the tag in its nested runs. New README 'Baseline guard rail' section is accurate and internally consistent with the code (both coverage and baseline re-register) and renumbering left one clean limitation.",
       "timestamp": "2026-06-22T13:31:20Z"
+    },
+    {
+      "text": "APPROVED (orchestrator). VERIFY: PASS + AUDIT: APPROVE (auditor independently neutered Baseline.register_test_modules and confirmed the red test fails with the documented silent-pass MatchError, then restored lib/). Merged --ff-only into epic/hcs. Epic gates green: smoke 642/0, mix format clean, deps.unlock clean. Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T13:42:28Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Fix or escalate baseline_red guard rail",
   "type": "bug",
-  "updated_at": "2026-06-22T13:31:20Z"
+  "updated_at": "2026-06-22T13:42:28Z"
 }
