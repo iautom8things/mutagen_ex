@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:33Z",
+  "description": "Testing-review H2. Per-mutator suites feed malformed shapes to validate/1 (asserting {:skip, :structurally_invalid}) but mutate/1 is only ever called on already-validated nodes. mutate/1 runs at ENUMERATION time (mutation_enumerator), OUTSIDE the per-site with_restore/try, so a FunctionClauseError/MatchError on a head-matching-but-degenerate node (e.g. {:|\u003e, meta, [one_arg]}, empty with-clause list, malformed case do:) propagates out of phase_enumerator and aborts the whole 'mix mutagen' run.\n\nFiles: test/mutagen_ex/mutators/*_test.exs (pattern across all 11); lib/mutagen_ex/mutators/{pipeline,with_swap,...}.ex.\n\nFix: add a shared mutate_resilience_test.exs that feeds each Mutators.all/0 member a corpus of head-matching-but-degenerate nodes through mutate/1 and asserts a clean transform OR a structured skip — never a raise. Better: a seeded-AST property (generate valid Elixir source -\u003e quote -\u003e enumerate/1) asserting enumerate never raises. Keep the project's zero-dep policy (hand-rolled :rand, not StreamData).\n\nDone: mutate/1 proven raise-free on degenerate-but-head-matching AST across all mutators; enumerate/1-never-raises property green.",
+  "id": "mutagen-841.1",
+  "labels": [],
+  "parent": "mutagen-841",
+  "priority": 1,
+  "status": "open",
+  "title": "H2: mutate/1 malformed-AST resilience (never raise during enumeration)",
+  "type": "bug",
+  "updated_at": "2026-06-22T14:26:33Z"
+}
