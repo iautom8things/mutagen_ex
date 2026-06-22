@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3.jsonl\n\nReasoning: VERIFY reported PASS — single-file README-only doc change, 0 scope violations, acceptance met (no bare v1.x published-version references; JSON-schema \"version\":\"1\" literals and the real v0.1.0 left untouched), reworded sentences/table/link intact. No product code, no test logic. No auditor spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:56:30Z"
+    },
+    {
+      "text": "APPROVED (auto). Merged --ff-only into epic/hcs. Gates green: smoke 642/0, format clean, deps.unlock clean. Closing.",
+      "timestamp": "2026-06-22T13:56:52Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Reconcile README v1.0/v1.1 version labels with 0.1.0",
   "type": "task",
-  "updated_at": "2026-06-22T13:56:30Z"
+  "updated_at": "2026-06-22T13:56:52Z"
 }
