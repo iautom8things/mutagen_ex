@@ -11,9 +11,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-y8o",
+  "comments": [
+    {
+      "text": "IMPLEMENTED (recorded by orchestrator on behalf of impl worker — worker's local bw CLI was blocked by its auto-mode classifier; work itself is complete and committed)\n\nCommit: 918bc37\nFiles touched: mix.exs, mix.lock\nTests added: none (config-only ticket)\n\nSummary: Added {:ex_doc, \"~\u003e 0.34\", only: :dev, runtime: false} to deps/0 and a docs/0 (wired via docs: docs() in project/0) with main: \"readme\", extras: [\"README.md\", \"CHANGELOG.md\"], and groups_for_modules splitting Mutators (~r/^MutagenEx\\.Mutators/), Pipeline Facades (~r/^MutagenEx\\.Pipeline/), and Core. mix.lock picked up ex_doc 0.40.3 + transitive deps. Package block untouched.\n\nWorker verification: mix deps.get clean; mix compile --warnings-as-errors clean; mix docs builds without error with README as landing page (generated doc/ removed, gitignored). ex_doc emitted pre-existing cross-reference warnings (docstrings referencing hidden ExUnit.Server.add_module/2) — warnings only, do not fail mix docs.",
+      "timestamp": "2026-06-22T13:27:31Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add ex_doc dep + docs config",
   "type": "task",
-  "updated_at": "2026-06-22T13:03:00Z"
+  "updated_at": "2026-06-22T13:27:31Z"
 }
