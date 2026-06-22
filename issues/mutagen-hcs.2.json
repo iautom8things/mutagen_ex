@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-22T11:30:18Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-hcs",
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "Fix mix test --cover (3 failures + crash)",
   "type": "bug",
-  "updated_at": "2026-06-22T11:30:18Z"
+  "updated_at": "2026-06-22T12:45:10Z"
 }
