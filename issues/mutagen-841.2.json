@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:33Z",
+  "description": "Testing-review M2. The control-flow mutators (guard_drop, case_drop, else_removal) have the lightest edge coverage and are the most dangerous to get wrong (a wrong AST compiles but mutates the wrong branch -\u003e silently mis-classified site).\n\n- guard_drop: add multi-guard (when a when b), nested guards in case/anon-fn clauses, clause-selection-shift.\n- else_removal: single-clause with (should NOT match), nested with.\n- case_drop: add to the involution/round-trip property in mutators_property_test.exs (currently arith/compare/boolean only).\n\nFiles: test/mutagen_ex/mutators/{guard_drop,else_removal,case_drop}_test.exs; mutators_property_test.exs.\n\nDone: each control-flow mutator unit suite covers the multi-clause/nested/single-clause forms; case_drop in the involution property.",
+  "id": "mutagen-841.2",
+  "labels": [],
+  "parent": "mutagen-841",
+  "priority": 2,
+  "status": "open",
+  "title": "M2: control-flow mutator edge cases + case_drop involution property",
+  "type": "task",
+  "updated_at": "2026-06-22T14:26:33Z"
+}
