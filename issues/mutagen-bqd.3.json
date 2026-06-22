@@ -17,11 +17,15 @@
     {
       "text": "IMPLEMENTED (commit 7f2478b on mutagen-bqd.3/dogfood-self-mutation)\n\nReproducible child-BEAM self-mutation score for mutagen_ex on its own high-value modules.\n\nMechanism (external-process, modeled on test/integration/downstream_adoption_test.exs):\n- test/integration/support/self_mutation_harness.exs shadow-copies mutagen_ex's whole lib/ closure (minus lib/mix/tasks/) into a throwaway Mix project, mechanically rewriting the `MutagenEx`/`mutagen_ex` namespace to a `SelfMut`/`self_mut` shadow root so the self_mutation_refused guard (which only matches the literal `MutagenEx.` prefix) no longer fires. The shadow project wires the real mutagen_ex in as a path dep to supply `mix mutagen`, then the harness drives `mix mutagen --scope lib/self_mut/\u003cm\u003e.ex --tests \u003cm\u003e_test.exs` via System.cmd per target and parses the JSON report.\n- The lowercase `mutagen_ex` rewrite must be global, not just the atom form: three cited tests read their own source from disk (e.g. File.read!(\"lib/mutagen_ex/scope_resolver.ex\")) for provenance assertions; the global rewrite keeps those reads pointed at the shadow tree so the baseline stays green.\n\nTargets + result (byte-identical across two clean runs; content-addressed IDs + serial seeded execution):\n- mutators: 1 site, 1 killed (thin registry module — expected)\n- scope_resolver: 60 sites, 34 killed (0.57)\n- json_reporter: 18 sites, 11 killed (0.61)\n- AGGREGATE: 79 sites, 46 killed, kill rate 0.58\n\n`cli` is intentionally excluded (documented in the harness): cli_test.exs is half Mix.Tasks.Mutagen.run/2 tests that bind to the excluded Mix task and the literal `MutagenEx.` guard prefix; two of them can never pass under the shadow rewrite (a `%SelfMut.Config{}` vs real `%MutagenEx.Config{}` expectation, and `SelfMut.MutationRunner` not being refused). Both redden the baseline before any mutation runs and neither exercises SelfMut.Cli. CLI parse logic is covered indirectly via scope_resolver, which consumes the scopes cli.ex parses.\n\nAcceptance — reproducible self-mutation score cited in README: README \"## Efficacy on real codebases\" gains a \"### Dogfood: mutagen_ex on its own source\" subsection citing 46/79 (0.58), composing with the existing self-study/cross-project sections (not duplicating them).\n\nWiring: test tagged :self_mutation, excluded from default `mix test` (test/test_helper.exs), included in the `mix test.integration` alias (mix.exs). Run via `mix test --include self_mutation`.\n\nVerification (Elixir 1.19.5):\n- mix compile --warnings-as-errors: clean\n- mix test --seed 0: 640 tests, 0 failures (20 excluded) — default lane unaffected\n- mix test test/integration/self_mutation_test.exs --include self_mutation --seed 0: 1 test, 0 failures (13.7s)",
       "timestamp": "2026-06-22T13:51:01Z"
+    },
+    {
+      "text": "-F",
+      "timestamp": "2026-06-22T13:59:30Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Dogfood: child-BEAM self-mutation score",
   "type": "task",
-  "updated_at": "2026-06-22T13:51:43Z"
+  "updated_at": "2026-06-22T13:59:30Z"
 }
