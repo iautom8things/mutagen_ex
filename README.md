@@ -161,6 +161,32 @@ against a Phoenix app, expect an aggregate kill rate in the 0.65-0.75 band,
 not 0.85+;** a merge-gate threshold calibrated for a pure library will
 false-positive on every app.
 
+### Dogfood: mutagen_ex on its own source
+
+A mutation tester that can't report a score on its own code has a credibility
+gap. mutagen_ex has a real reason it can't do this directly — the runner
+shares a BEAM with the tests it cites, so mutating its own running modules
+would corrupt the runner mid-flight, and it *refuses* to try (see
+[`self_mutation_refused`](.spec/decisions/self_mutation_refused.md)). The
+honest way around that refusal is the same external-process path a downstream
+user takes: copy mutagen_ex's own source into a throwaway Mix project under a
+rewritten namespace (so the `MutagenEx.` self-guard no longer matches), wire
+the real `mutagen_ex` in as a dependency, and drive `mix mutagen` against the
+shadow source from a fresh shell.
+
+Run that way against its own high-value modules — the mutator-registry
+(`mutators`), the scope resolver, and the JSON reporter — mutagen_ex's own
+test suite scores **46 of 79 mutants killed, aggregate kill rate 0.58.** The
+run is reproducible to the mutant (content-addressed IDs, serial seeded
+execution): two clean runs on unchanged source produce a byte-identical
+score. The number lands in the same 0.5-0.75 band as the cross-project study
+rather than at a self-congratulatory 0.9+, which is the point — the tool
+holds its own code to the same standard it holds everyone else's, and the
+33 survivors are a standing to-do list of mutation-detectable gaps in
+mutagen_ex's own tests. The harness and its assertions live in
+[`test/integration/self_mutation_test.exs`](test/integration/self_mutation_test.exs);
+run it with `mix test --include self_mutation`.
+
 ### Representative survivors
 
 Aggregate numbers are abstract; the survivors are the point. Two concrete
