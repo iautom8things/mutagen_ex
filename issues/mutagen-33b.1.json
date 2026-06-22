@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T12:47:09Z",
+  "description": "Consensus High (distributed + testing). On --max-concurrency \u003e 1, a per-site worker killed out-of-band (supervisor shutdown, :kill, OOM, Ctrl-C teardown) skips its with_restore after-block, so the original binary is never reloaded; the {:exit, reason} fold branch aborts honestly but does NO compensating BeamCache sweep. The module stays loaded as its MUTANT, and under ordered: true detection is deferred while other concurrent workers (and any post-run code in the same BEAM) execute against mutated code -\u003e mis-classified kill/survive.\n\nTrigger: --max-concurrency 2+, any out-of-band kill of a worker.\nBlast radius: one scoped module stays mutated; concurrent sites mis-classify; embedded/iex hosts keep the poison after the run.\n\nFile: lib/mutagen_ex/mutation_runner.ex:534-585 (fold branch :577-585), :888-905 (with_restore).\n\n## Fix\nOn the {:exit, reason} fold branch, sweep ALL scoped modules through BeamCache.restore/3 before returning the abort — the snapshot ETS table is still alive (the try/after in run_with_beam_cache has not run yet). Treat any restore failure there as part of the same unrecoverable error.\n\n## Test\nAdd a parallel-path test (mutation_runner_parallel or _raise): max_concurrency: 2 + a compiler/process stub that kills its worker on site 1; assert {:error, :unrecoverable_restore_failure, %{message: msg}} with msg =~ \"per-site outer task exited\", AND assert the scoped module is restored to its original binary afterward.\n\n## Done\n- Killed parallel worker leaves NO mutated module loaded.\n- New crash test green; existing serial tests unaffected.",
+  "id": "mutagen-33b.1",
+  "labels": [],
+  "parent": "mutagen-33b",
+  "priority": 1,
+  "status": "open",
+  "title": "CF1: Restore scoped modules on parallel outer-task :exit + worker-crash test",
+  "type": "bug",
+  "updated_at": "2026-06-22T12:47:09Z"
+}
