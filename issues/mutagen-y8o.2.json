@@ -8,9 +8,7 @@
   "created": "2026-06-22T11:29:43Z",
   "description": "Choose a license (MIT is the Elixir-ecosystem convention; user decision) and add:\n- `LICENSE` file at repo root.\n- `licenses: [\"MIT\"]` (or chosen) inside the `package:` block (B1).\n\nhex.pm requires a declared license and expects the file to exist; without it adopters cannot legally use the package.\n\nAcceptance: LICENSE present at root; `licenses:` populated; `mix hex.build` shows the license.",
   "id": "mutagen-y8o.2",
-  "labels": [
-    "phase:merging"
-  ],
+  "labels": [],
   "parent": "mutagen-y8o",
   "comments": [
     {
