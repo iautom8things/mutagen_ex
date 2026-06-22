@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T20:35:31Z",
+  "description": "Discovered while fixing mutagen-de1 (coverage_runner_test r7 tmp-leak flake).\n\nThe r11 \"no disk writes\" test in test/mutagen_ex/mutation_runner_test.exs:1147\nis the structural twin of the coverage r7 test: same DiskSnapshot helper, same\nasync: false, same four assertions, and the same global-System.tmp_dir!() +\numbrella `mutagen_ex` prefix attribution (mutagen_attributable_tmp/1).\n\nIt has the identical order/timing-dependent flake: a `mutagen_ex_`-prefixed tmp\nentry from another lane (C1 :spike, archive install, baseline/beam_cache/memory)\nor a concurrent process, churning through global tmp during the snapshot window,\nis misattributed to the stubbed MutationRunner pass (which writes no tmp).\n\nReproduced deterministically-ish: `mix test --seed 78` surfaced\nmutation_runner_test.exs:1147 once during the mutagen-de1 repro campaign (rare,\ntiming-sensitive).\n\nFix: mirror the mutagen-de1 fix — snapshot the tmp surface against a private\nper-test directory instead of global System.tmp_dir!(); keep the disk-content\n(lib/_build/cover/host) assertions global. See the resolved mutagen-de1 change\nto coverage_runner_test.exs for the exact pattern and rationale, including the\ndeterministic regression guard.\n\nOut of scope for mutagen-de1 (different test file); filed so it is not lost.",
+  "id": "mutagen-0vv",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "mutation_runner_test r11 shares the coverage r7 global-tmp flake (mutagen-de1 sibling)",
+  "type": "bug",
+  "updated_at": "2026-06-22T20:35:31Z"
+}
