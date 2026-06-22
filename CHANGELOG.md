@@ -674,4 +674,4 @@ Carried forward as open tickets against v0.1.x; see the README's
   `token_metadata: true` wraps atomic literals in `__block__` tuples
   that `Literal.match?/1` does not destructure.
 
-[0.1.0]: https://github.com/autom8things/mutagen_ex/releases/tag/v0.1.0
+[0.1.0]: https://github.com/iautom8things/mutagen_ex/releases/tag/v0.1.0
