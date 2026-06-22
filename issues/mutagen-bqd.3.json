@@ -37,11 +37,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: 33781f87-780a-4c97-b7ae-fe26d3cec2b1\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/33781f87-780a-4c97-b7ae-fe26d3cec2b1.jsonl\n\nReasoning: (A) REPRODUCED EXACTLY. Ran the harness scoring entrypoint (SelfMutationHarness.score/0) myself: mutators 1/1, scope_resolver 34/60 (0.567), json_reporter 11/18 (0.611), aggregate killed=46 total=79 survived=33 kill_rate=0.5823 — byte-for-byte the README's \"46 of 79, 0.58\" with matching per-target scope. The tagged test (test/integration/self_mutation_test.exs --include self_mutation --seed 0) passed in 16.9s; note it only pins a \u003e=0.5 floor (line 64), not the exact figure — but the exact figure is correct and the unpinned-floor was disclosed in the test comment (lines 57-66), so it's an acceptable documented-but-unpinned figure, not a defect. (B) CLI EXCLUSION JUSTIFIED. Read cli_test.exs cold: lines 796-939 dispatch the REAL (un-rewritten, path-dep) Mix.Tasks.Mutagen, which builds %MutagenEx.Config{} while the rewritten test asserts %SelfMut.Config{} (line 814), and line 870 asserts MutagenEx.MutationRunner is refused but the rewrite makes it SelfMut.MutationRunner which the real guard (cli.ex:486 @self_module_prefix \"MutagenEx.\") does NOT refuse. Both redden the shadow baseline. The harness cites whole test files per target (run_target/2), so partial-file selection isn't available and surgical excision is fragile — the exclusion is forced by the mechanism, openly documented (harness lines 50-70), and acceptance (\"a reproducible score exists and is cited\") is met for 3 of 4 named groups. Droppable for sound reasons. (C) MECHANISM SOUND. rewrite/1 (harness:255) is a uniform two-token rename (MutagenEx-\u003eSelfMut, mutagen_ex-\u003eself_mut) applied identically to lib and cited tests, semantics-preserving; the harness compiles the shadow before mutating (build_shadow_project! lines 177-185) and run_target asserts refute aborted + total\u003e0, so survivors are meaningful against a green baseline; the real in-tree guard is untouched (cli.ex still pins \"MutagenEx.\" and the 426 in-tree MutagenEx refs are unchanged — real tree still self_mutation_refused). Scope is exactly the 5 expected files; mix compile --warnings-as-errors clean (exit 0); default lane mix test --seed 0 = 640/0 with self_mutation tag-excluded.",
       "timestamp": "2026-06-22T14:09:35Z"
+    },
+    {
+      "text": "APPROVED (full audit). Auditor independently reproduced the self-mutation score (46/79 = 0.58) and confirmed cli exclusion justified + mechanism sound. ff-merged 004f219..7f2478b; epic smoke green (640 tests, self_mutation tag-excluded from default lane). Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T14:10:27Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Dogfood: child-BEAM self-mutation score",
   "type": "task",
-  "updated_at": "2026-06-22T14:10:13Z"
+  "updated_at": "2026-06-22T14:10:27Z"
 }
