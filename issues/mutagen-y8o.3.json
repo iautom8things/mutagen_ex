@@ -19,11 +19,15 @@
     {
       "text": "VERIFY: PASS\nSession: 9686c74a-8dc3-41b7-8739-f24495786b99\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/9686c74a-8dc3-41b7-8739-f24495786b99.jsonl\n\nMechanical checks:\n- Files touched: 2 (mix.exs, mix.lock)\n- Files outside Allowed globs (mix.exs, mix.lock): 0\n- Files matching Out-of-Scope globs: 0\n- Package block (description/licenses/links/maintainers) UNTOUCHED — only the pre-existing `package: package()` context line appears in the diff; no package/description/licenses/maintainers/links lines added or changed.\n\nSemantic checks:\n- Spec stubs run: 0 (config-only ticket; no Advances: spec subjects, no spec-verification block)\n- Requirements coverage: N/A — no `must` requirements; judged against Acceptance instead.\n  - Acceptance \"mix docs builds without error\": SATISFIED. `mix docs` exits 0, prints \"View html docs at doc/index.html\".\n  - Acceptance \"README is the landing page\": SATISFIED. `main: \"readme\"` set; doc/index.html redirects `url=readme.html`; doc/readme.html generated.\n- Intent-level scope concerns: none. Only new dep is `{:ex_doc, \"~\u003e 0.34\", only: :dev, runtime: false}` — dev-only, runtime: false. No runtime deps added. mix.lock adds only ex_doc 0.40.3 + transitive (earmark_parser, makeup, makeup_elixir, makeup_erlang, nimble_parsec).\n- Project verification: PASS\n  - `mix compile --warnings-as-errors`: exit 0, clean.\n  - `mix docs`: exit 0, builds successfully. Emits pre-existing cross-reference WARNINGS (docstrings/README/CHANGELOG referencing hidden ExUnit.Server.add_module/2, Mix.Local.append_archives/0, :erts_debug.same/2, hidden internal modules, and a missing .spec/decisions file reference) — warnings only, do NOT fail mix docs. Not treated as a Gap per orchestrator note.\n  - doc/ is gitignored; generated doc/ removed afterward, tree clean.\n- Audit-expanded scope: none.\n\nVerdict: PASS\n\nNotes: docs/0 added and wired via `docs: docs()` in project/0, with main: \"readme\", extras: [\"README.md\", \"CHANGELOG.md\"], and groups_for_modules splitting Mutators (~r/^MutagenEx\\.Mutators/), Pipeline Facades (~r/^MutagenEx\\.Pipeline/), and Core (explicit module list). Matches ticket spec exactly. Implementer's IMPLEMENTED comment is accurate.",
       "timestamp": "2026-06-22T13:29:34Z"
+    },
+    {
+      "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 9686c74a-8dc3-41b7-8739-f24495786b99\nLog: /Users/mz/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/9686c74a-8dc3-41b7-8739-f24495786b99.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage, full requirement coverage,\nzero mechanical or intent-level scope violations, and passing project verification\n(mix docs builds, README is the landing page; mix compile --warnings-as-errors clean).\nNo auditor was spawned per selective-audit policy.",
+      "timestamp": "2026-06-22T13:30:03Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add ex_doc dep + docs config",
   "type": "task",
-  "updated_at": "2026-06-22T13:29:34Z"
+  "updated_at": "2026-06-22T13:30:03Z"
 }
