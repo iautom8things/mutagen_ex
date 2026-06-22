@@ -7,7 +7,9 @@
   "created": "2026-06-22T12:47:09Z",
   "description": "Consensus Medium (distributed + performance). Parallel mode shares ExUnit.Server / :cover / the code server with no per-module serialization: two workers on the same module race compile-\u003eload-\u003erestore, and two ExUnit.run/0 calls interleave one global server -\u003e wrong classification + corrupted coverage. The byte-identity gate only runs against concurrency-safe FAKES, so it cannot catch real-ExUnit interference. Default of 1 is correct; the flag currently reads like a normal knob.\n\nThis is the immediate, cheap half of the CF2 fork (the real fix is CF2b module-partitioning). Honestly gate it now.\n\nFile: lib/mutagen_ex/mutation_runner.ex:355-364 (documented), :628-633; mutation_loop.ex:181-214; flag plumbing in lib/mix/tasks/mutagen.ex.\n\n## Fix\nWhen the resolved max_concurrency \u003e 1, emit a one-time stderr warning that parallel mode is EXPERIMENTAL and may produce incorrect kill/survive classification + corrupted coverage on real ExUnit/:cover backends, and that the safe path is the default (1). Keep the flag working; just stop presenting it as safe. Document the same in the --max-concurrency help text / README.\n\n## Done\n- max_concurrency \u003e 1 prints the experimental warning once per run.\n- Help text + README mark it experimental.\n- A test asserts the warning fires for N\u003e1 and is silent for N=1.",
   "id": "mutagen-33b.2",
-  "labels": [],
+  "labels": [
+    "phase:implementing"
+  ],
   "parent": "mutagen-33b",
   "priority": 1,
   "status": "in_progress",
