@@ -161,7 +161,12 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
     end
 
     test "no on-disk side effects across all random inputs" do
-      refute Process.whereis(:cover_server)
+      # Under `mix test --cover` the harness owns :cover_server and creates a
+      # `cover/` directory. The invariant is that the *resolver* does not
+      # start cover or create the directory, so assert both are unchanged
+      # across all iterations rather than absent.
+      cover_server_before = Process.whereis(:cover_server)
+      cover_dir_before = File.exists?("cover")
 
       for _ <- 1..@iterations do
         {source, _module_name, _defs} = synthesize_module()
@@ -169,8 +174,8 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
         _ = ScopeResolver.resolve("lib/synth.ex", loader: loader)
       end
 
-      refute Process.whereis(:cover_server)
-      refute File.exists?("cover")
+      assert Process.whereis(:cover_server) == cover_server_before
+      assert File.exists?("cover") == cover_dir_before
     end
   end
 
