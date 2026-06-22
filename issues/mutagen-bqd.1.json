@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:30:48Z",
+  "description": "The README never mentions muzak/muzak_pro (the established Elixir mutation tool by Devon Estes) — zero hits repo-wide outside one internal ADR note. First question from any community reader is 'why not muzak?' and there's no answer.\n\nAdd a README section near the top that states the differentiated niche, which exists today only in internal ADRs:\n- JSON-first, single-document output (no pretty human output by design) — .spec/decisions/no_pretty_output_v1.md\n- Content-addressed, stable mutation IDs across `mix format` — content_addressed_ids.md\n- Deterministic / serial-by-default for reproducibility — serial_execution_and_seed.md\n- Primary consumer is an LLM verifier/judge, not a human — the real thesis\n- In-process pipeline (vs muzak's child-BEAM) and why — in_process_pipeline.md\n\nAcceptance: a reader understands why this exists and how it differs from muzak within the first screen of the README.",
+  "id": "mutagen-bqd.1",
+  "labels": [],
+  "parent": "mutagen-bqd",
+  "priority": 2,
+  "status": "open",
+  "title": "README positioning: why mutagen_ex (vs muzak) + LLM-oracle thesis",
+  "type": "task",
+  "updated_at": "2026-06-22T11:30:48Z"
+}
