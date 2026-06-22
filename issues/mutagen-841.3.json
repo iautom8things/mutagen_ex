@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:33Z",
+  "description": "Testing-review M1. A mutation tool whose own suite is never mutation-tested cannot demonstrate the property it sells. Self-mutation of MutagenEx.* is refused at runtime (r3, mutation_runner.ex:241), but the lane-fixture/System.cmd harness already boots a child project — run mutagen_ex against a PREFIX-RENAMED copy of lib/mutagen_ex/mutators/ (renamed out of the MutagenEx. prefix, or via the archive-install path with no :mutagen_ex dep).\n\nFix: add a :dogfood-tagged slow lane asserting a kill-rate floor (e.g. \u003e=90%). Surviving mutants become actionable test gaps (and likely re-confirm H2/M2).\n\nDone: documented dogfooding run; kill-rate floor enforced in a tagged lane; surviving mutants triaged.",
+  "id": "mutagen-841.3",
+  "labels": [],
+  "parent": "mutagen-841",
+  "priority": 2,
+  "status": "open",
+  "title": "M1: self-dogfooding lane — run mutagen_ex over its own mutators with a kill-rate floor",
+  "type": "task",
+  "updated_at": "2026-06-22T14:26:33Z"
+}
