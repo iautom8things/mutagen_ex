@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-22T14:03:22Z",
   "created": "2026-06-22T11:30:24Z",
   "description": "Advances: all 9 subjects.\nParent of the per-subject migration fan-out. Each child migrates ONE subject's\nspec-scenarios (-\u003e given/when/then arrays) + spec-verification (-\u003e command:/target:)\nblocks and flips status draft -\u003e active. Closes when all children close and the\nwhole corpus validates clean.\nVerification (parent): mix spec.validate =\u003e errors=0 (warnings allowed),\n.spec/state.json written; every subject status: active.\nMerge gate: mix spec.validate (0 errors) \u0026\u0026 mix compile --warnings-as-errors \u0026\u0026 mix test",
   "id": "mutagen-835.2",
@@ -14,7 +15,7 @@
     }
   ],
   "priority": 2,
-  "status": "open",
+  "status": "closed",
   "title": "phase1: migrate .spec corpus to SpecLedEx schema + promote to active",
   "type": "epic",
   "updated_at": "2026-06-22T14:03:22Z"
