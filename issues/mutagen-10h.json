@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-22T16:21:09Z",
@@ -7,8 +7,8 @@
   "id": "mutagen-10h",
   "labels": [],
   "priority": 2,
-  "status": "open",
+  "status": "in_progress",
   "title": "bw comment: add -F/--file (or stdin) for body; reject bare -F silently posted as comment text",
   "type": "bug",
-  "updated_at": "2026-06-22T16:21:09Z"
+  "updated_at": "2026-06-22T19:59:10Z"
 }
