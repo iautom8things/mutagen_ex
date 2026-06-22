@@ -49,11 +49,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 0eb050fa-440a-426e-9f51-bfd4d1ee50de\nLog: /Users/mz/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/0eb050fa-440a-426e-9f51-bfd4d1ee50de.jsonl\n\nReasoning: Re-verify after bounce reported PASS with full stub coverage (4/4, each command executed: v1 28, v2 28 incl. isolated r4:198 = 1, v3 4, v4 4), full requirement coverage (r1-r7 each with an executing binding and a load-bearing 'Would fail if' line — r4 now genuinely covered by v2's tag-less full-file target), zero mechanical or intent-level scope violations (no test/** edits), and passing per-subject project verification. The bounce fix was confirmed by running the commands. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:59:58Z"
+    },
+    {
+      "text": "APPROVED (auto-gate, post-bounce). Rebased + regen state.json, ff-merged. Closing.",
+      "timestamp": "2026-06-22T14:00:08Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.test_selection to SpecLedEx schema (5 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:59:58Z"
+  "updated_at": "2026-06-22T14:00:08Z"
 }
