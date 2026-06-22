@@ -100,7 +100,8 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
 
-      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted details truncated) do
+      for key <-
+            ~w(version meta scope tests baseline coverage mutation warnings aborted details truncated) do
         refute decoded[key] == :null, "key #{key} should not be null on success"
         assert Map.has_key?(decoded, key), "key #{key} missing from success document"
       end
