@@ -15,9 +15,14 @@ defmodule MutagenEx.CoverageRunnerTest do
     * `mutagen.coverage.r5` / `s5` — `covered_lines` keys only include files
       in `cfg.in_scope_modules`.
     * `mutagen.coverage.r7` / `s7` — no disk writes during the run.
-      Asserted across `lib/`, `_build/`, `cover/`, host project config
-      (mix.exs, mix.lock, .formatter.exs), and tmp entries with the
-      `mutagen_ex_` prefix — see the r7 describe block below.
+      Asserted across `lib/`, `_build/`, `cover/`, and host project config
+      (mix.exs, mix.lock, .formatter.exs). r7's tmp-scratch clause is NOT
+      asserted from this stubbed fixture — the runner does no filesystem
+      I/O, so the check would be vacuous, and snapshotting the shared
+      global `System.tmp_dir!()` flaked on ambient `mutagen_ex_*` churn
+      (mutagen-de1; see the r7 describe block below). The tmp clause is
+      guaranteed structurally and exercised via the real `:cover` lifecycle
+      (the `:cover_integration` test + C1 spike, coverage verification v4).
 
   Tests that exercise the real `:cover` lifecycle are tagged
   `:cover_integration` so they can be filtered separately if the
@@ -299,30 +304,49 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---------------------------------------------------------------------------
   #
   # The r7 invariant ("Neither CoverageRunner.run/1 nor AstCache.load/1
-  # modifies any file on disk") is broader than `lib/**/*.ex`. The
-  # original test hashed only the source surface and would ship green
-  # if `CoverageRunner` accidentally:
+  # modifies any file on disk") is broader than `lib/**/*.ex`. This test
+  # asserts byte-identity across the `lib/`, `_build/`, `cover/`, and
+  # host-config surfaces for a stubbed CoverageRunner pass. Those surfaces
+  # do not churn during ExUnit's serial sync phase (this module is
+  # `async: false`, so no other test runs concurrently with it), so the
+  # assertions are deterministic and would catch a stubbed-path write to
+  # `cover/`, `_build/**/*.{beam,app}`, `lib/`, or host config.
   #
-  #   * Wrote a coverage report under `cover/`
-  #   * Touched `_build/**/*.beam` (e.g. by leaving cover-compiled
-  #     artifacts on disk instead of in-memory)
-  #   * Rewrote `mix.exs` / `mix.lock` / `.formatter.exs`
-  #   * Stashed instrumented state under `/tmp` without cleanup
+  # ## Why r7's tmp clause is NOT asserted here (mutagen-de1)
   #
-  # This broader test asserts byte-identity across the same surface as
-  # the r11 test in mutation_runner_test.exs (see that file for the
-  # full allowed-write rationale). The stubbed CoverageRunner pass
-  # here has no allowed-write surface: every diff category must be
-  # empty.
+  # The spec's r7 statement also names tmp scratch under `System.tmp_dir!()`.
+  # That clause is deliberately NOT asserted from this fixture:
   #
-  # Real-cover behavior (cover-instrumented .beam files DO modify
-  # process state but must NOT land on disk) is covered indirectly by
-  # the `:cover_integration` test below and exhaustively by C1
-  # (test/mutagen_ex/integration/c1_test.exs), which already snapshots
-  # its own fixture sources.
+  #   * The stubbed pass uses fakes (`CoverFakeOk` / `ExUnitFake`) and does
+  #     zero filesystem I/O. `CoverageRunner` has no `File.*` /
+  #     `System.tmp_dir` calls at all (see `lib/mutagen_ex/coverage_runner.ex`),
+  #     so it CANNOT create a tmp entry — any tmp assertion at this level is
+  #     vacuous (it can only ever observe entries some OTHER process made).
+  #
+  #   * The earlier version snapshotted the *shared global* `System.tmp_dir!()`
+  #     and flagged any `mutagen_ex_`-prefixed entry appearing in the
+  #     ~microsecond pre/post window via `mutagen_attributable_tmp/1`'s
+  #     umbrella `mutagen_ex` prefix. Sibling lanes (C1 `:spike`
+  #     `mutagen_ex_c1_*`, archive install `mutagen_ex_archive_*`,
+  #     baseline/beam_cache/memory unit tests) and concurrent processes use
+  #     that same prefix, so ambient churn was misattributed to this run —
+  #     an order/timing-dependent false positive (the mutagen-de1 flake).
+  #     Precise per-run attribution by filename is impossible (the runner
+  #     creates nothing to attribute), so the global-tmp check is inherently
+  #     flaky on shared hardware and provides no real signal.
+  #
+  # The runner's no-tmp-scratch behaviour is instead guaranteed structurally
+  # (the runner has no filesystem calls) and the genuine `:cover` lifecycle
+  # is exercised by the `:cover_integration` real-cover test below and the
+  # C1 spike (coverage verification v4,
+  # `mix test --only spike test/mutagen_ex/integration/c1_test.exs`), which
+  # snapshots byte-identity of its own controlled fixture sources.
+  #
+  # The r11 twin in `mutation_runner_test.exs` (same DiskSnapshot pattern,
+  # same global-tmp flake) is tracked separately as mutagen-0vv.
 
   describe "r7: no disk writes (broader surface, s7)" do
-    test "lib/, _build/, cover/, host config, and /tmp are byte-identical before/after a coverage run" do
+    test "lib/, _build/, cover/, and host config are byte-identical before/after a coverage run" do
       pre = MutagenEx.TestSupport.DiskSnapshot.snapshot()
 
       cfg = base_cfg_with_fakes()
@@ -349,14 +373,11 @@ defmodule MutagenEx.CoverageRunnerTest do
              "r7 regression: coverage run created files on disk:\n" <>
                Enum.map_join(diff.added, "\n  ", &("- " <> &1))
 
-      # /tmp entries with `mutagen_ex_` prefix: only flag MutagenEx-
-      # attributable entries to avoid flake from concurrent test
-      # processes.
-      attributable = MutagenEx.TestSupport.DiskSnapshot.mutagen_attributable_tmp(diff)
-
-      assert attributable == [],
-             "r7 regression: coverage run created tmp entries with `mutagen_ex_` prefix:\n" <>
-               Enum.map_join(attributable, "\n  ", &("- " <> &1))
+      # NOTE: `diff.tmp_added` / `diff.tmp_removed` are intentionally NOT
+      # asserted — see the describe-block comment above. They reflect the
+      # shared global `System.tmp_dir!()`, which the stubbed runner cannot
+      # touch and which ambient `mutagen_ex_*` churn makes non-deterministic
+      # (mutagen-de1). r7's tmp clause is covered by the real-`:cover` paths.
     end
   end
 
