@@ -46,7 +46,7 @@ defmodule MutagenEx.MixProject do
   defp package do
     [
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/autom8things/mutagen_ex"},
+      links: %{"GitHub" => "https://github.com/iautom8things/mutagen_ex"},
       maintainers: ["Manuel Zubieta"]
     ]
   end
