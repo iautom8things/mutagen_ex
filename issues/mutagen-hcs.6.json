@@ -5,9 +5,7 @@
   "created": "2026-06-22T11:30:19Z",
   "description": "Two docs-usability gaps from the assessment:\n\n1. JSON output underdocumented (README.md:286-298 punts to golden fixtures + internal .spec files that DON'T ship in the hex package). Add an inline, annotated JSON example showing key fields (version, meta, mutation.kill_rate, results[].status, aborted) with plain-English explanations. This is the single most important thing a mutation tool should show.\n\n2. CHANGELOG is an internal dev log keyed on ticket IDs (mutagen-wrd.X, S1-S6, r11, 'F28/CF11'). Rewrite the [0.1.0] and [Unreleased] sections in user-visible-behavior terms; footnote or strip internal IDs.\n\nAcceptance: a new user can understand the output and changelog without repo access.",
   "id": "mutagen-hcs.6",
-  "labels": [
-    "phase:merging"
-  ],
+  "labels": [],
   "parent": "mutagen-hcs",
   "comments": [
     {
