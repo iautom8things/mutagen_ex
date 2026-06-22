@@ -13,11 +13,15 @@
     {
       "text": "ORCHESTRATED\nChildren closed: 11 this run (phase1 umbrella .2; nine subject migrations .2.1–.2.9; phase2 bindings .3). phase0 .1 was already closed.\nBOUNCEs encountered: 1 (.2.8 verify FAIL — v2 verification pointed at a nonexistent `--only no_module_load` tag and ran zero tests; bounced to implementer, fixed by retargeting v2 to the full-file run; re-verified PASS).\nUser escalations: 0 hard pauses. 2 user decisions requested: (a) implementer mode → Claude subagents; (b) pre-existing mix.exs format violation → fixed inline (commit 083cdf0).\n\nResult: .spec/ corpus fully migrated to the SpecLedEx schema and all 9 subjects bound via realized_by.api_boundary.\nEpic branch spec-led/bootstrap @ cdfad67 (19 commits over base feb5675). Final gates GREEN:\n  mix compile --warnings-as-errors · mix test --seed 0 (640/0) · mix format --check-formatted · mix deps.unlock --check-unused\n  mix spec.validate → status=pass errors=0 warnings=0 · mix spec.check branch_guard_dangling_binding → 0\n\nFollow-ups surfaced (NOT done — out of this epic's scope):\n- telemetry.app not bundled in the .ez archive → archive_install_test red (pre-existing; r16/mutagen.cli v11). File as a standalone bug.\n- coverage_runner_test order-dependent tmp-leak flake under random seed (pre-existing; use --seed 0).\n- .spec/state.json: committed form is `mix spec.index` output; `mix spec.validate` writes a divergent verbose form. Decide which generator is canonical / whether to gitignore before CI asserts a clean tree.\n\nEpic left in_progress (phase:implementing) per lifecycle — orchestration finishes the CODE only. Next: a single human-reviewed PR from spec-led/bootstrap → main (do not auto-open).",
       "timestamp": "2026-06-22T14:43:17Z"
+    },
+    {
+      "text": "DELIVERED. Squash-merged to origin/main @ b31354f (\"Adopt SpecLedEx tooling and migrate .spec corpus (mutagen-835)\") and pushed. All 12 children closed; final gates green on main (compile --warnings-as-errors, mix test --seed 0 640/0, format, deps.unlock, mix spec.validate 0 errors/0 warnings, mix spec.check 0 dangling bindings). No separate deploy — this is dev/test tooling; the main merge is the ship. Closing per /deliver.\n\nFollow-ups left open (not in this epic's tree): mutagen-de1 (coverage flake — likely fixed by main's dba01be), mutagen-px5 (.spec/state.json canonical generator decision), mutagen-10h (bw comment -F gap).",
+      "timestamp": "2026-06-22T19:59:46Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Adopt SpecLedEx to phase2 (migrate bespoke .spec corpus)",
   "type": "epic",
-  "updated_at": "2026-06-22T14:43:17Z"
+  "updated_at": "2026-06-22T19:59:46Z"
 }
