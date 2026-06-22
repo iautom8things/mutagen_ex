@@ -12,9 +12,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-y8o",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: impl-worker (mutagen-y8o.2/add-license-file)\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex-add-license-file/\u003csession-uuid\u003e.jsonl\n\nCommit: c7f4a01\nFiles touched: LICENSE (new), mix.exs\nTests added: none (metadata-only ticket; no test files changed)\nVerification stubs flipped: none\n\nSummary: Created the standard MIT license text at the repo root (copyright Manuel Zubieta, 2026) and added a minimal package/0 block to mix.exs containing only licenses: [\"MIT\"], wired in via package: package() in project/0. The package block is intentionally minimal so sibling ticket mutagen-y8o.1 can extend it with description/links/maintainers. Verified: mix compile --warnings-as-errors clean; mix hex.build reports `Licenses: MIT` and bundles `LICENSE` in Files. The \"Missing metadata fields: description, links\" warning from hex.build is expected and owned by B1 (mutagen-y8o.1), not a failure for this ticket.",
+      "timestamp": "2026-06-22T12:50:11Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add LICENSE file + licenses key",
   "type": "task",
-  "updated_at": "2026-06-22T12:44:56Z"
+  "updated_at": "2026-06-22T12:50:11Z"
 }
