@@ -128,7 +128,15 @@ defmodule MutagenEx.MixProject do
       # attach their own handlers. No metrics/exporter dependency — the
       # event surface is intentionally minimal.
       {:telemetry, "~> 1.0"},
-      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false},
+
+      # Spec-Led Development tooling. Dev/test only — the `mix spec.*`
+      # tasks validate and check the `.spec/` corpus against the code;
+      # they are not part of the mutagen runtime. Pinned to a branch
+      # because spec_led_ex is not yet published to Hex and carries no
+      # semver tag.
+      {:spec_led_ex,
+       github: "iautom8things/specled_ex", branch: "main", only: [:dev, :test], runtime: false}
     ]
   end
 end

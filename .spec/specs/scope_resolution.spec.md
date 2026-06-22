@@ -25,12 +25,15 @@ filter sites. Errors here halt the pipeline before any test runs.
 ```spec-meta
 id: mutagen.scope_resolution
 kind: module
-status: draft
+status: active
 summary: Resolves --scope targets to {file, line_range, module} records over parsed ASTs.
 surface:
   - lib/mutagen_ex/scope_resolver.ex
 decisions:
   - mutagen.decision.scope_syntax_simplified
+realized_by:
+  api_boundary:
+    - "MutagenEx.ScopeResolver"
 ```
 
 ```spec-requirements
@@ -124,124 +127,162 @@ decisions:
 ```spec-scenarios
 - id: mutagen.scope_resolution.s1
   covers: [mutagen.scope_resolution.r1]
-  given: A file `lib/foo.ex` containing one `defmodule Foo do ... end` between lines 1 and 30.
-  when: The resolver is called with `--scope lib/foo.ex`.
-  then: |
-    The resolver returns `[%Scope{file: "lib/foo.ex", line_range: 1..30,
-    module: Foo}]`.
+  given:
+    - A file `lib/foo.ex` containing one `defmodule Foo do ... end` between lines 1 and 30.
+  when:
+    - The resolver is called with `--scope lib/foo.ex`.
+  then:
+    - |
+      The resolver returns `[%Scope{file: "lib/foo.ex", line_range: 1..30,
+      module: Foo}]`.
 
 - id: mutagen.scope_resolution.s2
   covers: [mutagen.scope_resolution.r2]
-  given: |
-    A project containing `lib/foo/bar.ex` with `defmodule Foo.Bar`.
-  when: The resolver is called with `--scope Foo.Bar`.
-  then: |
-    The resolver returns a single `%Scope{}` record naming the file path it
-    found `defmodule Foo.Bar` in. No other file is searched once a match is
-    found.
+  given:
+    - A project containing `lib/foo/bar.ex` with `defmodule Foo.Bar`.
+  when:
+    - The resolver is called with `--scope Foo.Bar`.
+  then:
+    - |
+      The resolver returns a single `%Scope{}` record naming the file path it
+      found `defmodule Foo.Bar` in. No other file is searched once a match is
+      found.
 
 - id: mutagen.scope_resolution.s3
   covers: [mutagen.scope_resolution.r3]
-  given: |
-    `lib/foo.ex` contains `defmodule Foo do; def bar(x), do: x; def bar(x,
-    y), do: x + y; end`.
-  when: The resolver is called with `--scope Foo.bar/1`.
-  then: |
-    The returned `line_range` covers only the `bar/1` clause, not `bar/2`.
+  given:
+    - |
+      `lib/foo.ex` contains `defmodule Foo do; def bar(x), do: x; def bar(x,
+      y), do: x + y; end`.
+  when:
+    - The resolver is called with `--scope Foo.bar/1`.
+  then:
+    - |
+      The returned `line_range` covers only the `bar/1` clause, not `bar/2`.
 
 - id: mutagen.scope_resolution.s4
   covers: [mutagen.scope_resolution.r3]
-  given: A scope target `Foo.bar` (no `/arity`).
-  when: The resolver runs.
-  then: |
-    An error tuple `{:error, reason: :arity_required, target: "Foo.bar"}` is
-    returned.
+  given:
+    - A scope target `Foo.bar` (no `/arity`).
+  when:
+    - The resolver runs.
+  then:
+    - |
+      An error tuple `{:error, reason: :arity_required, target: "Foo.bar"}` is
+      returned.
 
 - id: mutagen.scope_resolution.s5
   covers: [mutagen.scope_resolution.r4]
-  given: A scope target `lib/foo.ex:Foo.bar/1`.
-  when: The resolver runs.
-  then: |
-    An error tuple `{:error, reason: :colon_syntax_unsupported, target:
-    "lib/foo.ex:Foo.bar/1"}` is returned.
+  given:
+    - A scope target `lib/foo.ex:Foo.bar/1`.
+  when:
+    - The resolver runs.
+  then:
+    - |
+      An error tuple `{:error, reason: :colon_syntax_unsupported, target:
+      "lib/foo.ex:Foo.bar/1"}` is returned.
 
 - id: mutagen.scope_resolution.s6
   covers: [mutagen.scope_resolution.r5]
-  given: |
-    `lib/multi.ex` contains `defmodule A do ... end` (lines 1..10) and
-    `defmodule B do ... end` (lines 12..25).
-  when: The resolver is called with `--scope A`.
-  then: |
-    The returned `line_range` is 1..10. Lines 12..25 are not included.
+  given:
+    - |
+      `lib/multi.ex` contains `defmodule A do ... end` (lines 1..10) and
+      `defmodule B do ... end` (lines 12..25).
+  when:
+    - The resolver is called with `--scope A`.
+  then:
+    - |
+      The returned `line_range` is 1..10. Lines 12..25 are not included.
 
 - id: mutagen.scope_resolution.s7
   covers: [mutagen.scope_resolution.r6]
-  given: A resolver run that completes successfully.
-  when: The resolver returns.
-  then: |
-    Comparing each affected source file's bytes before and after the
-    resolver call shows zero changes. `cover/` is not created by the
-    resolver. The `.beam` files in `_build/` are unchanged.
+  given:
+    - A resolver run that completes successfully.
+  when:
+    - The resolver returns.
+  then:
+    - |
+      Comparing each affected source file's bytes before and after the
+      resolver call shows zero changes. `cover/` is not created by the
+      resolver. The `.beam` files in `_build/` are unchanged.
 
 - id: mutagen.scope_resolution.s8
   covers: [mutagen.scope_resolution.r8]
-  given: |
-    A loader returning a fixed `defmodule Foo do end` and N distinct
-    never-registered module-shaped targets (`Nope1`, `Nope2`, ...,
-    `NopeN`).
-  when: The resolver is called once per target.
-  then: |
-    Every call returns `{:error, :module_not_found, _}`.
-    `:erlang.system_info(:atom_count)` is identical before and after the N
-    calls — no atom is created from any of the `NopeN` strings. The same
-    invariant holds for MFA-shaped targets (`NopeN.bar/1`): no atom is
-    created from `NopeN` or from the function-name segment `bar` when
-    `bar` is not already a registered atom.
+  given:
+    - |
+      A loader returning a fixed `defmodule Foo do end` and N distinct
+      never-registered module-shaped targets (`Nope1`, `Nope2`, ...,
+      `NopeN`).
+  when:
+    - The resolver is called once per target.
+  then:
+    - |
+      Every call returns `{:error, :module_not_found, _}`.
+      `:erlang.system_info(:atom_count)` is identical before and after the N
+      calls — no atom is created from any of the `NopeN` strings. The same
+      invariant holds for MFA-shaped targets (`NopeN.bar/1`): no atom is
+      created from `NopeN` or from the function-name segment `bar` when
+      `bar` is not already a registered atom.
 
 - id: mutagen.scope_resolution.s9
   covers: [mutagen.scope_resolution.r9]
-  given: |
-    A project source layout where `Path.wildcard("lib/**/*.ex")` would
-    return files in some host-dependent order (the contract here is
-    properties of the resolver's behaviour, not of the underlying
-    file system).
-  when: |
-    `resolve/2` is called twice for the same module target with no
-    `:source_files` option, on the same project.
-  then: |
-    Both calls iterate the candidate file list in the same lexicographic
-    order. The implementation `MutagenEx.ScopeResolver.source_files/1`
-    wraps the wildcard result in `Enum.sort/1` before returning.
+  given:
+    - |
+      A project source layout where `Path.wildcard("lib/**/*.ex")` would
+      return files in some host-dependent order (the contract here is
+      properties of the resolver's behaviour, not of the underlying
+      file system).
+  when:
+    - |
+      `resolve/2` is called twice for the same module target with no
+      `:source_files` option, on the same project.
+  then:
+    - |
+      Both calls iterate the candidate file list in the same lexicographic
+      order. The implementation `MutagenEx.ScopeResolver.source_files/1`
+      wraps the wildcard result in `Enum.sort/1` before returning.
 ```
 
 ```spec-verification
 - id: mutagen.scope_resolution.v1
   covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2, mutagen.scope_resolution.r3, mutagen.scope_resolution.r5]
   kind: command
-  command: mix test test/mutagen_ex/scope_resolver_test.exs
+  target: mix test test/mutagen_ex/scope_resolver_test.exs
   execute: true
 
 - id: mutagen.scope_resolution.v2
   covers: [mutagen.scope_resolution.r3, mutagen.scope_resolution.r4]
   kind: command
-  command: mix test test/mutagen_ex/scope_resolver_test.exs --only error_cases
+  target: mix test test/mutagen_ex/scope_resolver_test.exs --only error_cases
   execute: true
 
 - id: mutagen.scope_resolution.v3
   covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2]
   kind: command
-  command: mix test test/mutagen_ex/scope_resolver_property_test.exs
+  target: mix test test/mutagen_ex/scope_resolver_property_test.exs
   execute: true
 
 - id: mutagen.scope_resolution.v4
   covers: [mutagen.scope_resolution.r8]
   kind: command
-  command: mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety
+  target: mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety
   execute: true
 
 - id: mutagen.scope_resolution.v5
   covers: [mutagen.scope_resolution.r9]
   kind: command
-  command: mix test test/mutagen_ex/scope_resolver_test.exs --only wildcard_determinism
+  target: mix test test/mutagen_ex/scope_resolver_test.exs --only wildcard_determinism
+  execute: true
+
+- id: mutagen.scope_resolution.v6
+  covers: [mutagen.scope_resolution.r6]
+  kind: command
+  target: mix test test/mutagen_ex/scope_resolver_test.exs
+  execute: true
+
+- id: mutagen.scope_resolution.v7
+  covers: [mutagen.scope_resolution.r7]
+  kind: command
+  target: mix test test/mutagen_ex/scope_resolver_test.exs
   execute: true
 ```
