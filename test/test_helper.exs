@@ -33,4 +33,18 @@
 #   generated host project with no `:mutagen_ex` dependency declaration.
 #   Run explicitly via `mix test --include archive_integration` or
 #   `mix test.integration`.
-ExUnit.start(exclude: [:e2e_slow, :spike, :downstream_integration, :archive_integration])
+# - `:mutagen_baseline_red_guard` tags the deliberately-red and -green
+#   cited fixture modules under `test/fixtures/baseline_red_guard/`. They
+#   are `Code.require_file/1`'d by `MutagenEx.BaselineRedGuardTest` and
+#   driven only through that test's own nested `ExUnit.run/0` calls (which
+#   re-`include` the tag). Excluding it here keeps the parent suite from
+#   running the deliberately-red fixture as a spurious top-level failure.
+ExUnit.start(
+  exclude: [
+    :e2e_slow,
+    :spike,
+    :downstream_integration,
+    :archive_integration,
+    :mutagen_baseline_red_guard
+  ]
+)

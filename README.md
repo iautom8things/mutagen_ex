@@ -297,22 +297,35 @@ is the golden fixture set under `test/mutagen_ex/golden/`:
 The behavioural contract for the document lives in
 `.spec/specs/json_schema.spec.md`.
 
+## Baseline guard rail
+
+Before any mutation runs, the `baseline` phase runs the cited tests
+once against unmodified code. If any cited test fails, the pipeline
+aborts with `reason: :baseline_red` and emits the error-JSON document
+(`aborted: true`, populated `baseline.failed`) — mutation never starts.
+This catches the "your suite is already red" case so kill rates are
+never computed against a broken baseline.
+
+The guard works even though the `coverage → baseline → mutation` phase
+order drains `ExUnit.Server` (each `ExUnit.run/0` consumes the server's
+registered-module list) and `Code.require_file/1` is one-shot per path.
+Both the coverage and baseline phases explicitly re-register each cited
+module with `ExUnit.Server.add_module/2` before their own `ExUnit.run/0`
+(mutagen-wrd.37 / mutagen-wrd.38), so baseline sees the cited modules in
+the registry and reports real failures. The production-condition
+regression test for this lives in
+`test/mutagen_ex/baseline_red_guard_test.exs` (it drives the real
+`ExUnit.Server`, not a fake), with end-to-end coverage in
+`test/mutagen_ex/end_to_end_test.exs` (`:baseline_red_scenario`).
+
+> Earlier releases documented this as a limitation (the guard "did not
+> trip"). That was fixed by the re-registration above; the manual
+> `mix test`-first workaround the old docs suggested is no longer
+> required.
+
 ## Known limitations
 
-1. **Baseline phase runs zero tests in production — `:baseline_red`
-   guard rail does not trip.** The `coverage → baseline → mutation`
-   phase order means `Code.require_file/1` (used by both coverage and
-   baseline to load cited test files) is cached by the time baseline
-   runs. `ExUnit.Server` has already been drained by coverage's
-   `ExUnit.run/0`, so baseline's `ExUnit.run/0` reports `failures: 0`
-   regardless of whether the cited tests actually pass. Survived/killed
-   classification is **unaffected** — the mutation phase explicitly
-   re-registers each module with `ExUnit.Server.add_module/2` before
-   every per-site run. Tracked as `mutagen-wrd.37`. Workaround until
-   fixed: confirm the cited tests pass via a normal `mix test` before
-   running `mix mutagen`; mutagen_ex will not warn if they're red.
-
-2. **`:case_drop` on a guarded recursive-base-case classifies
+1. **`:case_drop` on a guarded recursive-base-case classifies
    `:killed`, not `:timeout`.** Documented behavior (per
    `mutagen-wrd.14`): when the dropped clause is the only non-recursing
    branch, the surviving recursive clause's guard rejects the base
