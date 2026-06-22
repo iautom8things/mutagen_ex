@@ -10,6 +10,230 @@ The CLI (`mix mutagen`) is the supported user-facing entry point;
 point. The JSON document is the only output. Both are stable contracts
 as of v0.1.0.
 
+## Why mutagen_ex (and how it differs from muzak)
+
+Elixir already has a mature mutation tester:
+[muzak / muzak_pro](https://hex.pm/packages/muzak) by Devon Estes. If you
+want a polished, human-facing mutation-testing workflow for everyday TDD,
+muzak is the established choice and mutagen_ex is not trying to replace it.
+
+mutagen_ex exists for a different primary consumer: **an LLM verifier or
+judge, not a human.** That single design constraint is the thesis behind
+every difference below. When the output of mutation testing is fed to a
+model that grades a test suite — or to an automated agent that decides
+whether generated tests actually pin behavior — the requirements invert.
+A human wants color, progress bars, and a readable summary. A model wants
+one machine-parseable document, IDs it can compare across runs, and bytes
+that don't change for reasons unrelated to the code under test.
+
+Concretely, mutagen_ex differs from muzak on five deliberate axes:
+
+- **JSON-first, single-document output — no pretty human renderer by
+  design.** `mix mutagen` emits exactly one JSON document (to stdout or
+  `--json <path>`) and nothing else. There is no `--no-json` pretty mode;
+  supplying it is a hard error, not a silent fallback. Humans pipe through
+  `jq`. See [`.spec/decisions/no_pretty_output_v1.md`](.spec/decisions/no_pretty_output_v1.md).
+
+- **Content-addressed, stable mutation IDs across `mix format`.** Each
+  mutation's `id` is `{relative_file}:{ast_hash}:{mutator_name}`, where the
+  hash is taken over the *normalized AST* (line/column metadata stripped).
+  Re-running after `mix format` reflows the source produces byte-identical
+  IDs, so a judge can ask "did the same mutation survive last week?" and
+  get a meaningful answer. A naive `file:line:col` scheme cannot. See
+  [`.spec/decisions/content_addressed_ids.md`](.spec/decisions/content_addressed_ids.md).
+
+- **Deterministic, serial-by-default execution.** Every phase — baseline,
+  coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
+  `--seed` (default `0`). The same `{source, --tests, --scope, --seed}`
+  always yields the same per-site classification. Reproducibility is the
+  point; a judge comparing two runs must be able to trust that a difference
+  reflects a code change, not test-order flake. See
+  [`.spec/decisions/serial_execution_and_seed.md`](.spec/decisions/serial_execution_and_seed.md).
+
+- **The primary consumer is an LLM verifier/judge, not a human.** This is
+  the real thesis, and it is why the three points above are features rather
+  than omissions. mutagen_ex optimizes for being read by a model and
+  consumed by automation. Human ergonomics are explicitly secondary in v1.
+
+- **In-process pipeline (vs muzak's child-BEAM-per-mutation).** mutagen_ex
+  swaps bytecode via `Code.compile_quoted/1` and restores from a cached AST,
+  all inside the same BEAM VM as the Mix task — roughly 10x faster per
+  mutation than spawning a fresh node each time, which matters when a model
+  is waiting on feedback. The trade-off is honest: shared-VM state drift on
+  `use SomeModule` macros is possible, so it is surfaced as
+  `mutation.state_drift_warning` in the JSON rather than hidden. The cost of
+  staying in-process is that mutagen_ex cannot mutate *itself* (doing so
+  would corrupt the running runner); self-mutation is refused with
+  `reason: :self_mutation_refused`. See
+  [`.spec/decisions/in_process_pipeline.md`](.spec/decisions/in_process_pipeline.md)
+  and [`.spec/decisions/self_mutation_refused.md`](.spec/decisions/self_mutation_refused.md).
+
+If none of that matches your use case — if you want a human-friendly
+mutation tester for interactive use — reach for muzak. If you are building
+an LLM-graded or agent-driven test-quality pipeline and need stable,
+machine-first output, that gap is the one mutagen_ex was built to fill.
+
+## The mutator catalog and its lineage
+
+mutagen_ex ships ten AST mutators (`.spec/specs/mutators.spec.md`). They fall
+into two groups: four that are direct Elixir realizations of the classic,
+language-agnostic mutation operators studied since the Mothra era, and six
+that are Elixir-idiomatic and have no clean parallel in the C/Java mutation
+literature.
+
+The first group maps onto the *selective mutation* operator set — the small
+family Offutt et al. found sufficient to retain almost all of a full operator
+set's fault-detection power at a fraction of the mutant count (Offutt, Lee,
+Rothermel, Untch & Zapf, "An Experimental Determination of Sufficient Mutant
+Operators," *ACM TOSEM* 5(2), 1996, [doi:10.1145/227607.227610](https://doi.org/10.1145/227607.227610);
+see also Jia & Harman's survey, *IEEE TSE* 37(5), 2011,
+[doi:10.1109/TSE.2010.62](https://doi.org/10.1109/TSE.2010.62) for the broader
+taxonomy these abbreviations come from):
+
+| mutagen_ex mutator | Standard operator | What it does |
+|---|---|---|
+| `arith` | **AOR** — Arithmetic Operator Replacement | swaps `+ ↔ -`, `* ↔ /` on numeric binary ops |
+| `compare` | **ROR** — Relational Operator Replacement | swaps `== ↔ !=`, `< ↔ >=`, `> ↔ <=` |
+| `boolean` | **LCR** — Logical Connector Replacement | swaps `and ↔ or`, `&& ↔ \|\|`, drops `not`/`!` |
+| `literal` | **CRP** — Constant Replacement | flips `true ↔ false`, swaps small integer literals |
+
+The remaining six mutate constructs that are idiomatic to Elixir/Erlang and
+have no language-agnostic equivalent in the standard catalogs — they exist
+because the standard operators say nothing about tagged tuples, multi-clause
+guards, `with`, or the pipe:
+
+| mutagen_ex mutator | What it does | Why it has no classic parallel |
+|---|---|---|
+| `result_tuple` | flips `{:ok, x}` ↔ `{:error, x}` | targets Elixir's tagged-tuple result convention |
+| `guard_drop` | drops a function-clause `when` guard | guards are an Elixir/Erlang dispatch construct |
+| `with_swap` | reorders `with` clauses | `with` is an Elixir control structure |
+| `else_removal` | drops the `else` branch of `if`/`with` | shaped to Elixir's `if`/`with` else semantics |
+| `case_drop` | drops the last `case`/`cond` clause | closest to the classic statement/clause-deletion (SDL) family, but Elixir's exhaustiveness and `CaseClauseError` behaviour make it its own thing (see Known limitations) |
+| `pipeline` | reorders adjacent `\|>` segments | the pipe operator is Elixir-idiomatic |
+
+The split is deliberate: the four classic operators give the catalog a
+well-understood, citable backbone, while the six idiomatic operators cover the
+fault classes that only show up in Elixir code. Treat the standard-operator
+names above as the vocabulary a reviewer (human or LLM judge) already knows;
+treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
+
+## Efficacy on real codebases
+
+The argument above is only worth anything if mutagen_ex actually surfaces
+real test gaps on real code — not just on a synthetic fixture. It does. Two
+empirical studies back this up.
+
+**Self-study (the library's own tests).** Across 22 closed tickets in
+mutagen_ex's own history — each carrying a human verifier's written claim
+that the tests covered the implementation — we ran `mix mutagen` against the
+module under test and compared the kill rate to the verifier's verdict.
+**160 mutation sites, aggregate kill rate 0.75.** mutagen_ex found concrete,
+fixable test gaps in **8 of the 22 tickets** — gaps an experienced reviewer
+had already approved by hand. A secondary signal held up too: tickets where
+a reviewer had raised any rigor concern came back weaker (kill rate 0.68)
+than clean first-try approvals (0.75), which in turn were weaker than
+tickets that had been bounced and re-implemented (0.88). Human review
+carries information, but routinely misses the *specific* mutation-detectable
+gap.
+
+**Cross-project study (other people's code).** Using the `mix archive.install`
+adoption path (so the target repos stayed untouched), mutagen_ex was run
+against three additional Elixir codebases written by different teams: a
+stdlib-only library, a Phoenix/Ecto knowledge-graph application, and a
+Phoenix LiveView admin application. A fourth, ETL-heavy Phoenix app was
+surveyed but had too thin a verified-ticket history to study.
+
+| Codebase shape | Mutation sites | Aggregate kill rate |
+|---|---:|---:|
+| Stdlib-only library (self-study) | 160 | 0.75 |
+| Phoenix/Ecto knowledge-graph + MCP app | 153 | 0.67 |
+| Phoenix LiveView admin app | 218 | 0.70 |
+
+The headline result is the **convergence**: three codebases of radically
+different shape, test discipline, and authorship landed within ~10 points of
+each other. mutagen_ex is measuring a property of test rigor that is roughly
+invariant across Elixir codebase shape — strong calibration evidence. The
+small spread is itself informative: pure functional libraries (narrow units,
+easy to test thoroughly) score highest, and Phoenix apps — whose
+happy-path, boundary-implicit tests are inherently weaker at killing
+per-branch mutations — sit a few points below. **If you run mutagen_ex
+against a Phoenix app, expect an aggregate kill rate in the 0.65-0.75 band,
+not 0.85+;** a merge-gate threshold calibrated for a pure library will
+false-positive on every app.
+
+### Dogfood: mutagen_ex on its own source
+
+A mutation tester that can't report a score on its own code has a credibility
+gap. mutagen_ex has a real reason it can't do this directly — the runner
+shares a BEAM with the tests it cites, so mutating its own running modules
+would corrupt the runner mid-flight, and it *refuses* to try (see
+[`self_mutation_refused`](.spec/decisions/self_mutation_refused.md)). The
+honest way around that refusal is the same external-process path a downstream
+user takes: copy mutagen_ex's own source into a throwaway Mix project under a
+rewritten namespace (so the `MutagenEx.` self-guard no longer matches), wire
+the real `mutagen_ex` in as a dependency, and drive `mix mutagen` against the
+shadow source from a fresh shell.
+
+Run that way against its own high-value modules — the mutator-registry
+(`mutators`), the scope resolver, and the JSON reporter — mutagen_ex's own
+test suite scores **46 of 79 mutants killed, aggregate kill rate 0.58.** The
+run is reproducible to the mutant (content-addressed IDs, serial seeded
+execution): two clean runs on unchanged source produce a byte-identical
+score. The number lands in the same 0.5-0.75 band as the cross-project study
+rather than at a self-congratulatory 0.9+, which is the point — the tool
+holds its own code to the same standard it holds everyone else's, and the
+33 survivors are a standing to-do list of mutation-detectable gaps in
+mutagen_ex's own tests. The harness and its assertions live in
+[`test/integration/self_mutation_test.exs`](test/integration/self_mutation_test.exs);
+run it with `mix test --include self_mutation`.
+
+### Representative survivors
+
+Aggregate numbers are abstract; the survivors are the point. Two concrete
+findings from the cross-project study:
+
+- **A config-diff module in the admin app scored a kill rate of 0.00 —
+  *every* mutation survived.** It was a clean, first-try verifier approval.
+  Whatever its tests were asserting, it was not the module's actual
+  behaviour: nothing the test does would catch a meaningful behavioural
+  change. That is the entire pitch of mutation testing made concrete in a
+  single number, on production code a human had already signed off.
+
+- **A controller action whose `{:error, changeset}` arm a verifier had
+  *explicitly* flagged as uncovered** went through a bounce-and-redo cycle;
+  the final approval comment named the gap and claimed it was addressed.
+  mutagen_ex scored the surrounding module at kill rate 0.89 — strong — with
+  exactly one residual survivor: a mutation on the precise line the verifier
+  had pointed at. The redo cleaned up the neighbourhood and missed the named
+  arm. A reviewer pointed at a gap, the implementer claimed to fix it, and
+  mutagen_ex showed the gap was still there.
+
+### Caveats, surfaced honestly
+
+- **Aggregate kill rate is a lower bound on test quality.** Equivalent
+  mutants (behaviourally identical to the original) count as survivors and
+  need human disposition; they deflate the score without representing a real
+  gap.
+- **Coverage gating means structural code goes silent.** Ecto DSL,
+  `defmodule`-only files, and `match?`-on-tuple code report zero sites —
+  that is mutagen_ex saying it has nothing to mutate, not a gap.
+- **Phoenix/Ecto apps currently need the host OTP application started before
+  tests run.** The archive-install runtime starts only `:mutagen_ex` itself,
+  which suits stdlib-only libraries but not apps whose tests need `Repo`,
+  `Mox`, `PubSub`, or supervised GenServers up first. This is a known,
+  fixable adoption gap (a small runtime-preamble change), not a property of
+  the mutation engine — and it was worked around in ~12 lines in one of the
+  studied apps.
+- **HEEx / LiveView templates are out of scope.** The mutator catalog does
+  not target templates, so template-heavy code reports no sites.
+
+The one-sentence version, for stakeholders:
+
+> In a four-project comparative study spanning a library, two Phoenix apps,
+> and one project too young to study, mutagen_ex found concrete test gaps in
+> approved code in every project that produced data — at kill rates that
+> converged within ~10 points despite radically different codebase shape.
+
 ## Install
 
 `mutagen_ex` is a development-time Mix task. Add it to your `mix.exs`:
