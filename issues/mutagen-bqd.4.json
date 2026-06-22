@@ -5,9 +5,7 @@
   "created": "2026-06-22T11:30:48Z",
   "description": "The mutator catalog (arith=AOR, compare=ROR, boolean=LCR, literal=CRP, plus Elixir-specific result_tuple/guard_drop/case_drop/with_swap/else_removal) is well-chosen but uncited. A sentence or two linking standard mutation-testing concepts (and noting which operators are Elixir-idiomatic and have no language-agnostic parallel) would bolster the efficacy story for a technical audience.\n\nAcceptance: README or a docs page grounds the operator catalog in standard mutation-testing terminology with at least one reference.",
   "id": "mutagen-bqd.4",
-  "labels": [
-    "phase:merging"
-  ],
+  "labels": [],
   "parent": "mutagen-bqd",
   "comments": [
     {
