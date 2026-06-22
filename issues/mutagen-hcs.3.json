@@ -13,11 +13,15 @@
     {
       "text": "IMPLEMENTED (recorded by orchestrator — worker committed but its subagent permission mode blocked bw writes). Commit 265838a on mutagen-hcs.3/readme-version-labels (base 76a143e).\n\nScope: README.md only. Removed all bare v1.x references that read as published SemVer (package is 0.1.0):\n- README.md:139 (--max-concurrency row): dropped \"byte-equivalent to v1.0\" -\u003e \"Default `1` (fully serial).\"\n- README.md:143: \"exhaustive for v1.1.0.\" -\u003e \"exhaustive.\"\n- README.md:149: \"v1.1 adds the wiring for parallel per-site dispatch...\" -\u003e \"Mutagen includes the wiring for parallel per-site dispatch...\"\n\nLeft untouched (verified): JSON output-schema \"version\":\"1\" literals at README.md:186-189 (schema version, not package version); README.md:11 \"as of v0.1.0\" (actual package version).\nAcceptance: grep -nE 'v1\\.[01]' README.md returns nothing.",
       "timestamp": "2026-06-22T13:48:56Z"
+    },
+    {
+      "text": "VERIFY: PASS\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3 (subagent agent-averify-hcs3-60b10c56e8052d4d)\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3/subagents/agent-averify-hcs3-60b10c56e8052d4d.jsonl\n\nMechanical checks:\n- Files touched: 1 (README.md only? yes) — 4 insertions / 4 deletions\n\nSemantic checks:\n- Bare v1.x published-version references remaining: 0 (grep -nE 'v1\\.[01]' and grep -niE 'v1\\.[0-9]' both return nothing, exit 1)\n- JSON-schema \"version\":\"1\" literals untouched: yes (README.md:186-189 unchanged; not in diff)\n- \"as of v0.1.0\" untouched: yes (README.md:11 unchanged)\n- Reworded sentences read correctly / table row intact: yes\n  - L139 (--max-concurrency row): \"Default `1` (fully serial).\" — 5-pipe table cell intact, valid markdown\n  - L143: \"The flag surface above is exhaustive.\" — reads correctly\n  - L149: \"Mutagen includes the wiring for parallel per-site dispatch, NDJSON streaming, and `:telemetry` events.\" — grammatical; [Parallel mode](#parallel-mode-and-observability) link preserved\n\nVerdict: PASS\n\nNotes: Implementation exactly matches the IMPLEMENTED comment. Acceptance (\"no bare v1.x references that read as published versions\") fully met. The only v0/v1 strings remaining are the legitimate package version (v0.1.0) and the schema \"version\":\"1\" literals, both intentionally preserved.",
+      "timestamp": "2026-06-22T13:50:45Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Reconcile README v1.0/v1.1 version labels with 0.1.0",
   "type": "task",
-  "updated_at": "2026-06-22T13:48:57Z"
+  "updated_at": "2026-06-22T13:50:45Z"
 }
