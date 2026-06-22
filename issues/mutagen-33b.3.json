@@ -11,9 +11,15 @@
     "decision:process-sharding"
   ],
   "parent": "mutagen-33b",
+  "comments": [
+    {
+      "text": "Review (2026-06-22): the build-gate as worded ('only build after a measurement shows post-F2 serial still too slow') has no owner/threshold/deadline and is unfalsifiable -\u003e risks parallel staying experimental forever. Before this ticket is actionable, attach a CONCRETE runtime budget (e.g. 'representative repo serial post-F2 run exceeds N min') + a named owner + a date to run the measurement. Also: byte-identity merge needs identical resolved exunit_seed per shard + canonical meta block, not just sort-by-site-id (json_reporter.ex:301-303,458).",
+      "timestamp": "2026-06-22T18:54:02Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "CF2b: Safe parallelism via OS-process sharding (shard sites → parallel mix mutagen → merge)",
   "type": "task",
-  "updated_at": "2026-06-22T13:36:52Z"
+  "updated_at": "2026-06-22T18:54:02Z"
 }
