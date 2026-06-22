@@ -18,11 +18,15 @@
     {
       "text": "AUDIT: APPROVE\nSession: f5541799-15fe-434b-b461-54848a9f6981\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/f5541799-15fe-434b-b461-54848a9f6981.jsonl\n\nReasoning: Re-derived independently, not on faith.\n\nFix 1 (-F/--file + stdin): comments_test.go TestCmdCommentFromFile/FromFileShortFlag/FromStdin assert the stored body; FromStdin swaps the commentStdin package var (comments.go:14) proving readCommentBody (comments.go:62) is wired into the --file - path. Would fail if readCommentBody stopped reading commentStdin for '-' or expandAliases dropped -F-\u003e--file. Confirmed live against the built binary: -F body.txt and --file - both posted correct multi-line bodies (trailing \\n trimmed, internal blanks preserved).\n\nFix 2 (reject stray flag in \u003ctext\u003e): the change is in shared ParseArgs (helpers.go:159-173) — bare '-' and non-dash stay positional, '--' ends flag parsing, every other -prefixed token errors 'unknown flag'. helpers_test.go:118 asserts the error names -F (genuine binding: -F is NOT in the global aliases map, so it exercises the new single-dash path; reverting makes -F a positional and the test fails). Live binary: bare -F and -x both error exit 1, nothing posted; -- escape posts a leading-dash body verbatim; both-text-and-file and empty-file both error.\n\nBlast radius (re-derived, all 22 ParseArgs callers): pre-change, single-dash non-aliased tokens already became positionals; the aliased shorts (-p/-t/-a/-d/-s/-l/-g/-y) already errored for non-registering commands, so only single-dash non-aliased positionals change behavior. The sole such usage is import's stdin sentinel '-' (exempted at helpers.go:159; verified live: echo {json} | bw import - imports OK) and label -wontfix, which uses its OWN parser parseLabelArgs (label.go:19, never ParseArgs; verified live: bw label \u003cid\u003e -wontfix exit 0). The only single-dash-positional example in the entire command catalog is 'bw label ... -wontfix' (command.go:292). No command passes negative-number bare positionals. recap pre-expands -v before ParseArgs.\n\nMechanical: git diff main..HEAD --stat shows exactly 5 files (command.go, comments.go, helpers.go + 2 test files), matching VERIFY. The 3 cli_test.go failures (TestListEmptyOutput, TestUpgradeRepoCLI, TestImportRoundtrip) fail IDENTICALLY on a pristine main worktree (same 'Upgrade bw to 0.13.2' host-registry leak) — confirmed not a regression. go build/vet/staticcheck clean; go test -run 'Comment|ParseArgs' all PASS.",
       "timestamp": "2026-06-22T20:20:13Z"
+    },
+    {
+      "text": "APPROVED (auditor sign-off — Session a82e9ff0d65c05f9f).\n\nResolution: standalone bug fix, not an epic stage — no stage-merge-back step.\nThe fix lives on branch `bw-10h/comment-file-flag` in ~/src/beadwork, off `main`,\none commit (0361ad3). Next delivery step is a human-opened PR against\nbeadwork's `main` (not auto-created here).\n\nClosing per auditor APPROVE.",
+      "timestamp": "2026-06-22T20:20:58Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "bw comment: add -F/--file (or stdin) for body; reject bare -F silently posted as comment text",
   "type": "bug",
-  "updated_at": "2026-06-22T20:20:13Z"
+  "updated_at": "2026-06-22T20:20:58Z"
 }
