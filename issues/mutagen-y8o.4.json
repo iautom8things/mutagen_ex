@@ -13,6 +13,12 @@
     "phase:verifying"
   ],
   "parent": "mutagen-y8o",
+  "comments": [
+    {
+      "text": "CAPSTONE VERIFICATION (orchestrator, run directly — read-only checks, no code authored)\n\nPart A — `mix hex.publish --dry-run` / metadata validation: PASS\n- `mix hex.build` exits clean. Package builds; checksum computed.\n- Metadata complete with NO missing-metadata refusals/warnings:\n  - Version: 0.1.0\n  - Description: \"Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.\"\n  - Licenses: MIT\n  - Links: GitHub =\u003e https://github.com/autom8things/mutagen_ex\n  - Elixir: ~\u003e 1.19, Build tools: mix, make\n- All three hard-blocker children landed on epic/y8o: c7f4a01 (LICENSE+licenses), f42a4ca (description+package metadata), 918bc37 (ex_doc+docs).\n- `mix hex.publish --dry-run` proceeds through the same metadata preview, then stops at hex authentication — a credential step, not a metadata blocker.\n\nPart B — GitHub repo + v0.1.0 tag resolve: BLOCKED (human action required)\n- No git remote is configured in the epic worktree (`git remote -v` empty).\n- `gh repo view autom8things/mutagen_ex` =\u003e \"Could not resolve to a Repository\" — the public repo does not exist yet.\n- No v0.1.0 tag exists (locally or remotely). CHANGELOG footer link\n  `https://github.com/autom8things/mutagen_ex/releases/tag/v0.1.0` will 404 until the repo + tag are created.\n\nESCALATED: The code/metadata half of this epic is complete and verified. Full closure of this capstone requires two outward-facing HUMAN actions the orchestrator does not perform (deliberate ship checkpoints):\n  1. Create the public GitHub repo autom8things/mutagen_ex, add it as a remote, push epic/y8o, and create the v0.1.0 tag/release.\n  2. Authenticate to hex (`mix hex.user auth`) and run the real `mix hex.publish`.\nLeaving this ticket OPEN pending those human actions. Note: the package `files:` whitelist (bench fixtures / helper scripts currently bundled) is intentionally deferred to the hygiene epic (mutagen-hcs), not a blocker for this epic.",
+      "timestamp": "2026-06-22T13:34:50Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Capstone: mix hex.publish --dry-run green + confirm GitHub repo/tag",
