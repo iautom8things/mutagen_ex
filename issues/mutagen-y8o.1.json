@@ -14,9 +14,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-y8o",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nExtended mix.exs package metadata (mix.exs only — single allowed touch).\n\nproject/0:\n- Added description: \"Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.\" (matches README behavior)\n\npackage/0 (extended the block seeded by mutagen-y8o.2; kept licenses: [\"MIT\"]):\n- links: %{\"GitHub\" =\u003e \"https://github.com/autom8things/mutagen_ex\"}\n- maintainers: [\"Manuel Zubieta\"]\n- files: whitelist intentionally NOT added (deferred to hygiene epic per ticket)\n\nVerification:\n- mix compile --warnings-as-errors: clean\n- mix hex.build: lists Description, Licenses: MIT, Links GitHub; no missing-description error (build .tar artifact removed, not committed)\n\ngit status: only mix.exs modified.",
+      "timestamp": "2026-06-22T12:58:05Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add description + package metadata to mix.exs",
   "type": "task",
-  "updated_at": "2026-06-22T12:56:13Z"
+  "updated_at": "2026-06-22T12:58:05Z"
 }
