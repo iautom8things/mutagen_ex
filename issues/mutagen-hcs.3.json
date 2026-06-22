@@ -17,11 +17,15 @@
     {
       "text": "VERIFY: PASS\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3 (subagent agent-averify-hcs3-60b10c56e8052d4d)\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3/subagents/agent-averify-hcs3-60b10c56e8052d4d.jsonl\n\nMechanical checks:\n- Files touched: 1 (README.md only? yes) — 4 insertions / 4 deletions\n\nSemantic checks:\n- Bare v1.x published-version references remaining: 0 (grep -nE 'v1\\.[01]' and grep -niE 'v1\\.[0-9]' both return nothing, exit 1)\n- JSON-schema \"version\":\"1\" literals untouched: yes (README.md:186-189 unchanged; not in diff)\n- \"as of v0.1.0\" untouched: yes (README.md:11 unchanged)\n- Reworded sentences read correctly / table row intact: yes\n  - L139 (--max-concurrency row): \"Default `1` (fully serial).\" — 5-pipe table cell intact, valid markdown\n  - L143: \"The flag surface above is exhaustive.\" — reads correctly\n  - L149: \"Mutagen includes the wiring for parallel per-site dispatch, NDJSON streaming, and `:telemetry` events.\" — grammatical; [Parallel mode](#parallel-mode-and-observability) link preserved\n\nVerdict: PASS\n\nNotes: Implementation exactly matches the IMPLEMENTED comment. Acceptance (\"no bare v1.x references that read as published versions\") fully met. The only v0/v1 strings remaining are the legitimate package version (v0.1.0) and the schema \"version\":\"1\" literals, both intentionally preserved.",
       "timestamp": "2026-06-22T13:50:45Z"
+    },
+    {
+      "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3.jsonl\n\nReasoning: VERIFY reported PASS — single-file README-only doc change, 0 scope violations, acceptance met (no bare v1.x published-version references; JSON-schema \"version\":\"1\" literals and the real v0.1.0 left untouched), reworded sentences/table/link intact. No product code, no test logic. No auditor spawned per selective-audit policy.",
+      "timestamp": "2026-06-22T13:56:30Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Reconcile README v1.0/v1.1 version labels with 0.1.0",
   "type": "task",
-  "updated_at": "2026-06-22T13:50:45Z"
+  "updated_at": "2026-06-22T13:56:30Z"
 }
