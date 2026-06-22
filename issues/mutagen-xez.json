@@ -5,10 +5,12 @@
   "created": "2026-06-22T18:50:58Z",
   "description": "Workstream B, split out of epic mutagen-33b per the 2026-06-22 epic critical review (~/vaults/rmbrs-vault/code_review/critical/mutagen_ex/2026-06-22/mutagen-33b-epic/20260622-094852-consolidated.md).\n\nWHY SPLIT: this is a performance optimization, not a correctness fix. The source review calls F2 \"a missed optimization.\" It ADDS a correctness surface (per-mutant test selection that must prove kill/survive parity), the opposite risk profile from the CF1/CF2a correctness fixes in mutagen-33b. Bundling coupled the high-confidence correctness fixes to this riskier parity-proving work. Decoupled so mutagen-33b ships fast and clean while this gets the parity scrutiny it needs on its own timeline.\n\nPRIORITY: P2. Build-gate per the review: pursue only behind a MEASURED need — i.e. record (sites, suite size, serial wall-clock on a realistic suite) showing per-mutant full-suite re-runs are an actual problem before investing. Today every mutant re-runs the full cited suite (mutation_loop.ex:194-214). The win is O(S*N) -\u003e O(S*k); the cost is a non-trivial new index + a parity obligation + likely N extra cover runs (see xez children). Earn it with a number.\n\n## Children\n- F2a (mutagen-33b.4): CoverageRunner emits a line -\u003e {test module} index. HARDENED: needs facade design (no :cover.reset / per-module ExUnit run exists today) + a break-even measurement up front.\n- F2b (mutagen-33b.5): narrow test_modules per site from the index. HARDENED: parity gate must be a project-wide differential run + an adversarial false-survivor fixture, not one fixture.\n\n## Done\n- Per-mutant test selection narrows each mutant to its covering test modules, with a safe empty-index -\u003e all-tests fallback.\n- Proven kill/survive-equivalent to the full-suite baseline by a project-wide differential gate (every mutant), AND an adversarial fixture demonstrates the gate CAN fail.\n- A break-even measurement justifies the optimization was worth building.\n\n## Relationship to mutagen-33b\n- F2b (mutagen-33b.5) still blocks CF2b (mutagen-33b.3, OS-process sharding, deferred) in epic mutagen-33b: sharding an un-narrowed suite is K x already-too-slow work, so narrowing must land first. That cross-epic dependency is intentional and retained.\n- The mutagen-33b capstone NO LONGER blocks on F2b (decoupled).",
   "id": "mutagen-xez",
-  "labels": [],
+  "labels": [
+    "slug:coverage-driven-per-mutant"
+  ],
   "priority": 2,
   "status": "open",
   "title": "[EPIC] Coverage-driven per-mutant test selection (O(S*N) -\u003e O(S*k))",
   "type": "task",
-  "updated_at": "2026-06-22T18:52:02Z"
+  "updated_at": "2026-06-22T19:52:16Z"
 }
