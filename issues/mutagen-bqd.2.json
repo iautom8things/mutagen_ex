@@ -9,9 +9,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-bqd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 33781f87-780a-4c97-b7ae-fe26d3cec2b1\nLog: ~/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/33781f87-780a-4c97-b7ae-fe26d3cec2b1.jsonl\nCommit: 99fad508412b85794324b7c8a996b98159b3fd72\nBranch: mutagen-bqd.2/real-world-score (off epic/bqd)\n\nSummary:\nAdded a new \"## Efficacy on real codebases\" section to README.md, slotted\nimmediately after the existing \"## Why mutagen_ex (and how it differs from\nmuzak)\" section (added by .1) and before \"## Install\". It composes with that\npositioning section — the qualitative pitch there now has empirical backing —\nand is orthogonal to the existing \"## Performance\" section (kill-rate/correctness\nvs wall-clock speed).\n\nContent surfaced (sanitized from the vault cross-project synthesis report,\n2026-05-18, which is marked audience: external/sharable):\n- Self-study: 160 sites, aggregate kill rate 0.75, gaps in 8/22 tickets;\n  the A\u003cB\u003cC verifier-signal (0.68 / 0.75 / 0.88).\n- Cross-project study table: stdlib lib 0.75, Phoenix/Ecto app 0.67,\n  Phoenix LiveView admin app 0.70 — the 0.65-0.75 convergence band with\n  the \"expect \u003c0.85 on Phoenix apps\" calibration note.\n- Two representative survivors: the 0.00-kill-rate config-diff module, and\n  the verifier-flagged {:error, changeset} arm that survived a redo.\n- Honest caveats: equivalent-mutant lower bound, coverage-gated silence on\n  structural code, host-OTP-app-start adoption gap, HEEx out of scope.\n- A one-sentence stakeholder pitch.\n\nSanitization applied: internal project names (atlas/builder/engage) generalized\nto codebase-shape descriptions; internal ticket IDs (atlas-3x3.4, mutagen-wrd.*),\nprivate repo file paths, vault report paths, absolute worktree paths, and the\ninternal filing/cleanup pass all dropped.\n\nFiles touched:\n- README.md (+91 lines, docs only)\n\nTests added: none. This is a documentation-only ticket — no Advances: field,\nno spec subject, no lib/ or test/ changes. Acceptance criterion (\"README cites\nat least one real-codebase kill rate with context\") is satisfied: README now\ncites four real-codebase kill rates with full context.\n\nStubs flipped: none (no verification stubs in scope).\n\nDeferred must requirements: none.\n\nLocal sanity check: mix compile --warnings-as-errors -\u003e exit 0. No code paths\nchanged, so the full mix test suite was not re-run for this docs-only diff;\nthe orchestrator owns Phase 2 verification.",
+      "timestamp": "2026-06-22T13:01:56Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Real-world mutation score in README",
   "type": "task",
-  "updated_at": "2026-06-22T12:57:48Z"
+  "updated_at": "2026-06-22T13:01:56Z"
 }
