@@ -6,7 +6,6 @@
   "description": "Bootstrap epic produced by /spec-led-bootstrap (full-adopt + migrate path).\n\nTarget phase: phase2\nSubjects in scope: 9 (status: draft -\u003e active, then realized_by.api_boundary)\nWorktree: /Users/mz/dev/mz/mutagen_ex-bootstrap\nBranch: spec-led/bootstrap\nDep: {:spec_led_ex, github: \"iautom8things/specled_ex\", branch: \"main\", only: [:dev, :test], runtime: false}\nPhase0 scaffolding committed: feb5675\n\nContext: the .spec/ corpus was hand-authored as a tooling-optional convention\n(documented in the original .spec/AGENTS.md). This epic reverses that stance\n(see .spec/decisions/adopt_specled_tooling.md) and migrates the corpus to the\nSpecLedEx schema, then binds each subject to code via realized_by.api_boundary.\n\nMigration surface (mix spec.validate on the original corpus): errors=67 warnings=273\n  - 9x parse_error    : spec-scenarios needs given/when/then arrays\n  - 58x verification_*: spec-verification needs command:/target:\n  - 267x scenario_*   : resolve once scenario blocks reshaped\n  - 6x requirement_without_verification\nThe 18 decision files already match SpecLedEx schema and are NOT migrated.\n\nOpt-outs: implementation/expanded_behavior/use/typespecs tiers OFF (api_boundary only);\ncoverage triangulation (spec.cover.test) OFF (phase4 follow-on); test-tag scanner (phase3) OFF.\nReference: docs/adoption.md in the spec_led_ex repo.",
   "id": "mutagen-835",
   "labels": [
-    "phase:implementing",
     "slug:adopt-specledex-to-phase2"
   ],
   "comments": [
