@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [
     "mutagen-33b.6"
@@ -10,8 +10,8 @@
   "labels": [],
   "parent": "mutagen-33b",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "CF2a: Gate --max-concurrency \u003e 1 as warned-experimental",
   "type": "task",
-  "updated_at": "2026-06-22T12:47:16Z"
+  "updated_at": "2026-06-22T20:03:49Z"
 }
