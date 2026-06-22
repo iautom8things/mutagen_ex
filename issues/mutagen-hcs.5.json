@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:30:19Z",
+  "description": "No .github/ exists. Neither the default `mix test` lane nor the `mix test.integration` alias (which gates the real path-dep + archive install paths) runs automatically.\n\nAdd .github/workflows/ci.yml:\n- mix compile --warnings-as-errors\n- mix test\n- mix test.integration (downstream_adoption + archive_install)\n- (optional) mix format --check-formatted\n\nPin Elixir 1.19 / OTP 28 to match the declared `elixir: \"~\u003e 1.19\"` constraint.\n\nAcceptance: CI runs green on push/PR.",
+  "id": "mutagen-hcs.5",
+  "labels": [],
+  "parent": "mutagen-hcs",
+  "priority": 2,
+  "status": "open",
+  "title": "Add GitHub Actions CI",
+  "type": "task",
+  "updated_at": "2026-06-22T11:30:19Z"
+}
