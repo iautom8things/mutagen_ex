@@ -11,9 +11,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-33b",
+  "comments": [
+    {
+      "text": "WORKER_ERROR: mix spec.check fails on out-of-scope pre-existing spec/integration checks; compile, targeted test, and mix test pass",
+      "timestamp": "2026-06-22T20:18:34Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "CF2a: Gate --max-concurrency \u003e 1 as warned-experimental",
   "type": "task",
-  "updated_at": "2026-06-22T20:07:58Z"
+  "updated_at": "2026-06-22T20:18:34Z"
 }
