@@ -13,9 +13,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835.2",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nMigrated .spec/specs/ast.spec.md to the SpecLedEx schema.\n\nChanges (Allowed touches only: ast.spec.md + generated state.json):\n- spec-scenarios: reshaped all 9 scenarios (s1-s9) to given:/when:/then: arrays. Quoted/block-literal scalars containing flow-collection syntax (e.g. `[line: 1]`, `[:Foo, :Bar]`) to satisfy the YAML parser.\n- spec-verification: v1 and v3 converted from kind: source_file (path:/execute:) to kind: command with target: mix test \u003cpath\u003e; v2 converted command: -\u003e target:. All 5 requirements (r1-r5) retain a covering verification entry.\n- spec-meta: status draft -\u003e active.\n- Prose, intent, ids, surface, decisions links unchanged. No requirement ids altered or deleted. No realized_by bindings added (phase2).\n- Regenerated tracked .spec/state.json (committed with the edit).\n\nMerge gate (local):\n- mix spec.validate -\u003e ZERO errors AND zero warnings for subject mutagen.ast (other unmigrated subjects still show errors; expected this phase).\n- subject mutagen.ast status = active in .spec/state.json (meta.status).\n- mix compile --warnings-as-errors -\u003e clean.\n- mix test -\u003e 640 tests, 0 failures (19 excluded).\n\nCommit b7d488e on branch mutagen-835.2.9/migrate-ast.",
+      "timestamp": "2026-06-22T13:45:20Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.ast to SpecLedEx schema (4 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:41:18Z"
+  "updated_at": "2026-06-22T13:45:20Z"
 }
