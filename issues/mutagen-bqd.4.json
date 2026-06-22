@@ -9,9 +9,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-bqd",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nSession: spawned impl-only worker (orchestrate-epic); session UUID not resolvable from backgrounded worktree context\nLog: ~/.claude/projects/-Users-mz-dev-mz-mutagen-ex-literature-grounding/\u003csession-uuid\u003e.jsonl\n\nCommit: 22c29d2\nFiles touched:\n- README.md (docs only; +44 lines)\n\nTests added: none — docs-only change, no behavioural surface.\nStubs flipped: none — this ticket advances no spec requirement/verification stub; mutators.spec.md already documents the catalog, this grounds it for the README audience.\n\nSummary:\nAdded a new README section \"## The mutator catalog and its lineage\", placed\nright after the existing \"## Why mutagen_ex (and how it differs from muzak)\"\nsection (added by .1) so it composes with — does not duplicate or rewrite —\nthat positioning content.\n\nThe section:\n- Maps the four language-agnostic mutators onto the classic selective-mutation\n  operator set: arith=AOR (Arithmetic Operator Replacement), compare=ROR\n  (Relational Operator Replacement), boolean=LCR (Logical Connector\n  Replacement), literal=CRP (Constant Replacement).\n- Cites two authoritative references with DOIs: Offutt, Lee, Rothermel, Untch \u0026\n  Zapf, \"An Experimental Determination of Sufficient Mutant Operators,\" ACM\n  TOSEM 5(2), 1996 (doi:10.1145/227607.227610); and Jia \u0026 Harman's survey, IEEE\n  TSE 37(5), 2011 (doi:10.1109/TSE.2010.62).\n- Documents the six Elixir-idiomatic mutators (result_tuple, guard_drop,\n  with_swap, else_removal, case_drop, pipeline) that have no clean\n  language-agnostic parallel, with a one-line rationale each for why the\n  classic catalogs don't cover them. case_drop notes its loose kinship to the\n  statement/clause-deletion (SDL) family while flagging the CaseClauseError\n  behaviour that makes it distinct (cross-ref to Known limitations).\n\nCatalog cross-checked against .spec/specs/mutators.spec.md — all ten mutators\ncovered, operator semantics match the spec catalog verbatim.\n\nAcceptance (\"README or a docs page grounds the operator catalog in standard\nmutation-testing terminology with at least one reference\") satisfied: two\nreferences, all four standard operators named, Elixir-idiomatic set\ndistinguished per the ticket's explicit ask.\n\nDeferred must requirements: none.\n\nVerification:\n- mix compile --warnings-as-errors: clean (exit 0)\n- mix test --seed 0: 640 tests, 0 failures (19 excluded)",
+      "timestamp": "2026-06-22T13:01:37Z"
+    }
+  ],
   "priority": 3,
   "status": "in_progress",
   "title": "Mutation-testing literature grounding",
   "type": "task",
-  "updated_at": "2026-06-22T12:57:49Z"
+  "updated_at": "2026-06-22T13:01:37Z"
 }
