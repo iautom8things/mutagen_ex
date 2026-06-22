@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-22T14:10:28Z",
   "created": "2026-06-22T11:30:48Z",
   "description": "Credibility gap: a mutation tester that reports no mutation score on its own code. `self_mutation_refused` (.spec/decisions/self_mutation_refused.md) makes in-process self-mutation impossible (the runner would crash mutating itself), so this needs a child-BEAM / external-process approach — essentially the test/integration/downstream_adoption_test.exs pattern aimed at mutagen_ex itself.\n\nProduce a mutation score for the high-value modules (mutators/*, scope_resolver, cli, json_reporter) and publish it.\n\nLarger effort than the other children — fine to land after the initial publish, but high-value for credibility.\n\nAcceptance: a reproducible self-mutation score exists and is cited in the README/docs.",
   "id": "mutagen-bqd.3",
@@ -42,8 +43,8 @@
     }
   ],
   "priority": 3,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Dogfood: child-BEAM self-mutation score",
   "type": "task",
-  "updated_at": "2026-06-22T14:10:27Z"
+  "updated_at": "2026-06-22T14:10:28Z"
 }
