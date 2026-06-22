@@ -1,7 +1,8 @@
 {
   "assignee": "",
   "blocked_by": [
-    "mutagen-33b.1"
+    "mutagen-33b.1",
+    "mutagen-33b.2"
   ],
   "blocks": [],
   "created": "2026-06-22T12:47:10Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Capstone: Tier-1 verified — parallel-path correctness + per-mutant selection parity",
   "type": "task",
-  "updated_at": "2026-06-22T12:47:15Z"
+  "updated_at": "2026-06-22T12:47:16Z"
 }
