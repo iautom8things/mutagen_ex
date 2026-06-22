@@ -11,10 +11,10 @@
   "description": "Second half of High F2 (performance). Consume the F2a index to run, per mutant, only the test modules whose covered line-set intersects the mutated line — instead of re-running the full cited suite for every one of S sites.\n\nTrigger: any run citing a suite larger than a few tests. Blast radius today: S*N test executions where O(S*k) is achievable; on 200 sites x 500 tests that is ~100k vs a few thousand — 1-2 orders of magnitude, growing linearly with suite size.\n\nFiles: lib/mix/tasks/mutagen.ex:947 (mutation input — thread the index in), lib/mutagen_ex/mutation_runner.ex:736, lib/mutagen_ex/mutation_runner/mutation_loop.ex:201 (register/run only covering modules).\n\n## Approach\nPer site: covering = index[site.file][site.line] (MapSet of test modules). site_test_modules = filter cfg.test_modules to covering. Register/run only those. On EMPTY/missing index for a line -\u003e FALL BACK to all cited modules (safety: never under-test a mutant).\n\n## Done\n- Each mutant runs only its covering test modules, with empty-index -\u003e all-tests fallback.\n- A correctness test proves kill/survive classification is IDENTICAL to the full-suite baseline on a fixture where narrowing is non-trivial.\n- (Optional) telemetry/log of tests-run-per-site for the perf win to be observable.",
   "id": "mutagen-33b.5",
   "labels": [],
-  "parent": "mutagen-33b",
-  "priority": 1,
+  "parent": "mutagen-xez",
+  "priority": 2,
   "status": "open",
   "title": "F2b: Narrow test_modules per site from the coverage index (O(S*N) -\u003e O(S*k))",
   "type": "task",
-  "updated_at": "2026-06-22T13:36:52Z"
+  "updated_at": "2026-06-22T18:52:02Z"
 }
