@@ -19,9 +19,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nAuthored realized_by.api_boundary MFA bindings for all 9 subjects in their spec-meta blocks. Each entry points at a real, loadable public module (verified via Code.ensure_loaded); corrected the suggester's MutagenEx.Cli -\u003e MutagenEx.CLL... actually MutagenEx.CLI to match the real module name. Only the api_boundary tier was opted into — no implementation/expanded_behavior/use/typespecs, no test tags or coverage. Regenerated .spec/state.json.\n\nBindings authored:\n- mutagen.ast: MutagenEx.Ast\n- mutagen.cli: Mix.Tasks.Mutagen, MutagenEx.CLI, MutagenEx.Config, MutagenEx.Types\n- mutagen.coverage: MutagenEx.CoverageRunner, MutagenEx.AstCache\n- mutagen.json_schema: MutagenEx.JsonReporter, MutagenEx.JsonStreamer\n- mutagen.mutation_enumeration: MutagenEx.MutationEnumerator, MutagenEx.Mutators.Dispatch\n- mutagen.mutation_pipeline: Baseline, BeamCache, MutationRunner, MutationRunner.MutationLoop, Telemetry, Progress, Application, Test.CodeServer, Test.CodeServerFacade, Mix.Tasks.Mutagen\n- mutagen.mutators: Mutators + 10 mutator modules (Arith, Compare, Boolean, Literal, WithSwap, CaseDrop, Pipeline, ResultTuple, ElseRemoval, GuardDrop)\n- mutagen.scope_resolution: MutagenEx.ScopeResolver\n- mutagen.test_selection: MutagenEx.TestSelector\n\nMerge gate results:\n- mix spec.suggest_binding -\u003e 'All subjects have realized_by bindings.' (no subjects-without-binding)\n- mix spec.check -\u003e 0 branch_guard_dangling_binding findings\n- mix spec.validate -\u003e status=pass errors=0 warnings=0\n- mix test -\u003e 640 tests, 0 failures (19 excluded)\n\nNote: mix spec.check reports status=fail with 2 verification_command_failed errors (mutagen.ast grep, mutagen.cli archive_install test). Both are PRE-EXISTING on the clean branch base (confirmed by stashing my changes and re-running check) and are out of scope for this ticket (binding-points-AT-code; prose verification commands untouched). They are NOT branch_guard_dangling_binding findings, which is the gate this ticket targets — that count is 0.\n\nFiles touched: .spec/specs/{ast,cli,coverage,json_schema,mutation_enumeration,mutation_pipeline,mutators,scope_resolution,test_selection}.spec.md (spec-meta realized_by block only) + .spec/state.json. No lib/** or test/** changes. Committed as 9ccde38.",
+      "timestamp": "2026-06-22T14:17:15Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "phase2: author realized_by.api_boundary bindings for all subjects",
   "type": "task",
-  "updated_at": "2026-06-22T14:04:07Z"
+  "updated_at": "2026-06-22T14:17:15Z"
 }
