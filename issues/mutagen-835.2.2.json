@@ -25,11 +25,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 0eb050fa-440a-426e-9f51-bfd4d1ee50de\nLog: /Users/mz/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/0eb050fa-440a-426e-9f51-bfd4d1ee50de.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage (9/9), full requirement coverage (r1-r16 each with a load-bearing 'Would fail if' line), zero mechanical or intent-level scope violations, and passing per-subject project verification. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:09:28Z"
+    },
+    {
+      "text": "APPROVED. Merged into spec-led/bootstrap (ff-only, epic now at 3996715). Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T13:10:17Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.mutation_pipeline to SpecLedEx schema (10 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:09:28Z"
+  "updated_at": "2026-06-22T13:10:17Z"
 }
