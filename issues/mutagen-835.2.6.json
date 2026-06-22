@@ -13,9 +13,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835.2",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nMigrated .spec/specs/mutators.spec.md to the SpecLedEx schema (commit 0bb8623 on mutagen-835.2.6/migrate-mutators).\n\nChanges:\n- spec-scenarios: reshaped all 7 scenarios (s1-s7) from bespoke scalar given:/when:/then: to given:/when:/then: arrays. Entries containing ': ' / flow-mapping syntax (e.g. 'do: x + 1', '{:ok, a}') use '- |' block scalars to avoid YAML misparsing as nested mappings.\n- spec-verification: renamed command: -\u003e target: on all 5 entries (v1-v5); kept execute: true. Added r7 to v1's covers so every requirement has a verification entry (closed-catalog requirement is observable via mutators_test.exs).\n- spec-meta: status draft -\u003e active.\n- Prose, intent, id, surface, decisions links, requirement ids untouched. No realized_by added (phase2). No lib/** or test/** edits.\n- Regenerated .spec/state.json committed alongside.\n\nMerge gate (all pass locally):\n- mix spec.validate: ZERO errors AND zero warnings for mutagen.mutators; subject status is 'active' in .spec/state.json. (Other unmigrated subjects still error - expected this phase.)\n- mix compile --warnings-as-errors: clean.\n- mix test: 640 tests, 0 failures (19 excluded).\n\nAllowed touches respected: only .spec/specs/mutators.spec.md + generated .spec/state.json (git status confirms).",
+      "timestamp": "2026-06-22T13:34:54Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.mutators to SpecLedEx schema (6 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:31:20Z"
+  "updated_at": "2026-06-22T13:34:54Z"
 }
