@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T11:32:39Z",
+  "description": "Advances: mutagen.ast\n\nDeliverable: migrate .spec/specs/ast.spec.md to the SpecLedEx schema:\n- spec-scenarios block: reshape each scenario to given:/when:/then: arrays (bespoke shape fails parse with 'expected array').\n- spec-verification block: replace execute:/source_file: stubs with command: and target: entries; every requirement gets a verification entry.\n- spec-meta: flip status: draft -\u003e active once the file validates.\n- keep prose, intent, id, surface, and decisions links intact.\n\nVerification:\n- mix spec.validate emits ZERO errors for mutagen.ast (baseline: 4 errors on this file).\n- subject status is active in .spec/state.json.\n\nOut of Scope (files): every .spec.md EXCEPT ast.spec.md; lib/**; test/**.\nAllowed touches: .spec/specs/ast.spec.md only.\nOut of Scope (intent): no realized_by bindings (phase2); no code/test edits; do not alter requirement ids or delete requirements.\nMerge gate: mix spec.validate (0 errors for mutagen.ast) \u0026\u0026 mix compile --warnings-as-errors \u0026\u0026 mix test",
+  "id": "mutagen-835.2.9",
+  "labels": [],
+  "parent": "mutagen-835.2",
+  "priority": 2,
+  "status": "open",
+  "title": "migrate mutagen.ast to SpecLedEx schema (4 errors)",
+  "type": "task",
+  "updated_at": "2026-06-22T11:32:39Z"
+}
