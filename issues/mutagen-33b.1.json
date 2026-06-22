@@ -11,9 +11,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-33b",
+  "comments": [
+    {
+      "text": "WORKER_ERROR: mix spec.check fails on out-of-scope mutagen.ast grep and mutagen.cli archive telemetry verification targets; focused parallel test and mix test passed.",
+      "timestamp": "2026-06-22T20:18:38Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "CF1: Restore scoped modules on parallel outer-task :exit + worker-crash test",
   "type": "bug",
-  "updated_at": "2026-06-22T20:03:48Z"
+  "updated_at": "2026-06-22T20:18:38Z"
 }
