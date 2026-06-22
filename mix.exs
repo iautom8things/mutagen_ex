@@ -27,7 +27,12 @@ defmodule MutagenEx.MixProject do
         end
       ],
       test_ignore_filters: [
-        fn path -> String.starts_with?(path, "test/fixtures/") end
+        fn path -> String.starts_with?(path, "test/fixtures/") end,
+        # `test/support/*.exs` helpers are loaded on demand via
+        # `Code.require_file/2` (not `elixirc_paths`), so they are not
+        # `_test.exs` files and would otherwise trip the unmatched-file
+        # warning.
+        fn path -> String.starts_with?(path, "test/support/") end
       ]
     ]
   end

@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.ResultTupleTest do
 
   alias MutagenEx.Mutators.ResultTuple
 
-  test "name is :result_tuple" do
-    assert ResultTuple.name() == :result_tuple
+  describe "name/0" do
+    test "name is :result_tuple" do
+      assert ResultTuple.name() == :result_tuple
+    end
   end
 
   describe "match?/1" do

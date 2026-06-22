@@ -70,29 +70,7 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
     @agent :mutagen_ex_batched_test_exunit_fake
 
     def start_link do
-      case Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent) do
-        {:ok, pid} ->
-          {:ok, pid}
-
-        {:error, {:already_started, stale}} ->
-          Process.exit(stale, :kill)
-          wait_until_unregistered()
-          Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
-      end
-    end
-
-    defp wait_until_unregistered(remaining_ms \\ 500) do
-      cond do
-        Process.whereis(@agent) == nil ->
-          :ok
-
-        remaining_ms <= 0 ->
-          :ok
-
-        true ->
-          Process.sleep(10)
-          wait_until_unregistered(remaining_ms - 10)
-      end
+      Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
     end
 
     def set_results(results), do: Agent.update(@agent, fn s -> %{s | results: results} end)
@@ -137,15 +115,7 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
     @agent :mutagen_ex_batched_test_ast_recorder
 
     def start_link do
-      case Agent.start_link(fn -> [] end, name: @agent) do
-        {:ok, pid} ->
-          {:ok, pid}
-
-        {:error, {:already_started, stale}} ->
-          Process.exit(stale, :kill)
-          Process.sleep(5)
-          Agent.start_link(fn -> [] end, name: @agent)
-      end
+      Agent.start_link(fn -> [] end, name: @agent)
     end
 
     def compile_quoted(ast, file) do
@@ -158,17 +128,11 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
   end
 
   setup do
-    {:ok, _} = ExUnitFake.start_link()
-    {:ok, _} = AstRecordingCompiler.start_link()
-
-    on_exit(fn ->
-      for name <- [:mutagen_ex_batched_test_exunit_fake, :mutagen_ex_batched_test_ast_recorder] do
-        case Process.whereis(name) do
-          nil -> :ok
-          pid -> Process.exit(pid, :kill)
-        end
-      end
-    end)
+    # Start both named-Agent fakes under ExUnit's supervisor so they are
+    # torn down SYNCHRONOUSLY at the end of each test — their fixed names
+    # are always free before the next test's setup.
+    start_supervised!(%{id: ExUnitFake, start: {ExUnitFake, :start_link, []}})
+    start_supervised!(%{id: AstRecordingCompiler, start: {AstRecordingCompiler, :start_link, []}})
 
     :ok
   end

@@ -21,6 +21,14 @@ defmodule MutagenEx.BaselineTest do
   tmp dir.
   """
 
+  # Kept `async: false` deliberately. Although every test here injects a
+  # no-op `test_loader` and parses synthetic source with
+  # `Code.string_to_quoted/2` (so today nothing global is touched), the
+  # module under test is the baseline phase — whose production path drives
+  # `require_file`/`:cover` against the global Code/cover servers (see the
+  # require_file cache-collision bugs in mutagen-wrd.37/.38). Running it
+  # serially keeps that blast radius contained and matches the documented
+  # review stance (critical review 2026-06-22, finding L1).
   use ExUnit.Case, async: false
 
   alias MutagenEx.Baseline

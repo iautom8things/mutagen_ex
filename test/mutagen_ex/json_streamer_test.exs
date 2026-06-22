@@ -20,7 +20,7 @@ defmodule MutagenEx.JsonStreamerTest do
   alias MutagenEx.JsonStreamer
 
   defp capture_sink(fun) do
-    {:ok, agent} = Agent.start_link(fn -> [] end)
+    agent = start_supervised!({Agent, fn -> [] end})
 
     sink = fn iodata ->
       Agent.update(agent, fn acc -> [acc, iodata] end)
@@ -28,9 +28,7 @@ defmodule MutagenEx.JsonStreamerTest do
 
     fun.(sink)
 
-    out = Agent.get(agent, & &1) |> IO.iodata_to_binary()
-    Agent.stop(agent)
-    out
+    Agent.get(agent, & &1) |> IO.iodata_to_binary()
   end
 
   defp parse_lines(text) do
@@ -101,6 +99,7 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["tainted_predecessors"] == false
       assert decoded["warnings"] == ["some warning"]
       assert decoded["before"] == "1 + 2"
+      assert decoded["before_source"] == "1 + 2"
       assert decoded["after"] == "1 - 2"
     end
 
@@ -170,7 +169,7 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["kind"] == "end"
       assert decoded["version"] == "1"
       assert decoded["aborted"] == false
-      assert decoded["abort_reason"] in [nil, :null]
+      assert decoded["abort_reason"] == :null
       assert decoded["killed"] == 3
       assert decoded["survived"] == 1
       assert decoded["kill_rate"] == 0.75

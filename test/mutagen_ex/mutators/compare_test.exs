@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.CompareTest do
 
   alias MutagenEx.Mutators.Compare
 
-  test "name is :compare" do
-    assert Compare.name() == :compare
+  describe "name/0" do
+    test "name is :compare" do
+      assert Compare.name() == :compare
+    end
   end
 
   describe "match?/1" do

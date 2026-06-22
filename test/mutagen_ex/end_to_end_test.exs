@@ -20,11 +20,11 @@ defmodule MutagenEx.EndToEndTest do
     categories" gate the ticket names. The `literal` floor lives in
     its own scenario (2a) tagged `:skip` pending bw mutagen-wrd.15
     (DISCOVERY-E: Literal mutator does not match parsed AST).
-  - Scenario 2a: decisions.ex `literal` mutator floor — `@tag :skip`
-    pending bw mutagen-wrd.15. The literal mutator's `match?/1` only
-    catches the bare value (`0`, `1`, etc.); bare atomic literals
-    carry no line metadata in the parsed AST so the enumerator
-    drops them. Fix belongs in lib/.
+  - Scenario 2a: decisions.ex `literal` mutator floor — now runs under
+    `@tag :literal_floor_scenario` (un-skipped in mutagen-wrd.16).
+    The literal mutator's `match?/1` only catches the bare value
+    (`0`, `1`, etc.); bare atomic literals carry no line metadata in
+    the parsed AST so the enumerator drops them. Fix belongs in lib/.
   - Scenario 3: result_tuples.ex → Elixir-flavored mutators (result_tuple)
     cleanly produce sites that EITHER kill OR skip, never
     `:compile_error` (verification target).
@@ -37,13 +37,11 @@ defmodule MutagenEx.EndToEndTest do
   - Scenario 5 (`@tag :baseline_red_scenario`): baseline-red abort (`r1`).
   - Scenario 6 (`@tag :zero_coverage_scenario`): a scope with no
     mutator-eligible sites produces a `no_mutation_candidates` warning.
-  - Scenario 7 (`@tag :ecto_user_scenario`, `@tag :skip`): bytecode-
-    identical restore after a full mutation pass on the C1-analogue
-    fixture (Spike I invariants, `r6`/`r11`). Skipped pending
-    bw mutagen-wrd.13 (MutationLoop brutal_kill / Code.Server hardening)
-    — the EctoUser hand-rolled DSL stresses cover-instrumentation
-    in a way the current production code does not survive (a baseline
-    test fails before any mutation runs).
+  - Scenario 7 (`@tag :ecto_user_scenario`): bytecode-identical restore
+    after a full mutation pass on the C1-analogue fixture (Spike I
+    invariants, `r6`/`r11`). Now runs under `@tag :ecto_user_scenario`
+    (un-skipped in mutagen-wrd.32 after the mutagen-wrd.19 spike
+    confirmed the prior cover + Ecto-DSL framing was wrong).
   - Scenario 8 (`@tag :macro_holder_scenario`): `state_drift_warning`
     entry naming `LaneFixture.MacroHolder`.
 
@@ -689,14 +687,18 @@ defmodule MutagenEx.EndToEndTest do
       timeout_index =
         Enum.find_index(results, fn r -> r["status"] == "timeout" end)
 
-      successor_idx = if timeout_index, do: timeout_index + 1, else: nil
+      assert timeout_index != nil,
+             "expected at least one :timeout result on infinite_looper.ex"
 
-      if is_integer(successor_idx) and successor_idx < length(results) do
-        successor = Enum.at(results, successor_idx)
+      successor_idx = timeout_index + 1
 
-        assert successor["tainted_predecessors"] == true,
-               "result immediately after :timeout must carry tainted_predecessors: true; got #{inspect(successor)}"
-      end
+      assert successor_idx < length(results),
+             "expected a result after the :timeout to carry tainted_predecessors"
+
+      successor = Enum.at(results, successor_idx)
+
+      assert successor["tainted_predecessors"] == true,
+             "result immediately after :timeout must carry tainted_predecessors: true; got #{inspect(successor)}"
 
       assert_e2e_golden!("scenario_4_infinite_looper", json)
     end
@@ -842,6 +844,8 @@ defmodule MutagenEx.EndToEndTest do
       assert apply(module, :__schema_kind__, []) == :registered
       assert apply(module, :name, []) == :string
       assert apply(module, :age, []) == :integer
+
+      assert_e2e_golden!("scenario_7_ecto_user", json)
 
       assert_lane_tree_unmodified!(ctx.pre_hashes)
     end

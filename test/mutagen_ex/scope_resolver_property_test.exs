@@ -141,16 +141,31 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
         target = "#{module_name}.#{unused_fun}/#{unused_arity}"
 
         # The arity 99 cannot occur, so the result MUST be an error.
+        # When defs is non-empty, the module and function name ARE present
+        # in the source, so the only legitimate error is :function_not_found
+        # (wrong arity). Accepting :module_not_found or :unrecognised_target
+        # on this branch would mask a real contract break.
+        # When defs is empty, unused_fun is :missing (a synthetic atom that
+        # cannot appear as a function name), so broader reasons are possible.
         case ScopeResolver.resolve(target,
                loader: loader,
                source_files: ["lib/synth.ex"]
              ) do
           {:error, reason, _details} ->
-            assert reason in [
-                     :function_not_found,
-                     :module_not_found,
-                     :unrecognised_target
-                   ]
+            case defs do
+              [] ->
+                assert reason in [
+                         :function_not_found,
+                         :module_not_found,
+                         :unrecognised_target
+                       ]
+
+              _ ->
+                assert reason == :function_not_found,
+                       "module and function name are present in source; " <>
+                         "expected :function_not_found but got #{inspect(reason)}; " <>
+                         "source=#{source}"
+            end
 
           {:ok, _} ->
             flunk(
