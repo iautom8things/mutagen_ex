@@ -2,7 +2,8 @@
   "assignee": "",
   "blocked_by": [
     "mutagen-835.2.1",
-    "mutagen-835.2.2"
+    "mutagen-835.2.2",
+    "mutagen-835.2.3"
   ],
   "blocks": [],
   "created": "2026-06-22T11:30:25Z",
@@ -14,5 +15,5 @@
   "status": "open",
   "title": "phase2: author realized_by.api_boundary bindings for all subjects",
   "type": "task",
-  "updated_at": "2026-06-22T11:32:52Z"
+  "updated_at": "2026-06-22T11:32:53Z"
 }
