@@ -13,9 +13,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835.2",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\nSession: 0eb050fa-440a-426e-9f51-bfd4d1ee50de\nLog: /Users/mz/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/0eb050fa-440a-426e-9f51-bfd4d1ee50de.jsonl\n\nCommit: f387193a0b774bac4ed914ded6d7b3a5d8d53a4f\nFiles touched:\n- .spec/specs/json_schema.spec.md (the migration)\n- .spec/state.json (regenerated generated-index; committed per ticket note)\nTests added: none (spec-file migration; \"tests\" are mix spec.validate passing)\nVerification stubs flipped: n/a (this spec advances no code stub; the spec-verification entries already had execute: true)\n\nSummary: Migrated .spec/specs/json_schema.spec.md to the SpecLedEx schema.\nReshaped all 12 spec-scenarios from bespoke scalar given/when/then into\ngiven:/when:/then: string arrays (with covers: also as block lists); replaced\nthe 9 spec-verification command: stubs with kind: command + target: entries\n(the validator reads the command string from target:, not command:); flipped\nspec-meta status: draft -\u003e active. Prose, intent, requirement ids (r1-r16),\nscenario ids, surface, and decisions links are unchanged; no requirement was\naltered or deleted, no realized_by binding was added (phase2). Added a v10\nverification entry covering r13 (the truncated wire-shape) pointing at the\nexisting golden test, so every requirement now carries a verification entry per\nthe Deliverable — this also cleared the only residual warning.\n\nMerge gate, all green:\n- mix spec.validate -\u003e ZERO errors AND zero warnings for mutagen.json_schema\n  (baseline was 10 errors). Other subjects still error as expected this phase.\n- subject status is \"active\" in .spec/state.json (verified).\n- mix compile --warnings-as-errors -\u003e clean.\n- mix test -\u003e 640 tests, 0 failures (19 excluded).",
+      "timestamp": "2026-06-22T13:01:37Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.json_schema to SpecLedEx schema (10 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T12:53:37Z"
+  "updated_at": "2026-06-22T13:01:37Z"
 }
