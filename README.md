@@ -10,6 +10,69 @@ The CLI (`mix mutagen`) is the supported user-facing entry point;
 point. The JSON document is the only output. Both are stable contracts
 as of v0.1.0.
 
+## Why mutagen_ex (and how it differs from muzak)
+
+Elixir already has a mature mutation tester:
+[muzak / muzak_pro](https://hex.pm/packages/muzak) by Devon Estes. If you
+want a polished, human-facing mutation-testing workflow for everyday TDD,
+muzak is the established choice and mutagen_ex is not trying to replace it.
+
+mutagen_ex exists for a different primary consumer: **an LLM verifier or
+judge, not a human.** That single design constraint is the thesis behind
+every difference below. When the output of mutation testing is fed to a
+model that grades a test suite — or to an automated agent that decides
+whether generated tests actually pin behavior — the requirements invert.
+A human wants color, progress bars, and a readable summary. A model wants
+one machine-parseable document, IDs it can compare across runs, and bytes
+that don't change for reasons unrelated to the code under test.
+
+Concretely, mutagen_ex differs from muzak on five deliberate axes:
+
+- **JSON-first, single-document output — no pretty human renderer by
+  design.** `mix mutagen` emits exactly one JSON document (to stdout or
+  `--json <path>`) and nothing else. There is no `--no-json` pretty mode;
+  supplying it is a hard error, not a silent fallback. Humans pipe through
+  `jq`. See [`.spec/decisions/no_pretty_output_v1.md`](.spec/decisions/no_pretty_output_v1.md).
+
+- **Content-addressed, stable mutation IDs across `mix format`.** Each
+  mutation's `id` is `{relative_file}:{ast_hash}:{mutator_name}`, where the
+  hash is taken over the *normalized AST* (line/column metadata stripped).
+  Re-running after `mix format` reflows the source produces byte-identical
+  IDs, so a judge can ask "did the same mutation survive last week?" and
+  get a meaningful answer. A naive `file:line:col` scheme cannot. See
+  [`.spec/decisions/content_addressed_ids.md`](.spec/decisions/content_addressed_ids.md).
+
+- **Deterministic, serial-by-default execution.** Every phase — baseline,
+  coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
+  `--seed` (default `0`). The same `{source, --tests, --scope, --seed}`
+  always yields the same per-site classification. Reproducibility is the
+  point; a judge comparing two runs must be able to trust that a difference
+  reflects a code change, not test-order flake. See
+  [`.spec/decisions/serial_execution_and_seed.md`](.spec/decisions/serial_execution_and_seed.md).
+
+- **The primary consumer is an LLM verifier/judge, not a human.** This is
+  the real thesis, and it is why the three points above are features rather
+  than omissions. mutagen_ex optimizes for being read by a model and
+  consumed by automation. Human ergonomics are explicitly secondary in v1.
+
+- **In-process pipeline (vs muzak's child-BEAM-per-mutation).** mutagen_ex
+  swaps bytecode via `Code.compile_quoted/1` and restores from a cached AST,
+  all inside the same BEAM VM as the Mix task — roughly 10x faster per
+  mutation than spawning a fresh node each time, which matters when a model
+  is waiting on feedback. The trade-off is honest: shared-VM state drift on
+  `use SomeModule` macros is possible, so it is surfaced as
+  `mutation.state_drift_warning` in the JSON rather than hidden. The cost of
+  staying in-process is that mutagen_ex cannot mutate *itself* (doing so
+  would corrupt the running runner); self-mutation is refused with
+  `reason: :self_mutation_refused`. See
+  [`.spec/decisions/in_process_pipeline.md`](.spec/decisions/in_process_pipeline.md)
+  and [`.spec/decisions/self_mutation_refused.md`](.spec/decisions/self_mutation_refused.md).
+
+If none of that matches your use case — if you want a human-friendly
+mutation tester for interactive use — reach for muzak. If you are building
+an LLM-graded or agent-driven test-quality pipeline and need stable,
+machine-first output, that gap is the one mutagen_ex was built to fill.
+
 ## Install
 
 `mutagen_ex` is a development-time Mix task. Add it to your `mix.exs`:
