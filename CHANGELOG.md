@@ -5,7 +5,183 @@ All notable changes to `mutagen_ex` are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+The released and Unreleased sections describe user-visible behavior. The
+ticket-keyed engineering log is preserved as an appendix at the end of this
+file for traceability.
+
 ## [Unreleased]
+
+### Added
+
+- **Parallel mutation dispatch (`--max-concurrency`).** The mutation phase
+  can now run per-site work in parallel. The default stays `1` (fully
+  serial, identical to v0.1.0) because the in-process pipeline shares
+  ExUnit, the code server, and `:cover` state across sites; set
+  `--max-concurrency N` explicitly when your scope and tests are arranged
+  for collision-free parallel runs.
+
+- **NDJSON streaming (`--stream`).** Emits one JSON line per completed
+  mutation site as the run progresses, on the same sink as the aggregate
+  document. Each line carries a `"kind"` discriminator
+  (`start` / `result` / `compile_error` / `end`) and is byte-equal to the
+  matching entry in the final document. Per-site lines arrive in input
+  order even under parallel dispatch.
+
+- **`:telemetry` events.** The library now dispatches `:telemetry` events
+  at run, coverage, baseline, enumeration, and per-site boundaries, so you
+  can attach your own handlers, dashboards, or progress UIs. mutagen_ex
+  ships no built-in subscriber. See the README "Telemetry events" table.
+
+- **Per-site progress feed.** When stderr is a TTY, a one-line-per-site
+  progress feed is printed (e.g. `[12/345] killed lib/foo.ex:42 :arith`).
+  Suppress it with `--no-progress`.
+
+- **Test-suite gates documented.** The default `mix test` run now excludes
+  the slow end-to-end (`:e2e_slow`) and integration-spike (`:spike`) tag
+  families to keep the smoke gate fast; both remain runnable on demand
+  (`mix test --only e2e_slow`, `mix test --only spike`). The spike
+  iteration count is tunable via `MUTAGEN_SPIKE_ITERATIONS`. Default
+  `mix test` wall-clock dropped from ~24s to ~1s.
+
+### Changed
+
+- **Faster mutation runs.** A round of AST and bytecode-handling work made
+  the mutation pipeline measurably faster — roughly a 1.66× wall-clock
+  speedup on the project's benchmark fixture — without changing any
+  outcome. Mutation site IDs, before/after source slices, kill/survive
+  verdicts, and the kill rate are byte-for-byte identical before and after;
+  only timing and some advisory diagnostic text changed. A benchmark
+  harness for reproducing these numbers ships at
+  `priv/helper_scripts/bench_ast_perf.exs`.
+
+### Fixed
+
+- **Archive-installed CLI no longer crashes on a cold start.** When
+  `mix mutagen` was installed globally via `mix archive.install` (no
+  `:mutagen_ex` entry in the host project's deps) and run for the first
+  time, it could crash with a raw `MatchError` traceback instead of the
+  CLI's structured error output. The task now repairs its own runtime load
+  path and, if the archive is genuinely unrecoverable, emits proper error
+  JSON (`abort_reason: "runtime_load_failed"`) instead of leaking a stack
+  trace. The `mix.exs`, Hex, and git install paths are unaffected.
+
+- **Ecto-style schema scope is now supported end-to-end.** A previously
+  skipped end-to-end scenario covering a hand-rolled Ecto-style schema DSL
+  was traced to a faulty test assertion (not a `:cover` interaction) and
+  re-enabled, confirming that mutations of macro-generated callbacks are
+  restored byte-for-byte between sites.
+
+### Security
+
+- **Sensitive output bounded and redactable.** Free-form text that flows
+  into the JSON report (captured stderr, exception messages, source
+  slices) is now truncated at a 4 KiB cap per field — appending a
+  `... <N bytes truncated>` marker — so a runaway diagnostic can't bloat
+  the report. A new opt-in `:redact` application config takes a list of
+  regexes; every match in a reported field is replaced with `[REDACTED]`.
+  Redaction runs before truncation. Default is no redaction. Pair it with
+  `--json <path>` when archiving reports off the run host.
+
+- **`--json <path>` is path-safe.** The output path is canonicalised
+  before any mutation runs: `..` segments and NUL bytes are refused at
+  parse time, and a fully-resolved path that escapes the project root is
+  refused (`abort_reason: "unsafe_json_path"`). This closes an
+  arbitrary-file-write avenue, since the pipeline compiles and runs the
+  target project's (possibly mutated) test code in-process. CI that must
+  write outside the project root opts in with
+  `--unsafe-json-outside-project`, which emits a one-shot stderr warning
+  naming the resolved target.
+
+- **Bounded atom creation on CLI input.** `tag:`, module, and function
+  scope/test arguments no longer convert unbounded user input to atoms, so
+  loops like `mix mutagen --tests tag:$(uuidgen)` can no longer exhaust the
+  atom table. A `tag:` charset gate rejects malformed names up front
+  (`abort_reason: "invalid_tag_name"`).
+
+### Removed
+
+- The `mix new` placeholder module and its test were deleted; the
+  `MutagenEx` namespace is owned entirely by its submodules.
+
+## [0.1.0] — 2026-05-13
+
+First public cut. The CLI, the JSON document, and the mutator catalog are
+stable as of this release.
+
+### Added
+
+- `mix mutagen` Mix task — the sole CLI entry point.
+  - `--scope <target>` (required, repeatable): file path, module name,
+    or `Module.fun/arity`.
+  - `--tests <target>` (required, repeatable): test file path,
+    `file:line`, or `tag:<name>`.
+  - `--timeout-ms <int>` (default `5000`): per-mutation wall-clock budget.
+  - `--seed <int>` (default `0`): ExUnit seed, propagated to every
+    test-running phase.
+  - `--json <path>`: redirect the final JSON document from stdout to a
+    file.
+- Orchestration state machine for the run pipeline: CLI → scope →
+  tests → AST cache → coverage → enumeration → baseline → mutation →
+  reporter. Every phase is dispatch-table-driven for test substitution.
+- Single-process, serial-execution model (no worker pool, no shelled
+  subprocess).
+- Coverage phase using `:cover`, scoped to in-scope modules, with the
+  `:cover_server` torn down cleanly between runs.
+- Mutation enumeration restricted to covered lines, with content-addressed
+  mutation IDs so they stay stable across `mix format` runs.
+- Mutators shipped in v0.1.0: `arith`, `compare`, `boolean`,
+  `case_drop`, `else_removal`, `withblock_with_swap`,
+  `withblock_else_removal`, `literal`. (See Known limitations for the
+  `literal` gap.)
+- Mutation runner with per-site sandboxed compile, ExUnit re-run, and
+  module restoration. Per-site outcomes classify as `:killed`,
+  `:survived`, `:timeout`, `:error`, or `:compile_error`.
+- JSON reporter emitting the v1 document shape (success and error
+  variants), terminated by a single newline. Golden fixtures under
+  `test/mutagen_ex/golden/` serve as the schema-by-example.
+- Exit-code discipline: `0` on completion (even at 0.0 kill rate),
+  non-zero on any abort. Every non-zero exit emits an error-JSON
+  document.
+- Refusals (each with a stable `reason:` atom):
+  - `:missing_scope`, `:missing_tests`, `:invalid_timeout` — bad input.
+  - `:flag_not_supported_in_v1` — explicit reject of `--no-json`.
+  - `:colon_syntax_unsupported` — explicit reject of `file.ex:Module`.
+  - `:self_mutation_refused` — refuses to mutate `MutagenEx.*` or
+    `Mix.Tasks.Mutagen`.
+  - `:baseline_red` — aborts before any mutation phase if the cited
+    tests do not all pass against unmodified source.
+- `mix help mutagen` output with Synopsis, Flags, Examples,
+  Constraints, Exit Codes, JSON Schema Pointer, and Known Caveats
+  sections.
+- `README.md` with quick-start, flag reference, exit-code table,
+  JSON-schema pointer, and known-limitations list.
+
+### Known limitations
+
+Shipped with v0.1.0 and tracked for later releases:
+
+- File-cited `--tests` (a bare `_test.exs` path) produced a filter that
+  excluded every test.
+- The production mix task wired the mutation runner with an empty test
+  module list.
+- A per-site timeout could leave the code server holding a module-load
+  lock, occasionally corrupting the tail of a run.
+- The `:case_drop` mutator on a guarded base case classifies as `killed`
+  (a `CaseClauseError`) rather than `timeout`.
+- The `literal` mutator never fired, because atomic literals were wrapped
+  in a way the mutator did not recognise.
+
+(Several of these were fixed in the Unreleased cycle above.)
+
+[0.1.0]: https://github.com/autom8things/mutagen_ex/releases/tag/v0.1.0
+
+---
+
+## Internal development log (Unreleased)
+
+> The entries below are the original ticket-keyed engineering log for the
+> Unreleased cycle, kept verbatim for traceability. The user-facing summary
+> of the same work is in the `[Unreleased]` section above.
 
 - **Archive-installed CLI runtime self-heal.** Fixed the archive adoption
   path where invoking `mix mutagen` from a host project without
@@ -596,82 +772,3 @@ this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   through the link tree close the underlying Code.Server hang condition.
   *(mutagen-wrd.18)*
 
-## [0.1.0] — 2026-05-13
-
-First public cut. The CLI, the JSON document, and the mutator catalog are
-stable as of this release.
-
-### Added
-
-- `mix mutagen` Mix task — the sole CLI entry point.
-  - `--scope <target>` (required, repeatable): file path, module name,
-    or `Module.fun/arity`.
-  - `--tests <target>` (required, repeatable): test file path,
-    `file:line`, or `tag:<name>`.
-  - `--timeout-ms <int>` (default `5000`): per-mutation wall-clock budget.
-  - `--seed <int>` (default `0`): ExUnit seed, propagated to every
-    test-running phase.
-  - `--json <path>`: redirect the final JSON document from stdout to a
-    file.
-- Orchestration state machine for the run pipeline: CLI → scope →
-  tests → AST cache → coverage → enumeration → baseline → mutation →
-  reporter. Every phase is dispatch-table-driven for test substitution.
-- Single-process, serial-execution model (no worker pool, no shelled
-  subprocess) — see `mutagen.decision.serial_execution_and_seed` and
-  `mutagen.decision.in_process_pipeline`.
-- Coverage phase using `:cover`, scoped to in-scope modules, with the
-  `:cover_server` torn down cleanly between runs.
-- Mutation enumeration via `Macro.prewalk/3` over the AST cache,
-  restricted to covered lines and content-addressed for ID stability
-  across `mix format` runs (see
-  `mutagen.decision.content_addressed_ids`).
-- Mutators shipped in v0.1.0: `arith`, `compare`, `boolean`,
-  `case_drop`, `else_removal`, `withblock_with_swap`,
-  `withblock_else_removal`, `literal`. (See Known limitations for the
-  `literal` gap.)
-- Mutation runner with per-site sandboxed compile, ExUnit re-run, and
-  module restoration. Per-site outcomes classify as `:killed`,
-  `:survived`, `:timeout`, `:error`, or `:compile_error`.
-- JSON reporter emitting the v1 document shape (success and error
-  variants), terminated by a single newline. Golden fixtures under
-  `test/mutagen_ex/golden/` serve as the schema-by-example.
-- Exit-code discipline: `0` on completion (even at 0.0 kill rate),
-  non-zero on any abort. Every non-zero exit emits an error-JSON
-  document.
-- Refusals (each with a stable `reason:` atom):
-  - `:missing_scope`, `:missing_tests`, `:invalid_timeout` — bad input.
-  - `:flag_not_supported_in_v1` — explicit reject of `--no-json`
-    (see `mutagen.decision.no_pretty_output_v1`).
-  - `:colon_syntax_unsupported` — explicit reject of `file.ex:Module`
-    (see `mutagen.decision.scope_syntax_simplified`).
-  - `:self_mutation_refused` — refuses to mutate `MutagenEx.*` or
-    `Mix.Tasks.Mutagen` (see
-    `mutagen.decision.self_mutation_refused`).
-  - `:baseline_red` — aborts before any mutation phase if the cited
-    tests do not all pass against unmodified source.
-- `mix help mutagen` output with Synopsis, Flags, Examples,
-  Constraints, Exit Codes, JSON Schema Pointer, and Known Caveats
-  sections.
-- `README.md` with quick-start, flag reference, exit-code table,
-  JSON-schema pointer, and known-limitations list.
-
-### Known limitations
-
-Carried forward as open tickets against v0.1.x; see the README's
-"Known limitations" section for the user-facing summary.
-
-- `mutagen-wrd.11` — file-cited `--tests` produces a filter that excludes
-  every test.
-- `mutagen-wrd.12` — production mix task wires the mutation runner with
-  an empty `test_modules` list.
-- `mutagen-wrd.13` — `Task.shutdown(:brutal_kill)` after a per-site
-  timeout can leave the Code.Server with an unreleased module-load
-  lock.
-- `mutagen-wrd.14` — `:case_drop` on a guarded base case classifies
-  `:killed` (`CaseClauseError`), not `:timeout` as the mutator catalog
-  states.
-- `mutagen-wrd.15` — the `literal` mutator never fires; the AST cache's
-  `token_metadata: true` wraps atomic literals in `__block__` tuples
-  that `Literal.match?/1` does not destructure.
-
-[0.1.0]: https://github.com/autom8things/mutagen_ex/releases/tag/v0.1.0
