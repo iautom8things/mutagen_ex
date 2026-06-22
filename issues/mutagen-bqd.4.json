@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: orchestrator-mutagen-bqd\nLog: /Users/mz/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/ (orchestrate-epic manager session)\n\nReasoning: VERIFY reported PASS with full stub coverage (5/5), full source-claim tracing of all ten mutators and both DOIs, zero mechanical or intent-level scope violations, and passing project verification. No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:24:28Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/bqd (ff 0c35acc..22c29d2). Epic smoke green (640 tests). Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T13:24:46Z"
     }
   ],
   "priority": 3,
   "status": "in_progress",
   "title": "Mutation-testing literature grounding",
   "type": "task",
-  "updated_at": "2026-06-22T13:24:28Z"
+  "updated_at": "2026-06-22T13:24:46Z"
 }
