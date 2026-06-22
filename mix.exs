@@ -12,6 +12,7 @@ defmodule MutagenEx.MixProject do
       deps: deps(),
       package: package(),
       aliases: aliases(),
+      docs: docs(),
       # Lane fixture (test/fixtures/lane_project/**) is a self-contained
       # mini-mix-project; its `_test.exs` files exist only to be cited by
       # `mix mutagen --tests` from the end-to-end test driver, never run
@@ -75,6 +76,43 @@ defmodule MutagenEx.MixProject do
     ]
   end
 
+  # ex_doc config. `main: "readme"` renders README.md as the landing page
+  # rather than a module. Modules are grouped into mutators (the individual
+  # AST mutation operators), pipeline facades (the injectable boundary
+  # adapters under `MutagenEx.Pipeline`), and core (everything else — the
+  # runner, enumerator, config, reporters, and supporting modules).
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "CHANGELOG.md"],
+      groups_for_modules: [
+        Mutators: [~r/^MutagenEx\.Mutators/],
+        "Pipeline Facades": [~r/^MutagenEx\.Pipeline/],
+        Core: [
+          MutagenEx.MutationRunner,
+          MutagenEx.MutationRunner.MutationLoop,
+          MutagenEx.MutationEnumerator,
+          MutagenEx.Baseline,
+          MutagenEx.CoverageRunner,
+          MutagenEx.Config,
+          MutagenEx.Cli,
+          MutagenEx.ScopeResolver,
+          MutagenEx.Ast,
+          MutagenEx.AstCache,
+          MutagenEx.BeamCache,
+          MutagenEx.JsonReporter,
+          MutagenEx.JsonStreamer,
+          MutagenEx.JsonPath,
+          MutagenEx.Progress,
+          MutagenEx.Telemetry,
+          MutagenEx.TestModuleDiscovery,
+          MutagenEx.TestSelector,
+          MutagenEx.Types
+        ]
+      ]
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
@@ -84,7 +122,8 @@ defmodule MutagenEx.MixProject do
       # run_completed) per `mutagen.mutation_pipeline.r15`; consumers
       # attach their own handlers. No metrics/exporter dependency — the
       # event surface is intentionally minimal.
-      {:telemetry, "~> 1.0"}
+      {:telemetry, "~> 1.0"},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 end
