@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-22T14:01:02Z",
   "created": "2026-06-22T11:30:18Z",
   "description": "Bad look for a mutation-testing tool: `mix test --cover` produces 3 failures and an Enum.EmptyError crash in the coverage reporter.\n\nRoot cause: two assertions assume :cover_server is NOT running, which cover itself violates:\n- test/mutagen_ex/scope_resolver_test.exs:374 — `refute Process.whereis(:cover_server)`\n- test/mutagen_ex/scope_resolver_property_test.exs:164 — same\n\nFix: guard or skip those assertions when running under cover (e.g. detect cover and skip, or assert the no-side-effect invariant a different way). Also investigate the Enum.EmptyError in report generation (:cover compiled zero project modules).\n\nAcceptance: `mix test --cover` runs clean and prints a coverage number.",
   "id": "mutagen-hcs.2",
@@ -30,7 +31,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix mix test --cover (3 failures + crash)",
   "type": "bug",
   "updated_at": "2026-06-22T14:01:02Z"
