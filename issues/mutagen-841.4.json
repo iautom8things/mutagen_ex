@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:34Z",
+  "description": "Testing-review M3. config.ex (struct with @enforce_keys) is exercised only transitively via cli_test — no test pins defaults or the enforce-keys contract. telemetry.ex emits run.start/stop, coverage.stop, baseline.stop, enumeration.stop, site.start/stop, but only site.start/stop is verified (indirectly, in mutation_runner_parallel_test). A consumer attaching handlers (documented contract mutagen.mutation_pipeline.r15) could break silently on a renamed measurement key.\n\nFix: telemetry_test.exs attaching a handler and asserting each event's {measurements, metadata} key set across a minimal pipeline run; small config_test.exs pinning defaults + enforce-keys.\n\nDone: every documented telemetry event's shape asserted; config defaults + enforce-keys pinned.",
+  "id": "mutagen-841.4",
+  "labels": [],
+  "parent": "mutagen-841",
+  "priority": 3,
+  "status": "open",
+  "title": "M3: direct tests for config.ex + telemetry.ex",
+  "type": "task",
+  "updated_at": "2026-06-22T14:26:34Z"
+}
