@@ -51,11 +51,15 @@
     {
       "text": "APPROVED (auto-gate, post-bounce). Rebased + regen state.json, ff-merged. Closing.",
       "timestamp": "2026-06-22T14:00:08Z"
+    },
+    {
+      "text": "APPROVED (auto-gate, post-bounce). Rebased + regen state.json, ff-merged into spec-led/bootstrap @ 0ea01e8. Full-corpus mix spec.validate now passes (errors=0 warnings=0) with all 9 subjects active. Closing. (Note: an earlier close was premature due to a piped-command masking the ff failure; this is the real merge.)",
+      "timestamp": "2026-06-22T14:03:04Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "migrate mutagen.test_selection to SpecLedEx schema (5 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T14:00:37Z"
+  "updated_at": "2026-06-22T14:03:04Z"
 }
