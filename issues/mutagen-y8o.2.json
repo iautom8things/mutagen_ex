@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
+    "mutagen-y8o.1",
     "mutagen-y8o.4"
   ],
   "created": "2026-06-22T11:29:43Z",
@@ -13,5 +14,5 @@
   "status": "open",
   "title": "Add LICENSE file + licenses key",
   "type": "task",
-  "updated_at": "2026-06-22T11:29:43Z"
+  "updated_at": "2026-06-22T11:29:44Z"
 }

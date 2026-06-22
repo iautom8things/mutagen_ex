@@ -1,6 +1,8 @@
 {
   "assignee": "",
-  "blocked_by": [],
+  "blocked_by": [
+    "mutagen-y8o.2"
+  ],
   "blocks": [
     "mutagen-y8o.4"
   ],
@@ -13,5 +15,5 @@
   "status": "open",
   "title": "Add description + package metadata to mix.exs",
   "type": "task",
-  "updated_at": "2026-06-22T11:29:43Z"
+  "updated_at": "2026-06-22T11:29:44Z"
 }
