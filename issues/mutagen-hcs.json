@@ -13,11 +13,15 @@
     {
       "text": "ORCHESTRATION START (2026-06-22)\nEpic worktree: /Users/mz/dev/mz/mutagen_ex-hcs (branch epic/hcs, base 196bb8c)\nworker_mode: claude (user-selected)\ngenerated_state_paths: none (.spec/state.json absent)\nDAG: .2 .3 .4 .5 .6 ready; .1 blocked by external mutagen-y8o.1 (open) — deferred this run.\nFirst wave (cap 3): .2, .4, .5. README tickets .3/.6 sequenced afterward to avoid README conflicts.",
       "timestamp": "2026-06-22T12:43:56Z"
+    },
+    {
+      "text": "ORCHESTRATION PROGRESS (2026-06-22)\nLanded into epic/hcs (smoke green throughout): .4 (baseline_red guard test + README), .3 (README version labels), .2 (mix test --cover clean; rebased over .4's test_helper.exs), .6 (README JSON example + CHANGELOG; 1 verify bounce on a phantom mutation.error field, fixed + merged).\nBOUNCEs: 1 (.6 verify→implementer, factual). Scope expansions: 0.\n\nREMAINING (orchestration paused — both need outside input):\n- .5 GitHub CI: BLOCKED on a product decision. mix test.integration is red on main because archive_install_test fails — the .ez bundles only mutagen_ex's ebin, not the :telemetry runtime dep, so `mix mutagen` from an archive-installed host aborts (runtime_load_failed). Root: archives aren't meant to carry deps. Awaiting user call: drop archive.install (ship as dev dep) vs. make :telemetry optional/graceful.\n- .1 package files whitelist: BLOCKED on external mutagen-y8o.1 (open, different epic) — out of this run's reach.\n\nFollow-up candidates surfaced (not auto-carved, neither blocks a child): r11 /tmp-attribution flake (mutation_runner_test.exs:1181); project coverage ~79% \u003c Mix default 90%.\nEpic stays in_progress (phase:implementing). NOT pushing/PR-ing — that's the human checkpoint.",
+      "timestamp": "2026-06-22T14:15:48Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-22T12:43:56Z"
+  "updated_at": "2026-06-22T14:15:48Z"
 }
