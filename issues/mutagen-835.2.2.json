@@ -13,9 +13,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-835.2",
+  "comments": [
+    {
+      "text": "IMPLEMENTED\n\nMigrated .spec/specs/mutation_pipeline.spec.md to the SpecLedEx schema.\n\nChanges:\n- spec-scenarios (s1-s17): reshaped each scenario to given:/when:/then: arrays (was bespoke scalar given/when/then -\u003e 'expected array' parse error). Preserved every id and covers list.\n- spec-verification (v1-v9): converted each entry to kind: command with the test command in target: (replacing the command:/execute: stub form). Every requirement r1-r16 is covered by at least one verification entry.\n- spec-meta: flipped status: draft -\u003e active.\n- Prose, intent, ids, surface, decisions links left intact. No realized_by added (phase2). No requirement ids altered or removed.\n\nMerge gate (all green locally):\n- mix spec.validate -\u003e ZERO errors for mutagen.mutation_pipeline (baseline was 10). Subject shows status active in .spec/state.json (regenerated, committed).\n- mix compile --warnings-as-errors -\u003e clean.\n- mix test -\u003e 640 tests, 0 failures (19 excluded).\n\nTouched only: .spec/specs/mutation_pipeline.spec.md + generated .spec/state.json. Committed as 3996715 on branch mutagen-835.2.2/migrate-mutation-pipeline.",
+      "timestamp": "2026-06-22T13:01:40Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.mutation_pipeline to SpecLedEx schema (10 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T12:53:36Z"
+  "updated_at": "2026-06-22T13:01:40Z"
 }
