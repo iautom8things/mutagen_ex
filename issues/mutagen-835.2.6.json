@@ -25,11 +25,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 0eb050fa-440a-426e-9f51-bfd4d1ee50de\nLog: /Users/mz/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/0eb050fa-440a-426e-9f51-bfd4d1ee50de.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage (5/5), full requirement coverage (r1-r8, each with a load-bearing 'Would fail if' line), zero mechanical or intent-level scope violations, and passing per-subject project verification. The r7→v1 covers addition was confirmed legitimate (existing r7 describe block asserts the closed catalog). No auditor was spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:40:28Z"
+    },
+    {
+      "text": "APPROVED (auto-gate). Rebased + regen state.json, ff-merged. Closing.",
+      "timestamp": "2026-06-22T13:40:39Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "migrate mutagen.mutators to SpecLedEx schema (6 errors)",
   "type": "task",
-  "updated_at": "2026-06-22T13:40:29Z"
+  "updated_at": "2026-06-22T13:40:39Z"
 }
