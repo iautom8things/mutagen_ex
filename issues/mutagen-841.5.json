@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-22T14:26:34Z",
+  "description": "Testing-review M4. json_streamer_test only uses a capturing Agent sink that always succeeds. No coverage for a sink that fails mid-stream (disk full, closed device, permission denied on the --json path opened in stream_sink/2). One line per site over a long run makes a mid-stream sink failure a realistic operational event; partial-write behaviour is untested (clean abort vs crash-and-lose-results is unknown).\n\nFiles: lib/mutagen_ex/json_streamer.ex; test/mutagen_ex/json_streamer_test.exs.\n\nFix: inject a failing sink and assert the documented degradation.\n\nDone: failing-sink behaviour pinned by a test.",
+  "id": "mutagen-841.5",
+  "labels": [],
+  "parent": "mutagen-841",
+  "priority": 3,
+  "status": "open",
+  "title": "M4: json_streamer sink-write-failure coverage",
+  "type": "task",
+  "updated_at": "2026-06-22T14:26:34Z"
+}
