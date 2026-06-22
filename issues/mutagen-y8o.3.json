@@ -23,11 +23,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 9686c74a-8dc3-41b7-8739-f24495786b99\nLog: /Users/mz/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/9686c74a-8dc3-41b7-8739-f24495786b99.jsonl\n\nReasoning: VERIFY reported PASS with full stub coverage, full requirement coverage,\nzero mechanical or intent-level scope violations, and passing project verification\n(mix docs builds, README is the landing page; mix compile --warnings-as-errors clean).\nNo auditor was spawned per selective-audit policy.",
       "timestamp": "2026-06-22T13:30:03Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/y8o (ff-only, 918bc37). After merge, ran `mix deps.get` in the epic worktree to fetch ex_doc + transitive deps (the lock entry arrived via merge; deps/ needed syncing — mechanical, not a code conflict). make smoke green 3x (640 tests, 0 failures); compile --warnings-as-errors, format --check-formatted, and deps.unlock --check-unused all clean. (One transient seed-dependent test failure observed on the first post-deps.get run did not reproduce across 3 subsequent runs + seed 0 — flaky, unrelated to this config-only change.) Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-22T13:32:14Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Add ex_doc dep + docs config",
   "type": "task",
-  "updated_at": "2026-06-22T13:30:03Z"
+  "updated_at": "2026-06-22T13:32:14Z"
 }
