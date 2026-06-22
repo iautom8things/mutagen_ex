@@ -28,7 +28,7 @@ constants.
 ```spec-meta
 id: mutagen.coverage
 kind: module
-status: draft
+status: active
 summary: One-shot :cover run plus AST + source-text caching for downstream phases.
 surface:
   - lib/mutagen_ex/coverage_runner.ex
@@ -37,6 +37,10 @@ decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.supervision_tree
+realized_by:
+  api_boundary:
+    - "MutagenEx.CoverageRunner"
+    - "MutagenEx.AstCache"
 ```
 
 ```spec-requirements
@@ -187,182 +191,164 @@ decisions:
 ```spec-scenarios
 - id: mutagen.coverage.s1
   covers: [mutagen.coverage.r1]
-  given: |
-    Another process started `:cover` and holds the `:cover_server` named
-    process before `mix mutagen` runs.
-  when: `CoverageRunner.run/1` is invoked.
-  then: |
-    The run returns `{:error, :cover_already_running}` immediately. No
-    `:cover.compile_*` call is made.
+  given:
+    - Another process started `:cover` and holds the `:cover_server` named process before `mix mutagen` runs.
+  when:
+    - "`CoverageRunner.run/1` is invoked."
+  then:
+    - "The run returns `{:error, :cover_already_running}` immediately. No `:cover.compile_*` call is made."
 
 - id: mutagen.coverage.s2
   covers: [mutagen.coverage.r2]
-  given: |
-    A successful coverage run.
-  when: We inspect process state afterwards.
-  then: |
-    `Process.whereis(:cover_server)` is `nil` (cover stopped). Calling
-    `CoverageRunner.run/1` a second time in the same VM succeeds — the
-    first stop did not leave cover in a broken state.
+  given:
+    - A successful coverage run.
+  when:
+    - We inspect process state afterwards.
+  then:
+    - "`Process.whereis(:cover_server)` is `nil` (cover stopped). Calling `CoverageRunner.run/1` a second time in the same VM succeeds — the first stop did not leave cover in a broken state."
 
 - id: mutagen.coverage.s3
   covers: [mutagen.coverage.r3]
-  given: |
-    `Foo` was cover-instrumented during the run.
-  when: After `CoverageRunner.run/1` returns successfully, we call
-        `:code.which(Foo)`.
-  then: |
-    The return value is the actual `.beam` path string, not the atom
-    `:cover_compiled`.
+  given:
+    - "`Foo` was cover-instrumented during the run."
+  when:
+    - "After `CoverageRunner.run/1` returns successfully, we call `:code.which(Foo)`."
+  then:
+    - "The return value is the actual `.beam` path string, not the atom `:cover_compiled`."
 
 - id: mutagen.coverage.s4
   covers: [mutagen.coverage.r4]
-  given: A `Config{seed: 42}` passed to `CoverageRunner.run/1`.
-  when: The runner starts.
-  then: |
-    `ExUnit.configuration()[:max_cases] == 1` and
-    `ExUnit.configuration()[:seed] == 42` at the moment ExUnit begins
-    executing test files.
+  given:
+    - "A `Config{seed: 42}` passed to `CoverageRunner.run/1`."
+  when:
+    - The runner starts.
+  then:
+    - "`ExUnit.configuration()[:max_cases] == 1` and `ExUnit.configuration()[:seed] == 42` at the moment ExUnit begins executing test files."
 
 - id: mutagen.coverage.s5
   covers: [mutagen.coverage.r5]
-  given: |
-    A run scoped to `lib/foo.ex` whose cited tests also exercise
-    `lib/unrelated.ex` (because `foo` calls into it).
-  when: `CoverageRunner.run/1` returns.
-  then: |
-    The returned `covered_lines` map has a key for `lib/foo.ex` and does NOT
-    have a key for `lib/unrelated.ex`.
+  given:
+    - A run scoped to `lib/foo.ex` whose cited tests also exercise `lib/unrelated.ex` (because `foo` calls into it).
+  when:
+    - "`CoverageRunner.run/1` returns."
+  then:
+    - "The returned `covered_lines` map has a key for `lib/foo.ex` and does NOT have a key for `lib/unrelated.ex`."
 
 - id: mutagen.coverage.s6
   covers: [mutagen.coverage.r6]
-  given: |
-    A scope referencing `lib/foo.ex`.
-  when: `AstCache.load/1` runs.
-  then: |
-    The cache contains `{"lib/foo.ex", {quoted, source_text}}` where
-    `source_text == File.read!("lib/foo.ex")` at the moment `load/1` was
-    called. A subsequent `AstCache.get(cache, "lib/foo.ex")` returns the
-    same `{quoted, source_text}` tuple.
+  given:
+    - A scope referencing `lib/foo.ex`.
+  when:
+    - "`AstCache.load/1` runs."
+  then:
+    - "The cache contains `{\"lib/foo.ex\", {quoted, source_text}}` where `source_text == File.read!(\"lib/foo.ex\")` at the moment `load/1` was called. A subsequent `AstCache.get(cache, \"lib/foo.ex\")` returns the same `{quoted, source_text}` tuple."
 
 - id: mutagen.coverage.s7
   covers: [mutagen.coverage.r7]
-  given: |
-    `lib/foo.ex` with a known SHA-256 hash before the run.
-  when: `CoverageRunner.run/1` + `AstCache.load/1` complete.
-  then: |
-    The hash is unchanged. No file under `cover/`, `_build/`, or `lib/` was
-    written by these phases.
+  given:
+    - "`lib/foo.ex` with a known SHA-256 hash before the run."
+  when:
+    - "`CoverageRunner.run/1` + `AstCache.load/1` complete."
+  then:
+    - "The hash is unchanged. No file under `cover/`, `_build/`, or `lib/` was written by these phases."
 
 - id: mutagen.coverage.s8
   covers: [mutagen.coverage.r1, mutagen.coverage.r8]
-  given: |
-    `:cover_server` is registered on the BEAM (simulating an
-    in-flight MutagenEx mutation cycle).
-  when: |
-    A caller invokes `MutagenEx.CoverageRunner.run/1` with a
-    well-formed input
-    (`%{seed: 0, in_scope_modules: [],
-       test_filter: %TestFilter{include: [], exclude: [], files: []}}`).
-  then: |
-    The call returns `{:error, :cover_already_running, %{message: msg}}`
-    immediately, without entering the cover lifecycle. `msg` names
-    `MutagenEx.TaskSup` as the singleton owner.
+  given:
+    - "`:cover_server` is registered on the BEAM (simulating an in-flight MutagenEx mutation cycle)."
+  when:
+    - "A caller invokes `MutagenEx.CoverageRunner.run/1` with a well-formed input (`%{seed: 0, in_scope_modules: [], test_filter: %TestFilter{include: [], exclude: [], files: []}}`)."
+  then:
+    - "The call returns `{:error, :cover_already_running, %{message: msg}}` immediately, without entering the cover lifecycle. `msg` names `MutagenEx.TaskSup` as the singleton owner."
 
 - id: mutagen.coverage.s9a
   covers: [mutagen.coverage.r9]
-  given: |
-    A flat list `files = ["lib/a.ex", "test/a_test.exs"]` and
-    `opts = [categories: %{scope: ["lib/a.ex"], test: ["test/a_test.exs"]}]`.
-  when: |
-    `AstCache.load(files, opts)` runs against a stub reader.
-  then: |
-    The resulting cache has exactly the keys `"lib/a.ex"` and
-    `"test/a_test.exs"`. Each value is a 2-tuple
-    `{Macro.t(), String.t()}` — no category tag. The cache produced is
-    byte-identical to what `AstCache.load(files, reader: same_reader)`
-    (without `:categories`) would have returned.
+  given:
+    - "A flat list `files = [\"lib/a.ex\", \"test/a_test.exs\"]` and `opts = [categories: %{scope: [\"lib/a.ex\"], test: [\"test/a_test.exs\"]}]`."
+  when:
+    - "`AstCache.load(files, opts)` runs against a stub reader."
+  then:
+    - "The resulting cache has exactly the keys `\"lib/a.ex\"` and `\"test/a_test.exs\"`. Each value is a 2-tuple `{Macro.t(), String.t()}` — no category tag. The cache produced is byte-identical to what `AstCache.load(files, reader: same_reader)` (without `:categories`) would have returned."
 
 - id: mutagen.coverage.s9b
   covers: [mutagen.coverage.r9]
-  given: |
-    A baseline call with `cfg.ast_cache` populated containing the
-    cited test file's entry.
-  when: |
-    `Baseline.run/1` runs (which calls `detect_async_modules/1`
-    internally).
-  then: |
-    The async-detection path consumes the cached `{ast, _source}`;
-    no `File.read/1` call lands against the cited test file. The
-    returned warnings reflect the cached AST.
+  given:
+    - A baseline call with `cfg.ast_cache` populated containing the cited test file's entry.
+  when:
+    - "`Baseline.run/1` runs (which calls `detect_async_modules/1` internally)."
+  then:
+    - "The async-detection path consumes the cached `{ast, _source}`; no `File.read/1` call lands against the cited test file. The returned warnings reflect the cached AST."
 
 - id: mutagen.coverage.s9c
   covers: [mutagen.coverage.r9]
-  given: |
-    A baseline call with `cfg.ast_cache` populated but the cited
-    test file is NOT present in the cache.
-  when: |
-    `Baseline.run/1` runs.
-  then: |
-    `detect_async_modules/1` falls back to `File.read/1` + parse for
-    that file. The cache miss is logged. The returned warnings are
-    the same as the no-cache path for that file.
+  given:
+    - A baseline call with `cfg.ast_cache` populated but the cited test file is NOT present in the cache.
+  when:
+    - "`Baseline.run/1` runs."
+  then:
+    - "`detect_async_modules/1` falls back to `File.read/1` + parse for that file. The cache miss is logged. The returned warnings are the same as the no-cache path for that file."
 
 - id: mutagen.coverage.s10
   covers: [mutagen.coverage.r10]
-  given: |
-    A `CoverageRunner.run/1` call with
-    `test_modules: [{Some.CitedTest, %{async?: false, group: nil, parameterize: nil}}]`
-    and an `:ex_unit_server` seam that records each `add_module/2`
-    invocation.
-  when: |
-    The runner reaches `ExUnit.run/0`.
-  then: |
-    The seam recorded one `add_module(Some.CitedTest, cfg)` call
-    BEFORE `ExUnit.run/0` was invoked. With `test_modules: []`
-    (the default), the seam records zero calls.
+  given:
+    - "A `CoverageRunner.run/1` call with `test_modules: [{Some.CitedTest, %{async?: false, group: nil, parameterize: nil}}]` and an `:ex_unit_server` seam that records each `add_module/2` invocation."
+  when:
+    - "The runner reaches `ExUnit.run/0`."
+  then:
+    - "The seam recorded one `add_module(Some.CitedTest, cfg)` call BEFORE `ExUnit.run/0` was invoked. With `test_modules: []` (the default), the seam records zero calls."
 ```
 
 ```spec-verification
 - id: mutagen.coverage.v1
-  covers: [mutagen.coverage.r1, mutagen.coverage.r2, mutagen.coverage.r3, mutagen.coverage.r4]
   kind: command
-  command: mix test test/mutagen_ex/coverage_runner_test.exs
+  target: mix test test/mutagen_ex/coverage_runner_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r1
+    - mutagen.coverage.r2
+    - mutagen.coverage.r3
+    - mutagen.coverage.r4
 
 - id: mutagen.coverage.v2
-  covers: [mutagen.coverage.r5]
   kind: command
-  command: mix test test/mutagen_ex/coverage_runner_test.exs --only scope_filter
+  target: mix test test/mutagen_ex/coverage_runner_test.exs --only scope_filter
   execute: true
+  covers:
+    - mutagen.coverage.r5
 
 - id: mutagen.coverage.v3
-  covers: [mutagen.coverage.r6]
   kind: command
-  command: mix test test/mutagen_ex/ast_cache_test.exs
+  target: mix test test/mutagen_ex/ast_cache_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r6
 
 - id: mutagen.coverage.v4
-  covers: [mutagen.coverage.r7]
   kind: command
-  command: mix test --only spike test/mutagen_ex/integration/c1_test.exs
+  target: mix test --only spike test/mutagen_ex/integration/c1_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r7
 
 - id: mutagen.coverage.v5
-  covers: [mutagen.coverage.r1, mutagen.coverage.r8]
   kind: command
-  command: mix test test/mutagen_ex/supervision_test.exs
+  target: mix test test/mutagen_ex/supervision_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r1
+    - mutagen.coverage.r8
 
 - id: mutagen.coverage.v6
-  covers: [mutagen.coverage.r9]
   kind: command
-  command: mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs
+  target: mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r9
 
 - id: mutagen.coverage.v7
-  covers: [mutagen.coverage.r10]
   kind: command
-  command: mix test test/mutagen_ex/coverage_runner_test.exs
+  target: mix test test/mutagen_ex/coverage_runner_test.exs
   execute: true
+  covers:
+    - mutagen.coverage.r10
 ```

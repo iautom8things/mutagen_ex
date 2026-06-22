@@ -25,11 +25,14 @@ unit-testable without driving the harness.
 ```spec-meta
 id: mutagen.test_selection
 kind: module
-status: draft
+status: active
 summary: Resolves --tests targets to ExUnit-shaped filter records via AST walking.
 surface:
   - lib/mutagen_ex/test_selector.ex
 decisions: []
+realized_by:
+  api_boundary:
+    - "MutagenEx.TestSelector"
 ```
 
 ```spec-requirements
@@ -111,102 +114,97 @@ decisions: []
 ```spec-scenarios
 - id: mutagen.test_selection.s1
   covers: [mutagen.test_selection.r1]
-  given: A target `test/foo_test.exs`.
-  when: The selector resolves it.
-  then: |
-    Result is `%TestFilter{include: [], exclude: [], files:
-    ["test/foo_test.exs"]}`. With this filter every test in
-    `foo_test.exs` runs — the regression in mutagen-wrd.11 was that
-    `exclude: [:test]` paired with an empty include silently excluded
-    every test from baseline + coverage + mutation passes.
+  given:
+    - A target `test/foo_test.exs`.
+  when:
+    - The selector resolves it.
+  then:
+    - "Result is `%TestFilter{include: [], exclude: [], files: [\"test/foo_test.exs\"]}`. With this filter every test in `foo_test.exs` runs — the regression in mutagen-wrd.11 was that `exclude: [:test]` paired with an empty include silently excluded every test from baseline + coverage + mutation passes."
 
 - id: mutagen.test_selection.s2
   covers: [mutagen.test_selection.r2]
-  given: A target `test/foo_test.exs:42`.
-  when: The selector resolves it.
-  then: |
-    Result is `%TestFilter{include: [{:location, {"test/foo_test.exs",
-    42}}], exclude: [:test], files: ["test/foo_test.exs"]}`.
+  given:
+    - A target `test/foo_test.exs:42`.
+  when:
+    - The selector resolves it.
+  then:
+    - "Result is `%TestFilter{include: [{:location, {\"test/foo_test.exs\", 42}}], exclude: [:test], files: [\"test/foo_test.exs\"]}`."
 
 - id: mutagen.test_selection.s3
   covers: [mutagen.test_selection.r3, mutagen.test_selection.r4]
-  given: |
-    Two test files: `test/a_test.exs` contains `@tag :slow` on one test,
-    `test/b_test.exs` has no `@tag :slow`.
-  when: The selector resolves `tag:slow`.
-  then: |
-    Result `files` contains `test/a_test.exs` and NOT `test/b_test.exs`.
-    `include` is `[:slow]`. The selector did not call `Code.require_file/1`
-    or `Code.eval_*` on either file.
+  given:
+    - "Two test files: `test/a_test.exs` contains `@tag :slow` on one test, `test/b_test.exs` has no `@tag :slow`."
+  when:
+    - The selector resolves `tag:slow`.
+  then:
+    - "Result `files` contains `test/a_test.exs` and NOT `test/b_test.exs`. `include` is `[:slow]`. The selector did not call `Code.require_file/1` or `Code.eval_*` on either file."
 
 - id: mutagen.test_selection.s4
   covers: [mutagen.test_selection.r5]
-  given: |
-    The project has no `@tag :unused_tag` anywhere.
-  when: The selector resolves `tag:unused_tag`.
-  then: |
-    Result is `{:error, reason: :no_tests_match, target: "tag:unused_tag"}`.
+  given:
+    - The project has no `@tag :unused_tag` anywhere.
+  when:
+    - The selector resolves `tag:unused_tag`.
+  then:
+    - "Result is `{:error, reason: :no_tests_match, target: \"tag:unused_tag\"}`."
 
 - id: mutagen.test_selection.s5
   covers: [mutagen.test_selection.r6]
-  given: |
-    Targets `test/a_test.exs` and `test/b_test.exs`.
-  when: The selector resolves both.
-  then: |
-    Result `files` is `["test/a_test.exs", "test/b_test.exs"]` (order
-    irrelevant for the contract; deduplicated if user passed the same target
-    twice). Both contributors are bare-file targets so `exclude` is `[]`.
+  given:
+    - Targets `test/a_test.exs` and `test/b_test.exs`.
+  when:
+    - The selector resolves both.
+  then:
+    - "Result `files` is `[\"test/a_test.exs\", \"test/b_test.exs\"]` (order irrelevant for the contract; deduplicated if user passed the same target twice). Both contributors are bare-file targets so `exclude` is `[]`."
 
 - id: mutagen.test_selection.s6
   covers: [mutagen.test_selection.r6]
-  given: |
-    A bare-file target `test/a_test.exs` and a tag target `tag:slow`.
-  when: The selector resolves both.
-  then: |
-    Result `exclude` is `[]` (the bare-file contributor takes precedence
-    under union semantics — admitting all tests in `a_test.exs`). Result
-    `include` contains `:slow`; result `files` is the union of the file
-    and the tag walk.
+  given:
+    - A bare-file target `test/a_test.exs` and a tag target `tag:slow`.
+  when:
+    - The selector resolves both.
+  then:
+    - "Result `exclude` is `[]` (the bare-file contributor takes precedence under union semantics — admitting all tests in `a_test.exs`). Result `include` contains `:slow`; result `files` is the union of the file and the tag walk."
 
 - id: mutagen.test_selection.s7
   covers: [mutagen.test_selection.r7]
-  given: |
-    The atom `:never_registered_tag_for_mutagen_wrd_20` does not exist in
-    the BEAM atom table (no source code references it).
-  when: |
-    The selector resolves `tag:never_registered_tag_for_mutagen_wrd_20`
-    against a `test_root` containing only files with unrelated tags.
-  then: |
-    The call returns `{:error, %{reason: :no_tests_match, target:
-    "tag:never_registered_tag_for_mutagen_wrd_20"}}` AND
-    `:erlang.system_info(:atom_count)` is unchanged across the call.
-    Looping the call with N freshly-generated never-registered names
-    (e.g. `tag:#{System.unique_integer()}`) keeps `atom_count` constant
-    — no atom is created from the user-supplied `NAME` segment.
+  given:
+    - The atom `:never_registered_tag_for_mutagen_wrd_20` does not exist in the BEAM atom table (no source code references it).
+  when:
+    - The selector resolves `tag:never_registered_tag_for_mutagen_wrd_20` against a `test_root` containing only files with unrelated tags.
+  then:
+    - "The call returns `{:error, %{reason: :no_tests_match, target: \"tag:never_registered_tag_for_mutagen_wrd_20\"}}` AND `:erlang.system_info(:atom_count)` is unchanged across the call. Looping the call with N freshly-generated never-registered names (e.g. `tag:#{System.unique_integer()}`) keeps `atom_count` constant — no atom is created from the user-supplied `NAME` segment."
 ```
 
 ```spec-verification
 - id: mutagen.test_selection.v1
-  covers: [mutagen.test_selection.r1, mutagen.test_selection.r2, mutagen.test_selection.r3, mutagen.test_selection.r6]
   kind: command
-  command: mix test test/mutagen_ex/test_selector_test.exs
+  target: mix test test/mutagen_ex/test_selector_test.exs
   execute: true
+  covers:
+    - mutagen.test_selection.r1
+    - mutagen.test_selection.r2
+    - mutagen.test_selection.r3
+    - mutagen.test_selection.r6
 
 - id: mutagen.test_selection.v2
-  covers: [mutagen.test_selection.r4]
-  kind: source_file
-  source_file: test/mutagen_ex/test_selector_test.exs
+  kind: command
+  target: mix test test/mutagen_ex/test_selector_test.exs
   execute: true
+  covers:
+    - mutagen.test_selection.r4
 
 - id: mutagen.test_selection.v3
-  covers: [mutagen.test_selection.r5]
   kind: command
-  command: mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases
+  target: mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases
   execute: true
+  covers:
+    - mutagen.test_selection.r5
 
 - id: mutagen.test_selection.v4
-  covers: [mutagen.test_selection.r7]
   kind: command
-  command: mix test test/mutagen_ex/test_selector_test.exs --only atom_safety
+  target: mix test test/mutagen_ex/test_selector_test.exs --only atom_safety
   execute: true
+  covers:
+    - mutagen.test_selection.r7
 ```

@@ -27,7 +27,7 @@ The schema is documented here exhaustively; golden fixtures in
 ```spec-meta
 id: mutagen.json_schema
 kind: integration
-status: draft
+status: active
 summary: Stable v1 JSON output schema for success, partial, and error runs.
 surface:
   - lib/mutagen_ex/json_reporter.ex
@@ -37,6 +37,10 @@ decisions:
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.content_addressed_ids
   - mutagen.decision.details_always_present
+realized_by:
+  api_boundary:
+    - "MutagenEx.JsonReporter"
+    - "MutagenEx.JsonStreamer"
 ```
 
 ## Schema (v1)
@@ -363,150 +367,144 @@ Top-level keys, all present in every variant unless noted:
 
 ```spec-scenarios
 - id: mutagen.json_schema.s1
-  covers: [mutagen.json_schema.r1, mutagen.json_schema.r2]
-  given: A pipeline run that completes cleanly with 10 mutation sites,
-         9 killed and 1 survived.
-  when: `JsonReporter.emit_report/1` is called with the resulting report.
-  then: |
-    The document has `version: "1"`, `aborted: false`, `abort_reason:
-    null`. `mutation.total == 10`, `mutation.killed == 9`, `mutation.survived
-    == 1`, `mutation.kill_rate == 0.9`.
+  covers:
+    - mutagen.json_schema.r1
+    - mutagen.json_schema.r2
+  given:
+    - A pipeline run that completes cleanly with 10 mutation sites, 9 killed and 1 survived.
+  when:
+    - "`JsonReporter.emit_report/1` is called with the resulting report."
+  then:
+    - "The document has `version: \"1\"`, `aborted: false`, `abort_reason: null`."
+    - "`mutation.total == 10`, `mutation.killed == 9`, `mutation.survived == 1`, `mutation.kill_rate == 0.9`."
 
 - id: mutagen.json_schema.s2
-  covers: [mutagen.json_schema.r3, mutagen.json_schema.r4]
-  given: |
-    A `%Report{}` fixture for `mutation_with_skipped.json` (4 completed
-    sites: 3 killed + 1 survived; 2 sites in `skipped`; 1 site in
-    `compile_errors`).
-  when: `JsonReporter.emit_report/1` is called.
-  then: |
-    `mutation.total == 4`, `mutation.completed == 4`, `mutation.kill_rate
-    == 0.75` (3 killed / 4 non-compile-error), `mutation.skipped` has 2
-    entries, `mutation.compile_errors` has 1 entry, `mutation.results` has 4
-    entries each with the full set of fields per r4.
+  covers:
+    - mutagen.json_schema.r3
+    - mutagen.json_schema.r4
+  given:
+    - A `%Report{}` fixture for `mutation_with_skipped.json` (4 completed sites; 3 killed + 1 survived; 2 sites in `skipped`; 1 site in `compile_errors`).
+  when:
+    - "`JsonReporter.emit_report/1` is called."
+  then:
+    - "`mutation.total == 4`, `mutation.completed == 4`, `mutation.kill_rate == 0.75` (3 killed / 4 non-compile-error)."
+    - "`mutation.skipped` has 2 entries, `mutation.compile_errors` has 1 entry, `mutation.results` has 4 entries each with the full set of fields per r4."
 
 - id: mutagen.json_schema.s3
-  covers: [mutagen.json_schema.r5]
-  given: A run where `--scope` is missing.
-  when: The error path emits the document.
-  then: |
-    `version: "1"`, `aborted: true`, `abort_reason: "missing_scope"`.
-    `baseline`, `coverage`, `mutation` are all `null`. `meta` is populated
-    (we know our tool/elixir/otp version even on early error).
+  covers:
+    - mutagen.json_schema.r5
+  given:
+    - A run where `--scope` is missing.
+  when:
+    - The error path emits the document.
+  then:
+    - "`version: \"1\"`, `aborted: true`, `abort_reason: \"missing_scope\"`."
+    - "`baseline`, `coverage`, `mutation` are all `null`."
+    - "`meta` is populated (we know our tool/elixir/otp version even on early error)."
 
 - id: mutagen.json_schema.s4
-  covers: [mutagen.json_schema.r6]
-  given: |
-    A `%Report{}` fixture with `aborted: true, abort_reason:
-    :baseline_red`.
-  when: `JsonReporter.emit_report/1` is called.
-  then: |
-    Return is `{iodata, exit_code}` where `exit_code != 0`. The caller is
-    responsible for `IO.puts`. The function itself made no I/O.
+  covers:
+    - mutagen.json_schema.r6
+  given:
+    - "A `%Report{}` fixture with `aborted: true, abort_reason: :baseline_red`."
+  when:
+    - "`JsonReporter.emit_report/1` is called."
+  then:
+    - "Return is `{iodata, exit_code}` where `exit_code != 0`."
+    - The caller is responsible for `IO.puts`. The function itself made no I/O.
 
 - id: mutagen.json_schema.s5
-  covers: [mutagen.json_schema.r7, mutagen.json_schema.r8]
-  given: A successful run's emitted document.
-  when: We decode the iodata with `:json.decode/1`.
-  then: |
-    Decoding succeeds. The decoded map's `:version` key (or `"version"`)
-    equals `"1"`. The last byte of the iodata is `\n`.
+  covers:
+    - mutagen.json_schema.r7
+    - mutagen.json_schema.r8
+  given:
+    - A successful run's emitted document.
+  when:
+    - "We decode the iodata with `:json.decode/1`."
+  then:
+    - "Decoding succeeds. The decoded map's `:version` key (or `\"version\"`) equals `\"1\"`."
+    - "The last byte of the iodata is `\\n`."
 
 - id: mutagen.json_schema.s6
-  covers: [mutagen.json_schema.r9]
-  given: The 6 golden fixtures listed in r9.
-  when: For each, we call `JsonReporter.emit_report(fixture)` and compare to
-        the file contents.
-  then: |
-    Each comparison is byte-equal. Schema drift fails the golden test
-    suite loudly.
+  covers:
+    - mutagen.json_schema.r9
+  given:
+    - The 6 golden fixtures listed in r9.
+  when:
+    - For each, we call `JsonReporter.emit_report(fixture)` and compare to the file contents.
+  then:
+    - Each comparison is byte-equal. Schema drift fails the golden test suite loudly.
 
 - id: mutagen.json_schema.s7
-  covers: [mutagen.json_schema.r10]
-  given: |
-    A captured stderr binary of 10_240 bytes (well over the 4 KiB cap)
-    composed of repeating `"warning line\n"` so the boundary lands on
-    a codepoint.
-  when: |
-    The binary flows into `mutation.results[i].warnings[0]` via the
-    runner's `compose_warnings/1`.
-  then: |
-    The emitted warning string is exactly 4096 bytes of payload
-    followed by ` ... <6144 bytes truncated>`. The full emitted
-    binary is valid UTF-8.
+  covers:
+    - mutagen.json_schema.r10
+  given:
+    - A captured stderr binary of 10_240 bytes (well over the 4 KiB cap) composed of repeating `"warning line\n"` so the boundary lands on a codepoint.
+  when:
+    - The binary flows into `mutation.results[i].warnings[0]` via the runner's `compose_warnings/1`.
+  then:
+    - "The emitted warning string is exactly 4096 bytes of payload followed by ` ... <6144 bytes truncated>`."
+    - The full emitted binary is valid UTF-8.
 
 - id: mutagen.json_schema.s8
-  covers: [mutagen.json_schema.r11]
-  given: |
-    `Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])`.
-    A warning string `"warning: bad value SECRET_TOKEN=hunter2 in
-    line 42"`.
-  when: The warning flows through `compose_warnings/1`.
-  then: |
-    The emitted warning string contains `[REDACTED]` in place of
-    `SECRET_TOKEN=hunter2` and does NOT contain the literal substring
-    `hunter2`.
+  covers:
+    - mutagen.json_schema.r11
+  given:
+    - "`Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\\S+/])`."
+    - 'A warning string `"warning: bad value SECRET_TOKEN=hunter2 in line 42"`.'
+  when:
+    - The warning flows through `compose_warnings/1`.
+  then:
+    - The emitted warning string contains `[REDACTED]` in place of `SECRET_TOKEN=hunter2` and does NOT contain the literal substring `hunter2`.
 
 - id: mutagen.json_schema.s9
-  covers: [mutagen.json_schema.r12, mutagen.json_schema.r4]
-  given: |
-    A `%Report{}` fixture with N completed-mutation results.
-    Some results carry `end_line`/`end_column` and `source_text`
-    (slice path); others carry `end_line: nil` (fallback path).
-  when: `mutation_to_report/2` renders the wire-shape map.
-  then: |
-    For every result on the FALLBACK path (`end_line == nil`), the
-    rendered `before` and `before_source` fields share the SAME
-    binary reference (`:erts_debug.same/2` returns true) — the
-    `Macro.to_string(original_ast)` output is aliased into both.
-    For every result on the SLICE path (`end_line` non-nil), the
-    rendered `before_source` is a verbatim slice of `source_text`
-    by `{line, column, end_line, end_column}` and matches a
-    hand-cut source slice byte-for-byte. The total
-    `Macro.to_string/1` invocation count over the render pass is
-    AT MOST `2 * N` regardless of how the N results split between
-    slice and fallback (the slice path uses byte indexing, not
-    `Macro.to_string`).
+  covers:
+    - mutagen.json_schema.r12
+    - mutagen.json_schema.r4
+  given:
+    - A `%Report{}` fixture with N completed-mutation results.
+    - "Some results carry `end_line`/`end_column` and `source_text` (slice path); others carry `end_line: nil` (fallback path)."
+  when:
+    - "`mutation_to_report/2` renders the wire-shape map."
+  then:
+    - For every result on the FALLBACK path (`end_line == nil`), the rendered `before` and `before_source` fields share the SAME binary reference (`:erts_debug.same/2` returns true) — the `Macro.to_string(original_ast)` output is aliased into both.
+    - For every result on the SLICE path (`end_line` non-nil), the rendered `before_source` is a verbatim slice of `source_text` by `{line, column, end_line, end_column}` and matches a hand-cut source slice byte-for-byte.
+    - The total `Macro.to_string/1` invocation count over the render pass is AT MOST `2 * N` regardless of how the N results split between slice and fallback (the slice path uses byte indexing, not `Macro.to_string`).
 
 - id: mutagen.json_schema.s16a
-  covers: [mutagen.json_schema.r16]
-  given: |
-    A successful pipeline run that completes with 5 mutation sites,
-    all classified normally.
-  when: `JsonReporter.emit_report/1` renders the document.
-  then: |
-    The decoded JSON has `"details": {}` at the top level. The
-    map is empty (no keys). The document round-trips through
-    `:json.decode/1` per r7 with the `details` key present.
+  covers:
+    - mutagen.json_schema.r16
+  given:
+    - A successful pipeline run that completes with 5 mutation sites, all classified normally.
+  when:
+    - "`JsonReporter.emit_report/1` renders the document."
+  then:
+    - 'The decoded JSON has `"details": {}` at the top level. The map is empty (no keys).'
+    - "The document round-trips through `:json.decode/1` per r7 with the `details` key present."
 
 - id: mutagen.json_schema.s16b
-  covers: [mutagen.json_schema.r16]
-  given: |
-    A pipeline run that aborts in the coverage phase with
-    `:test_file_load_failed` because the cited test file raises on
-    load. The phase returns
-    `{:error, :test_file_load_failed, %{file: "test/foo_test.exs",
-    message: "could not load test file \"test/foo_test.exs\": cannot
-    use ExUnit.Case ..."}}`.
-  when: `JsonReporter.emit_error/2` renders the error document.
-  then: |
-    The decoded JSON has `"aborted": true`, `"abort_reason":
-    "test_file_load_failed"`, AND a populated `"details"` map
-    containing keys `"file"` (string `"test/foo_test.exs"`) and
-    `"message"` (the binary, possibly truncated and/or redacted per
-    r10/r11). The `details` map is NOT empty.
+  covers:
+    - mutagen.json_schema.r16
+  given:
+    - A pipeline run that aborts in the coverage phase with `:test_file_load_failed` because the cited test file raises on load.
+    - 'The phase returns `{:error, :test_file_load_failed, %{file: "test/foo_test.exs", message: "could not load test file \"test/foo_test.exs\": cannot use ExUnit.Case ..."}}`.'
+  when:
+    - "`JsonReporter.emit_error/2` renders the error document."
+  then:
+    - 'The decoded JSON has `"aborted": true`, `"abort_reason": "test_file_load_failed"`, AND a populated `"details"` map containing keys `"file"` (string `"test/foo_test.exs"`) and `"message"` (the binary, possibly truncated and/or redacted per r10/r11).'
+    - The `details` map is NOT empty.
 
 - id: mutagen.json_schema.s16c
-  covers: [mutagen.json_schema.r16, mutagen.json_schema.r10]
-  given: |
-    A pipeline run that aborts with a `details.message` of 10_240
-    bytes (over the 4 KiB r10 cap).
-  when: `JsonReporter.emit_error/2` renders the error document.
-  then: |
-    The decoded JSON's `details.message` is exactly 4096 bytes of
-    payload followed by ` ... <6144 bytes truncated>`. The sanitizer
-    pipeline applied to abort-detail string leaves matches the
-    sanitizer applied to `mutation.results[].warnings[]`.
+  covers:
+    - mutagen.json_schema.r16
+    - mutagen.json_schema.r10
+  given:
+    - A pipeline run that aborts with a `details.message` of 10_240 bytes (over the 4 KiB r10 cap).
+  when:
+    - "`JsonReporter.emit_error/2` renders the error document."
+  then:
+    - "The decoded JSON's `details.message` is exactly 4096 bytes of payload followed by ` ... <6144 bytes truncated>`."
+    - The sanitizer pipeline applied to abort-detail string leaves matches the sanitizer applied to `mutation.results[].warnings[]`.
 ```
 
 ```spec-verification
@@ -517,19 +515,19 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r3
     - mutagen.json_schema.r4
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_test.exs
+  target: mix test test/mutagen_ex/json_reporter_test.exs
   execute: true
 
 - id: mutagen.json_schema.v2
   covers: [mutagen.json_schema.r5]
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_test.exs --only error_variants
+  target: mix test test/mutagen_ex/json_reporter_test.exs --only error_variants
   execute: true
 
 - id: mutagen.json_schema.v3
   covers: [mutagen.json_schema.r9]
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_golden_test.exs
+  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
   execute: true
 
 - id: mutagen.json_schema.v4
@@ -538,7 +536,7 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r7
     - mutagen.json_schema.r8
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_test.exs --only contract
+  target: mix test test/mutagen_ex/json_reporter_test.exs --only contract
   execute: true
 
 - id: mutagen.json_schema.v5
@@ -546,13 +544,13 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r10
     - mutagen.json_schema.r11
   kind: command
-  command: mix test test/mutagen_ex/sanitizer_test.exs
+  target: mix test test/mutagen_ex/sanitizer_test.exs
   execute: true
 
 - id: mutagen.json_schema.v6
   covers: [mutagen.json_schema.r12]
   kind: command
-  command: mix test test/mutagen_ex/mutagen_task_render_test.exs
+  target: mix test test/mutagen_ex/mutagen_task_render_test.exs
   execute: true
 
 - id: mutagen.json_schema.v7
@@ -560,18 +558,24 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r14
     - mutagen.json_schema.r15
   kind: command
-  command: mix test test/mutagen_ex/json_streamer_test.exs
+  target: mix test test/mutagen_ex/json_streamer_test.exs
   execute: true
 
 - id: mutagen.json_schema.v8
   covers: [mutagen.json_schema.r16]
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_test.exs --only details_field
+  target: mix test test/mutagen_ex/json_reporter_test.exs --only details_field
   execute: true
 
 - id: mutagen.json_schema.v9
   covers: [mutagen.json_schema.r16]
   kind: command
-  command: mix test test/mutagen_ex/json_reporter_golden_test.exs
+  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
+  execute: true
+
+- id: mutagen.json_schema.v10
+  covers: [mutagen.json_schema.r13]
+  kind: command
+  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
   execute: true
 ```

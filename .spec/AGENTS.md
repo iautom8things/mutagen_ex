@@ -47,12 +47,23 @@ Pre-merge stricter check:
 
 ```
 mix compile --warnings-as-errors && mix test
+mix spec.check
 ```
 
-If the project ships a `mix spec.check` task (via `specled_ex` dependency), run
-that too. Otherwise, the `spec-verification` block's `command:` and
-`source_file:` stubs serve as the executable contract — they should all pass
-once implementation lands.
+`spec_led_ex` is now a required `:dev`/`:test` dependency (see
+`.spec/decisions/adopt_specled_tooling.md`). `mix spec.check` is part of the
+local gate — it is no longer optional. The `mix spec.validate` task checks the
+authored corpus against the SpecLedEx schema; `mix spec.check` additionally
+checks `realized_by:` bindings against the code.
+
+Schema notes (SpecLedEx, not the original bespoke shape):
+
+- `spec-scenarios` entries use `given:` / `when:` / `then:` arrays.
+- `spec-verification` entries name a `command:` and a `target:` path (the
+  older `execute:` / `source_file:` stub form is not accepted).
+- Subjects use `status: active` once validated (not `accepted`).
+- Each subject carries a `realized_by.api_boundary:` list of MFAs. Use
+  `mix spec.suggest_binding` to draft one.
 
 ## Linking
 
