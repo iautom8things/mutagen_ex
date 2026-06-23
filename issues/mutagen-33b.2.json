@@ -15,11 +15,15 @@
     {
       "text": "WORKER_ERROR: mix spec.check fails on out-of-scope pre-existing spec/integration checks; compile, targeted test, and mix test pass",
       "timestamp": "2026-06-22T20:18:34Z"
+    },
+    {
+      "text": "PARENT EPIC BRANCH RENAMED (2026-06-23): merge-back target epic/33b -\u003e mutagen-33b/tier1-review-hardening. This stage's own branch/worktree are unchanged (mutagen-33b.2/gate-max-concurrency @ ../mutagen_ex-gate-max-concurrency). Upstream tracking repointed.",
+      "timestamp": "2026-06-23T11:08:40Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "CF2a: Gate --max-concurrency \u003e 1 as warned-experimental",
   "type": "task",
-  "updated_at": "2026-06-22T20:18:34Z"
+  "updated_at": "2026-06-23T11:08:40Z"
 }
