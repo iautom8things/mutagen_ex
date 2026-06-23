@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: 033814be-550f-48f5-ab4a-ac141d9e94a3\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3.jsonl\nReasoning: VERIFY PASS with a PROVEN falsifiable regression gate — verifier reverted the one-line fix and reproduced the exact FunctionClauseError at mutagen.ex:868, restored it and the new CLI --stream integration test passed. Fix correct (report.meta plain map fed directly to meta_to_wire; start-envelope meta matches the aggregate document; NDJSON schema/kinds unchanged). --stream exits 0 with valid NDJSON; two-sink separation (no NDJSON on stderr) intact; smoke 643/0 + mix test.integration 4/0 (now includes :stream_integration). Scope clean (mutagen.ex fix + new test + test_helper tag + mix.exs alias-only). No judgment call remaining.",
       "timestamp": "2026-06-23T19:10:59Z"
+    },
+    {
+      "text": "APPROVED (auto). Rebased onto epic (clean), merged --ff-only. Final gates green: mix test --seed 0 643/0, format clean, deps.unlock clean, mix test.integration 4/0 (stream + archive + downstream + self_mutation). Closing.",
+      "timestamp": "2026-06-23T19:11:44Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix mix mutagen --stream crash (Map.from_struct on plain map) + add CLI streaming integration test",
   "type": "bug",
-  "updated_at": "2026-06-23T19:10:59Z"
+  "updated_at": "2026-06-23T19:11:44Z"
 }
