@@ -865,7 +865,7 @@ defmodule Mix.Tasks.Mutagen do
       MutagenEx.JsonStreamer.emit_start(
         site_sink,
         length(sites),
-        Map.from_struct(report.meta || %{})
+        (report.meta || %{})
         |> Map.put_new(:tool_version, "0.0.0-dev")
       )
     end
