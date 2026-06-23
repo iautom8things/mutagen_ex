@@ -23,11 +23,15 @@
     {
       "text": "SCOPE_EXPANSION: spawned mutagen-hcs.7 to make the archive dependency-free (drop telemetry hook API + rewire progress onto on_site_completed), which the archive_install integration lane requires before CI can gate it green. .5 now blocked_by .7. Per user decision (Option A, 2026-06-23). Does not consume a bounce attempt.",
       "timestamp": "2026-06-23T12:35:44Z"
+    },
+    {
+      "text": "IMPLEMENTED (mutagen-hcs.5 --impl-only)\n\nAdded .github/workflows/ci.yml (runs on push + pull_request). HEAD: b0337bb (advanced past base 3420a93).\n\nmix test.integration alias contents (mix.exs):\n  test --include downstream_integration --include archive_integration --include self_mutation test/integration\n\nLocal pass results (Elixir 1.19.5 / OTP 28, MIX_ENV=test):\n- mix format --check-formatted    -\u003e OK\n- mix compile --warnings-as-errors -\u003e exit 0, no warnings\n- mix test                        -\u003e 643 tests, 0 failures (22 excluded)\n- mix test.integration            -\u003e 3 tests, 0 failures (incl. archive_integration; .ez built green)\n\nWorkflow pins Elixir 1.19 / OTP 28 via erlef/setup-beam@v1, caches deps + _build keyed on mix.lock. Did NOT add mix spec.check (pre-existing RED). Scope: .github/** only; mix.exs untouched.",
+      "timestamp": "2026-06-23T19:00:12Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add GitHub Actions CI",
   "type": "task",
-  "updated_at": "2026-06-23T18:58:17Z"
+  "updated_at": "2026-06-23T19:00:12Z"
 }
