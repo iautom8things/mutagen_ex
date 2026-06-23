@@ -13,11 +13,15 @@
     {
       "text": "WORKER_ERROR: cannot deliver 'CI runs green' — `mix test.integration` is RED on clean main HEAD (196bb8c). The archive_install_test fails reproducibly (in isolation too): `mix mutagen` from an archive-installed host aborts with runtime_load_failed, Last error {:telemetry,{'no such file or directory','telemetry.app'}}. Root cause: the built .ez bundles only mutagen_ex's own ebin (probe/ebin/mutagen_ex.app + Elixir.MutagenEx.Telemetry.beam) and does NOT include the :telemetry dep, so the archive runtime-repair path (mutagen.cli.r16) can't load telemetry. This is a pre-existing product bug, out of scope for an 'add CI workflow' ticket. compile --warnings-as-errors, mix test (640/0), and the downstream_adoption integration test all pass; only archive_install is red. Not iterating per worker contract — orchestrator decides: fix archive telemetry bundling first, or descope archive_install from the gating CI lane.",
       "timestamp": "2026-06-22T12:48:17Z"
+    },
+    {
+      "text": "PARENT EPIC BRANCH RENAMED (2026-06-23): merge-back target epic/hcs -\u003e mutagen-hcs/hex-pm-publish-hygiene. This stage's own branch/worktree are unchanged (mutagen-hcs.5/github-actions-ci @ ../mutagen_ex-github-actions-ci). Upstream tracking repointed.",
+      "timestamp": "2026-06-23T11:08:40Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add GitHub Actions CI",
   "type": "task",
-  "updated_at": "2026-06-22T12:48:17Z"
+  "updated_at": "2026-06-23T11:08:40Z"
 }
