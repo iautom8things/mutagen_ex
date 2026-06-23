@@ -19,6 +19,10 @@
     {
       "text": "PARENT EPIC BRANCH RENAMED (2026-06-23): merge-back target epic/hcs -\u003e mutagen-hcs/hex-pm-publish-hygiene. This stage's own branch/worktree are unchanged (mutagen-hcs.5/github-actions-ci @ ../mutagen_ex-github-actions-ci). Upstream tracking repointed.",
       "timestamp": "2026-06-23T11:08:40Z"
+    },
+    {
+      "text": "SCOPE_EXPANSION: spawned mutagen-hcs.7 to make the archive dependency-free (drop telemetry hook API + rewire progress onto on_site_completed), which the archive_install integration lane requires before CI can gate it green. .5 now blocked_by .7. Per user decision (Option A, 2026-06-23). Does not consume a bounce attempt.",
+      "timestamp": "2026-06-23T12:35:44Z"
     }
   ],
   "priority": 2,
