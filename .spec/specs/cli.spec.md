@@ -24,7 +24,7 @@ prompt and to every CI integration.
 ```spec-meta
 id: mutagen.cli
 kind: module
-status: draft
+status: active
 summary: Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.
 surface:
   - lib/mix/tasks/mutagen.ex
@@ -37,6 +37,12 @@ decisions:
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.self_mutation_refused
   - mutagen.decision.preamble_in_run1_only
+realized_by:
+  api_boundary:
+    - "Mix.Tasks.Mutagen"
+    - "MutagenEx.CLI"
+    - "MutagenEx.Config"
+    - "MutagenEx.Types"
 ```
 
 ```spec-requirements
@@ -303,359 +309,436 @@ decisions:
 ```spec-scenarios
 - id: mutagen.cli.s1
   covers: [mutagen.cli.r1, mutagen.cli.r2]
-  given: A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`.
-  when: The CLI parses these flags.
-  then: |
-    `%Config{}` has `scopes: ["lib/foo.ex"]` and `tests: ["test/foo_test.exs"]`
-    and the pipeline is invoked with that struct.
+  given:
+    - A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `%Config{}` has `scopes: ["lib/foo.ex"]` and `tests: ["test/foo_test.exs"]`
+      and the pipeline is invoked with that struct.
 
 - id: mutagen.cli.s2
   covers: [mutagen.cli.r1]
-  given: A user invokes `mix mutagen --tests test/foo_test.exs` without `--scope`.
-  when: The CLI parses these flags.
-  then: |
-    No pipeline phase runs. An error-JSON document with `reason:
-    :missing_scope` is emitted to stdout, and the task exits with a non-zero
-    code.
+  given:
+    - A user invokes `mix mutagen --tests test/foo_test.exs` without `--scope`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      No pipeline phase runs. An error-JSON document with `reason:
+      :missing_scope` is emitted to stdout, and the task exits with a non-zero
+      code.
 
 - id: mutagen.cli.s3
   covers: [mutagen.cli.r1, mutagen.cli.r2]
-  given: A user invokes `mix mutagen --scope MutagenEx.Foo.bar/1 --scope lib/baz.ex --tests tag:fast`.
-  when: The CLI parses these flags.
-  then: |
-    `%Config{}` has `scopes: ["MutagenEx.Foo.bar/1", "lib/baz.ex"]` and
-    `tests: ["tag:fast"]`. Repeat occurrences of `--scope` accumulate; they
-    do not overwrite each other.
+  given:
+    - A user invokes `mix mutagen --scope MutagenEx.Foo.bar/1 --scope lib/baz.ex --tests tag:fast`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `%Config{}` has `scopes: ["MutagenEx.Foo.bar/1", "lib/baz.ex"]` and
+      `tests: ["tag:fast"]`. Repeat occurrences of `--scope` accumulate; they
+      do not overwrite each other.
 
 - id: mutagen.cli.s4
   covers: [mutagen.cli.r3]
-  given: A user invokes `mix mutagen --timeout-ms 0 ...`.
-  when: The CLI parses these flags.
-  then: |
-    An error-JSON document with `reason: :invalid_timeout` is emitted.
-    `Config.timeout_ms` is never set to 0.
+  given:
+    - A user invokes `mix mutagen --timeout-ms 0 ...`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      An error-JSON document with `reason: :invalid_timeout` is emitted.
+      `Config.timeout_ms` is never set to 0.
 
 - id: mutagen.cli.s5
   covers: [mutagen.cli.r4]
-  given: A user invokes `mix mutagen --seed 42 ...`.
-  when: The pipeline runs.
-  then: |
-    `ExUnit.configure(seed: 42)` is called before the baseline test run,
-    before the coverage test run, and before each mutation test run. The
-    final JSON document's `meta.exunit_seed` field is `42`.
+  given:
+    - A user invokes `mix mutagen --seed 42 ...`.
+  when:
+    - The pipeline runs.
+  then:
+    - |
+      `ExUnit.configure(seed: 42)` is called before the baseline test run,
+      before the coverage test run, and before each mutation test run. The
+      final JSON document's `meta.exunit_seed` field is `42`.
 
 - id: mutagen.cli.s6
   covers: [mutagen.cli.r6]
-  given: |
-    A run completes the full pipeline; every mutation survived (kill rate 0.0).
-  when: The task finishes.
-  then: |
-    Exit code is 0. The JSON document on stdout has `aborted: false` and a
-    populated `mutation` block.
+  given:
+    - A run completes the full pipeline; every mutation survived (kill rate 0.0).
+  when:
+    - The task finishes.
+  then:
+    - |
+      Exit code is 0. The JSON document on stdout has `aborted: false` and a
+      populated `mutation` block.
 
 - id: mutagen.cli.s7
   covers: [mutagen.cli.r6]
-  given: |
-    A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`
-    but the baseline test run has failing tests.
-  when: The baseline phase reports red.
-  then: |
-    Exit code is non-zero. The JSON document has `aborted: true` and
-    `abort_reason` names the red baseline; no mutation phase runs.
+  given:
+    - |
+      A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`
+      but the baseline test run has failing tests.
+  when:
+    - The baseline phase reports red.
+  then:
+    - |
+      Exit code is non-zero. The JSON document has `aborted: true` and
+      `abort_reason` names the red baseline; no mutation phase runs.
 
 - id: mutagen.cli.s8
   covers: [mutagen.cli.r7]
-  given: A user invokes `mix mutagen --no-json --scope ... --tests ...`.
-  when: The CLI parses these flags.
-  then: |
-    An error-JSON document with `reason: :flag_not_supported_in_v1` is
-    emitted. Exit code is non-zero.
+  given:
+    - A user invokes `mix mutagen --no-json --scope ... --tests ...`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      An error-JSON document with `reason: :flag_not_supported_in_v1` is
+      emitted. Exit code is non-zero.
 
 - id: mutagen.cli.s9
   covers: [mutagen.cli.r8]
-  given: A user invokes `mix mutagen --scope MutagenEx.MutationRunner --tests ...`.
-  when: The CLI resolves scope targets to modules.
-  then: |
-    An error-JSON document with `reason: :self_mutation_refused` is emitted
-    before any mutation phase runs.
+  given:
+    - A user invokes `mix mutagen --scope MutagenEx.MutationRunner --tests ...`.
+  when:
+    - The CLI resolves scope targets to modules.
+  then:
+    - |
+      An error-JSON document with `reason: :self_mutation_refused` is emitted
+      before any mutation phase runs.
 
 - id: mutagen.cli.s10a
   covers: [mutagen.cli.r10]
-  given: A user invokes `mix mutagen --json ../../etc/passwd --scope ... --tests ...`.
-  when: The CLI parses these flags.
-  then: |
-    `MutagenEx.CLI.parse/1` returns
-    `{:error, :unsafe_json_path, %{variant: :traversal, ...}}`. No
-    filesystem touch happens; an error-JSON document with
-    `abort_reason: "unsafe_json_path"` is emitted to stdout. The file at
-    the traversal target is never opened.
+  given:
+    - A user invokes `mix mutagen --json ../../etc/passwd --scope ... --tests ...`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `MutagenEx.CLI.parse/1` returns
+      `{:error, :unsafe_json_path, %{variant: :traversal, ...}}`. No
+      filesystem touch happens; an error-JSON document with
+      `abort_reason: "unsafe_json_path"` is emitted to stdout. The file at
+      the traversal target is never opened.
 
 - id: mutagen.cli.s10b
   covers: [mutagen.cli.r10]
-  given: |
-    A user invokes `mix mutagen --json "out/report\0.json" --scope ...
-    --tests ...` (NUL byte embedded in the path).
-  when: The CLI parses these flags.
-  then: |
-    `MutagenEx.CLI.parse/1` returns
-    `{:error, :unsafe_json_path, %{variant: :nul_byte, ...}}`. The error
-    JSON is emitted; no mutation phase runs.
+  given:
+    - |
+      A user invokes `mix mutagen --json "out/report\0.json" --scope ...
+      --tests ...` (NUL byte embedded in the path).
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `MutagenEx.CLI.parse/1` returns
+      `{:error, :unsafe_json_path, %{variant: :nul_byte, ...}}`. The error
+      JSON is emitted; no mutation phase runs.
 
 - id: mutagen.cli.s10c
   covers: [mutagen.cli.r10]
-  given: |
-    A symlink `<project_root>/escape.json` exists, pointing at `/etc/passwd`.
-    The user invokes `mix mutagen --json escape.json ...`.
-  when: The canonicalisation phase resolves the path.
-  then: |
-    The phase aborts with `abort_reason: "unsafe_json_path"` and
-    `details.variant == :outside_project_root`. `/etc/passwd` is never
-    opened.
+  given:
+    - |
+      A symlink `<project_root>/escape.json` exists, pointing at `/etc/passwd`.
+      The user invokes `mix mutagen --json escape.json ...`.
+  when:
+    - The canonicalisation phase resolves the path.
+  then:
+    - |
+      The phase aborts with `abort_reason: "unsafe_json_path"` and
+      `details.variant == :outside_project_root`. `/etc/passwd` is never
+      opened.
 
 - id: mutagen.cli.s10d
   covers: [mutagen.cli.r10]
-  given: |
-    A symlink `<project_root>/in/inside.json` exists pointing at
-    `<project_root>/out/report.json` (target stays inside project root).
-    The user invokes `mix mutagen --json in/inside.json ...`.
-  when: The canonicalisation phase resolves the path.
-  then: |
-    The phase returns `{:ok, "<project_root>/out/report.json"}`. The mutation
-    pipeline writes the report to the resolved path.
+  given:
+    - |
+      A symlink `<project_root>/in/inside.json` exists pointing at
+      `<project_root>/out/report.json` (target stays inside project root).
+      The user invokes `mix mutagen --json in/inside.json ...`.
+  when:
+    - The canonicalisation phase resolves the path.
+  then:
+    - |
+      The phase returns `{:ok, "<project_root>/out/report.json"}`. The mutation
+      pipeline writes the report to the resolved path.
 
 - id: mutagen.cli.s10e
   covers: [mutagen.cli.r10]
-  given: |
-    A user invokes `mix mutagen --json /tmp/ci-artifacts/report.json
-    --unsafe-json-outside-project --scope ... --tests ...`.
-  when: The CLI parses and the canonicalisation phase resolves.
-  then: |
-    `Config.unsafe_json_outside_project` is `true`. The phase returns
-    `{:ok, "/tmp/ci-artifacts/report.json"}` even though the path is
-    outside the project root. A warning naming the resolved path is
-    written to stderr exactly once.
+  given:
+    - |
+      A user invokes `mix mutagen --json /tmp/ci-artifacts/report.json
+      --unsafe-json-outside-project --scope ... --tests ...`.
+  when:
+    - The CLI parses and the canonicalisation phase resolves.
+  then:
+    - |
+      `Config.unsafe_json_outside_project` is `true`. The phase returns
+      `{:ok, "/tmp/ci-artifacts/report.json"}` even though the path is
+      outside the project root. A warning naming the resolved path is
+      written to stderr exactly once.
 
 - id: mutagen.cli.s11
   covers: [mutagen.cli.r11]
-  given: A user invokes `mix mutagen --scope lib/foo.ex --tests tag:$(uuidgen)`.
-  when: The CLI parses these flags.
-  then: |
-    The UUID's `-` characters (and possible uppercase hex) violate the
-    `~r/\A[a-z][a-z_0-9]{0,63}\z/` charset. `CLI.parse/1` returns
-    `{:error, :invalid_tag_name, _}` before the test selector runs.
-    `Config` is not constructed; no atom is created from the UUID string.
+  given:
+    - A user invokes `mix mutagen --scope lib/foo.ex --tests tag:$(uuidgen)`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      The UUID's `-` characters (and possible uppercase hex) violate the
+      `~r/\A[a-z][a-z_0-9]{0,63}\z/` charset. `CLI.parse/1` returns
+      `{:error, :invalid_tag_name, _}` before the test selector runs.
+      `Config` is not constructed; no atom is created from the UUID string.
 
 - id: mutagen.cli.s11b
   covers: [mutagen.cli.r11]
-  given: A user invokes `mix mutagen --scope lib/foo.ex --tests tag:slow`.
-  when: The CLI parses these flags.
-  then: |
-    `Config.tests` is `["tag:slow"]`. `slow` matches the charset and
-    flows through to test selection unchanged.
+  given:
+    - A user invokes `mix mutagen --scope lib/foo.ex --tests tag:slow`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `Config.tests` is `["tag:slow"]`. `slow` matches the charset and
+      flows through to test selection unchanged.
 
 - id: mutagen.cli.s12a
   covers: [mutagen.cli.r12]
-  given: |
-    A user invokes `mix mutagen` with 101 distinct `--scope <target>`
-    occurrences and one `--tests` target.
-  when: The CLI parses these flags.
-  then: |
-    `MutagenEx.CLI.parse/1` returns
-    `{:error, :too_many_targets, %{flag: "--scope", kind: :scope,
-    cap: 100, count: 101, ...}}`. No filesystem touch, no scope
-    resolution, no mutation phase. The error-JSON document's
-    `abort_reason` is `"too_many_targets"`.
+  given:
+    - |
+      A user invokes `mix mutagen` with 101 distinct `--scope <target>`
+      occurrences and one `--tests` target.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      `MutagenEx.CLI.parse/1` returns
+      `{:error, :too_many_targets, %{flag: "--scope", kind: :scope,
+      cap: 100, count: 101, ...}}`. No filesystem touch, no scope
+      resolution, no mutation phase. The error-JSON document's
+      `abort_reason` is `"too_many_targets"`.
 
 - id: mutagen.cli.s12b
   covers: [mutagen.cli.r12]
-  given: |
-    A scope/tests combination whose enumerated mutation sites exceed
-    `Config.max_sites` (default 10_000), e.g. a broad `--scope` on a
-    large module with thorough coverage.
-  when: The enumerator phase runs.
-  then: |
-    The phase returns
-    `{:error, :too_many_sites, %{cap: 10000, count: <n>, ...}}`. The
-    pipeline aborts with `abort_reason: "too_many_sites"` BEFORE the
-    mutation runner starts. The error-JSON document names the count
-    so the user can decide whether to narrow `--scope` or raise
-    `--max-sites`.
+  given:
+    - |
+      A scope/tests combination whose enumerated mutation sites exceed
+      `Config.max_sites` (default 10_000), e.g. a broad `--scope` on a
+      large module with thorough coverage.
+  when:
+    - The enumerator phase runs.
+  then:
+    - |
+      The phase returns
+      `{:error, :too_many_sites, %{cap: 10000, count: <n>, ...}}`. The
+      pipeline aborts with `abort_reason: "too_many_sites"` BEFORE the
+      mutation runner starts. The error-JSON document names the count
+      so the user can decide whether to narrow `--scope` or raise
+      `--max-sites`.
 
 - id: mutagen.cli.s12c
   covers: [mutagen.cli.r12]
-  given: A user invokes `mix mutagen --max-sites 0 ...`.
-  when: The CLI parses these flags.
-  then: |
-    An error-JSON document with `reason: :invalid_max_sites` is
-    emitted. `Config.max_sites` is never set to 0.
+  given:
+    - A user invokes `mix mutagen --max-sites 0 ...`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      An error-JSON document with `reason: :invalid_max_sites` is
+      emitted. `Config.max_sites` is never set to 0.
 
 - id: mutagen.cli.s13a
   covers: [mutagen.cli.r13]
-  given: |
-    A user invokes `mix mutagen --budget-ms 1000 ...` against a scope
-    whose enumerated mutation sites would take longer than 1000 ms in
-    aggregate.
-  when: The mutation phase runs and the budget elapses.
-  then: |
-    The runner stops dispatching new sites. The success-JSON document
-    has `truncated: true` at the top level, `aborted: false`, and the
-    `mutation` block holds only the completed sites' results. A
-    `budget_exceeded` warning is included in the `warnings` array.
+  given:
+    - |
+      A user invokes `mix mutagen --budget-ms 1000 ...` against a scope
+      whose enumerated mutation sites would take longer than 1000 ms in
+      aggregate.
+  when:
+    - The mutation phase runs and the budget elapses.
+  then:
+    - |
+      The runner stops dispatching new sites. The success-JSON document
+      has `truncated: true` at the top level, `aborted: false`, and the
+      `mutation` block holds only the completed sites' results. A
+      `budget_exceeded` warning is included in the `warnings` array.
 
 - id: mutagen.cli.s13b
   covers: [mutagen.cli.r13]
-  given: A user invokes `mix mutagen --budget-ms 0 ...`.
-  when: The CLI parses these flags.
-  then: |
-    An error-JSON document with `reason: :invalid_budget_ms` is
-    emitted. `Config.budget_ms` is never set to 0.
+  given:
+    - A user invokes `mix mutagen --budget-ms 0 ...`.
+  when:
+    - The CLI parses these flags.
+  then:
+    - |
+      An error-JSON document with `reason: :invalid_budget_ms` is
+      emitted. `Config.budget_ms` is never set to 0.
 
 - id: mutagen.cli.s14a
   covers: [mutagen.cli.r14]
-  given: |
-    A downstream project freshly cloned and installed with `mutagen_ex`
-    as a dependency. A user invokes
-    `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` from
-    the project root in a fresh shell — no prior `mix test`, no IEx
-    session, no manual preload.
-  when: `Mix.Tasks.Mutagen.run/1` starts.
-  then: |
-    The preamble runs before any phase. After the preamble:
-    `:code.which(Foo)` returns a charlist path (modules loaded);
-    `Application.started_applications/0` includes both `:mutagen_ex`
-    and `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.
-    The coverage, baseline, and mutation phases then run normally and
-    the document emitted has `aborted: false`.
+  given:
+    - |
+      A downstream project freshly cloned and installed with `mutagen_ex`
+      as a dependency. A user invokes
+      `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` from
+      the project root in a fresh shell — no prior `mix test`, no IEx
+      session, no manual preload.
+  when:
+    - "`Mix.Tasks.Mutagen.run/1` starts."
+  then:
+    - |
+      The preamble runs before any phase. After the preamble:
+      `:code.which(Foo)` returns a charlist path (modules loaded);
+      `Application.started_applications/0` includes both `:mutagen_ex`
+      and `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.
+      The coverage, baseline, and mutation phases then run normally and
+      the document emitted has `aborted: false`.
 
 - id: mutagen.cli.s14b
   covers: [mutagen.cli.r14]
-  given: |
-    The mutagen_ex test suite (`mix test`) is running. ExUnit drives
-    a test that calls `Mix.Tasks.Mutagen.run/2` with a custom
-    dispatch.
-  when: `run/2` executes.
-  then: |
-    `run/2` does NOT invoke the preamble — no `Mix.Task.run("compile")`,
-    no `ExUnit.start/1`, no `Application.ensure_all_started/1`. The
-    test seam is preamble-free per
-    mutagen.decision.preamble_in_run1_only.
+  given:
+    - |
+      The mutagen_ex test suite (`mix test`) is running. ExUnit drives
+      a test that calls `Mix.Tasks.Mutagen.run/2` with a custom
+      dispatch.
+  when:
+    - "`run/2` executes."
+  then:
+    - |
+      `run/2` does NOT invoke the preamble — no `Mix.Task.run("compile")`,
+      no `ExUnit.start/1`, no `Application.ensure_all_started/1`. The
+      test seam is preamble-free per
+      mutagen.decision.preamble_in_run1_only.
 
 - id: mutagen.cli.s14c
   covers: [mutagen.cli.r16]
-  given: |
-    A host project that does NOT carry `:mutagen_ex` in its `mix.exs`,
-    with `mutagen_ex-X.Y.Z.ez` previously installed via
-    `mix archive.install ./mutagen_ex-X.Y.Z.ez` so the task is visible
-    globally (`mix help mutagen` lists it).
-  when: |
-    The user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`
-    from the host project root in a fresh shell.
-  then: |
-    `ensure_runtime/0`'s first `Application.ensure_all_started(:mutagen_ex)`
-    returns `{:error, {:mutagen_ex, {_, ~c"mutagen_ex.app"}}}`. The preamble
-    calls `Mix.Local.append_archives/0`, retries, and the retry returns
-    `{:ok, _apps}` (or, if necessary, the targeted ebin scan fires and the
-    third attempt succeeds). `Process.whereis(MutagenEx.TaskSup)` is then a
-    live PID. The coverage, baseline, and mutation phases run normally.
-    The final JSON document on stdout has `aborted: false` and a populated
-    `mutation` block.
+  given:
+    - |
+      A host project that does NOT carry `:mutagen_ex` in its `mix.exs`,
+      with `mutagen_ex-X.Y.Z.ez` previously installed via
+      `mix archive.install ./mutagen_ex-X.Y.Z.ez` so the task is visible
+      globally (`mix help mutagen` lists it).
+  when:
+    - |
+      The user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`
+      from the host project root in a fresh shell.
+  then:
+    - |
+      `ensure_runtime/0`'s first `Application.ensure_all_started(:mutagen_ex)`
+      returns `{:error, {:mutagen_ex, {_, ~c"mutagen_ex.app"}}}`. The preamble
+      calls `Mix.Local.append_archives/0`, retries, and the retry returns
+      `{:ok, _apps}` (or, if necessary, the targeted ebin scan fires and the
+      third attempt succeeds). `Process.whereis(MutagenEx.TaskSup)` is then a
+      live PID. The coverage, baseline, and mutation phases run normally.
+      The final JSON document on stdout has `aborted: false` and a populated
+      `mutation` block.
 
 - id: mutagen.cli.s14d
   covers: [mutagen.cli.r16]
-  given: |
-    A host project as in s14c, but the installed archive is
-    unrecoverable (the archive directory was deleted between
-    `mix archive.install` and `mix mutagen`, or `~/.mix/archives`
-    is unreadable). Both `Mix.Local.append_archives/0` and the
-    targeted `Mix.path_for(:archives)` scan fail to make
-    `mutagen_ex.app` reachable on `:code.get_path/0`.
-  when: `mix mutagen ...` runs.
-  then: |
-    `ensure_runtime/0` does NOT raise a `MatchError`. It emits a
-    structured error-JSON document to stdout with
-    `aborted: true`, `abort_reason: "runtime_load_failed"`, and a
-    `details.message` pointing the user at archive-install
-    troubleshooting (e.g. "reinstall via `mix archive.uninstall mutagen_ex
-    && mix archive.install <ez>`"). The task exits with a non-zero code
-    per r6.
+  given:
+    - |
+      A host project as in s14c, but the installed archive is
+      unrecoverable (the archive directory was deleted between
+      `mix archive.install` and `mix mutagen`, or `~/.mix/archives`
+      is unreadable). Both `Mix.Local.append_archives/0` and the
+      targeted `Mix.path_for(:archives)` scan fail to make
+      `mutagen_ex.app` reachable on `:code.get_path/0`.
+  when:
+    - "`mix mutagen ...` runs."
+  then:
+    - |
+      `ensure_runtime/0` does NOT raise a `MatchError`. It emits a
+      structured error-JSON document to stdout with
+      `aborted: true`, `abort_reason: "runtime_load_failed"`, and a
+      `details.message` pointing the user at archive-install
+      troubleshooting (e.g. "reinstall via `mix archive.uninstall mutagen_ex
+      && mix archive.install <ez>`"). The task exits with a non-zero code
+      per r6.
 
 - id: mutagen.cli.s15
   covers: [mutagen.cli.r15, mutagen.cli.r10]
-  given: |
-    A user invokes
-    `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs --json /tmp/foo.json`
-    from a project whose root is `/Users/.../my_project`.
-  when: `phase_json_path` runs.
-  then: |
-    The path is refused with `abort_reason: "unsafe_json_path"` per
-    r10. The error-JSON document lands on stdout. No file is created
-    at `/tmp/foo.json`. The exit code is non-zero per r6.
+  given:
+    - |
+      A user invokes
+      `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs --json /tmp/foo.json`
+      from a project whose root is `/Users/.../my_project`.
+  when:
+    - "`phase_json_path` runs."
+  then:
+    - |
+      The path is refused with `abort_reason: "unsafe_json_path"` per
+      r10. The error-JSON document lands on stdout. No file is created
+      at `/tmp/foo.json`. The exit code is non-zero per r6.
 ```
 
 ```spec-verification
 - id: mutagen.cli.v1
   covers: [mutagen.cli.r1, mutagen.cli.r2, mutagen.cli.r3, mutagen.cli.r4, mutagen.cli.r5]
   kind: command
-  command: mix test test/mutagen_ex/cli_test.exs
+  target: mix test test/mutagen_ex/cli_test.exs
   execute: true
 
 - id: mutagen.cli.v2
   covers: [mutagen.cli.r6, mutagen.cli.r7]
   kind: command
-  command: mix test test/mutagen_ex/cli_test.exs --only exit_codes
+  target: mix test test/mutagen_ex/cli_test.exs --only exit_codes
   execute: true
 
 - id: mutagen.cli.v3
   covers: [mutagen.cli.r8]
   kind: command
-  command: mix test test/mutagen_ex/end_to_end_test.exs --only self_mutation
+  target: mix test test/mutagen_ex/end_to_end_test.exs --only self_mutation
   execute: false
 
 - id: mutagen.cli.v4
   covers: [mutagen.cli.r9]
   kind: command
-  command: mix help mutagen
+  target: mix help mutagen
   execute: true
 
 - id: mutagen.cli.v5
   covers: [mutagen.cli.r10]
   kind: command
-  command: mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs
+  target: mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs
   execute: true
 
 - id: mutagen.cli.v6
   covers: [mutagen.cli.r11]
   kind: command
-  command: mix test test/mutagen_ex/cli_test.exs --only tag_charset
+  target: mix test test/mutagen_ex/cli_test.exs --only tag_charset
   execute: true
 
 - id: mutagen.cli.v7
   covers: [mutagen.cli.r12]
   kind: command
-  command: mix test test/mutagen_ex/cli_test.exs test/mutagen_ex/mutation_enumerator_test.exs
+  target: mix test test/mutagen_ex/cli_test.exs test/mutagen_ex/mutation_enumerator_test.exs
   execute: true
 
 - id: mutagen.cli.v8
   covers: [mutagen.cli.r13]
   kind: command
-  command: mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs
+  target: mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs
   execute: true
 
 - id: mutagen.cli.v9
   covers: [mutagen.cli.r14]
   kind: command
-  command: mix test test/integration/downstream_adoption_test.exs --include downstream_integration
+  target: mix test test/integration/downstream_adoption_test.exs --include downstream_integration
   execute: true
 
 - id: mutagen.cli.v10
   covers: [mutagen.cli.r15]
   kind: command
-  command: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
+  target: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
   execute: true
 
 - id: mutagen.cli.v11
   covers: [mutagen.cli.r16]
   kind: command
-  command: mix test test/integration/archive_install_test.exs --include archive_integration
+  target: mix test test/integration/archive_install_test.exs --include archive_integration
   execute: true
 ```

@@ -25,7 +25,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
   the same reference.
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   # --------------------------------------------------------------------
   # r12 fallback path: legacy callers (no end_line/end_column/source_text)
@@ -306,24 +306,17 @@ defmodule Mix.Tasks.MutagenRenderTest do
   end
 
   # --------------------------------------------------------------------
-  # r12 hard cap: Macro.to_string invocation count ≤ 2 * R
+  # r12: before/after fields contain Macro.to_string output
   # --------------------------------------------------------------------
 
-  describe "r12 hard cap: Macro.to_string is invoked at most 2 * R times across R results" do
-    test "across a mix of slice and fallback results, exactly 2 calls per result land" do
-      # We instrument by relying on the fact that `Macro.to_string/1`
-      # itself is deterministic and pure; the cap is observable
-      # through call-count of `Macro.to_string/1` on the underlying
-      # ASTs. Since we can't trace BIFs reliably, we use a counter
-      # macro: wrap the result so its `original_ast` and `mutated_ast`
-      # are observed *as side-effects* of two distinct AST identities.
-      # Here we use the cheaper assertion: the rendered shape is
-      # well-formed and `before` always equals
-      # `Macro.to_string(original_ast)` and `after` always equals
-      # `Macro.to_string(mutated_ast)`. The slice path never
-      # contributes to `Macro.to_string` calls (its computation is
-      # `String.split` + `Enum.slice` + `Enum.join` over codepoints),
-      # so the cap is met by construction.
+  describe "r12: before/after fields contain Macro.to_string output" do
+    test "slice and fallback results both produce correct before/after values" do
+      # The 2*R cap (at most one Macro.to_string call per field per result)
+      # is enforced by construction: the slice path computes before_source
+      # via String.split + Enum.slice + Enum.join and does not call
+      # Macro.to_string for that field. The cap is NOT count-verified
+      # here — this test only asserts that the rendered before/after values
+      # equal the expected Macro.to_string output for both code paths.
       source = "  z = a + b\n"
 
       slice_result = %{

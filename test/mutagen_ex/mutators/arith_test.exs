@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.ArithTest do
 
   alias MutagenEx.Mutators.Arith
 
-  test "name is :arith" do
-    assert Arith.name() == :arith
+  describe "name/0" do
+    test "name is :arith" do
+      assert Arith.name() == :arith
+    end
   end
 
   describe "match?/1" do

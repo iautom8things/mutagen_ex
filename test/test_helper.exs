@@ -52,6 +52,15 @@
 #   discard the harness's instrumentation (crashing the coverage reporter
 #   with `Enum.EmptyError` because zero modules remain compiled). They run
 #   on every normal `mix test`; only `--cover` excludes them.
+#
+# - `:self_mutation` covers the self-mutation dogfood under
+#   `test/integration/`. It shadow-copies mutagen_ex's own source under a
+#   rewritten namespace and drives `mix mutagen` against each high-value
+#   module via `System.cmd/3` to produce a reproducible self-mutation score
+#   (see `mutagen.decision.self_mutation_refused` for why the shadow copy is
+#   required). It spawns a `mix mutagen` child process per target and is the
+#   slowest suite in the project, so it is skipped by default. Run explicitly
+#   via `mix test --include self_mutation` or `mix test.integration`.
 cover_exclusions =
   if Process.whereis(:cover_server) do
     [:cover_lifecycle]
@@ -66,6 +75,7 @@ ExUnit.start(
       :spike,
       :downstream_integration,
       :archive_integration,
-      :mutagen_baseline_red_guard
+      :mutagen_baseline_red_guard,
+      :self_mutation
     ] ++ cover_exclusions
 )

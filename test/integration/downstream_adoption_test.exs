@@ -220,6 +220,9 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
     assert is_integer(total) and total > 0,
            "expected mutation.total > 0, got: #{inspect(total)}\n" <>
              "full document: #{inspect(decoded, pretty: true, limit: :infinity)}"
+
+    assert mutation["completed"] > 0,
+           "expected at least one mutation to have executed, not just been enumerated"
   end
 
   # `mix new` and `mix mutagen` both honor MIX_* and ELIXIR_* env vars from

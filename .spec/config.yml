@@ -1,0 +1,39 @@
+# SpecLedEx workspace config for mutagen_ex.
+#
+# Adopted via /spec-led-bootstrap (full-adopt + migrate path). This file
+# overturns the prior "tooling-optional" stance documented in the original
+# .spec/AGENTS.md — see .spec/decisions/adopt_specled_tooling.md.
+#
+# Severities are intentionally SOFT during adoption: the corpus is mid-
+# migration and not yet bound to code, so branch_guard findings are
+# warnings, not errors. Graduate to `error` in a follow-on phase6 epic once
+# the triangle is green. See docs/adoption.md in the spec_led_ex repo.
+
+# Phase3 (test-tag scanner) is out of scope for this bootstrap. Leave the
+# scanner disabled until a follow-on epic wires @tag spec: into the suite.
+test_tags:
+  enabled: false
+  paths:
+    - test
+  enforcement: warning
+
+# Append-only / overlap governance on the authored corpus. Safe to keep at
+# error from day one — they guard against accidental requirement deletion
+# and duplicate coverage, neither of which the migration should introduce.
+guardrails:
+  severities:
+    append_only/requirement_deleted: error
+    append_only/scenario_regression: warning
+    overlap/duplicate_covers: error
+
+# realized_by binding drift. Soft during adoption — phase2 only authors the
+# api_boundary tier; the deeper tiers (implementation, coverage) are not yet
+# opted in, so their detectors will report detector_unavailable, which is
+# expected and silent.
+branch_guard:
+  severities:
+    branch_guard_dangling_binding: warning
+    branch_guard_realization_drift: warning
+    branch_guard_unmapped_change: warning
+    branch_guard_untested_realization: warning
+    branch_guard_underspecified_realization: warning

@@ -141,16 +141,31 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
         target = "#{module_name}.#{unused_fun}/#{unused_arity}"
 
         # The arity 99 cannot occur, so the result MUST be an error.
+        # When defs is non-empty, the module and function name ARE present
+        # in the source, so the only legitimate error is :function_not_found
+        # (wrong arity). Accepting :module_not_found or :unrecognised_target
+        # on this branch would mask a real contract break.
+        # When defs is empty, unused_fun is :missing (a synthetic atom that
+        # cannot appear as a function name), so broader reasons are possible.
         case ScopeResolver.resolve(target,
                loader: loader,
                source_files: ["lib/synth.ex"]
              ) do
           {:error, reason, _details} ->
-            assert reason in [
-                     :function_not_found,
-                     :module_not_found,
-                     :unrecognised_target
-                   ]
+            case defs do
+              [] ->
+                assert reason in [
+                         :function_not_found,
+                         :module_not_found,
+                         :unrecognised_target
+                       ]
+
+              _ ->
+                assert reason == :function_not_found,
+                       "module and function name are present in source; " <>
+                         "expected :function_not_found but got #{inspect(reason)}; " <>
+                         "source=#{source}"
+            end
 
           {:ok, _} ->
             flunk(
@@ -161,11 +176,14 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
     end
 
     test "no on-disk side effects across all random inputs" do
-      # Under `mix test --cover` the harness owns :cover_server and creates a
-      # `cover/` directory. The invariant is that the *resolver* does not
-      # start cover or create the directory, so assert both are unchanged
-      # across all iterations rather than absent.
-      cover_server_before = Process.whereis(:cover_server)
+      # Snapshot cover state before/after rather than asserting the global
+      # :cover_server singleton is absent. This test is async; a concurrent
+      # cover-using test (coverage_runner_test r1/r3) may legitimately have
+      # the singleton registered while this runs. The invariant under test is
+      # "the resolver leaves cover state unchanged across all random inputs".
+      # It also keeps the test green under `mix test --cover`, where the
+      # harness owns :cover_server and a cover/ directory exists.
+      cover_before = Process.whereis(:cover_server)
       cover_dir_before = File.exists?("cover")
 
       for _ <- 1..@iterations do
@@ -174,7 +192,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
         _ = ScopeResolver.resolve("lib/synth.ex", loader: loader)
       end
 
-      assert Process.whereis(:cover_server) == cover_server_before
+      assert Process.whereis(:cover_server) == cover_before
       assert File.exists?("cover") == cover_dir_before
     end
   end

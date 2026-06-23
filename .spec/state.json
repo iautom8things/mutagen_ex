@@ -1,0 +1,3753 @@
+{
+  "decisions": {
+    "items": [
+      {
+        "affects": [
+          "mutagen.ast",
+          "mutagen.cli",
+          "mutagen.coverage",
+          "mutagen.json_schema",
+          "mutagen.mutation_enumeration",
+          "mutagen.mutation_pipeline",
+          "mutagen.mutators",
+          "mutagen.scope_resolution",
+          "mutagen.test_selection"
+        ],
+        "date": "2026-06-22",
+        "file": ".spec/decisions/adopt_specled_tooling.md",
+        "id": "mutagen.decision.adopt_specled_tooling",
+        "status": "accepted",
+        "title": "Adopt the spec_led_ex toolchain (reverse the tooling-optional stance)"
+      },
+      {
+        "affects": [
+          "mutagen.coverage"
+        ],
+        "date": "2026-05-15",
+        "file": ".spec/decisions/ast_cache_facade_preserved.md",
+        "id": "mutagen.decision.ast_cache_facade_preserved",
+        "status": "accepted",
+        "title": "AstCache extends to test files without changing the facade callback signature"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-15",
+        "file": ".spec/decisions/code_server_facade.md",
+        "id": "mutagen.decision.code_server_facade",
+        "status": "accepted",
+        "title": "MutagenEx.Test.CodeServer facade behaviour"
+      },
+      {
+        "affects": [
+          "mutagen.mutators",
+          "mutagen.json_schema"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/content_addressed_ids.md",
+        "id": "mutagen.decision.content_addressed_ids",
+        "status": "accepted",
+        "title": "Mutation IDs are content-addressed by AST hash"
+      },
+      {
+        "affects": [
+          "mutagen.json_schema"
+        ],
+        "date": "2026-05-17",
+        "file": ".spec/decisions/details_always_present.md",
+        "id": "mutagen.decision.details_always_present",
+        "status": "accepted",
+        "title": "JSON `details` field is always present, `{}` on success"
+      },
+      {
+        "affects": [
+          "mutagen.test_selection"
+        ],
+        "date": "2026-05-15",
+        "file": ".spec/decisions/f19_descoped.md",
+        "id": "mutagen.decision.f19_descoped",
+        "status": "accepted",
+        "title": "F19 (TestSelector.scan_for_tag cache integration) descoped from .25"
+      },
+      {
+        "affects": [
+          "mutagen.coverage",
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/in_process_pipeline.md",
+        "id": "mutagen.decision.in_process_pipeline",
+        "status": "accepted",
+        "title": "In-process pipeline with cached-AST restore"
+      },
+      {
+        "affects": [
+          "mutagen.json_schema",
+          "mutagen.cli"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/json_reporter_owns_error.md",
+        "id": "mutagen.decision.json_reporter_owns_error",
+        "status": "accepted",
+        "title": "`JsonReporter` owns both success and error JSON"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/mutation_loop_private.md",
+        "id": "mutagen.decision.mutation_loop_private",
+        "status": "accepted",
+        "title": "`MutationLoop` is private to `MutationRunner`, not a peer"
+      },
+      {
+        "affects": [
+          "mutagen.cli",
+          "mutagen.json_schema"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/no_pretty_output_v1.md",
+        "id": "mutagen.decision.no_pretty_output_v1",
+        "status": "accepted",
+        "title": "JSON is the only output surface in v1; `--no-json` deferred to v1.1"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-15",
+        "file": ".spec/decisions/per_run_beam_cache.md",
+        "id": "mutagen.decision.per_run_beam_cache",
+        "status": "accepted",
+        "title": "BeamCache as per-run ETS via cfg (not a supervised GenServer)"
+      },
+      {
+        "affects": [
+          "mutagen.cli"
+        ],
+        "date": "2026-05-17",
+        "file": ".spec/decisions/preamble_in_run1_only.md",
+        "id": "mutagen.decision.preamble_in_run1_only",
+        "status": "accepted",
+        "title": "Mix-task runtime preamble lives in `run/1` only, not `run/2`"
+      },
+      {
+        "affects": [
+          "mutagen.cli",
+          "mutagen.scope_resolution"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/scope_syntax_simplified.md",
+        "id": "mutagen.decision.scope_syntax_simplified",
+        "status": "accepted",
+        "title": "`--scope` accepts file, module, or `M.f/arity` — no colon form"
+      },
+      {
+        "affects": [
+          "mutagen.cli",
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/self_mutation_refused.md",
+        "id": "mutagen.decision.self_mutation_refused",
+        "status": "accepted",
+        "title": "Self-mutation of `MutagenEx.*` and `Mix.Tasks.Mutagen` is refused"
+      },
+      {
+        "affects": [
+          "mutagen.cli",
+          "mutagen.coverage",
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/serial_execution_and_seed.md",
+        "id": "mutagen.decision.serial_execution_and_seed",
+        "status": "accepted",
+        "title": "Serial test execution and `--seed` semantics"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_enumeration",
+          "mutagen.mutators"
+        ],
+        "date": "2026-05-15",
+        "file": ".spec/decisions/static_mutator_dispatch.md",
+        "id": "mutagen.decision.static_mutator_dispatch",
+        "status": "accepted",
+        "title": "Static head-atom dispatch table (no mutator behaviour callback)"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_pipeline",
+          "mutagen.coverage"
+        ],
+        "date": "2026-05-14",
+        "file": ".spec/decisions/supervision_tree.md",
+        "id": "mutagen.decision.supervision_tree",
+        "status": "accepted",
+        "title": "Application + named Task.Supervisor + singleton-ownership contract"
+      },
+      {
+        "affects": [
+          "mutagen.mutation_pipeline",
+          "mutagen.json_schema"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/timeout_handling.md",
+        "id": "mutagen.decision.timeout_handling",
+        "status": "accepted",
+        "title": "Per-mutation timeout, cooperative cancel + code-server settle, taint flag, no hard abort"
+      },
+      {
+        "affects": [
+          "mutagen.mutators",
+          "mutagen.mutation_enumeration",
+          "mutagen.json_schema"
+        ],
+        "date": "2026-05-13",
+        "file": ".spec/decisions/validate_predicates.md",
+        "id": "mutagen.decision.validate_predicates",
+        "status": "accepted",
+        "title": "Every mutator carries a `validate/1` predicate"
+      }
+    ]
+  },
+  "findings": [],
+  "index": {
+    "exceptions": [],
+    "requirements": [
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast.r1",
+        "priority": "must",
+        "statement": "`MutagenEx.Ast.alias_to_module/1` accepts an alias AST tuple\n`{:__aliases__, _, parts}` where every element of `parts` is an atom,\nand returns `Module.concat(parts)`. It accepts a bare module atom (e.g.\n`Foo.Bar`) and returns it unchanged. Any other shape (including aliases\nwith non-atom parts, or non-atom non-alias inputs) returns `nil`. The\nfunction is total: it never raises, throws, or exits.\n",
+        "subject_id": "mutagen.ast"
+      },
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast.r2",
+        "priority": "must",
+        "statement": "`MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name\nstring `target_mod_str` and returns `{:ok, body_ast}` if a node\n`{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose\n`alias_to_module(alias_ast) |> Atom.to_string()` (with the `Elixir.`\nprefix stripped) equals `target_mod_str`. Otherwise it returns\n`:not_found`. The function is total: it never raises, throws, or exits.\n",
+        "subject_id": "mutagen.ast"
+      },
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast.r3",
+        "priority": "must",
+        "statement": "`MutagenEx.Ast.node_line/1` takes a Macro AST node and returns the\n`:line` value from the node's metadata if present, or `nil` otherwise.\nA 2-tuple, list, or literal input returns `nil`. The function is total.\n",
+        "subject_id": "mutagen.ast"
+      },
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast.r4",
+        "priority": "must",
+        "statement": "The donor modules `MutagenEx.ScopeResolver`, `MutagenEx.MutationEnumerator`,\nand `MutagenEx.MutationRunner` consume `MutagenEx.Ast.alias_to_module/1`\nand `MutagenEx.Ast.find_module_body/2` exclusively after `.25.01` lands.\nEach module's previous private duplicate is deleted. A grep for\n`defp alias_to_module` over `lib/mutagen_ex/` returns at most one hit\n(in `lib/mutagen_ex/ast.ex` if defined privately there; ideally zero\nbecause the canonical function is public).\n",
+        "subject_id": "mutagen.ast"
+      },
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast.r5",
+        "priority": "should",
+        "statement": "For every AST shape currently handled by any donor's pre-`.25`\n`alias_to_module/1` or `find_module_body/2`, the lifted version returns\nthe same result. This is the donor-equivalence invariant — a property-\nstyle test exercises a representative AST corpus and asserts identical\noutput across donor and lifted versions.",
+        "subject_id": "mutagen.ast"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r1",
+        "priority": "must",
+        "statement": "`mix mutagen` accepts `--scope <target>` (required, repeatable) where each\ntarget is a file path, a module name, or `Module.fun/arity`. Targets are\naccumulated into a list on `%Config{}`. If `--scope` is omitted, the task\nexits with an error-JSON document (per mutagen.json_schema) and a non-zero\nexit code.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r10",
+        "priority": "must",
+        "statement": "`--json <path>` is canonicalised before any mutation phase runs. The\npath-safety contract has two layers:\n\n  1. Pure-string checks at parse time. A `--json` value containing a\n     NUL byte (`\\0`) or any `..` segment is refused with an error-JSON\n     document whose `abort_reason` is `\"unsafe_json_path\"`. No mutation\n     phase runs.\n  2. Filesystem canonicalisation before the first mutation phase.\n     Every existing component of the path is resolved through\n     `File.read_link/1`. If any symlink target escapes the project\n     root (defined as `File.cwd!/0` resolved through `Path.expand/1`),\n     the run aborts with `abort_reason: \"unsafe_json_path\"`. The\n     final component is allowed to not yet exist — it is created at\n     write time. After canonicalisation, the resolved absolute path\n     is stored on `Config.json_path`.\n\nThe default policy is: the resolved path MUST live inside the project\nroot. Passing `--unsafe-json-outside-project` opts out of that check\n(the symlink-escape check still runs at every component, but the\ninside-root check is bypassed). When the flag is set, `mix mutagen`\nemits a one-shot warning to stderr at startup naming the resolved\ntarget path. `Config.unsafe_json_outside_project` is `true` iff the\nflag was passed.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r11",
+        "priority": "must",
+        "statement": "`--tests tag:NAME` targets are validated at parse time against the\ncharset `~r/\\A[a-z][a-z_0-9]{0,63}\\z/`: NAME must start with `a-z` and\nconsist of `a-z`, `0-9`, or `_` thereafter, up to 64 characters total.\nTargets that fail the regex return `{:error, :invalid_tag_name, %{flag:\n\"--tests\", target: \"tag:<bad>\", message: ...}}` from `CLI.parse/1`\nbefore any test selector resolution runs. This is the front-door bound\nfor the atom-table-DOS risk (mutagen-wrd.20): even with a downstream\nstring-comparison fallback in `mutagen.test_selection` (r7), the\ncharset gate keeps adversarial CI loops (`mix mutagen --tests\ntag:$(uuidgen)`) from reaching the resolver at all. Non-`tag:` `--tests`\ntargets (file paths, `file:line`) are not gated by this rule — they\ndon't feed atom resolution.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r12",
+        "priority": "must",
+        "statement": "Resource caps protect the runtime from runaway input shapes (closes\nF28 / CF11 — security M1, performance F-PERF-07/12):\n\n  1. `--scope` accepts at most 100 occurrences. The 101st occurrence\n     is refused at parse time with `reason: :too_many_targets`. The\n     error-JSON `details` map carries `flag: \"--scope\"`, `kind:\n     :scope`, `cap: 100`, and `count: <n>`. The cap is structural\n     — enforced before any scope resolution. The `tag:NAME` charset\n     gate (r11) runs before this cap, so invalid tag names are\n     rejected at parse time regardless of count.\n  2. `--tests` accepts at most 100 occurrences with the same shape\n     (`flag: \"--tests\"`, `kind: :tests`).\n  3. `--max-sites <n>` populates `Config.max_sites` as a positive\n     integer. Default 10_000. Non-positive or non-integer values\n     cause an error-JSON exit with `reason: :invalid_max_sites`\n     before any pipeline phase runs.\n\nThe `--max-sites` cap is enforced inside the mutation enumerator\n(see `mutagen.mutation_enumeration.r7`); the cap value flows from\n`Config.max_sites` through the orchestrator. Exceeding it aborts\nthe pipeline with `abort_reason: \"too_many_sites\"` before the\nmutation runner starts.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r13",
+        "priority": "must",
+        "statement": "`--budget-ms <n>` populates `Config.budget_ms` as an optional\npositive integer aggregate wall-clock budget for the mutation\nphase, in milliseconds. Absence leaves `Config.budget_ms == nil`,\nwhich means unbounded — the per-site `--timeout-ms` is still the\nonly cap.\n\nWhen the budget elapses, the mutation runner stops dispatching\nfurther sites and returns the partial result it has accumulated.\nThe final JSON document on stdout (or `--json <path>`) carries\n`truncated: true` at the top level and the `mutation` block\nreflects only the completed sites. `aborted` stays `false` —\ntruncation is a graceful early exit, not an abort.\n\nThe runner does NOT interrupt an in-flight site; the worst-case\novershoot is one `timeout_ms`. Non-positive or non-integer\n`--budget-ms` values cause an error-JSON exit with `reason:\n:invalid_budget_ms`.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r14",
+        "priority": "must",
+        "statement": "Before the first pipeline phase runs, `mix mutagen` ensures the host\nproject's modules are loaded into the BEAM, the `:ex_unit` application\nis started, and the `:mutagen_ex` application is started. Concretely,\n`Mix.Tasks.Mutagen.run/1` invokes (in order):\n\n  1. `Mix.Task.run(\"loadpaths\")` — adds the host project's\n     `_build/<env>/lib/<app>/ebin` to `:code` paths so\n     `:code.which/1` can locate scope modules.\n  2. `Mix.Task.run(\"compile\")` — compiles the host project (no-op\n     when already compiled).\n  3. `Application.ensure_all_started(:mutagen_ex)` — boots\n     `MutagenEx.Application` so `MutagenEx.TaskSup` is alive when\n     `MutationLoop` dispatches per-site tasks (see\n     [mutagen.mutation_pipeline](mutation_pipeline.spec.md) and\n     mutagen.decision.supervision_tree).\n  4. `ExUnit.start(autorun: false)` — starts the `:ex_unit`\n     application so cited test files (which `use ExUnit.Case`) can\n     load. `autorun: false` is critical: `CoverageRunner`,\n     `Baseline`, and `MutationLoop` each drive `ExUnit.run/0`\n     themselves per the in-process pipeline contract.\n\nWithout this preamble, a downstream caller invoking `mix mutagen`\nfrom a fresh shell against their own project aborts with\n`:module_beam_missing` (modules not loaded), `:test_file_load_failed`\n(ExUnit not started, raising `cannot use ExUnit.Case without\nstarting the ExUnit application`), or a no-process crash on\n`MutagenEx.TaskSup` (`:mutagen_ex` application not started).\n\nThe preamble lives in `run/1` ONLY. `run/2` (the documented test\nseam) stays preamble-free per\nmutagen.decision.preamble_in_run1_only. The existing test suite\ndrives the Mix task via `run/2` from inside an already-running\n`mix test` invocation; running the preamble again would risk\ndouble-compile and ExUnit ordering conflicts.\n\nLibrary callers invoking `MutagenEx.MutationRunner.run/1` directly\n(the documented library entry per `README.md`) are responsible for\nensuring `:mutagen_ex` is started themselves. The library entry is\nNOT in this requirement's surface — `r14` covers the CLI entry only.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r15",
+        "priority": "must",
+        "statement": "When `--json <path>` is refused under r10's path-safety contract\n(either the parse-time `..`/NUL pure-string check or the filesystem\ncanonicalisation symlink-escape check), the error-JSON document\ndoes NOT land at the rejected path. It is written to stdout\ninstead. This refines r10: the safety check rejects the path\nsemantically AND ensures no write touches the rejected target.\n\nImplementation: when the json-path validation phase returns\n`{:abort, _report, _config, :unsafe_json_path, _details}`, the\nabort emission path MUST clear `Config.json_path` (set to `nil`)\nbefore invoking the IO sink. Downstream IO routing keys on\n`json_path: nil` to emit to stdout per r5.\n\nCounter-example (pre-fix bug): a user runs\n`mix mutagen --json /tmp/foo.json` outside the project root with\nno `--unsafe-json-outside-project`. r10 correctly rejects with\n`abort_reason: \"unsafe_json_path\"`, but the error JSON is then\nwritten to `/tmp/foo.json` anyway — undermining the safety\nguarantee a downstream consumer relies on. The fix is mandatory:\nthe rejected path must not be written to under any abort variant.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r16",
+        "priority": "must",
+        "statement": "When `mix mutagen` is invoked via a globally-installed archive\n(`mix archive.install ./mutagen_ex-X.Y.Z.ez`) from a project that\ndoes NOT carry `:mutagen_ex` as a dependency in its `mix.exs`, the\nruntime preamble self-heals the `:code` path so the OTP application\ncan boot. Concretely: if `Application.ensure_all_started(:mutagen_ex)`\nin the preamble returns an error tuple of the shape\n`{:error, {:mutagen_ex, {_, ~c\"mutagen_ex.app\"}}}` (or the related\n`:non_existing` variant), `ensure_runtime/0` calls\n`Mix.Local.append_archives/0` and retries; if the retry still errors,\nit scans `Mix.path_for(:archives)` for a directory whose\n`Mix.Local.archive_ebin/1` contains `mutagen_ex.app`, calls\n`:code.add_pathz/1` on that ebin, and retries a third time. If all\nthree attempts fail, the task emits an error-JSON document with\n`abort_reason: \"runtime_load_failed\"` to stdout and exits non-zero\nper r6 — it MUST NOT raise a `MatchError` or leak a traceback.\n\nThe repair branch is gated by the failure-tuple shape from\n`Application.ensure_all_started/1`. It runs zero code on the\n`path:` / `hex` / `git` dep adoption paths covered by r14, because\nthose paths return `{:ok, _apps}` from the first attempt and never\nenter the repair branch. This refines r14: the preamble's contract\ncovers both adoption shapes — dep-style and archive-installed —\nwith identical observable behaviour.",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r2",
+        "priority": "must",
+        "statement": "`mix mutagen` accepts `--tests <target>` (required, repeatable) where each\ntarget is a file path, a `file:line` pair, or `tag:<name>`. Targets are\naccumulated into a list on `%Config{}`. If `--tests` is omitted, the task\nexits with an error-JSON document and a non-zero exit code.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r3",
+        "priority": "must",
+        "statement": "`--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.\nDefault is 5000. Non-positive or non-integer values cause an error-JSON\nexit before any pipeline phase runs.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r4",
+        "priority": "must",
+        "statement": "`--seed <n>` populates `Config.seed` and is propagated to\n`ExUnit.configure(seed: n)` for every test-running phase. Default is 0.\nPer mutagen.decision.serial_execution_and_seed, the seed governs ExUnit\ntest ordering only — mutation enumeration order is independent of the\nseed.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r5",
+        "priority": "must",
+        "statement": "`--json <path>` writes the final JSON document to `<path>` instead of\nstdout. If the flag is absent, the document is written to stdout. In\neither case the document is terminated by a single newline.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r6",
+        "priority": "must",
+        "statement": "`mix mutagen` exits 0 on successful completion (pipeline ran to the end,\neven if every mutation survived). Non-zero exits are reserved for \"bad\ninput\" cases: unparseable flags, unresolvable scope, no tests match, red\nbaseline, or unrecoverable pipeline errors. Every non-zero exit also\nemits an error-JSON document.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r7",
+        "priority": "must",
+        "statement": "`--no-json` is not a recognised flag in v1. If supplied, `mix mutagen`\nexits with an error-JSON document explaining that pretty terminal output\nis deferred to v1.1.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r8",
+        "priority": "must",
+        "statement": "`mix mutagen` refuses to run if any `--scope` target resolves to a module\nin the `MutagenEx.*` or `Mix.Tasks.Mutagen` namespace, per\nmutagen.decision.self_mutation_refused. The error-JSON `reason` field is\n`:self_mutation_refused`.\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli.r9",
+        "priority": "should",
+        "statement": "The `mix help mutagen` output contains a Synopsis, Flags, Examples,\nConstraints, Exit Codes, and Known Caveats section. The Caveats section\nenumerates: state drift on `use SomeModule`, macro mutation slowdown,\nequivalent mutants, mix-format ID-stability via content-addressed IDs,\nno `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon\nsyntax dropped, self-mutation refused, the `--json` path-safety\ncontract (r10), and the `tag:NAME` charset gate (r11).\n",
+        "subject_id": "mutagen.cli"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r1",
+        "priority": "must",
+        "statement": "`CoverageRunner.run/1` checks for an already-running `:cover` server\nbefore starting. If `Process.whereis(:cover_server)` returns a pid, the\nrun aborts with a structured error\n`{:error, :cover_already_running, %{message: msg}}` whose `msg` names\n`MutagenEx.TaskSup` as the documented singleton owner during a MutagenEx\nmutation cycle and points to `.spec/decisions/supervision_tree.md`. The\npipeline halts and emits the error-shaped JSON.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r10",
+        "priority": "must",
+        "statement": "`CoverageRunner.run/1` accepts a `:test_modules` payload of shape\n`[{module(), MutagenEx.TestModuleDiscovery.module_cfg()}]` and calls\n`ExUnit.Server.add_module/2` (via the `:ex_unit_server` seam,\ndefaulting to `MutagenEx.Test.ExUnitServer`) once per entry,\n**before** `ExUnit.run/0`. This re-registers the cited modules\nwhenever a prior `ExUnit.run/0` in the same BEAM has drained\n`ExUnit.Server`'s registry — the multi-invocation hazard captured\nin `mutagen.mutation_pipeline.r10`. Without this, coverage's\n`ExUnit.run/0` would silently observe `%{total: 0, failures: 0}`\non a repeated cited-file scenario, record zero covered lines, and\ndownstream enumeration would produce zero sites (mutagen-wrd.38).\n\n`:test_modules` defaults to `[]` — a single-invocation `mix mutagen`\nis unaffected because the coverage phase is the first\n`ExUnit.run/0` in the run and the cited modules' `use ExUnit.Case`\n`__after_compile__` registration is still in the server's\nregistry. The orchestrator (`Mix.Tasks.Mutagen.phase_coverage/5`)\nderives the payload from `MutagenEx.TestModuleDiscovery.discover/1`\nagainst the resolved `test_filter.files`.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r2",
+        "priority": "must",
+        "statement": "After `CoverageRunner.run/1` returns (success or error), `:cover.stop/0`\nhas been called at least once. The implementation guards the call with\n`try/rescue` so repeated stops are idempotent. The stop happens in an\n`on_exit/1` callback in the implementation tests; per\nmutagen.decision.in_process_pipeline this is part of the in-process\nstate-hygiene contract.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r3",
+        "priority": "must",
+        "statement": "After successful `CoverageRunner.run/1`, for every module that was\ncover-instrumented, `:code.which/1` returns a non-`cover_compiled` value\n(i.e., the path to a real `.beam` or the atom `:non_existing`). This is\nthe property cover-compatible restore depends on; failure means\nsubsequent `Code.compile_quoted/1` calls may not replace the cover-\ninstrumented module.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r4",
+        "priority": "must",
+        "statement": "`CoverageRunner.run/1` forces `ExUnit.configure(max_cases: 1, seed:\nconfig.seed)` before running. Concurrent test execution is not permitted\nin v1 per mutagen.decision.serial_execution_and_seed.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r5",
+        "priority": "must",
+        "statement": "`CoverageRunner.run/1` produces a `covered_lines` map of shape `%{file\n=> MapSet.t(non_neg_integer)}` keyed by relative file path. The map\ncontains entries only for files inside `Config.scopes` — coverage data\nfor out-of-scope files is discarded before return.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r6",
+        "priority": "must",
+        "statement": "`AstCache.load/2` reads each file in the flat `files` list exactly\nonce, parses with `Code.string_to_quoted/2` requesting line/column\nmetadata, and stores both the AST and the verbatim source text. The\ncache is immutable after the first build; no later phase mutates it.\nThe `source_text` is byte-identical to `File.read!(file)` at the moment\nof load — critical for `before_source` slice correctness. The\n`files` list MAY contain both scope files and cited test files (see\nr9); the entry shape is the same regardless of category.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r7",
+        "priority": "must",
+        "statement": "Neither `CoverageRunner.run/1` nor `AstCache.load/1` modifies any file\non disk. The working tree is byte-identical before and after both\ncomplete, asserted across at minimum:\n  * `lib/**/*.{ex,exs}` — source surface.\n  * `_build/**/*.{beam,app}` — compiled artifacts. Cover-instrumented\n    modules live in memory; .beam files on disk must not change.\n  * `cover/**` — coverage reports. The runner produces\n    `covered_lines :: %{file => MapSet.t(line)}` in memory and\n    does not call `:cover.analyse_to_file/*`.\n  * Host project config: `mix.exs`, `mix.lock`, `.formatter.exs`.\n  * Tmp entries created with a `mutagen_ex_`-attributable prefix\n    under `System.tmp_dir!()`.\nAllowed-write list: NONE. AST cache and coverage results live\nin-process per mutagen.decision.in_process_pipeline; nothing\npersists to disk.\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r8",
+        "priority": "must",
+        "statement": "`MutagenEx.TaskSup` is the documented singleton owner of two\nBEAM-global named processes (`:cover_server` and `ExUnit.Server`)\nduring a MutagenEx mutation cycle. A second concurrent caller in\nthe same BEAM is refused per mutagen.coverage.r1 once the first\ncaller has registered `:cover_server`. The window between the\nfirst caller's `cover_already_running?/1` check and its\n`:cover.start/0` is not guarded by this contract; concurrent\ncallers entering during that window collide on `:cover.start/0`\nand fall back to the existing\n`{:error, {:already_started, _pid}} -> :ok` path. Closing this\nwindow is a v2 mitigation target (see\n`.spec/decisions/supervision_tree.md` §\"Won't-Have\").\n",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage.r9",
+        "priority": "must",
+        "statement": "`AstCache.load/2` accepts an optional `opts[:categories]` map of\nshape `%{atom() => [String.t()]}` whose values partition the flat\n`files` list (e.g. `%{scope: scope_files, test: test_files}`).\nCategorisation is **input-only diagnostic metadata**: the cache\nentry shape stays `{Macro.t(), String.t()}` per\n`mutagen.decision.ast_cache_facade_preserved` (no 3-tuple, no\ncategory tag, no category-keyed consumer API). Two cache entries\nbuilt from the same `(file, source_text)` pair are byte-identical\nwhether `:categories` was passed or not.\n\nThe `Pipeline.AstCacheFacade.@callback load/2` signature is\npreserved verbatim (also per the decision). The\n`phase_ast_cache` step of `Mix.Tasks.Mutagen` passes both\nscope files and cited test files in the flat list, with\n`:categories` set for observability. Cited test files are\n`test_filter.files` only — NOT the full `test/**/*.exs` tree\n(F19 was descoped, see\n`mutagen.decision.f19_descoped`).\n\nDownstream consumers (notably `Baseline.detect_async_modules/1`)\nlook files up by path via `AstCache.get/2`. On `:error` (cache\nmiss) consumers fall back to a per-file `File.read/1` + parse\npath as a safety net and log the miss; they do NOT halt.",
+        "subject_id": "mutagen.coverage"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r1",
+        "priority": "must",
+        "statement": "`version` field equals the literal string `\"1\"`. Any future schema\nchange that removes a field or alters semantics increments this; v1 is\nthe only value `mutagen_ex` ever emits before such a change.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r10",
+        "priority": "must",
+        "statement": "Every free-form text field that captures user-code-derived bytes —\n`mutation.results[].warnings[]`, `mutation.compile_errors[].message`,\nthe abort-detail `message` for `:unrecoverable_restore_failure`,\n`:test_file_load_failed`, `:ex_unit_run_failed`,\n`:file_read_failed`, and `:parse_error` — is truncated at 4096 bytes\n(4 KiB) before emission. When truncation occurs, the emitted string\nends with the literal marker ` ... <N bytes truncated>` where `N`\nis the byte-count that was dropped (`N == original_byte_size -\n4096`). The marker bytes themselves are not counted against the\n4 KiB cap — they are metadata about the truncation. Truncation\nsplits on a codepoint boundary so the emitted string is always\nvalid UTF-8.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r11",
+        "priority": "must",
+        "statement": "Application config `:redact` (read via `Application.get_env(:mutagen_ex,\n:redact, [])`) is a list of `%Regex{}` values or binary regex\nsources. Every text field covered by r10 has each configured\npattern applied to it; matches are replaced with the literal\nstring `[REDACTED]`. Redaction runs BEFORE truncation so the\nreplacement is not pushed past the 4 KiB cap. Default `:redact` is\n`[]` (no-op).\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r12",
+        "priority": "must",
+        "statement": "The report-rendering path invokes `Macro.to_string/1` at most\n`2 * R` times for a run that emits R results: once per result\nfor `original_ast` (rendered into `before`) and once per\nresult for `mutated_ast` (rendered into `after`). Computing\n`before_source` does NOT add `Macro.to_string/1` invocations:\n\n  * When `{end_line, end_column}` are available for the site,\n    `before_source` is a verbatim slice of `source_text` and\n    is computed by direct byte indexing — no `Macro.to_string`\n    call.\n  * When `{end_line, end_column}` are unavailable,\n    `before_source` falls back to aliasing the same binary\n    already computed for `before` — also no additional\n    `Macro.to_string` call.\n\nThe `2 * R` cap is therefore exact: the renderer never invokes\n`Macro.to_string/1` more than twice per result regardless of\nwhich `before_source` path each site takes. (Pre-`mutagen-wrd.26`\nthe renderer used `4 * R` calls — once per result for each of\n`before`, `before_source`, `after`, and an accidental duplicate\nvia the legacy fallback. `mutagen-wrd.26` cached the\n`original_ast` rendering and aliased it into both `before` and\n`before_source`, getting to `2 * R`. `mutagen-wrd.34` made\n`before_source` a verbatim source slice when end positions are\navailable; the cap continues to hold because the slice path\nuses byte indexing, not `Macro.to_string/1`.)\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r13",
+        "priority": "must",
+        "statement": "`truncated` is a top-level boolean populated on every emitted document\n(success or abort). It defaults to `false` and flips to `true` iff the\nmutation phase exited early under an aggregate wall-clock budget. The\n`--budget-ms` flag and the runtime conditions that drive this flip are\ndefined by [mutagen.cli.r13](cli.spec.md); this schema only pins the\nwire shape:\n\n- The key is always present at the top level (never omitted, never `null`).\n- On a normal completion, the value is `false`.\n- On a budget-exhaustion early exit, the value is `true`, `aborted`\n  remains `false` (truncation is a graceful early exit, not an abort),\n  `abort_reason` remains `null`, and the `mutation` block reflects only\n  the sites the runner completed before the budget elapsed.\n- `warnings` contains at least one `budget_exceeded` entry when\n  `truncated: true`.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r14",
+        "priority": "must",
+        "statement": "NDJSON streaming variant (`mix mutagen --stream`). When `--stream`\nis set, `MutagenEx.JsonStreamer` emits one JSON object per line to\nthe same sink the aggregate document goes to (stdout when `--json`\nis absent, the configured file when `--json <path>` is set).\nEvery line terminates with exactly one `\\n` and is independently\nparseable by `:json.decode/1`. Every line carries:\n  - `\"version\"` — the same literal `\"1\"` the aggregate document\n    emits (`r1`).\n  - `\"kind\"` — one of `\"start\"`, `\"result\"`, `\"compile_error\"`,\n    `\"end\"`.\nThe four kinds bracket the run:\n  - `\"start\"` fires once at mutation-phase entry; carries `total`\n    (planned site count) and `meta` (`r2`'s meta block).\n  - `\"result\"` fires once per completed site (any of `killed`,\n    `survived`, `timeout`, `error`); the line's wire shape MUST be\n    byte-equal to the equivalent entry in the aggregate document's\n    `mutation.results[]` array (`r4`) plus the `\"kind\"` and\n    `\"version\"` discriminators.\n  - `\"compile_error\"` fires once per `:compile_error` site; the\n    line's wire shape MUST be byte-equal to the equivalent entry\n    in `mutation.compile_errors[]`.\n  - `\"end\"` fires once at pipeline exit (success or abort);\n    carries the aggregate counters (`total`, `completed`,\n    `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)\n    AND `aborted` + `abort_reason`.\nPer-site lines (`\"result\"` / `\"compile_error\"`) are emitted in\ninput order — async_stream's `:ordered: true` plus the runner's\n`:on_site_completed` sequential post-fold ensure a consumer\nconcatenating the stream into the aggregate would reproduce\n`mutation.results[]` byte-equal to the standalone aggregate\ndocument's array.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r15",
+        "priority": "must",
+        "statement": "`JsonStreamer.emit_*` functions do not call `IO.puts`,\n`IO.write`, `System.halt`, or write to disk on their own. They\ntake a `sink` argument (either an IO device atom like\n`:standard_io` or a `(iodata -> any)` function) and dispatch the\nencoded line to it. The Mix task chooses the sink: stdout for\n`--stream` without `--json`, an in-memory buffer that the final\nIO step flushes for `--stream --json <path>`. This mirrors\n`r6` (the aggregate reporter is also I/O-free) and lets unit\ntests of the streamer assert wire shape without touching the\nfilesystem.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r16",
+        "priority": "must",
+        "statement": "The top-level `details` field is always present on every emitted\ndocument — never absent, never `null`, always a JSON object (map).\n\nShape contract:\n\n  - On successful (`aborted: false`) runs: `details == %{}` (empty\n    map). The successful run carries no failing-phase diagnostic\n    context to surface.\n  - On aborted (`aborted: true`) runs: `details` contains the\n    phase-supplied diagnostic context for the abort. Concrete\n    examples from the production phases:\n      * `:test_file_load_failed` → `{file: \"test/foo_test.exs\",\n         message: \"could not load test file ...\"}`\n      * `:module_beam_missing` → `{module: \"Elixir.Foo\", file:\n         \"lib/foo.ex\", message: \"no .beam file located ...\"}`\n      * `:cover_already_running` → `{message: \"another :cover\n         session is running\"}`\n      * `:too_many_targets` → `{flag: \"--scope\", kind: :scope,\n         cap: 100, count: 101}`\n    Phases own the shape of their own details map; this subject\n    does not enumerate the keys, only the outer envelope.\n\nLeaf encoding: atom values are stringified (e.g. `kind: :scope` →\n`\"kind\": \"scope\"`); integer/boolean values pass through; binary\nleaves are sanitized through the r10 truncation + r11 redaction\npipeline before emission. Map values may nest one layer deep\n(e.g. `failures: [...]` from baseline-red details).\n\nThe `details` envelope is additive to the v1 schema. Consumers\nparsing v1 documents prior to this requirement see no `details`\nfield at all; after this requirement the key is always present.\nPer the schema-evolution policy in this subject's intent\n(`adding fields is allowed`), `version` stays at `\"1\"`.\n\nDecision: mutagen.decision.details_always_present.\n\nCounter-example (pre-fix): a downstream user's `mix mutagen` aborts\nwith `abort_reason: \"test_file_load_failed\"`. The emitted JSON\ncontains only `abort_reason` and no detail context — the user\ncannot tell which test file failed to load, what the underlying\nElixir exception was, or how to fix their input. After this\nrequirement, the same abort emits `details: {file:\n\"test/foo_test.exs\", message: \"cannot use ExUnit.Case without\nstarting the ExUnit application, ...\"}`.",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r2",
+        "priority": "must",
+        "statement": "Every successful (`aborted: false`) run emits a document with all\ntop-level keys populated and non-null EXCEPT `abort_reason`, which is\n`null` on success. The `truncated` boolean is populated on every run\n(success or abort); it defaults to `false` and only flips to `true`\nunder the budget-exhaustion path defined in r13.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r3",
+        "priority": "must",
+        "statement": "The `mutation` block, when present, has these subfields:\n`total` (int — enumerated-and-not-skipped sites),\n`completed` (int — sites that ran to a classification),\n`killed` (int),\n`survived` (int),\n`timeout` (int),\n`compile_error` (int),\n`kill_rate` (float — `killed / (total - compile_error)`, or `null` if\ndenominator is 0),\n`results` (array — one entry per completed site),\n`skipped` (array — one entry per `{:skip, reason}` site),\n`compile_errors` (array — one entry per `:compile_error` site),\n`state_drift_warning` (object — one entry per module with `use`),\n`aborted` is a top-level field, not nested in `mutation`.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r4",
+        "priority": "must",
+        "statement": "Each `mutation.results[i]` entry has:\n`id` (string of shape `{file}:{ast_hash}:{mutator}` per\nmutagen.decision.content_addressed_ids),\n`file` (string, relative path),\n`line` (int),\n`column` (int),\n`mutator` (string, snake_case name),\n`before` (string — `Macro.to_string/1` of original AST),\n`before_source` (string — verbatim source slice taken from\n  the `source_text` the AST was parsed from (the `source_text`\n  half of an `MutagenEx.AstCache` entry) when end positions\n  are available. The slice range is\n  `{start_line, start_column}` (the leftmost descendant of the\n  site's `original_ast`, derived at render time) through\n  `{end_line, end_column}` (carried on\n  `%MutagenEx.MutationEnumerator.Site{}` per\n  `mutagen.mutation_enumeration.r8`), end-exclusive. When the\n  enumerator could not derive `{end_line, end_column}` for the\n  site (e.g. bare-literal sites attributed to a parent\n  operator's metadata, or macro-expanded forms whose AST\n  metadata lacks a reliable end position), `before_source`\n  falls back to `Macro.to_string/1` of the original AST and\n  aliases the same binary as `before`. The fallback is\n  observable: on the slice path `before_source` is byte-equal\n  to a hand-cut source slice of the same range and may differ\n  from `before` (which is always the `Macro.to_string/1`\n  output); on the fallback path `before_source === before`\n  (same binary reference, `:erts_debug.same/2` returns true)),\n`after` (string — `Macro.to_string/1` of swapped AST),\n`status` (one of: `\"killed\"`, `\"survived\"`, `\"timeout\"`, `\"error\"`),\n`tainted_predecessors` (bool),\n`warnings` (array of strings).\nNote: `:compile_error` outcomes do NOT appear in `results`; they live\nin the parallel `compile_errors` array.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r5",
+        "priority": "must",
+        "statement": "Every abnormal exit (`aborted: true`) emits a document of the SAME\nschema. Sub-blocks that never ran are `null` rather than missing. The\n`abort_reason` field is a string describing why: e.g.\n`\"missing_scope\"`, `\"invalid_timeout\"`, `\"colon_syntax_unsupported\"`,\n`\"module_not_found\"`, `\"arity_required\"`, `\"no_tests_match\"`,\n`\"self_mutation_refused\"`, `\"cover_already_running\"`, `\"baseline_red\"`,\n`\"unrecoverable_restore_failure\"`, `\"flag_not_supported_in_v1\"`,\n`\"unsafe_json_path\"`.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r6",
+        "priority": "must",
+        "statement": "`JsonReporter.emit_report/1` returns `{iodata, exit_code :: 0 | non_neg_integer}`.\nIt does not call `IO.puts`, `IO.write`, `System.halt`, or write to disk.\nThe caller (the Mix task) performs the I/O. This is the seam that lets\nthe Mix task state machine be unit-tested without spawning processes.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r7",
+        "priority": "must",
+        "statement": "The encoded document is valid JSON: it round-trips through\n`:json.decode/1` (OTP 27+) or an equivalent stdlib JSON decoder. UTF-8\ncharacters in source slices are encoded correctly (no replacement\nchars).\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r8",
+        "priority": "must",
+        "statement": "Document terminates with exactly one trailing newline character. Stdout\nconsumers downstream rely on line-buffered reads; the trailing newline\nis part of the contract.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema.r9",
+        "priority": "must",
+        "statement": "Golden fixtures live at `test/mutagen_ex/golden/*.json`. The fixture set\nincludes at minimum:\n`baseline_red.json`,\n`coverage_partial_mutation_perfect.json`,\n`coverage_full_mutation_partial.json`,\n`error_unresolvable_scope.json`,\n`mutation_with_skipped.json`,\n`partial_report_cover_failure.json`.\nEach represents a `%Report{}` fixture struct in the corresponding test\nfile; running `JsonReporter.emit_report(fixture)` produces a string\nthat is byte-equal to the golden file.\n",
+        "subject_id": "mutagen.json_schema"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r1",
+        "priority": "must",
+        "statement": "Given a fixed input tuple `{ast_cache, scope_records, covered_lines}`,\nthe enumerator produces a `[%MutationSite{}]` list that is byte-identical\nacross runs of the same Elixir/OTP version. Order is fixed and is part\nof the contract.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r2",
+        "priority": "must",
+        "statement": "Sites whose AST line is outside `covered_lines` are filtered out before\n`validate/1` is consulted. The enumerator does not produce mutation\nsites for code the cited tests do not execute.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r3",
+        "priority": "must",
+        "statement": "For each site where a mutator's `validate/1` returns `{:skip, reason}`,\nthe enumerator emits an entry in a parallel `skipped` list with `{site_id,\nreason}`. The `mutation.total` field in the JSON output reflects only the\nnon-skipped sites; the skipped list lives at `mutation.skipped` per the\nJSON schema.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r4",
+        "priority": "must",
+        "statement": "For multi-`defmodule` files, enumeration only walks the in-scope module's\nAST sub-tree. Sibling modules' nodes never appear as candidate sites.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r5",
+        "priority": "must",
+        "statement": "A scoped module with no qualifying AST nodes (e.g., a behaviour-only\nmodule containing only `@callback` declarations) returns an empty\n`[%MutationSite{}]` list plus a warning naming the module. The warning\nsurfaces in the JSON's top-level `warnings` array.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r6",
+        "priority": "must",
+        "statement": "Enumeration reads ASTs exclusively from the AST cache (see\n[mutagen.coverage](coverage.spec.md)). It never opens a source file for\nre-read. This is the property that lets state-drift-free restore work:\nthe same AST that was enumerated is the AST that gets compiled back at\nrestore time.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r7",
+        "priority": "must",
+        "statement": "`MutagenEx.MutationEnumerator.enumerate/4` accepts an opts keyword\n`:max_sites` carrying a positive integer cap. When the produced\nsite list would exceed the cap, the enumerator returns\n`{:error, :too_many_sites, %{cap: <n>, count: <m>, message:\n<string>}}` instead of the success-shape map. The cap is structural\n— the pipeline aborts before the mutation runner starts.\n\nAbsence of the option (or `nil`) leaves enumeration unbounded.\nCallers that want the cap MUST pass it; the Mix task threads\n`Config.max_sites` (default 10_000) in. See `mutagen.cli.r12`.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r8",
+        "priority": "must",
+        "statement": "Every `%MutagenEx.MutationEnumerator.Site{}` carries optional\n`end_line` and `end_column` fields recording an EXCLUSIVE end\nposition for the site's `original_ast` against the parsed\nsource: `end_line` is the line of the position just past the\nlast character of the expression; `end_column` is the column\non that line. The enumerator derives end positions\nbest-effort from AST metadata:\n\n  * If the node's meta carries `:end_of_expression`, that\n    position is used (it is already the exclusive end).\n  * Else if the node's meta carries `:closing` (parens or\n    brackets), end is the closing position plus one column.\n  * Else if the node's meta carries `:end` (do/end blocks),\n    end is the position just past the literal `end` keyword.\n  * Else the enumerator walks to the rightmost child whose\n    size can be computed from the AST alone (variables by\n    atom name length; bare numeric / atomic literals by their\n    printed form's byte size; otherwise recurse).\n\nWhen derivation fails, BOTH `end_line` and `end_column` are\n`nil` and the consumer (the JSON renderer's `before_source`\npath, see `mutagen.json_schema.r4`) falls back to\n`Macro.to_string/1`.\n",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration.r9",
+        "priority": "must",
+        "statement": "Before consulting each catalog mutator's `match?/1` at a given\nAST node, the enumerator MUST pre-filter the mutator list to\na sub-sequence of the input list using a static, order-\npreserving head-atom dispatch table\n(`MutagenEx.Mutators.Dispatch.mutators_for_node/1`, per\n`mutagen.decision.static_mutator_dispatch`). The pre-filter\nhas TWO contractual properties:\n\n  * **Equivalence:** for every AST node and every mutator\n    `M` in the input list, `M.match?(node) == true` if and\n    only if `M` appears in the pre-filter's output for\n    `node` AND `M.match?(node) == true`. Stated as a set:\n    the set of mutators that `match?` accepts is identical\n    whether the enumerator iterates the full input list or\n    only the pre-filtered sub-sequence.\n\n  * **Order-preservation:** the pre-filter never re-orders.\n    For any two mutators `A, B` in the pre-filtered output,\n    if `A` appears before `B` in the input list then `A`\n    appears before `B` in the output. Concretely the\n    pre-filter is a sub-sequence (in the strict\n    list-as-sequence sense) of the input list — same\n    relative order, possibly fewer elements.\n\nOrder-preservation is the property that keeps site emission\norder byte-identical between the pre-dispatch and post-\ndispatch implementations; combined with `r1` it locks\nbyte-identity of `mutation.results[].id` order across runs.\n\nThe dispatch behaviour is exercised against `Mutators.all/0`\n(the legacy \"iterate every catalog entry\" path) via an\ninternal `:dispatch_mode` option on `enumerate/4`\n(`:head_atom` is the production default; `:legacy` is the\ntest seam used by the equivalence test). The option is NOT\na public API and is NOT exposed by the Mix task.",
+        "subject_id": "mutagen.mutation_enumeration"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r1",
+        "priority": "must",
+        "statement": "`Baseline.run/1` executes the cited tests against unmutated code. If\nany test fails, the pipeline aborts with an error-shaped JSON whose\n`abort_reason` is `:baseline_red` and whose `baseline.failures[]` names\neach failing test (`{module, name}` pairs).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r10",
+        "priority": "must",
+        "statement": "The pipeline phases do not reload test modules between runs. Test\nfiles are loaded once via `Code.require_file/1` before the first\n`ExUnit.run/0` in the run; subsequent phases reuse the already-loaded\nbytecode. The known caveat: edits to test files mid-run are silently\nignored. This caveat is documented in `mix help mutagen`.\n\nBecause `ExUnit.Server` consumes its registered-module list at every\n`ExUnit.run/0` and the `use ExUnit.Case` `__after_compile__` hook\nonly fires when a file is freshly evaluated, every phase that calls\n`ExUnit.run/0` after the first one MUST re-register the cited test\nmodules via `ExUnit.Server.add_module/2` before its run. The\norchestrator hands `CoverageRunner.run/1`, `Baseline.run/1`, and\n`MutationRunner.run/1` a `test_modules` payload derived from\n`MutagenEx.TestModuleDiscovery.discover/1`; `CoverageRunner` (per\n`mutagen.coverage.r10`), `Baseline`, and `MutationLoop` each call\nthe registration seam per `ExUnit.run/0`. Without this, the\naffected phase would silently classify every run as zero-test\n(`%{total: 0, failures: 0}`); for baseline that disables the\n`:baseline_red` guard rail (mutagen-wrd.37), and for coverage\nthat produces empty coverage data and zero downstream enumeration\nsites whenever two `mix mutagen` invocations in the same BEAM\ncite the same test file (mutagen-wrd.38).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r11",
+        "priority": "must",
+        "statement": "`MutationRunner.run/1` does not modify any file on disk. The working\ntree is byte-identical before and after the runner completes,\nasserted across at minimum:\n  * `lib/**/*.{ex,exs}` — source surface.\n  * `_build/**/*.{beam,app}` — compiled artifacts. The runner uses\n    `Code.compile_quoted/2` in memory; .beam files on disk must\n    not change.\n  * `cover/**` — coverage reports. The runner does not write\n    coverage output to disk.\n  * Host project config: `mix.exs`, `mix.lock`, `.formatter.exs`.\n  * Tmp entries created with a `mutagen_ex_`-attributable prefix\n    under `System.tmp_dir!()`.\nAllowed-write list: NONE. There is no surface the runner is\npermitted to write to as a normal side effect; a future feature\nthat needs scratch space (e.g. a tmp .beam stash) must declare\nits writes here first and tag them with a `mutagen_ex_` prefix\nso the snapshot diff distinguishes them from background noise.\n\nThe restore path's binary swap (`:code.load_binary/3` via\n`MutagenEx.BeamCache`, per r6) is also in-memory: it mutates the\nBEAM's loaded-module table only, never writing to disk. The\nsnapshot itself lives in an ETS table that dies with `run/1`.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r12",
+        "priority": "must",
+        "statement": "A raise, throw, or exit propagating out of the loaded-mutation\nwindow (the span from successful `Code.compile_quoted/2` of the\nmutated AST through the per-site test run and `:code.purge/1`\nsettle) MUST trigger restore before the exception re-propagates.\nThe original `{kind, value, stacktrace}` MUST reach the caller\nintact — restore failure during such propagation is best-effort\nand MUST NOT mask the original cause. Equivalently, on the\n`:compile_error` branch, defensive restore failure surfaces as\n`:unrecoverable_restore_failure` (not silently discarded).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r13",
+        "priority": "must",
+        "statement": "The `:mutagen_ex` application starts a one-for-one supervisor\n(`MutagenEx.Application` → `MutagenEx.Supervisor`) whose only\nchild is a named `Task.Supervisor` registered as\n`MutagenEx.TaskSup`. Every per-site mutation task spawned by\n`MutationLoop.run/1` is a child of `MutagenEx.TaskSup`. The\nsupervisor is started automatically when `:mutagen_ex` boots\n(via `mod: {MutagenEx.Application, []}` in mix.exs), giving both\n`mix mutagen` CLI invocations and library callers depending on\n`:mutagen_ex` a supervision tree on application start. See\nmutagen.decision.supervision_tree.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r14",
+        "priority": "must",
+        "statement": "When `MutationLoop.run/1` escalates a timed-out site to\n`Task.Supervisor.terminate_child(MutagenEx.TaskSup, task.pid)`,\nthe per-site task receives `Process.exit(_, :shutdown)`. Its\ndeath propagates `:shutdown` through every linked descendant.\nDescendants in two classes are reaped:\n  (a) untrapped linked grandchildren (`spawn_link`'d processes,\n      plain `Task.start_link`'d tasks);\n  (b) trap-exit'd descendants that are themselves OTP\n      supervisors or otherwise honor `:shutdown` by propagating\n      it to their own children (e.g. `Phoenix.PubSub`, `Ecto`\n      connection pools).\nReaping is initiated by `terminate_child/2`'s return but\ncompletes asynchronously over the BEAM scheduler quantum that\nfollows; the call itself is synchronous only with respect to\nthe direct child task. Hand-rolled trap-exit'd descendants\nthat swallow `{:EXIT, _, :shutdown}` info messages (a known\ntest anti-pattern) remain leaked; snapshot-delta detection\n(mutagen.mutation_pipeline.r7) continues to detect these as\nadvisory growth signals.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r15",
+        "priority": "must",
+        "statement": "`MutationRunner.run/1` dispatches per-site work through\n`Task.Supervisor.async_stream_nolink/4` under\n`MutagenEx.TaskSup` when `cfg.max_concurrency > 1`; when\n`cfg.max_concurrency == 1` it stays in the caller process for\nbyte-equivalent v1.0 execution. Regardless of which path runs,\nresults MUST be collected in input order (the async_stream\n`:ordered: true` default) and the sequential post-fold for\ntaint propagation, snapshot warnings, and per-site\nclassification MUST run over the ordered outcome stream. As a\nconsequence, two runs against the same `cfg.sites` with the\nsame deterministic-input test stubs produce a byte-identical\naggregate `%{results, compile_errors, state_drift_warning,\nwarnings}` map across all valid `cfg.max_concurrency` values.\nThe user-facing default for `--max-concurrency` is `1`\n(fully-serial, v1.0-equivalent execution) at both the Mix-task\nlayer and the runner's own internal default. The caveat\nparagraph below documents why default-1 is the honest reflection\nof in-process pipeline constraints; users with collision-free\ninput opt into parallelism via explicit `--max-concurrency N`\n(N > 1).\n\nDuring the run the runner emits `:telemetry` events under the\n`[:mutagen_ex, ...]` namespace per `MutagenEx.Telemetry`:\n  - `[:mutagen_ex, :run, :start | :stop]` brackets the whole\n    pipeline (emitted by the Mix task).\n  - `[:mutagen_ex, :coverage, :start | :stop]`,\n    `[:mutagen_ex, :baseline, :start | :stop]` bracket those\n    phases (emitted by the Mix task via `:telemetry.span/3`).\n  - `[:mutagen_ex, :enumeration, :stop]` carries the site\n    count after enumeration.\n  - `[:mutagen_ex, :site, :start | :stop]` brackets every\n    per-site task. The `.stop` metadata names `site_id`,\n    `file`, `line`, `mutator`, `status`, `index`, and `total`.\nConsumers attach their own `:telemetry.attach/4` handlers; the\nlibrary does NOT ship a poller or built-in subscriber per the\nbw mutagen-wrd.30 Out of Scope.\n\nThe runner accepts a `:on_site_completed` callback in `cfg`\nthat fires once per site as the per-site outcome becomes\navailable (after sequential post-fold). The callback receives\neither `{:result, %{...}}` for completed sites or\n`{:compile_error, %{...}}` for sites whose mutated AST refused\nto compile. The Mix task wires this callback to\n`MutagenEx.JsonStreamer` when `--stream` is set so each\ncompleted site emits one NDJSON line on the same sink the\naggregate document goes to. Callback firing order matches\ninput order; the runner never invokes the callback out of\norder even under `cfg.max_concurrency > 1`.\n\nCaveat: the in-process pipeline shares ExUnit's global server,\nthe Code.Server's per-module load locks, and `:cover`\ninstrumentation state across per-site tasks. Two parallel\nsites that mutate the SAME module collide on\n`Code.compile_quoted/2`; two parallel `ExUnit.run/0` calls\ninterleave the global registered-modules list. The Mix task\ntherefore defaults `--max-concurrency` to `1` for the\nuser-facing `mix mutagen` command when the flag is not passed;\n`--max-concurrency N` (N > 1) is the explicit opt-in path for\ncallers that have arranged for collision-free input. Advanced\nparallelism (per-task ExUnit servers, isolated Code.Server\ninstances) is out of scope for v1.1 and tracked separately.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r16",
+        "priority": "must",
+        "statement": "`MutationRunner.run/1` builds a per-file path index once before\nthe per-site loop begins (one `Macro.prewalk/2` per distinct file\nin `cfg.sites`, regardless of site count) and uses\n`apply_swap_at_path/3` — an `O(depth)` descent along the cached\npath — to produce each site's mutated file AST. The per-file\npath index is keyed by `site.id` (the content-addressed site ID\nper mutagen.decision.content_addressed_ids) so duplicate-position\nsites do not collide.\n\nByte-identity contract: for every site, the mutated file AST\nproduced by the batched path is byte-for-byte identical to the\nfile AST that an unconditional per-site `Macro.prewalk/2` would\nhave produced (the legacy reference walker, preserved as a\nfallback). The legacy reference path is invoked when the path\nindex lacks an entry for `site.id` — for bare-literal sites\n(`Literal` mutator on a raw integer or boolean; `ResultTuple`\ntargeting bare booleans) whose `original_ast` carries no\nmetadata of its own, or for any caller that did not pre-populate\nthe path index. Bare-literal sites resolve via the\nambient-threading walker (`replace_bare_site/2`) that mirrors\n`MutagenEx.MutationEnumerator.walk_tree/6`'s descent rules.\n\nThe pre-compute is internal to `MutationRunner` and is NOT a\npublic input — callers that pass a custom `cfg` without\n`:mutated_ast_cache` retain the v1.0 swap semantics via the\nfallback. The cache lives only for the duration of `run/1`.\n\nCloses F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per\nsite → one walk per file. *(mutagen-wrd.25.5.)*",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r2",
+        "priority": "must",
+        "statement": "Both `Baseline.run/1` and `MutationRunner.run/1` force\n`ExUnit.configure(max_cases: 1, seed: config.seed)`. Tests declared\n`async: true` are still run serially. If any cited test module was\ndeclared `async: true`, a warning naming that module is added to the\nJSON's `warnings` array.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r3",
+        "priority": "must",
+        "statement": "`MutationRunner.run/1` refuses to mutate modules whose name starts with\n`MutagenEx.` or matches `Mix.Tasks.Mutagen`. The pipeline aborts before\nany mutation runs with an error-shaped JSON `reason:\n:self_mutation_refused`, per mutagen.decision.self_mutation_refused.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r4",
+        "priority": "must",
+        "statement": "Per-mutation execution wraps `ExUnit.run/1` in a per-site task\nspawned via `Task.Supervisor.async_nolink(MutagenEx.TaskSup, ...)`\nthat enforces `Config.timeout_ms`. When the timeout fires, the\ntask is cancelled via the two-phase path documented in\nmutagen.decision.timeout_handling and\nmutagen.decision.supervision_tree: a `Task.shutdown(task,\ncancel_grace_ms)` mailbox-drain window first (default 100 ms),\nfollowed by `Task.Supervisor.terminate_child(MutagenEx.TaskSup,\ntask.pid)` to escalate and update the supervisor's child table.\nBoth phases dispatch `Process.exit(_, :shutdown)`, which\npropagates through the task's link tree to descendant processes.\nThe site is classified `:timeout` regardless of which phase\ncleared the task, and the next iteration's classification record\ncarries `tainted_predecessors: true`. After a `:timeout` outcome\nthe runner calls `:code.purge/1` on the site's scoped modules\nbefore restore, so a killed task cannot leave the Code.Server\nholding an orphaned per-module load lock for the next site.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r5",
+        "priority": "must",
+        "statement": "Per-mutation classification has exactly five outcomes:\n`:killed` (at least one cited test failed),\n`:survived` (all cited tests passed),\n`:timeout` (timed out before classification),\n`:compile_error` (Code.compile_quoted/1 raised on the swapped AST),\n`:error` (uncaught exception or unexpected return from the test runner).\n`:compile_error` outcomes are NOT counted in the kill-rate denominator;\nthe others all are. A mutation whose surviving code raises an\nuncaught runtime exception that causes a cited test to fail\nclassifies as `:killed`, not `:error` — `:error` is reserved for\ncrashes inside the test runner itself, not crashes in the mutated\nuser code that the test observably caught. (Canonical example: a\n`:case_drop` mutation against a guarded-recursive-base-case `case`\nraises `CaseClauseError` when recursion reaches the dropped value;\nthe cited test fails; classification is `:killed`. See\nmutagen.mutators.r8.) The corollary: `:case_drop` is not a reliable\ntrigger for `:timeout`. Tests or fixtures that need deterministic\n`:timeout` classification (per r4) must induce divergence by other\nmeans — e.g., `:arith` flipping a recursive descent so the\nrecursion never approaches its base case.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r6",
+        "priority": "must",
+        "statement": "After each per-mutation test run (regardless of classification), the\noriginal module's bytecode is restored via `:code.load_binary/3`\nagainst the per-run `MutagenEx.BeamCache` snapshot (a `:set, :public`\nETS table owned by `MutationRunner.run/1`, populated by a serial\npre-pass over `cfg.scope_records` BEFORE the per-site\n`async_stream_nolink/4` dispatch). The restore path no longer\ninvokes `Code.compile_quoted/2`; the AST never participates in\nrestore. On restore failure (`code_server.load_binary/3` returns\n`{:error, reason}`) the pipeline aborts with an error-shaped JSON\n`reason: :unrecoverable_restore_failure`. The snapshot pre-pass\nruns AFTER `:cover.compile_directory/1` so the cached binary IS\nthe cover-instrumented binary — restore preserves coverage\ninstrumentation across the per-site cycle. The ETS table is\ndeleted in `run/1`'s `after` clause on every exit path\n(success, error return, raise/throw/exit). See\n[`mutagen.decision.per_run_beam_cache`](../decisions/per_run_beam_cache.md)\nand\n[`mutagen.decision.code_server_facade`](../decisions/code_server_facade.md).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r7",
+        "priority": "must",
+        "statement": "Per mutagen.decision.timeout_handling, after each per-mutation test\nrun the runner snapshots `length(Process.registered())`,\n`length(:ets.all())`, and `:persistent_term.info().count`. If any\ngrew compared to the snapshot taken before that mutation, a warning is\nemitted and every subsequent mutation result has `tainted_predecessors:\ntrue` until pipeline end.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r8",
+        "priority": "must",
+        "statement": "For any in-scope module whose source AST contains a `use SomeModule`\ninvocation, the runner emits a `mutation.state_drift_warning` for that\nmodule naming the `use`d modules. The warning is informational; the\npipeline continues. This is the visible signal for\nmutagen.decision.in_process_pipeline's \"restore is bytecode-identical,\nnot side-effect-identical\" caveat.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r9",
+        "priority": "must",
+        "statement": "Stderr written during per-mutation runs (e.g. compiler warnings) is\ncaptured via `ExUnit.CaptureIO.with_io(:stderr, ...)` and attached\nto that mutation's `results[i].warnings` field. Stderr never leaks to\nthe user's terminal during the run.\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r1",
+        "priority": "must",
+        "statement": "Every mutator implements `match?(ast_node) :: boolean`, `mutate(ast_node)\n:: ast_node`, and `validate(swapped_ast_node) :: :ok | {:skip, atom}`.\nEnumeration discovers a site by `match?/1`, performs the swap with\n`mutate/1`, then asks `validate/1` whether the swapped form is sensible.\n`{:skip, reason}` excludes the site from `mutation.total`; `:ok` keeps\nthe site for execution.\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r2",
+        "priority": "must",
+        "statement": "`validate/1` rejection reasons used in v1 include\n`:structurally_invalid`, `:no_op_shadowed`, and\n`:bound_var_used_before_binding`. Each rejected site lands in\n`mutation.skipped[]` with `{site_id, reason}`. Per\nmutagen.decision.validate_predicates, the rejection happens before any\ncompile so `:compile_error` is reserved for genuine compile failures\ndiscovered at runtime.\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r3",
+        "priority": "must",
+        "statement": "Every mutation site has an ID of shape\n`{relative_file}:{ast_hash}:{mutator_name}`. `relative_file` is the file\npath relative to the project root. `ast_hash` is `:erlang.phash2/2` of\nthe normalized AST node, where normalization strips `:line`, `:column`,\n`:end_line`, and `:end_column` from every metadata keyword. `mutator_name`\nis the snake_case atom name (`:arith`, `:case_drop`, etc.).\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r4",
+        "priority": "must",
+        "statement": "Mutation IDs are stable across `mix format`. Specifically: running the\nenumerator on a file, then running `mix format` on that file, then\nrunning the enumerator again, produces the same site ID set (modulo\nsites that `mix format` actually removed, which is none for the\nsupported subset).\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r5",
+        "priority": "must",
+        "statement": "For mutators whose swap is symmetric (e.g., `arith` swapping `+` and\n`-`, `compare` swapping `< >=`), `mutate(mutate(node)) == node`. This\ninvariant is property-tested per the merge gate of S4a in the refined\nplan.\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r6",
+        "priority": "must",
+        "statement": "Every catalog entry's `Macro.to_string(mutate(ast))` produces source\ntext that `Code.string_to_quoted/2` accepts without error for any input\nwhere `validate/1` returned `:ok`. This is the bridge between the AST\nlayer and the JSON's `after` field; failure here means a `:compile_error`\nthat should have been a `:skip`.\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r7",
+        "priority": "must",
+        "statement": "The catalog is closed in v1: ten mutators, no plugin interface, no\nuser-supplied addition. Adding a new mutator requires a code change and\na spec revision.\n",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators.r8",
+        "priority": "must",
+        "statement": "`:case_drop`'s `validate/1` does NOT attempt to prove that the\nsurviving clauses cover every value reachable at runtime. When the\ndropped clause was the only one that matched a value the program\nactually produces (the *guarded-recursive-base-case* pattern is the\ncanonical example: a `case` with a guarded recursive clause plus an\nunguarded base clause; dropping the base leaves only the guarded\nclause), the mutated module raises `CaseClauseError` at runtime and\nthe mutation_pipeline classifies the site `:killed` per\nmutagen.mutation_pipeline.r5. This is the honest classification: the\ncited tests observably distinguished the dropped clause from the\nsurvivors. `:case_drop` is therefore NOT a reliable trigger for\n`:timeout` classification — authoring fixtures or test cases that\nrequire deterministic `:timeout` (e.g., lane-project recursion that\nmust exceed `Config.timeout_ms`) should use `:arith` against the\nrecursive descent so the recursion truly diverges without\nencountering a clause-miss.",
+        "subject_id": "mutagen.mutators"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r1",
+        "priority": "must",
+        "statement": "A scope target of shape `<path>.ex` resolves to one or more records, one\nper `defmodule` block in the file, each with `line_range` covering the\nentire `defmodule` block (inclusive of `do` and `end` lines).\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r2",
+        "priority": "must",
+        "statement": "A scope target of shape `Module.Name` (no slash, no leading lib path)\nresolves to exactly one record covering the matching `defmodule` block.\nIf no such module exists in the project source, the resolver returns a\nstructured error with `reason: :module_not_found`.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r3",
+        "priority": "must",
+        "statement": "A scope target of shape `Module.Name.function/arity` resolves to exactly\none record whose `line_range` covers only the matching `def`,\n`defp`, `defmacro`, or `defmacrop` clause(s). Arity is required: a target\nlike `Module.Name.function` without `/arity` returns an error with\n`reason: :arity_required`.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r4",
+        "priority": "must",
+        "statement": "Targets containing a colon (e.g. `lib/foo.ex:Module.Name`) return a\nstructured error with `reason: :colon_syntax_unsupported`. Per\nmutagen.decision.scope_syntax_simplified, the colon form is not part of\nthe v1 surface.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r5",
+        "priority": "must",
+        "statement": "For multi-`defmodule` files, a module- or MFA-shaped target's\n`line_range` is restricted to the targeted module's block; sibling\nmodules in the same file are NOT included.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r6",
+        "priority": "must",
+        "statement": "Resolution does not modify any file on disk. The resolver reads source\nvia `File.read!/1` (or equivalent) and parses with\n`Code.string_to_quoted/2` requesting line/column metadata; no compile,\nno `Code.eval_*`.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r7",
+        "priority": "should",
+        "statement": "The resolver accepts an injectable source-loader function so unit tests\ndo not need on-disk fixtures. The default loader is `&File.read!/1`.\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r8",
+        "priority": "must",
+        "statement": "Resolution of a user-supplied `Module.Name` or `Module.Name.fun/arity`\ntarget does NOT materialize a fresh atom from the user's input via\n`String.to_atom/1`. Module matching against source-file `defmodule`\nblocks is performed via string comparison (the user's canonical form vs.\n`Atom.to_string/1` of each AST-derived module atom); the matched\n`%Scope{module: mod}` carries the AST-derived atom, never an atom built\nfrom the user's target. Function-name matching similarly uses\n`String.to_existing_atom/1` (function name atoms exist on defs found in\nthe parsed AST; if the lookup raises `ArgumentError` the resolver\nreturns `:function_not_found`). This is the atom-table-DOS bound\n(mutagen-wrd.20): `:erlang.system_info(:atom_count)` is unchanged across\nN calls to `resolve/2` with N distinct never-registered module-shaped or\nMFA-shaped targets (e.g. `Nope.#{n}`, `Nope.#{n}.bar/1`).\n",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r9",
+        "priority": "must",
+        "statement": "For module-shaped and MFA-shaped targets, when no explicit\n`:source_files` option is supplied, the default\n`Path.wildcard(\"lib/**/*.ex\")` result is sorted lexicographically\n(via `Enum.sort/1`) before being searched. This closes the F30 / CF7\ndeterminism risk: `Path.wildcard/1`'s order is file-system-dependent\n(HFS+ sorts; ext4 returns inode order), so two hosts could otherwise\npick a different file when multiple sources happen to declare the\nsame `defmodule`. The sort makes the chosen file deterministic across\nhosts, preserving the byte-identical-output gate in\n`mutagen.mutation_pipeline.r15`. Callers passing an explicit\n`:source_files` list are not re-sorted — the caller already chose\nthe order.",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r1",
+        "priority": "must",
+        "statement": "A target of shape `<path>_test.exs` resolves to `{include: [], exclude:\n[], files: [<path>_test.exs]}`. ExUnit's filter eval requires a\nnon-empty `include` for the \"include + exclude :test\" pattern to admit\nany tests — for a bare-file target there is no include, so the filter\nmust be empty (matching what `mix test test/foo_test.exs` produces via\n`ExUnit.Filters.parse_paths/1`).\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r2",
+        "priority": "must",
+        "statement": "A target of shape `<path>_test.exs:<line>` resolves to `{include:\n[{:location, {<path>_test.exs, <line>}}], exclude: [:test], files:\n[<path>_test.exs]}`. The `:test` exclude is load-bearing here: it pairs\nwith the non-empty `:location` include to keep only the cited line\nwhile running, mirroring `ExUnit.Filters.parse_paths/1`.\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r3",
+        "priority": "must",
+        "statement": "A target of shape `tag:<name>` resolves to `{include: [<name>], exclude:\n[:test], files: <walk_of_test_dir>}` where `<walk_of_test_dir>` is the\nlist of test files determined by AST-walking `test/**/*_test.exs` and\nkeeping those that contain at least one `@tag :<name>` attribute on a\n`test` or `describe` block. The `:test` exclude is load-bearing here:\npaired with the non-empty `:<name>` include it restricts the run to\ntests carrying the tag.\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r4",
+        "priority": "must",
+        "statement": "Tag resolution does not load any test module. It uses\n`Code.string_to_quoted/2` to scan each candidate file. Loading the test\nmodule would interfere with mutagen.mutation_pipeline's state hygiene\ncontract.\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r5",
+        "priority": "must",
+        "statement": "If the resolver's resolution produces zero matching tests (e.g., a\n`tag:unused` that matches nothing, or a `:line` that points outside any\ntest block), it returns a structured error with `reason:\n:no_tests_match`.\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r6",
+        "priority": "must",
+        "statement": "Multiple `--tests` targets compose by union: the final filter's `files`\nlist and `include` list are the union of each target's contribution.\nDuplicates are deduplicated. The final `exclude` is `[]` if any\ncontributor was a bare-file target (r1) — admitting all tests in that\nfile — otherwise it is `[:test]` (preserving the file:line / tag\nrestriction). Union semantics deliberately broaden coverage: a user\ncombining `test/foo_test.exs` with `tag:slow` gets every test in\n`foo_test.exs` plus every tagged test in the tag-walk, not the\nintersection.\n",
+        "subject_id": "mutagen.test_selection"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection.r7",
+        "priority": "must",
+        "statement": "Tag resolution does NOT materialize a fresh atom for the user-supplied\n`tag:NAME` name. The resolver walks `test/**/*_test.exs`, comparing the\nstring `NAME` against `Atom.to_string/1` of each `@tag :ATOM` literal\nfound in the AST; the result's `include` carries the AST-derived atom,\nnot a `String.to_atom/1` of the user input. A target whose `NAME` does\nnot match any registered tag atom returns `{:error, %{reason:\n:no_tests_match}}` per r5 — `:erlang.system_info(:atom_count)` is\nunchanged across N calls to `resolve(\"tag:#{n}\")` for N distinct\nnever-registered names. This is the atom-table-DOS bound (mutagen-wrd.20):\nCI loops like `mix mutagen --tests tag:$(uuidgen)` cannot grow the atom\ntable.",
+        "subject_id": "mutagen.test_selection"
+      }
+    ],
+    "scenarios": [
+      {
+        "covers": [
+          "mutagen.ast.r1"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "A target alias AST `{:__aliases__, [line: 1], [:Foo, :Bar]}`.\n"
+        ],
+        "id": "mutagen.ast.s1",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns the atom `Foo.Bar` (i.e., `Module.concat([:Foo, :Bar])`).\n"
+        ],
+        "when": [
+          "`MutagenEx.Ast.alias_to_module/1` is called with it."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r1"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "The bare atom `Foo.Bar` (not an alias tuple)."
+        ],
+        "id": "mutagen.ast.s2",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `Foo.Bar` unchanged."
+        ],
+        "when": [
+          "`MutagenEx.Ast.alias_to_module/1` is called with it."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r1"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "A nonsense input like an integer, list, or `{:not_an_alias, [], [...]}`."
+        ],
+        "id": "mutagen.ast.s3",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `nil`. No exception."
+        ],
+        "when": [
+          "`MutagenEx.Ast.alias_to_module/1` is called with it."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r2"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "Quoted source `defmodule Foo do def bar, do: :ok end` and the target\nstring `\"Foo\"`.\n"
+        ],
+        "id": "mutagen.ast.s4",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `{:ok, body_ast}` where `body_ast` is the `do:` block contents\n(the `def bar, do: :ok` AST).\n"
+        ],
+        "when": [
+          "`MutagenEx.Ast.find_module_body/2` is called with the parsed AST\nand `\"Foo\"`.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r2"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "The same AST as s4, but the target string is `\"Bar\"` (a module not\ndefined in the AST).\n"
+        ],
+        "id": "mutagen.ast.s5",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `:not_found`."
+        ],
+        "when": [
+          "`MutagenEx.Ast.find_module_body/2` is called."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r3"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "A 3-tuple node `{:foo, [line: 42], []}`.\n"
+        ],
+        "id": "mutagen.ast.s6",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `42`.\n"
+        ],
+        "when": [
+          "`MutagenEx.Ast.node_line/1` is called."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r3"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "A bare literal `42` (an integer), or a 2-tuple `{:ok, 1}`."
+        ],
+        "id": "mutagen.ast.s7",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Returns `nil`."
+        ],
+        "when": [
+          "`MutagenEx.Ast.node_line/1` is called."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r4"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "The codebase after `mutagen-wrd.25.01` has landed."
+        ],
+        "id": "mutagen.ast.s8",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).\nA similar grep for `defp find_module_body` returns `0`.\n"
+        ],
+        "when": [
+          "`grep -rn \"defp alias_to_module\" lib/mutagen_ex/ | wc -l` runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.ast.r5"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "A corpus of 20+ AST shapes representative of the existing test fixtures\n(quoted modules with aliases, nested aliases, attributes, function\nheads, guards).\n"
+        ],
+        "id": "mutagen.ast.s9",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "Output is identical for every input."
+        ],
+        "when": [
+          "The donor-equivalence test runs each AST through the pre-`.25` version\nof `alias_to_module/1` (preserved as a test fixture function) and the\nnew `MutagenEx.Ast.alias_to_module/1`.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r1",
+          "mutagen.cli.r2"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`."
+        ],
+        "id": "mutagen.cli.s1",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`%Config{}` has `scopes: [\"lib/foo.ex\"]` and `tests: [\"test/foo_test.exs\"]`\nand the pipeline is invoked with that struct.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --json ../../etc/passwd --scope ... --tests ...`."
+        ],
+        "id": "mutagen.cli.s10a",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`MutagenEx.CLI.parse/1` returns\n`{:error, :unsafe_json_path, %{variant: :traversal, ...}}`. No\nfilesystem touch happens; an error-JSON document with\n`abort_reason: \"unsafe_json_path\"` is emitted to stdout. The file at\nthe traversal target is never opened.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --json \"out/report\\0.json\" --scope ...\n--tests ...` (NUL byte embedded in the path).\n"
+        ],
+        "id": "mutagen.cli.s10b",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`MutagenEx.CLI.parse/1` returns\n`{:error, :unsafe_json_path, %{variant: :nul_byte, ...}}`. The error\nJSON is emitted; no mutation phase runs.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A symlink `<project_root>/escape.json` exists, pointing at `/etc/passwd`.\nThe user invokes `mix mutagen --json escape.json ...`.\n"
+        ],
+        "id": "mutagen.cli.s10c",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The phase aborts with `abort_reason: \"unsafe_json_path\"` and\n`details.variant == :outside_project_root`. `/etc/passwd` is never\nopened.\n"
+        ],
+        "when": [
+          "The canonicalisation phase resolves the path."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A symlink `<project_root>/in/inside.json` exists pointing at\n`<project_root>/out/report.json` (target stays inside project root).\nThe user invokes `mix mutagen --json in/inside.json ...`.\n"
+        ],
+        "id": "mutagen.cli.s10d",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The phase returns `{:ok, \"<project_root>/out/report.json\"}`. The mutation\npipeline writes the report to the resolved path.\n"
+        ],
+        "when": [
+          "The canonicalisation phase resolves the path."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --json /tmp/ci-artifacts/report.json\n--unsafe-json-outside-project --scope ... --tests ...`.\n"
+        ],
+        "id": "mutagen.cli.s10e",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`Config.unsafe_json_outside_project` is `true`. The phase returns\n`{:ok, \"/tmp/ci-artifacts/report.json\"}` even though the path is\noutside the project root. A warning naming the resolved path is\nwritten to stderr exactly once.\n"
+        ],
+        "when": [
+          "The CLI parses and the canonicalisation phase resolves."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r11"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope lib/foo.ex --tests tag:$(uuidgen)`."
+        ],
+        "id": "mutagen.cli.s11",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The UUID's `-` characters (and possible uppercase hex) violate the\n`~r/\\A[a-z][a-z_0-9]{0,63}\\z/` charset. `CLI.parse/1` returns\n`{:error, :invalid_tag_name, _}` before the test selector runs.\n`Config` is not constructed; no atom is created from the UUID string.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r11"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope lib/foo.ex --tests tag:slow`."
+        ],
+        "id": "mutagen.cli.s11b",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`Config.tests` is `[\"tag:slow\"]`. `slow` matches the charset and\nflows through to test selection unchanged.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r12"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen` with 101 distinct `--scope <target>`\noccurrences and one `--tests` target.\n"
+        ],
+        "id": "mutagen.cli.s12a",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`MutagenEx.CLI.parse/1` returns\n`{:error, :too_many_targets, %{flag: \"--scope\", kind: :scope,\ncap: 100, count: 101, ...}}`. No filesystem touch, no scope\nresolution, no mutation phase. The error-JSON document's\n`abort_reason` is `\"too_many_targets\"`.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r12"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A scope/tests combination whose enumerated mutation sites exceed\n`Config.max_sites` (default 10_000), e.g. a broad `--scope` on a\nlarge module with thorough coverage.\n"
+        ],
+        "id": "mutagen.cli.s12b",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The phase returns\n`{:error, :too_many_sites, %{cap: 10000, count: <n>, ...}}`. The\npipeline aborts with `abort_reason: \"too_many_sites\"` BEFORE the\nmutation runner starts. The error-JSON document names the count\nso the user can decide whether to narrow `--scope` or raise\n`--max-sites`.\n"
+        ],
+        "when": [
+          "The enumerator phase runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r12"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --max-sites 0 ...`."
+        ],
+        "id": "mutagen.cli.s12c",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "An error-JSON document with `reason: :invalid_max_sites` is\nemitted. `Config.max_sites` is never set to 0.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r13"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --budget-ms 1000 ...` against a scope\nwhose enumerated mutation sites would take longer than 1000 ms in\naggregate.\n"
+        ],
+        "id": "mutagen.cli.s13a",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The runner stops dispatching new sites. The success-JSON document\nhas `truncated: true` at the top level, `aborted: false`, and the\n`mutation` block holds only the completed sites' results. A\n`budget_exceeded` warning is included in the `warnings` array.\n"
+        ],
+        "when": [
+          "The mutation phase runs and the budget elapses."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r13"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --budget-ms 0 ...`."
+        ],
+        "id": "mutagen.cli.s13b",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "An error-JSON document with `reason: :invalid_budget_ms` is\nemitted. `Config.budget_ms` is never set to 0.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r14"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A downstream project freshly cloned and installed with `mutagen_ex`\nas a dependency. A user invokes\n`mix mutagen --scope lib/foo.ex --tests test/foo_test.exs` from\nthe project root in a fresh shell — no prior `mix test`, no IEx\nsession, no manual preload.\n"
+        ],
+        "id": "mutagen.cli.s14a",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The preamble runs before any phase. After the preamble:\n`:code.which(Foo)` returns a charlist path (modules loaded);\n`Application.started_applications/0` includes both `:mutagen_ex`\nand `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.\nThe coverage, baseline, and mutation phases then run normally and\nthe document emitted has `aborted: false`.\n"
+        ],
+        "when": [
+          "`Mix.Tasks.Mutagen.run/1` starts."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r14"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "The mutagen_ex test suite (`mix test`) is running. ExUnit drives\na test that calls `Mix.Tasks.Mutagen.run/2` with a custom\ndispatch.\n"
+        ],
+        "id": "mutagen.cli.s14b",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`run/2` does NOT invoke the preamble — no `Mix.Task.run(\"compile\")`,\nno `ExUnit.start/1`, no `Application.ensure_all_started/1`. The\ntest seam is preamble-free per\nmutagen.decision.preamble_in_run1_only.\n"
+        ],
+        "when": [
+          "`run/2` executes."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r16"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A host project that does NOT carry `:mutagen_ex` in its `mix.exs`,\nwith `mutagen_ex-X.Y.Z.ez` previously installed via\n`mix archive.install ./mutagen_ex-X.Y.Z.ez` so the task is visible\nglobally (`mix help mutagen` lists it).\n"
+        ],
+        "id": "mutagen.cli.s14c",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`ensure_runtime/0`'s first `Application.ensure_all_started(:mutagen_ex)`\nreturns `{:error, {:mutagen_ex, {_, ~c\"mutagen_ex.app\"}}}`. The preamble\ncalls `Mix.Local.append_archives/0`, retries, and the retry returns\n`{:ok, _apps}` (or, if necessary, the targeted ebin scan fires and the\nthird attempt succeeds). `Process.whereis(MutagenEx.TaskSup)` is then a\nlive PID. The coverage, baseline, and mutation phases run normally.\nThe final JSON document on stdout has `aborted: false` and a populated\n`mutation` block.\n"
+        ],
+        "when": [
+          "The user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`\nfrom the host project root in a fresh shell.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r16"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A host project as in s14c, but the installed archive is\nunrecoverable (the archive directory was deleted between\n`mix archive.install` and `mix mutagen`, or `~/.mix/archives`\nis unreadable). Both `Mix.Local.append_archives/0` and the\ntargeted `Mix.path_for(:archives)` scan fail to make\n`mutagen_ex.app` reachable on `:code.get_path/0`.\n"
+        ],
+        "id": "mutagen.cli.s14d",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`ensure_runtime/0` does NOT raise a `MatchError`. It emits a\nstructured error-JSON document to stdout with\n`aborted: true`, `abort_reason: \"runtime_load_failed\"`, and a\n`details.message` pointing the user at archive-install\ntroubleshooting (e.g. \"reinstall via `mix archive.uninstall mutagen_ex\n&& mix archive.install <ez>`\"). The task exits with a non-zero code\nper r6.\n"
+        ],
+        "when": [
+          "`mix mutagen ...` runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r15",
+          "mutagen.cli.r10"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes\n`mix mutagen --scope lib/foo.ex --tests test/foo_test.exs --json /tmp/foo.json`\nfrom a project whose root is `/Users/.../my_project`.\n"
+        ],
+        "id": "mutagen.cli.s15",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "The path is refused with `abort_reason: \"unsafe_json_path\"` per\nr10. The error-JSON document lands on stdout. No file is created\nat `/tmp/foo.json`. The exit code is non-zero per r6."
+        ],
+        "when": [
+          "`phase_json_path` runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r1"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --tests test/foo_test.exs` without `--scope`."
+        ],
+        "id": "mutagen.cli.s2",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "No pipeline phase runs. An error-JSON document with `reason:\n:missing_scope` is emitted to stdout, and the task exits with a non-zero\ncode.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r1",
+          "mutagen.cli.r2"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope MutagenEx.Foo.bar/1 --scope lib/baz.ex --tests tag:fast`."
+        ],
+        "id": "mutagen.cli.s3",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`%Config{}` has `scopes: [\"MutagenEx.Foo.bar/1\", \"lib/baz.ex\"]` and\n`tests: [\"tag:fast\"]`. Repeat occurrences of `--scope` accumulate; they\ndo not overwrite each other.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r3"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --timeout-ms 0 ...`."
+        ],
+        "id": "mutagen.cli.s4",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "An error-JSON document with `reason: :invalid_timeout` is emitted.\n`Config.timeout_ms` is never set to 0.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r4"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --seed 42 ...`."
+        ],
+        "id": "mutagen.cli.s5",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "`ExUnit.configure(seed: 42)` is called before the baseline test run,\nbefore the coverage test run, and before each mutation test run. The\nfinal JSON document's `meta.exunit_seed` field is `42`.\n"
+        ],
+        "when": [
+          "The pipeline runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r6"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A run completes the full pipeline; every mutation survived (kill rate 0.0)."
+        ],
+        "id": "mutagen.cli.s6",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "Exit code is 0. The JSON document on stdout has `aborted: false` and a\npopulated `mutation` block.\n"
+        ],
+        "when": [
+          "The task finishes."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r6"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`\nbut the baseline test run has failing tests.\n"
+        ],
+        "id": "mutagen.cli.s7",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "Exit code is non-zero. The JSON document has `aborted: true` and\n`abort_reason` names the red baseline; no mutation phase runs.\n"
+        ],
+        "when": [
+          "The baseline phase reports red."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r7"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --no-json --scope ... --tests ...`."
+        ],
+        "id": "mutagen.cli.s8",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "An error-JSON document with `reason: :flag_not_supported_in_v1` is\nemitted. Exit code is non-zero.\n"
+        ],
+        "when": [
+          "The CLI parses these flags."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.cli.r8"
+        ],
+        "file": ".spec/specs/cli.spec.md",
+        "given": [
+          "A user invokes `mix mutagen --scope MutagenEx.MutationRunner --tests ...`."
+        ],
+        "id": "mutagen.cli.s9",
+        "subject_id": "mutagen.cli",
+        "then": [
+          "An error-JSON document with `reason: :self_mutation_refused` is emitted\nbefore any mutation phase runs.\n"
+        ],
+        "when": [
+          "The CLI resolves scope targets to modules."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r1"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "Another process started `:cover` and holds the `:cover_server` named process before `mix mutagen` runs."
+        ],
+        "id": "mutagen.coverage.s1",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The run returns `{:error, :cover_already_running}` immediately. No `:cover.compile_*` call is made."
+        ],
+        "when": [
+          "`CoverageRunner.run/1` is invoked."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r10"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A `CoverageRunner.run/1` call with `test_modules: [{Some.CitedTest, %{async?: false, group: nil, parameterize: nil}}]` and an `:ex_unit_server` seam that records each `add_module/2` invocation."
+        ],
+        "id": "mutagen.coverage.s10",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The seam recorded one `add_module(Some.CitedTest, cfg)` call BEFORE `ExUnit.run/0` was invoked. With `test_modules: []` (the default), the seam records zero calls."
+        ],
+        "when": [
+          "The runner reaches `ExUnit.run/0`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r2"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A successful coverage run."
+        ],
+        "id": "mutagen.coverage.s2",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "`Process.whereis(:cover_server)` is `nil` (cover stopped). Calling `CoverageRunner.run/1` a second time in the same VM succeeds — the first stop did not leave cover in a broken state."
+        ],
+        "when": [
+          "We inspect process state afterwards."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r3"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "`Foo` was cover-instrumented during the run."
+        ],
+        "id": "mutagen.coverage.s3",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The return value is the actual `.beam` path string, not the atom `:cover_compiled`."
+        ],
+        "when": [
+          "After `CoverageRunner.run/1` returns successfully, we call `:code.which(Foo)`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r4"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A `Config{seed: 42}` passed to `CoverageRunner.run/1`."
+        ],
+        "id": "mutagen.coverage.s4",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "`ExUnit.configuration()[:max_cases] == 1` and `ExUnit.configuration()[:seed] == 42` at the moment ExUnit begins executing test files."
+        ],
+        "when": [
+          "The runner starts."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r5"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A run scoped to `lib/foo.ex` whose cited tests also exercise `lib/unrelated.ex` (because `foo` calls into it)."
+        ],
+        "id": "mutagen.coverage.s5",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The returned `covered_lines` map has a key for `lib/foo.ex` and does NOT have a key for `lib/unrelated.ex`."
+        ],
+        "when": [
+          "`CoverageRunner.run/1` returns."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r6"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A scope referencing `lib/foo.ex`."
+        ],
+        "id": "mutagen.coverage.s6",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The cache contains `{\"lib/foo.ex\", {quoted, source_text}}` where `source_text == File.read!(\"lib/foo.ex\")` at the moment `load/1` was called. A subsequent `AstCache.get(cache, \"lib/foo.ex\")` returns the same `{quoted, source_text}` tuple."
+        ],
+        "when": [
+          "`AstCache.load/1` runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r7"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "`lib/foo.ex` with a known SHA-256 hash before the run."
+        ],
+        "id": "mutagen.coverage.s7",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The hash is unchanged. No file under `cover/`, `_build/`, or `lib/` was written by these phases."
+        ],
+        "when": [
+          "`CoverageRunner.run/1` + `AstCache.load/1` complete."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r1",
+          "mutagen.coverage.r8"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "`:cover_server` is registered on the BEAM (simulating an in-flight MutagenEx mutation cycle)."
+        ],
+        "id": "mutagen.coverage.s8",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The call returns `{:error, :cover_already_running, %{message: msg}}` immediately, without entering the cover lifecycle. `msg` names `MutagenEx.TaskSup` as the singleton owner."
+        ],
+        "when": [
+          "A caller invokes `MutagenEx.CoverageRunner.run/1` with a well-formed input (`%{seed: 0, in_scope_modules: [], test_filter: %TestFilter{include: [], exclude: [], files: []}}`)."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r9"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A flat list `files = [\"lib/a.ex\", \"test/a_test.exs\"]` and `opts = [categories: %{scope: [\"lib/a.ex\"], test: [\"test/a_test.exs\"]}]`."
+        ],
+        "id": "mutagen.coverage.s9a",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The resulting cache has exactly the keys `\"lib/a.ex\"` and `\"test/a_test.exs\"`. Each value is a 2-tuple `{Macro.t(), String.t()}` — no category tag. The cache produced is byte-identical to what `AstCache.load(files, reader: same_reader)` (without `:categories`) would have returned."
+        ],
+        "when": [
+          "`AstCache.load(files, opts)` runs against a stub reader."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r9"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A baseline call with `cfg.ast_cache` populated containing the cited test file's entry."
+        ],
+        "id": "mutagen.coverage.s9b",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "The async-detection path consumes the cached `{ast, _source}`; no `File.read/1` call lands against the cited test file. The returned warnings reflect the cached AST."
+        ],
+        "when": [
+          "`Baseline.run/1` runs (which calls `detect_async_modules/1` internally)."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r9"
+        ],
+        "file": ".spec/specs/coverage.spec.md",
+        "given": [
+          "A baseline call with `cfg.ast_cache` populated but the cited test file is NOT present in the cache."
+        ],
+        "id": "mutagen.coverage.s9c",
+        "subject_id": "mutagen.coverage",
+        "then": [
+          "`detect_async_modules/1` falls back to `File.read/1` + parse for that file. The cache miss is logged. The returned warnings are the same as the no-cache path for that file."
+        ],
+        "when": [
+          "`Baseline.run/1` runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r1",
+          "mutagen.json_schema.r2"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A pipeline run that completes cleanly with 10 mutation sites, 9 killed and 1 survived."
+        ],
+        "id": "mutagen.json_schema.s1",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The document has `version: \"1\"`, `aborted: false`, `abort_reason: null`.",
+          "`mutation.total == 10`, `mutation.killed == 9`, `mutation.survived == 1`, `mutation.kill_rate == 0.9`."
+        ],
+        "when": [
+          "`JsonReporter.emit_report/1` is called with the resulting report."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r16"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A successful pipeline run that completes with 5 mutation sites, all classified normally."
+        ],
+        "id": "mutagen.json_schema.s16a",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The decoded JSON has `\"details\": {}` at the top level. The map is empty (no keys).",
+          "The document round-trips through `:json.decode/1` per r7 with the `details` key present."
+        ],
+        "when": [
+          "`JsonReporter.emit_report/1` renders the document."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r16"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A pipeline run that aborts in the coverage phase with `:test_file_load_failed` because the cited test file raises on load.",
+          "The phase returns `{:error, :test_file_load_failed, %{file: \"test/foo_test.exs\", message: \"could not load test file \\\"test/foo_test.exs\\\": cannot use ExUnit.Case ...\"}}`."
+        ],
+        "id": "mutagen.json_schema.s16b",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The decoded JSON has `\"aborted\": true`, `\"abort_reason\": \"test_file_load_failed\"`, AND a populated `\"details\"` map containing keys `\"file\"` (string `\"test/foo_test.exs\"`) and `\"message\"` (the binary, possibly truncated and/or redacted per r10/r11).",
+          "The `details` map is NOT empty."
+        ],
+        "when": [
+          "`JsonReporter.emit_error/2` renders the error document."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r16",
+          "mutagen.json_schema.r10"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A pipeline run that aborts with a `details.message` of 10_240 bytes (over the 4 KiB r10 cap)."
+        ],
+        "id": "mutagen.json_schema.s16c",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The decoded JSON's `details.message` is exactly 4096 bytes of payload followed by ` ... <6144 bytes truncated>`.",
+          "The sanitizer pipeline applied to abort-detail string leaves matches the sanitizer applied to `mutation.results[].warnings[]`."
+        ],
+        "when": [
+          "`JsonReporter.emit_error/2` renders the error document."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r3",
+          "mutagen.json_schema.r4"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A `%Report{}` fixture for `mutation_with_skipped.json` (4 completed sites; 3 killed + 1 survived; 2 sites in `skipped`; 1 site in `compile_errors`)."
+        ],
+        "id": "mutagen.json_schema.s2",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "`mutation.total == 4`, `mutation.completed == 4`, `mutation.kill_rate == 0.75` (3 killed / 4 non-compile-error).",
+          "`mutation.skipped` has 2 entries, `mutation.compile_errors` has 1 entry, `mutation.results` has 4 entries each with the full set of fields per r4."
+        ],
+        "when": [
+          "`JsonReporter.emit_report/1` is called."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r5"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A run where `--scope` is missing."
+        ],
+        "id": "mutagen.json_schema.s3",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "`version: \"1\"`, `aborted: true`, `abort_reason: \"missing_scope\"`.",
+          "`baseline`, `coverage`, `mutation` are all `null`.",
+          "`meta` is populated (we know our tool/elixir/otp version even on early error)."
+        ],
+        "when": [
+          "The error path emits the document."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r6"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A `%Report{}` fixture with `aborted: true, abort_reason: :baseline_red`."
+        ],
+        "id": "mutagen.json_schema.s4",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "Return is `{iodata, exit_code}` where `exit_code != 0`.",
+          "The caller is responsible for `IO.puts`. The function itself made no I/O."
+        ],
+        "when": [
+          "`JsonReporter.emit_report/1` is called."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r7",
+          "mutagen.json_schema.r8"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A successful run's emitted document."
+        ],
+        "id": "mutagen.json_schema.s5",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "Decoding succeeds. The decoded map's `:version` key (or `\"version\"`) equals `\"1\"`.",
+          "The last byte of the iodata is `\\n`."
+        ],
+        "when": [
+          "We decode the iodata with `:json.decode/1`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r9"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "The 6 golden fixtures listed in r9."
+        ],
+        "id": "mutagen.json_schema.s6",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "Each comparison is byte-equal. Schema drift fails the golden test suite loudly."
+        ],
+        "when": [
+          "For each, we call `JsonReporter.emit_report(fixture)` and compare to the file contents."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r10"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A captured stderr binary of 10_240 bytes (well over the 4 KiB cap) composed of repeating `\"warning line\\n\"` so the boundary lands on a codepoint."
+        ],
+        "id": "mutagen.json_schema.s7",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The emitted warning string is exactly 4096 bytes of payload followed by ` ... <6144 bytes truncated>`.",
+          "The full emitted binary is valid UTF-8."
+        ],
+        "when": [
+          "The binary flows into `mutation.results[i].warnings[0]` via the runner's `compose_warnings/1`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r11"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "`Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\\S+/])`.",
+          "A warning string `\"warning: bad value SECRET_TOKEN=hunter2 in line 42\"`."
+        ],
+        "id": "mutagen.json_schema.s8",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "The emitted warning string contains `[REDACTED]` in place of `SECRET_TOKEN=hunter2` and does NOT contain the literal substring `hunter2`."
+        ],
+        "when": [
+          "The warning flows through `compose_warnings/1`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r12",
+          "mutagen.json_schema.r4"
+        ],
+        "file": ".spec/specs/json_schema.spec.md",
+        "given": [
+          "A `%Report{}` fixture with N completed-mutation results.",
+          "Some results carry `end_line`/`end_column` and `source_text` (slice path); others carry `end_line: nil` (fallback path)."
+        ],
+        "id": "mutagen.json_schema.s9",
+        "subject_id": "mutagen.json_schema",
+        "then": [
+          "For every result on the FALLBACK path (`end_line == nil`), the rendered `before` and `before_source` fields share the SAME binary reference (`:erts_debug.same/2` returns true) — the `Macro.to_string(original_ast)` output is aliased into both.",
+          "For every result on the SLICE path (`end_line` non-nil), the rendered `before_source` is a verbatim slice of `source_text` by `{line, column, end_line, end_column}` and matches a hand-cut source slice byte-for-byte.",
+          "The total `Macro.to_string/1` invocation count over the render pass is AT MOST `2 * N` regardless of how the N results split between slice and fallback (the slice path uses byte indexing, not `Macro.to_string`)."
+        ],
+        "when": [
+          "`mutation_to_report/2` renders the wire-shape map."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r1"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "The same `{ast_cache, scope_records, covered_lines}` tuple supplied to the enumerator on two consecutive invocations."
+        ],
+        "id": "mutagen.mutation_enumeration.s1",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "The two output `[%MutationSite{}]` lists are equal — same length, same order, same site IDs."
+        ],
+        "when": [
+          "Both invocations complete."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r2"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "`lib/foo.ex` with arithmetic operations on lines 5, 10, and 15.",
+          "`covered_lines` for `lib/foo.ex` is `MapSet.new([5, 10])` — line 15 was not exercised by the cited tests."
+        ],
+        "id": "mutagen.mutation_enumeration.s2",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "The output list contains mutation sites for lines 5 and 10 only. Line 15 produces no site (covered, skipped, or otherwise)."
+        ],
+        "when": [
+          "The enumerator runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r3"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "An AST containing a `with` chain that, when swapped by `with_swap`, would use a bound variable before binding."
+        ],
+        "id": "mutagen.mutation_enumeration.s3",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "The site appears in the `skipped` list with reason `:bound_var_used_before_binding` and does NOT appear in the main `[%MutationSite{}]` list. `mutation.total` is unaffected by this site."
+        ],
+        "when": [
+          "The enumerator processes that `with` site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r4"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "`lib/multi.ex` defines `Mod.A` and `Mod.B`. The scope record targets only `Mod.A`."
+        ],
+        "id": "mutagen.mutation_enumeration.s4",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "Every emitted site's AST hash belongs to a node inside `Mod.A`'s `defmodule` block; no site has a hash from `Mod.B`'s AST."
+        ],
+        "when": [
+          "The enumerator runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r5"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "`lib/contract.ex` is `defmodule Contract do @callback handle(any) :: any end`."
+        ],
+        "id": "mutagen.mutation_enumeration.s5",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "Output is `{[], [warning: :no_mutation_candidates, module: Contract]}`."
+        ],
+        "when": [
+          "The enumerator is run with `Contract` as scope."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r6"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "The enumerator finishes producing sites."
+        ],
+        "id": "mutagen.mutation_enumeration.s6",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "No call to `File.read/1`, `File.read!/1`, or `Code.require_file/1` was made during enumeration; all AST data came from the cache."
+        ],
+        "when": [
+          "Inspecting its run."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r7"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "Inputs that would produce more than `:max_sites` mutation sites (e.g. 20 arithmetic operations covered, `:max_sites = 5`)."
+        ],
+        "id": "mutagen.mutation_enumeration.s7",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "Output is `{:error, :too_many_sites, %{cap: 5, count: <n>, ...}}` where `<n>` > 5. No partial site list is returned."
+        ],
+        "when": [
+          "The enumerator runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r8"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "The source `def add(a, b), do: a + b` parsed by `Code.string_to_quoted/2` with `columns: true, token_metadata: true` and enumerated against the `arith` mutator."
+        ],
+        "id": "mutagen.mutation_enumeration.s8",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "The emitted `%Site{}` has `line: L, column: 24` pointing at the `+` operator (unchanged from the pre-`mutagen-wrd.34` contract) and `end_line: L, end_column: 27` — the exclusive end position of the rightmost descendant `b` at column 26.",
+          "The pair `{end_line, end_column}` together with the leftmost descendant's position (derivable from `original_ast`, here `a` at column 22) defines the source range that `Macro.to_string(original_ast)` printed; slicing `source_text` by that range yields exactly `\"a + b\"`."
+        ],
+        "when": [
+          "The enumerator produces the `:+` site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r9"
+        ],
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "given": [
+          "A representative corpus of source fragments exercising every head atom in the dispatch table (`:+`, `:-`, `:*`, `:/`, `:==`, `:!=`, `:<`, `:>`, `:<=`, `:>=`, `:and`, `:or`, `:&&`, `:||`, `:not`, `:!`, `:with`, `:if`, `:case`, `:cond`, `:|>`, `:when`) plus the non-3-tuple shapes the `:any` mutators target (bare `true`/`false`/`0`/`1`/`-1`, `{:__block__, _, [literal]}` wrappers, `{:ok, _}` / `{:error, _}` 2-tuples)."
+        ],
+        "id": "mutagen.mutation_enumeration.s9",
+        "subject_id": "mutagen.mutation_enumeration",
+        "then": [
+          "The two `%{sites: _, skipped: _, warnings: _}` maps are equal, including site order.",
+          "Per-node, the set of mutators whose `match?/1` accepts that node is identical under both paths (correctness), AND the order of the candidate list relative to `Mutators.all/0` is the same (byte-identity)."
+        ],
+        "when": [
+          "The enumerator runs against the corpus once with `dispatch_mode: :head_atom` and once with `dispatch_mode: :legacy`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r1"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A cited test suite has one failing test before any mutation."
+        ],
+        "id": "mutagen.mutation_pipeline.s1",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The pipeline halts.",
+          "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains an entry naming the failing test.",
+          "No mutation phase runs."
+        ],
+        "when": [
+          "`Baseline.run/1` executes."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r12"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A site whose mutated AST fails to compile (`:compile_error` branch). The defensive restore that follows ALSO fails (e.g. the AST cache became corrupted, or a test-injected `:compiler` seam rejects the original AST)."
+        ],
+        "id": "mutagen.mutation_pipeline.s10",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The runner aborts with `{:error, :unrecoverable_restore_failure, ...}` whose `message` names both the restore failure and the original `:compile_error` cause.",
+          "The failure is NOT silently discarded as it was prior to bw mutagen-wrd.17."
+        ],
+        "when": [
+          "The runner processes that site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r13"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "The `:mutagen_ex` application is started via `Application.ensure_all_started(:mutagen_ex)`."
+        ],
+        "id": "mutagen.mutation_pipeline.s11",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "`Process.whereis(MutagenEx.TaskSup)` returns a pid and `Process.whereis(MutagenEx.Supervisor)` returns a pid.",
+          "Both pids stay alive until the application stops."
+        ],
+        "when": [
+          "We inspect the BEAM's named-process registry."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r14"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A `Task.Supervisor.start_child(MutagenEx.TaskSup, fun)` task whose body `spawn_link`'s (a) a named GenServer that traps exits and runs a 20 ms `Process.sleep/1` in its `terminate/2` callback, and (b) an unnamed worker that does not trap exits."
+        ],
+        "id": "mutagen.mutation_pipeline.s12",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "A `:DOWN` arrives for each monitored pid within the supervisor's `:shutdown_timeout` (5_000 ms upper bound).",
+          "After the trapped GenServer's `:DOWN`, its registered name is released within a bounded poll window."
+        ],
+        "when": [
+          "The caller monitors all three pids, then calls `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task_pid)`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r14",
+          "mutagen.mutation_pipeline.r7"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A `MutationLoop.run/1` site whose task body `spawn_link`'s a named GenServer (class (a)/(b) descendant per r14) and then blocks forever, forcing `Config.timeout_ms` to fire."
+        ],
+        "id": "mutagen.mutation_pipeline.s13",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The outcome is `{:timeout, _meta}`.",
+          "The post-mutation snapshot delta against pre-mutation snapshot is empty for `Process.registered()`, `:ets.all()`, and `:persistent_term.info().count` — the linked descendant was reaped by `terminate_child/2`'s recursive shutdown."
+        ],
+        "when": [
+          "The runner snapshots before and after that mutation."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r16"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A `cfg.sites` list containing N 3-tuple sites against the same `cfg.ast_cache` file. Each site has distinct `{line, column, original_ast, mutated_ast}` so the byte-identity comparison is not trivially equal across sites."
+        ],
+        "id": "mutagen.mutation_pipeline.s14",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "For every site, the mutated file AST handed to the compiler is byte-for-byte identical (Elixir term `==`) to the file AST that an unconditional per-site `Macro.prewalk/2` over the same `(file_ast, site)` input would have produced. Equality is asserted against an independent reference walker that mirrors `node_matches_site?/2` and `Macro.prewalk/2`'s descent.",
+          "The `Macro.prewalk` count over file ASTs during `run/1` does not exceed `length(distinct files in cfg.sites)` regardless of N (the pre-compute is one walk per file)."
+        ],
+        "when": [
+          "`MutationRunner.run/1` executes the per-site swap for each site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r16"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A bare-literal site (`%Site{original_ast: 1, mutated_ast: 0, mutator: :literal}`) whose `line`/`column` point at the parent operator/clause-head's coordinates (the enumerator's ambient-threading convention)."
+        ],
+        "id": "mutagen.mutation_pipeline.s15",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The site is NOT in the path index (the pre-compute deliberately skips bare literals because their `original_ast` carries no metadata).",
+          "The runner falls back to the ambient-threading walker (`replace_bare_site/2`) and produces a mutated file AST that places `mutated_ast` at the bare value's position.",
+          "The legacy reference output (manual ambient walk) matches the runner's output byte-for-byte."
+        ],
+        "when": [
+          "`MutationRunner.run/1` executes the per-site swap for that site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r6"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A site whose scoped module exists on the BEAM's code path (has a real `.beam` resolvable via `:code.where_is_file/1`). The `MutationRunner.run/1` cycle compiles the mutated AST, runs the test, and reaches the restore point."
+        ],
+        "id": "mutagen.mutation_pipeline.s16",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The `code_server.load_binary/3` callback is invoked exactly once with the original `{module, filename, binary}` triple captured by the pre-pass `snapshot/3` (no `Code.compile_quoted/2` call is made on the original AST during restore).",
+          "After the cycle, the module's MD5 (via `<mod>.module_info(:md5)`) matches the pre-mutation MD5.",
+          "The ETS table holding the snapshot is deleted when `run/1` returns (`:ets.info/1` returns `:undefined`); on a `raise`/`throw`/`exit` exit path the `after` clause still deletes the table."
+        ],
+        "when": [
+          "The runner invokes `MutagenEx.BeamCache.restore/3` for that module via the configured `code_server` seam."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r6"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutation cycle where the BeamCache snapshot pre-pass has run and populated the ETS table for every scoped module BEFORE the per-site loop dispatches."
+        ],
+        "id": "mutagen.mutation_pipeline.s17",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "Neither worker triggers a snapshot during its task body — both read from the pre-populated table. `code_server.get_object_code/1` is invoked once per distinct scoped module during the pre-pass and zero times during the per-site loop.",
+          "The TOCTOU window between \"current module load state\" and \"snapshot capture\" is therefore closed at the run boundary: even under `--max-concurrency > 1`, no two workers can race to snapshot the same module."
+        ],
+        "when": [
+          "The `async_stream_nolink/4` dispatch begins and two workers handle sites that target the SAME module (e.g. duplicate-position sites or two sites in different functions of the same module)."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r3"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A scope target `--scope MutagenEx.MutationRunner` resolves to one of the tool's own modules."
+        ],
+        "id": "mutagen.mutation_pipeline.s2",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "Run aborts before any compile.",
+          "JSON `aborted: true`, `abort_reason: \"self_mutation_refused\"`."
+        ],
+        "when": [
+          "`MutationRunner.run/1` starts."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r4",
+          "mutagen.mutation_pipeline.r5"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutation creates a deterministic infinite loop in the mutated module (e.g., `:arith` flipping `count_down(n - 1)` to `count_down(n + 1)` so the recursion diverges from its base case).",
+          "`Config.timeout_ms` is 1000."
+        ],
+        "id": "mutagen.mutation_pipeline.s3",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "Approximately 1000ms after the test run begins, the site is classified `:timeout`.",
+          "The next-iteration mutation result has `tainted_predecessors: true`.",
+          "The runner continues to subsequent sites rather than aborting.",
+          "Note: a `:case_drop` mutation that drops a recursion's base case does NOT produce `:timeout` in this scenario — it raises `CaseClauseError` on the first iteration that reaches the dropped value and classifies `:killed` (per r5 and mutagen.mutators.r8)."
+        ],
+        "when": [
+          "The mutation phase processes that site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r5"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutated module produces source that `Code.compile_quoted/1` refuses (rare: the mutator's `validate/1` should have caught it, but we accept discoveries at runtime)."
+        ],
+        "id": "mutagen.mutation_pipeline.s4",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The site is classified `:compile_error`.",
+          "The `mutation.compile_errors[]` array gets an entry.",
+          "The kill rate denominator does NOT increase by this site."
+        ],
+        "when": [
+          "The mutation phase processes that site."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r6"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A successful mutation phase completes for a given site."
+        ],
+        "id": "mutagen.mutation_pipeline.s5",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "`:code.which(<the just-mutated module>)` returns the same path it returned before the mutation.",
+          "The module's MD5 (via `<mod>.module_info(:md5)`) matches the original module's MD5 from before mutation."
+        ],
+        "when": [
+          "The next site begins processing."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r7"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutation timeout leaves a named GenServer (or new ETS table) registered."
+        ],
+        "id": "mutagen.mutation_pipeline.s6",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "A warning is emitted naming the new registered process or ETS table.",
+          "Every mutation result subsequent to this one in `mutation.results[]` has `tainted_predecessors: true`."
+        ],
+        "when": [
+          "The runner snapshots after that mutation."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r8"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A scoped module's source contains `use GenServer`."
+        ],
+        "id": "mutagen.mutation_pipeline.s7",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The JSON has `mutation.state_drift_warning` mentioning `[GenServer]` in the relevant module's record.",
+          "The pipeline continues; the warning is non-fatal."
+        ],
+        "when": [
+          "That module is selected as a mutation target."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r9"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutated module produces compiler warnings on stderr."
+        ],
+        "id": "mutagen.mutation_pipeline.s8",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The warnings appear in `mutation.results[i].warnings` of that site.",
+          "No stderr line was written to the actual terminal."
+        ],
+        "when": [
+          "The mutation runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r12"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A mutated module is loaded for a site, and a fault inside the loaded-mutation window (e.g. a misbehaving `:capture_io` seam, or any runtime error in the window) raises an exception before the runner can call `restore/3` itself."
+        ],
+        "id": "mutagen.mutation_pipeline.s9",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "The runner runs restore (best-effort via `safe_restore/3`) before the exception escapes.",
+          "After the runner returns to the caller via `reraise/2`, the originally-mutated module's MD5 (`<mod>.module_info(:md5)`) matches its pre-mutation value, and the raised exception's `__STACKTRACE__` is preserved."
+        ],
+        "when": [
+          "The exception propagates out of `MutationLoop.run/1`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r1",
+          "mutagen.mutators.r3"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "Source `def f(x), do: x + 1` at line 5 column 17.\n"
+        ],
+        "id": "mutagen.mutators.s1",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "`match?` returns true. `mutate/1` returns the AST for `x - 1`.\n`validate/1` returns `:ok`. The site ID is\n`\"lib/foo.ex:<hash>:arith\"` where `<hash>` is the `:erlang.phash2`\nof the normalized `+` AST node.\n"
+        ],
+        "when": [
+          "The `arith` mutator processes the `+` node."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r2"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "A `with` clause `with {:ok, a} <- f(), {:ok, b} <- g(a), do: a + b`.\n"
+        ],
+        "id": "mutagen.mutators.s2",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "`validate/1` returns `{:skip, :bound_var_used_before_binding}` because\n`g(a)` now references `a` before it's bound. The site is recorded in\n`mutation.skipped` with that reason and is NOT executed.\n"
+        ],
+        "when": [
+          "The `with_swap` mutator swaps the two clauses to produce\n`with {:ok, b} <- g(a), {:ok, a} <- f(), do: a + b`.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r4"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "A file `lib/foo.ex` containing several mutation candidates. The\nenumerator is run once producing site IDs `S1`. Then `mix format` runs\non the same file. Then the enumerator is run again producing site IDs\n`S2`.\n"
+        ],
+        "id": "mutagen.mutators.s3",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "`S1 == S2` (set equality).\n"
+        ],
+        "when": [
+          "Comparing the two ID sets."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r5"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "The `compare` mutator and a randomly generated `<` binary operation AST."
+        ],
+        "id": "mutagen.mutators.s4",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "The doubly-swapped AST is structurally equal to the input. Property\ntested with `StreamData`.\n"
+        ],
+        "when": [
+          "We apply `mutate/1` twice in succession."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r6"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "Any mutator and any source AST where `validate/1` of the swap returned\n`:ok`.\n"
+        ],
+        "id": "mutagen.mutators.s5",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "The round-trip succeeds: the parsed string is structurally equivalent\nto the swapped AST.\n"
+        ],
+        "when": [
+          "We `Macro.to_string/1` the swap and then `Code.string_to_quoted/2`\nthe resulting string.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r1",
+          "mutagen.mutators.r2"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "An `if x do ... else ... end` block."
+        ],
+        "id": "mutagen.mutators.s6",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "`validate/1` checks the surrounding context; if the call site of the\nenclosing function pattern-matches an explicit `else`-returning shape,\nit returns `{:skip, :structurally_invalid}`. Otherwise `:ok`.\n"
+        ],
+        "when": [
+          "The `else_removal` mutator removes the `else` branch and `validate/1`\nruns on the swap.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r8"
+        ],
+        "file": ".spec/specs/mutators.spec.md",
+        "given": [
+          "A module with a guarded-recursive-base-case pattern, e.g.\n\n    def count_down(n) when is_integer(n) do\n      case n do\n        n when n > 0 -> count_down(n - 1)\n        0 -> :done\n      end\n    end\n\nand a test that calls `count_down(3)` expecting `:done`.\n"
+        ],
+        "id": "mutagen.mutators.s7",
+        "subject_id": "mutagen.mutators",
+        "then": [
+          "`validate/1` returns `:ok` (the catalog does not prove coverage).\nAt runtime the recursion reaches `count_down(0)` which fails the\n`n > 0` guard on the surviving clause and raises `CaseClauseError`.\nThe cited test fails. The site is classified `:killed` per\nmutagen.mutation_pipeline.r5. The site is NOT classified\n`:timeout`. Tests requiring deterministic `:timeout` must trigger\ndivergence by another mechanism (e.g., `:arith` against the\nrecursive descent)."
+        ],
+        "when": [
+          "`:case_drop` drops the last clause (`0 -> :done`), the mutated\nmodule compiles, and `MutationRunner` executes the cited test.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r1"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A file `lib/foo.ex` containing one `defmodule Foo do ... end` between lines 1 and 30."
+        ],
+        "id": "mutagen.scope_resolution.s1",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "The resolver returns `[%Scope{file: \"lib/foo.ex\", line_range: 1..30,\nmodule: Foo}]`.\n"
+        ],
+        "when": [
+          "The resolver is called with `--scope lib/foo.ex`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r2"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A project containing `lib/foo/bar.ex` with `defmodule Foo.Bar`."
+        ],
+        "id": "mutagen.scope_resolution.s2",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "The resolver returns a single `%Scope{}` record naming the file path it\nfound `defmodule Foo.Bar` in. No other file is searched once a match is\nfound.\n"
+        ],
+        "when": [
+          "The resolver is called with `--scope Foo.Bar`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r3"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "`lib/foo.ex` contains `defmodule Foo do; def bar(x), do: x; def bar(x,\ny), do: x + y; end`.\n"
+        ],
+        "id": "mutagen.scope_resolution.s3",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "The returned `line_range` covers only the `bar/1` clause, not `bar/2`.\n"
+        ],
+        "when": [
+          "The resolver is called with `--scope Foo.bar/1`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r3"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A scope target `Foo.bar` (no `/arity`)."
+        ],
+        "id": "mutagen.scope_resolution.s4",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "An error tuple `{:error, reason: :arity_required, target: \"Foo.bar\"}` is\nreturned.\n"
+        ],
+        "when": [
+          "The resolver runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r4"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A scope target `lib/foo.ex:Foo.bar/1`."
+        ],
+        "id": "mutagen.scope_resolution.s5",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "An error tuple `{:error, reason: :colon_syntax_unsupported, target:\n\"lib/foo.ex:Foo.bar/1\"}` is returned.\n"
+        ],
+        "when": [
+          "The resolver runs."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r5"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "`lib/multi.ex` contains `defmodule A do ... end` (lines 1..10) and\n`defmodule B do ... end` (lines 12..25).\n"
+        ],
+        "id": "mutagen.scope_resolution.s6",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "The returned `line_range` is 1..10. Lines 12..25 are not included.\n"
+        ],
+        "when": [
+          "The resolver is called with `--scope A`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r6"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A resolver run that completes successfully."
+        ],
+        "id": "mutagen.scope_resolution.s7",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "Comparing each affected source file's bytes before and after the\nresolver call shows zero changes. `cover/` is not created by the\nresolver. The `.beam` files in `_build/` are unchanged.\n"
+        ],
+        "when": [
+          "The resolver returns."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r8"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A loader returning a fixed `defmodule Foo do end` and N distinct\nnever-registered module-shaped targets (`Nope1`, `Nope2`, ...,\n`NopeN`).\n"
+        ],
+        "id": "mutagen.scope_resolution.s8",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "Every call returns `{:error, :module_not_found, _}`.\n`:erlang.system_info(:atom_count)` is identical before and after the N\ncalls — no atom is created from any of the `NopeN` strings. The same\ninvariant holds for MFA-shaped targets (`NopeN.bar/1`): no atom is\ncreated from `NopeN` or from the function-name segment `bar` when\n`bar` is not already a registered atom.\n"
+        ],
+        "when": [
+          "The resolver is called once per target."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r9"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "A project source layout where `Path.wildcard(\"lib/**/*.ex\")` would\nreturn files in some host-dependent order (the contract here is\nproperties of the resolver's behaviour, not of the underlying\nfile system).\n"
+        ],
+        "id": "mutagen.scope_resolution.s9",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "Both calls iterate the candidate file list in the same lexicographic\norder. The implementation `MutagenEx.ScopeResolver.source_files/1`\nwraps the wildcard result in `Enum.sort/1` before returning."
+        ],
+        "when": [
+          "`resolve/2` is called twice for the same module target with no\n`:source_files` option, on the same project.\n"
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r1"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "A target `test/foo_test.exs`."
+        ],
+        "id": "mutagen.test_selection.s1",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result is `%TestFilter{include: [], exclude: [], files: [\"test/foo_test.exs\"]}`. With this filter every test in `foo_test.exs` runs — the regression in mutagen-wrd.11 was that `exclude: [:test]` paired with an empty include silently excluded every test from baseline + coverage + mutation passes."
+        ],
+        "when": [
+          "The selector resolves it."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r2"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "A target `test/foo_test.exs:42`."
+        ],
+        "id": "mutagen.test_selection.s2",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result is `%TestFilter{include: [{:location, {\"test/foo_test.exs\", 42}}], exclude: [:test], files: [\"test/foo_test.exs\"]}`."
+        ],
+        "when": [
+          "The selector resolves it."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r3",
+          "mutagen.test_selection.r4"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "Two test files: `test/a_test.exs` contains `@tag :slow` on one test, `test/b_test.exs` has no `@tag :slow`."
+        ],
+        "id": "mutagen.test_selection.s3",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result `files` contains `test/a_test.exs` and NOT `test/b_test.exs`. `include` is `[:slow]`. The selector did not call `Code.require_file/1` or `Code.eval_*` on either file."
+        ],
+        "when": [
+          "The selector resolves `tag:slow`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r5"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "The project has no `@tag :unused_tag` anywhere."
+        ],
+        "id": "mutagen.test_selection.s4",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result is `{:error, reason: :no_tests_match, target: \"tag:unused_tag\"}`."
+        ],
+        "when": [
+          "The selector resolves `tag:unused_tag`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r6"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "Targets `test/a_test.exs` and `test/b_test.exs`."
+        ],
+        "id": "mutagen.test_selection.s5",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result `files` is `[\"test/a_test.exs\", \"test/b_test.exs\"]` (order irrelevant for the contract; deduplicated if user passed the same target twice). Both contributors are bare-file targets so `exclude` is `[]`."
+        ],
+        "when": [
+          "The selector resolves both."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r6"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "A bare-file target `test/a_test.exs` and a tag target `tag:slow`."
+        ],
+        "id": "mutagen.test_selection.s6",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "Result `exclude` is `[]` (the bare-file contributor takes precedence under union semantics — admitting all tests in `a_test.exs`). Result `include` contains `:slow`; result `files` is the union of the file and the tag walk."
+        ],
+        "when": [
+          "The selector resolves both."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r7"
+        ],
+        "file": ".spec/specs/test_selection.spec.md",
+        "given": [
+          "The atom `:never_registered_tag_for_mutagen_wrd_20` does not exist in the BEAM atom table (no source code references it)."
+        ],
+        "id": "mutagen.test_selection.s7",
+        "subject_id": "mutagen.test_selection",
+        "then": [
+          "The call returns `{:error, %{reason: :no_tests_match, target: \"tag:never_registered_tag_for_mutagen_wrd_20\"}}` AND `:erlang.system_info(:atom_count)` is unchanged across the call. Looping the call with N freshly-generated never-registered names (e.g. `tag:#{System.unique_integer()}`) keeps `atom_count` constant — no atom is created from the user-supplied `NAME` segment."
+        ],
+        "when": [
+          "The selector resolves `tag:never_registered_tag_for_mutagen_wrd_20` against a `test_root` containing only files with unrelated tags."
+        ]
+      }
+    ],
+    "subjects": [
+      {
+        "file": ".spec/specs/ast.spec.md",
+        "id": "mutagen.ast",
+        "meta": {
+          "decisions": [],
+          "id": "mutagen.ast",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.Ast"
+            ]
+          },
+          "status": "active",
+          "summary": "Canonical AST helpers (alias_to_module, find_module_body, node_line) shared by scope/enumerator/runner.",
+          "surface": [
+            "lib/mutagen_ex/ast.ex",
+            "test/mutagen_ex/ast_test.exs",
+            "test/mutagen_ex/ast_donor_equivalence_test.exs"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.ast — shared AST helpers"
+      },
+      {
+        "file": ".spec/specs/cli.spec.md",
+        "id": "mutagen.cli",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.serial_execution_and_seed",
+            "mutagen.decision.no_pretty_output_v1",
+            "mutagen.decision.scope_syntax_simplified",
+            "mutagen.decision.self_mutation_refused",
+            "mutagen.decision.preamble_in_run1_only"
+          ],
+          "id": "mutagen.cli",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "Mix.Tasks.Mutagen",
+              "MutagenEx.CLI",
+              "MutagenEx.Config",
+              "MutagenEx.Types"
+            ]
+          },
+          "status": "active",
+          "summary": "Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.",
+          "surface": [
+            "lib/mix/tasks/mutagen.ex",
+            "lib/mutagen_ex/cli.ex",
+            "lib/mutagen_ex/config.ex",
+            "lib/mutagen_ex/types.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.cli — `mix mutagen` command-line contract"
+      },
+      {
+        "file": ".spec/specs/coverage.spec.md",
+        "id": "mutagen.coverage",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.in_process_pipeline",
+            "mutagen.decision.serial_execution_and_seed",
+            "mutagen.decision.supervision_tree"
+          ],
+          "id": "mutagen.coverage",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.CoverageRunner",
+              "MutagenEx.AstCache"
+            ]
+          },
+          "status": "active",
+          "summary": "One-shot :cover run plus AST + source-text caching for downstream phases.",
+          "surface": [
+            "lib/mutagen_ex/coverage_runner.ex",
+            "lib/mutagen_ex/ast_cache.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.coverage — :cover lifecycle + AST cache"
+      },
+      {
+        "file": ".spec/specs/json_schema.spec.md",
+        "id": "mutagen.json_schema",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.json_reporter_owns_error",
+            "mutagen.decision.content_addressed_ids",
+            "mutagen.decision.details_always_present"
+          ],
+          "id": "mutagen.json_schema",
+          "kind": "integration",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.JsonReporter",
+              "MutagenEx.JsonStreamer"
+            ]
+          },
+          "status": "active",
+          "summary": "Stable v1 JSON output schema for success, partial, and error runs.",
+          "surface": [
+            "lib/mutagen_ex/json_reporter.ex",
+            "lib/mutagen_ex/json_streamer.ex",
+            "test/mutagen_ex/golden/"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.json_schema — stable v1 output contract"
+      },
+      {
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "id": "mutagen.mutation_enumeration",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.validate_predicates",
+            "mutagen.decision.static_mutator_dispatch"
+          ],
+          "id": "mutagen.mutation_enumeration",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.MutationEnumerator",
+              "MutagenEx.Mutators.Dispatch"
+            ]
+          },
+          "status": "active",
+          "summary": "Deterministic mutation-site enumeration with validate-aware skip tracking.",
+          "surface": [
+            "lib/mutagen_ex/mutation_enumerator.ex",
+            "lib/mutagen_ex/mutators/dispatch.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.mutation_enumeration — site enumeration with skip tracking"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.in_process_pipeline",
+            "mutagen.decision.timeout_handling",
+            "mutagen.decision.serial_execution_and_seed",
+            "mutagen.decision.mutation_loop_private",
+            "mutagen.decision.self_mutation_refused",
+            "mutagen.decision.supervision_tree",
+            "mutagen.decision.per_run_beam_cache",
+            "mutagen.decision.code_server_facade"
+          ],
+          "id": "mutagen.mutation_pipeline",
+          "kind": "workflow",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.Baseline",
+              "MutagenEx.BeamCache",
+              "MutagenEx.MutationRunner",
+              "MutagenEx.MutationRunner.MutationLoop",
+              "MutagenEx.Telemetry",
+              "MutagenEx.Progress",
+              "MutagenEx.Application",
+              "MutagenEx.Test.CodeServer",
+              "MutagenEx.Test.CodeServerFacade",
+              "Mix.Tasks.Mutagen"
+            ]
+          },
+          "status": "active",
+          "summary": "Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.",
+          "surface": [
+            "lib/mutagen_ex/baseline.ex",
+            "lib/mutagen_ex/beam_cache.ex",
+            "lib/mutagen_ex/mutation_runner.ex",
+            "lib/mutagen_ex/mutation_runner/mutation_loop.ex",
+            "lib/mutagen_ex/telemetry.ex",
+            "lib/mutagen_ex/progress.ex",
+            "lib/mutagen_ex/application.ex",
+            "lib/mutagen_ex/test/code_server.ex",
+            "lib/mutagen_ex/test/code_server_facade.ex",
+            "lib/mix/tasks/mutagen.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.mutation_pipeline — baseline + per-mutation execution"
+      },
+      {
+        "file": ".spec/specs/mutators.spec.md",
+        "id": "mutagen.mutators",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.content_addressed_ids",
+            "mutagen.decision.validate_predicates"
+          ],
+          "id": "mutagen.mutators",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.Mutators",
+              "MutagenEx.Mutators.Arith",
+              "MutagenEx.Mutators.Compare",
+              "MutagenEx.Mutators.Boolean",
+              "MutagenEx.Mutators.Literal",
+              "MutagenEx.Mutators.WithSwap",
+              "MutagenEx.Mutators.CaseDrop",
+              "MutagenEx.Mutators.Pipeline",
+              "MutagenEx.Mutators.ResultTuple",
+              "MutagenEx.Mutators.ElseRemoval",
+              "MutagenEx.Mutators.GuardDrop"
+            ]
+          },
+          "status": "active",
+          "summary": "Ten AST mutators with validate predicates and content-addressed mutation IDs.",
+          "surface": [
+            "lib/mutagen_ex/mutators.ex",
+            "lib/mutagen_ex/mutators/arith.ex",
+            "lib/mutagen_ex/mutators/compare.ex",
+            "lib/mutagen_ex/mutators/boolean.ex",
+            "lib/mutagen_ex/mutators/literal.ex",
+            "lib/mutagen_ex/mutators/with_swap.ex",
+            "lib/mutagen_ex/mutators/case_drop.ex",
+            "lib/mutagen_ex/mutators/pipeline.ex",
+            "lib/mutagen_ex/mutators/result_tuple.ex",
+            "lib/mutagen_ex/mutators/else_removal.ex",
+            "lib/mutagen_ex/mutators/guard_drop.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.mutators — mutation catalog + validate predicates + stable IDs"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution",
+        "meta": {
+          "decisions": [
+            "mutagen.decision.scope_syntax_simplified"
+          ],
+          "id": "mutagen.scope_resolution",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.ScopeResolver"
+            ]
+          },
+          "status": "active",
+          "summary": "Resolves --scope targets to {file, line_range, module} records over parsed ASTs.",
+          "surface": [
+            "lib/mutagen_ex/scope_resolver.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.scope_resolution — `--scope` target → AST range"
+      },
+      {
+        "file": ".spec/specs/test_selection.spec.md",
+        "id": "mutagen.test_selection",
+        "meta": {
+          "decisions": [],
+          "id": "mutagen.test_selection",
+          "kind": "module",
+          "realized_by": {
+            "api_boundary": [
+              "MutagenEx.TestSelector"
+            ]
+          },
+          "status": "active",
+          "summary": "Resolves --tests targets to ExUnit-shaped filter records via AST walking.",
+          "surface": [
+            "lib/mutagen_ex/test_selector.ex"
+          ],
+          "verification_minimum_strength": null
+        },
+        "title": "mutagen.test_selection — `--tests` target → ExUnit filter"
+      }
+    ],
+    "verifications": [
+      {
+        "covers": [
+          "mutagen.ast.r1",
+          "mutagen.ast.r2",
+          "mutagen.ast.r3"
+        ],
+        "execute": true,
+        "file": ".spec/specs/ast.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.ast",
+        "target": "mix test test/mutagen_ex/ast_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.ast.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/ast.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.ast",
+        "target": "grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
+      },
+      {
+        "covers": [
+          "mutagen.ast.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/ast.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.ast",
+        "target": "mix test test/mutagen_ex/ast_donor_equivalence_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r1",
+          "mutagen.cli.r2",
+          "mutagen.cli.r3",
+          "mutagen.cli.r4",
+          "mutagen.cli.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/cli_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r6",
+          "mutagen.cli.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/cli_test.exs --only exit_codes"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r8"
+        ],
+        "execute": false,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/end_to_end_test.exs --only self_mutation"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix help mutagen"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r10"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r11"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/cli_test.exs --only tag_charset"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r12"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/cli_test.exs test/mutagen_ex/mutation_enumerator_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r13"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r14"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/integration/downstream_adoption_test.exs --include downstream_integration"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r15"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path"
+      },
+      {
+        "covers": [
+          "mutagen.cli.r16"
+        ],
+        "execute": true,
+        "file": ".spec/specs/cli.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.cli",
+        "target": "mix test test/integration/archive_install_test.exs --include archive_integration"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r1",
+          "mutagen.coverage.r2",
+          "mutagen.coverage.r3",
+          "mutagen.coverage.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/coverage_runner_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/coverage_runner_test.exs --only scope_filter"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/ast_cache_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test --only spike test/mutagen_ex/integration/c1_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r1",
+          "mutagen.coverage.r8"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/supervision_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.coverage.r10"
+        ],
+        "execute": true,
+        "file": ".spec/specs/coverage.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.coverage",
+        "target": "mix test test/mutagen_ex/coverage_runner_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r1",
+          "mutagen.json_schema.r2",
+          "mutagen.json_schema.r3",
+          "mutagen.json_schema.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_test.exs --only error_variants"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_golden_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r6",
+          "mutagen.json_schema.r7",
+          "mutagen.json_schema.r8"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_test.exs --only contract"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r10",
+          "mutagen.json_schema.r11"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/sanitizer_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r12"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/mutagen_task_render_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r14",
+          "mutagen.json_schema.r15"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_streamer_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r16"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_test.exs --only details_field"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r16"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_golden_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.json_schema.r13"
+        ],
+        "execute": true,
+        "file": ".spec/specs/json_schema.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.json_schema",
+        "target": "mix test test/mutagen_ex/json_reporter_golden_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r1",
+          "mutagen.mutation_enumeration.r4",
+          "mutagen.mutation_enumeration.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r1"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_property_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r2",
+          "mutagen.mutation_enumeration.r3"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_test.exs --only filtering"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/head_atom_dispatch_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_enumeration.r8"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_enumeration.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_enumeration",
+        "target": "mix test test/mutagen_ex/mutation_enumerator_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r1",
+          "mutagen.mutation_pipeline.r2"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/baseline_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r3",
+          "mutagen.mutation_pipeline.r4",
+          "mutagen.mutation_pipeline.r5",
+          "mutagen.mutation_pipeline.r6",
+          "mutagen.mutation_pipeline.r7",
+          "mutagen.mutation_pipeline.r8",
+          "mutagen.mutation_pipeline.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r6",
+          "mutagen.mutation_pipeline.r11"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test --only spike test/mutagen_ex/integration/c1_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r10"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test --only spike test/mutagen_ex/integration/c2_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r12"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_raise_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r13",
+          "mutagen.mutation_pipeline.r14"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/supervision_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r15"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_parallel_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r16"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_batched_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/beam_cache_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r1",
+          "mutagen.mutators.r2",
+          "mutagen.mutators.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutators.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutators",
+        "target": "mix test test/mutagen_ex/mutators_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r3",
+          "mutagen.mutators.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutators.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutators",
+        "target": "mix test test/mutagen_ex/mutators/id_stability_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r5",
+          "mutagen.mutators.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutators.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutators",
+        "target": "mix test test/mutagen_ex/mutators_property_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r2"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutators.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutators",
+        "target": "mix test test/mutagen_ex/mutators/ --only validate"
+      },
+      {
+        "covers": [
+          "mutagen.mutators.r8"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutators.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutators",
+        "target": "mix test test/mutagen_ex/mutators/case_drop_classification_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r1",
+          "mutagen.scope_resolution.r2",
+          "mutagen.scope_resolution.r3",
+          "mutagen.scope_resolution.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r3",
+          "mutagen.scope_resolution.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs --only error_cases"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r1",
+          "mutagen.scope_resolution.r2"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_property_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r8"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r9"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs --only wildcard_determinism"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.scope_resolution.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r1",
+          "mutagen.test_selection.r2",
+          "mutagen.test_selection.r3",
+          "mutagen.test_selection.r6"
+        ],
+        "execute": true,
+        "file": ".spec/specs/test_selection.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.test_selection",
+        "target": "mix test test/mutagen_ex/test_selector_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r4"
+        ],
+        "execute": true,
+        "file": ".spec/specs/test_selection.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.test_selection",
+        "target": "mix test test/mutagen_ex/test_selector_test.exs"
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r5"
+        ],
+        "execute": true,
+        "file": ".spec/specs/test_selection.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.test_selection",
+        "target": "mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases"
+      },
+      {
+        "covers": [
+          "mutagen.test_selection.r7"
+        ],
+        "execute": true,
+        "file": ".spec/specs/test_selection.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.test_selection",
+        "target": "mix test test/mutagen_ex/test_selector_test.exs --only atom_safety"
+      }
+    ]
+  },
+  "specification_version": "1.0",
+  "summary": {
+    "decision_parse_errors": 0,
+    "decisions": 19,
+    "exceptions": 0,
+    "findings": 0,
+    "requirements": 96,
+    "scenarios": 108,
+    "subjects": 9,
+    "verifications": 63
+  },
+  "workspace": {
+    "decision_count": 19,
+    "spec_count": 9
+  }
+}
