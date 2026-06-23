@@ -27,11 +27,15 @@
     {
       "text": "ORCHESTRATOR RESOLUTION of the AUDIT: BOUNCE → verifier (re-scope, not a re-loop; mirrors SCOPE_EXPANSION — does not consume a bounce attempt).\n\nThe auditor's bounce correctly flagged that the verifier's PASS over-claimed \"--stream coexistence is real\". Orchestrator empirically settled the open question: ran `mix mutagen --stream` on the PRE-.7 base (epic worktree ce0a785, which lacks .7) → it crashes with the SAME FunctionClauseError at the identical Map.from_struct(report.meta) line. So the --stream crash is DEFINITIVELY pre-existing and .7 did NOT cause it (.7's diff leaves that line byte-identical; it only refactored surrounding maybe_emit_stream_end call sites, which also reach the same pre-existing crash at base).\n\n.7's DECLARED scope explicitly excludes NDJSON streaming behavior (\"Do NOT change NDJSON streaming behavior\"). The --stream defect is carved to mutagen-hcs.8 (ship-blocker). Per \"don't make a ticket own a pre-existing bug\" (same as the r11 flake vs .2), .7 is not bounced for it.\n\n.7's ACTUAL acceptance is verified by BOTH graders:\n- Verifier (mechanics): telemetry removed from runtime deps, 0 telemetry calls in lib, telemetry.ex deleted, progress both modes + --no-progress, mix test --seed 0 643/0, spec.validate clean, scope clean.\n- Auditor (re-ran independently): archive_install_test PASS end-to-end, NO residual telemetry-start path (mutagen_ex.app applications=[kernel,stdlib,elixir,logger]), progress fires once-per-site in both concurrency modes, ADR/spec supersession honest, scope clean.\n\nCorrected claim: progress + on_site_completed rewire + telemetry removal + dep-free archive = VERIFIED. --stream = pre-existing-broken, out of .7 scope, tracked in mutagen-hcs.8.\n\nAPPROVED on declared scope. Proceeding to merge-back.",
       "timestamp": "2026-06-23T18:55:39Z"
+    },
+    {
+      "text": "APPROVED (declared scope). Rebased onto epic (clean, mix.exs disjoint regions), merged --ff-only. Post-merge gates green: mix test --seed 0 643/0, format clean, deps.unlock clean, archive_install_test 1/0 (re-confirmed). Closing. (--stream pre-existing crash tracked in mutagen-hcs.8.)",
+      "timestamp": "2026-06-23T18:56:34Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Drop telemetry hook API; rewire progress onto on_site_completed; make archive dep-free",
   "type": "task",
-  "updated_at": "2026-06-23T18:55:40Z"
+  "updated_at": "2026-06-23T18:56:34Z"
 }
