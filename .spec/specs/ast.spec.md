@@ -214,7 +214,7 @@ realized_by:
 - id: mutagen.ast.v2
   covers: [mutagen.ast.r4]
   kind: command
-  target: "grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
+  target: "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
   execute: true
   description: |
     Mechanical check that no donor module still carries a private duplicate
