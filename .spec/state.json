@@ -225,15 +225,7 @@
       }
     ]
   },
-  "findings": [
-    {
-      "code": "verification_command_failed",
-      "entity_id": "mutagen.ast",
-      "file": ".spec/specs/ast.spec.md",
-      "level": "error",
-      "message": "Verification command failed: grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/\n"
-    }
-  ],
+  "findings": [],
   "index": {
     "exceptions": [],
     "requirements": [
@@ -3099,7 +3091,7 @@
         "file": ".spec/specs/ast.spec.md",
         "kind": "command",
         "subject_id": "mutagen.ast",
-        "target": "grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
+        "target": "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
       },
       {
         "covers": [
@@ -3753,12 +3745,144 @@
       }
     ]
   },
+  "realization": {
+    "api_boundary": {
+      "Mix.Tasks.Mutagen": {
+        "hash": "69a8db0b770a6e7f04e8db28472d1dd8e18231bdd9ee365ac6c2c925da82762c",
+        "hasher_version": 1
+      },
+      "MutagenEx.Application": {
+        "hash": "466d4d7c6c7262c34f09783cfb8d6db7eb1f3adf4d4790517841e5ff4499a72b",
+        "hasher_version": 1
+      },
+      "MutagenEx.Ast": {
+        "hash": "3d8919871c5168d8fc842484cc1a66411972e404ec4b91b5c625879c29b8a39a",
+        "hasher_version": 1
+      },
+      "MutagenEx.AstCache": {
+        "hash": "91bc9e9216db59f2365182680f022d736ceb0c051a06e6a3d936a91335d95c86",
+        "hasher_version": 1
+      },
+      "MutagenEx.Baseline": {
+        "hash": "010caa8ec820204e9e0ad1b15d223c109ff76b8a0931118fd4c47659468e79c7",
+        "hasher_version": 1
+      },
+      "MutagenEx.BeamCache": {
+        "hash": "2a116755492ce8066eceeae781cf14dd8c46b48d9f4fc80c301918f61bc2ead4",
+        "hasher_version": 1
+      },
+      "MutagenEx.CLI": {
+        "hash": "234d684f71916590a895806913801ab0ec76eb9bd3afaf63ed9818edfdd61e2b",
+        "hasher_version": 1
+      },
+      "MutagenEx.Config": {
+        "hash": "d3e32191d62bdb15f3953b733a4f122d39bbbd6f99f6b85a3ff3ef5e27e7151b",
+        "hasher_version": 1
+      },
+      "MutagenEx.CoverageRunner": {
+        "hash": "d03c282246b6dff73b96bde3b4a95e32bb48a3db656d4f8edc8ef5257b263d26",
+        "hasher_version": 1
+      },
+      "MutagenEx.JsonReporter": {
+        "hash": "5609c6d7ae1f7e9bccd1dbbf24c4c93c78f3378fb94182e33793b0c3dc71b8eb",
+        "hasher_version": 1
+      },
+      "MutagenEx.JsonStreamer": {
+        "hash": "c60d0911363d8063410871ef5902458b8a7945bb1a774a39cfe6d846c95fc99c",
+        "hasher_version": 1
+      },
+      "MutagenEx.MutationEnumerator": {
+        "hash": "7b26928a93a5d246ad2a9135b30427e5d66d52bf0a812935479e36f64317d719",
+        "hasher_version": 1
+      },
+      "MutagenEx.MutationRunner": {
+        "hash": "1fa5bb8f4480628392218d81ad0a4b24a844c34fc86a539240229adcd8a472f8",
+        "hasher_version": 1
+      },
+      "MutagenEx.MutationRunner.MutationLoop": {
+        "hash": "17fcae20ef75e4466eaf29208beea8f5fe32d4a37ac7e9f5623422d3b367eeae",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators": {
+        "hash": "d669a56d40903c129ce579238464291d016e7a8e7605c8d0810d6d8ff4c42044",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Arith": {
+        "hash": "bd913fc2bcd40ecfbed0fc0f16eeb7ff1860b9629fe51e47bb6eae812aa93ed5",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Boolean": {
+        "hash": "a5a80dc1f1a6c7efdd4fa03da0eeb6ddcd4fb9096143c84b10e87ffea50cd0a2",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.CaseDrop": {
+        "hash": "24af028870846d5637bc8df6c660d4587a67379455509f2f78786813f7c317b5",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Compare": {
+        "hash": "696c37e68197ae9067720487608553f95287c9375630db54229418ef164519f1",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Dispatch": {
+        "hash": "ac17e0fce136de71d9982f4be51c071cbff8990acef85716e8655e0fed5599bb",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.ElseRemoval": {
+        "hash": "c057493b8851f1a50eb867379c32af8a8526e01350dd906708539b607c72533d",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.GuardDrop": {
+        "hash": "6470c0f314565f4871b65fe8b20c5115f4c36c593319e2eed5e4ed10a295196b",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Literal": {
+        "hash": "0a3eddaeb829bbeb51bb5d0a5a691fbc98457ae46b8ee817ba40d9fc122d4479",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.Pipeline": {
+        "hash": "66edf302f4609b0a16873fcb1ee58ba121bc9825e78725c158fe91df9f50e57b",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.ResultTuple": {
+        "hash": "2ce6e2e9be7ec1f3943b0dd1e0354e6706a3ea30c4570ed67c067b2c176d8c40",
+        "hasher_version": 1
+      },
+      "MutagenEx.Mutators.WithSwap": {
+        "hash": "33770460646d12d3b57165cd1e9f91de08e4ace8b9d8b687f233f1938fcc6939",
+        "hasher_version": 1
+      },
+      "MutagenEx.Progress": {
+        "hash": "fad572dfb9faaf662550373a631e2c945fc4727cd319d8e0a2cc332daa402116",
+        "hasher_version": 1
+      },
+      "MutagenEx.ScopeResolver": {
+        "hash": "7d92c406d0a30d3a1feede8d161b1517ed1c087cd66c41264931c0fc941e2d3b",
+        "hasher_version": 1
+      },
+      "MutagenEx.Test.CodeServer": {
+        "hash": "a94918b4002ae3e7b921589bee6131b03268de0400758a5617527c62861e79dd",
+        "hasher_version": 1
+      },
+      "MutagenEx.Test.CodeServerFacade": {
+        "hash": "4bc71c89afc47718f1c2ab2cec6b4dd781b3b60c763a37672f3d9a518e0215cd",
+        "hasher_version": 1
+      },
+      "MutagenEx.TestSelector": {
+        "hash": "e98c1ded3ab0ace0b6b2af9053d2bfc529768844f72da76659af9e12209fe709",
+        "hasher_version": 1
+      },
+      "MutagenEx.Types": {
+        "hash": "c501409351515028a713813d14cbf4b1c590e0d27304459c2a50ab22290fc40b",
+        "hasher_version": 1
+      }
+    }
+  },
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
     "decisions": 20,
     "exceptions": 0,
-    "findings": 1,
+    "findings": 0,
     "requirements": 96,
     "scenarios": 108,
     "subjects": 9,
@@ -3805,9 +3929,9 @@
         "kind": "command",
         "meets_minimum": true,
         "required_strength": "claimed",
-        "strength": "claimed",
+        "strength": "executed",
         "subject_id": "mutagen.ast",
-        "target": "grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/",
+        "target": "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/",
         "verification_index": 1
       },
       {
@@ -4925,8 +5049,8 @@
     "cli_minimum_strength": null,
     "default_minimum_strength": "claimed",
     "strength_summary": {
-      "claimed": 2,
-      "executed": 103,
+      "claimed": 1,
+      "executed": 104,
       "linked": 0
     },
     "threshold_failures": 0
