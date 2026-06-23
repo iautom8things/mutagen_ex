@@ -14,11 +14,15 @@
     {
       "text": "ORCHESTRATOR_PAUSED\n\nStatus: 3 of 4 children closed and merged into epic/3fa.\n- ✓ mutagen-z9k (P2) — auto-approved, merged 6c628c1\n- ✓ mutagen-csv (P3) — auto-approved, merged 2021144\n- ✓ mutagen-2uh (P2) — auto-approved after one bounce + rebase, merged 876e37b\n- ✗ mutagen-1jx (P1) — ESCALATED. See ticket for details.\n\nEpic worktree (/Users/mz/dev/mz/mutagen_ex-3fa) at commit 876e37b on\nepic/3fa. Smoke green: 647 tests, 0 failures. Merge gates green.\n\nmutagen-1jx blocker summary: structural code is correct, unit tests for\nr14 sound, downstream_integration witness sound after path fix. Only\narchive_integration witness for r16 stays red — uncovers a *separate*\n:telemetry archive-boot issue that pre-dates this ticket. Recommend\n/descope archive witness v11 from mutagen-1jx and file a new ticket for\nthe archive :telemetry bug, or investigate manually.\n\nBounce budget for mutagen-1jx exhausted (2/2). Cannot respawn without\noperator intervention.\n\nNext orchestrator session can resume by re-invoking /orchestrate-epic 3fa\nonce mutagen-1jx is in a respawn-able state (e.g. after /descope or after\nmanual intervention sets a fresh comment trail).",
       "timestamp": "2026-05-18T19:48:20Z"
+    },
+    {
+      "text": "WORKTREE RENAME (2026-06-23): branch epic/3fa -\u003e mutagen-3fa/phoenix-ecto-adoption-polish (slug derived; epic had no slug: label); worktree dir ../mutagen_ex-3fa -\u003e ../mutagen_ex-phoenix-ecto-adoption-polish. Stage mutagen-1jx merges back into this renamed branch.",
+      "timestamp": "2026-06-23T11:08:36Z"
     }
   ],
   "priority": 1,
   "status": "open",
   "title": "[EPIC] Phoenix/Ecto adoption polish — efficacy-study findings",
   "type": "epic",
-  "updated_at": "2026-05-18T19:48:20Z"
+  "updated_at": "2026-06-23T11:08:36Z"
 }
