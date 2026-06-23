@@ -5,10 +5,13 @@ defmodule MutagenEx.Progress do
   Contract: `mutagen.mutation_pipeline.r15` (default-on-TTY, suppressed
   with `--no-progress`).
 
-  `Mix.Tasks.Mutagen` attaches a `:telemetry` handler over the
-  `[:mutagen_ex, :site, :stop]` event when progress is enabled, and that
-  handler invokes `report/3` here. The handler is detached when the run
-  ends (or aborts).
+  `Mix.Tasks.Mutagen` drives progress from the runner's
+  `:on_site_completed` callback (the same per-site seam NDJSON streaming
+  rides). When progress is enabled it wraps the callback so each
+  completed site invokes `report/2` here with a meta map carrying the
+  running `index`, the total site count, and the site's status. No
+  `:telemetry` event is involved — the callback fires once per site, in
+  input order, in both `--max-concurrency 1` and `> 1` modes.
 
   Output format:
 
@@ -54,9 +57,9 @@ defmodule MutagenEx.Progress do
   @doc """
   Emit a single progress line for a completed site.
 
-  `meta` is the telemetry `.stop` metadata for `[:mutagen_ex, :site,
-  :stop]`. Only `:site_id`, `:file`, `:line`, `:mutator`, `:status`,
-  `:index`, and `:total` are read.
+  `meta` is the per-site meta the Mix task builds from the runner's
+  `:on_site_completed` callback. Only `:file`, `:line`, `:mutator`,
+  `:status`, `:index`, and `:total` are read.
   """
   @spec report(map(), IO.device()) :: :ok
   def report(meta, device \\ :stderr) do

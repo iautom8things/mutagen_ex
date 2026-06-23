@@ -116,7 +116,6 @@ defmodule MutagenEx.MixProject do
           MutagenEx.JsonStreamer,
           MutagenEx.JsonPath,
           MutagenEx.Progress,
-          MutagenEx.Telemetry,
           MutagenEx.TestModuleDiscovery,
           MutagenEx.TestSelector,
           MutagenEx.Types
@@ -128,13 +127,12 @@ defmodule MutagenEx.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      # `:telemetry` is the only runtime dependency. The mutation runner
-      # dispatches events at well-defined points (enumeration_done,
-      # baseline_done, coverage_done, site_started, site_completed,
-      # run_completed) per `mutagen.mutation_pipeline.r15`; consumers
-      # attach their own handlers. No metrics/exporter dependency — the
-      # event surface is intentionally minimal.
-      {:telemetry, "~> 1.0"},
+      # No runtime dependencies. `mix mutagen` ships as a dependency-free
+      # Mix archive (`mix archive.install`); archives bundle only the
+      # owning app's ebin and cannot carry deps, so the runtime surface
+      # is kept dep-free deliberately. Per-site progress rides the
+      # runner's `:on_site_completed` callback rather than a `:telemetry`
+      # event (see `mutagen.mutation_pipeline.r15`).
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
 
       # Spec-Led Development tooling. Dev/test only — the `mix spec.*`

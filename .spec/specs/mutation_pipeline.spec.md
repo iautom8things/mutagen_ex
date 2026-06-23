@@ -33,7 +33,6 @@ surface:
   - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
   - lib/mutagen_ex/mutation_runner/mutation_loop.ex
-  - lib/mutagen_ex/telemetry.ex
   - lib/mutagen_ex/progress.ex
   - lib/mutagen_ex/application.ex
   - lib/mutagen_ex/test/code_server.ex
@@ -48,13 +47,13 @@ decisions:
   - mutagen.decision.supervision_tree
   - mutagen.decision.per_run_beam_cache
   - mutagen.decision.code_server_facade
+  - mutagen.decision.drop_telemetry_event_api
 realized_by:
   api_boundary:
     - "MutagenEx.Baseline"
     - "MutagenEx.BeamCache"
     - "MutagenEx.MutationRunner"
     - "MutagenEx.MutationRunner.MutationLoop"
-    - "MutagenEx.Telemetry"
     - "MutagenEx.Progress"
     - "MutagenEx.Application"
     - "MutagenEx.Test.CodeServer"
@@ -309,33 +308,32 @@ realized_by:
     input opt into parallelism via explicit `--max-concurrency N`
     (N > 1).
 
-    During the run the runner emits `:telemetry` events under the
-    `[:mutagen_ex, ...]` namespace per `MutagenEx.Telemetry`:
-      - `[:mutagen_ex, :run, :start | :stop]` brackets the whole
-        pipeline (emitted by the Mix task).
-      - `[:mutagen_ex, :coverage, :start | :stop]`,
-        `[:mutagen_ex, :baseline, :start | :stop]` bracket those
-        phases (emitted by the Mix task via `:telemetry.span/3`).
-      - `[:mutagen_ex, :enumeration, :stop]` carries the site
-        count after enumeration.
-      - `[:mutagen_ex, :site, :start | :stop]` brackets every
-        per-site task. The `.stop` metadata names `site_id`,
-        `file`, `line`, `mutator`, `status`, `index`, and `total`.
-    Consumers attach their own `:telemetry.attach/4` handlers; the
-    library does NOT ship a poller or built-in subscriber per the
-    bw mutagen-wrd.30 Out of Scope.
-
+    `:on_site_completed` is the single per-site observation seam.
     The runner accepts a `:on_site_completed` callback in `cfg`
     that fires once per site as the per-site outcome becomes
     available (after sequential post-fold). The callback receives
-    either `{:result, %{...}}` for completed sites or
-    `{:compile_error, %{...}}` for sites whose mutated AST refused
-    to compile. The Mix task wires this callback to
-    `MutagenEx.JsonStreamer` when `--stream` is set so each
-    completed site emits one NDJSON line on the same sink the
-    aggregate document goes to. Callback firing order matches
-    input order; the runner never invokes the callback out of
-    order even under `cfg.max_concurrency > 1`.
+    either `{:result, %{...}}` for completed sites (the map carries
+    `id`, `file`, `line`, `column`, `mutator`, `status`, and the
+    render fields) or `{:compile_error, %{...}}` for sites whose
+    mutated AST refused to compile. Callback firing order matches
+    input order; the runner never invokes the callback out of order
+    even under `cfg.max_concurrency > 1`. The Mix task composes its
+    per-site consumers around this one seam:
+      - When `--stream` is set, it wires the callback to
+        `MutagenEx.JsonStreamer` so each completed site emits one
+        NDJSON line on the same sink the aggregate document goes to.
+      - When progress is enabled (default-on-TTY; `--no-progress`
+        suppresses it), it wraps the callback so each completed site
+        renders one `MutagenEx.Progress` line on stderr. The Mix
+        task supplies the running `index` and the `total`
+        (`length(sites)`) the callback payload does not carry.
+
+    There is no `:telemetry` event API. The producer-only
+    `[:mutagen_ex, ...]` events shipped in bw mutagen-wrd.30 are
+    removed and `:telemetry` is no longer a runtime dependency, so
+    `mix mutagen` works from a dependency-free Mix archive (see
+    [mutagen.cli.r16](cli.spec.md) and
+    [mutagen.decision.drop_telemetry_event_api](../decisions/drop_telemetry_event_api.md)).
 
     Caveat: the in-process pipeline shares ExUnit's global server,
     the Code.Server's per-module load locks, and `:cover`

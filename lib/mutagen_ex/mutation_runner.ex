@@ -639,47 +639,9 @@ defmodule MutagenEx.MutationRunner do
   # see `mutagen.json_schema.r4`), `{:compile_error, site, msg}`,
   # `{:ast_miss, site}`, `{:site_not_found, site}`, or `{:abort,
   # reason, details}`; the fold decides whether to continue or halt.
-  defp process_site_task(%Site{} = site, idx, total, cfg) do
-    MutagenEx.Telemetry.span(
-      :site,
-      %{
-        site_id: site.id,
-        file: site.file,
-        line: site.line,
-        mutator: site.mutator,
-        index: idx,
-        total: total
-      },
-      fn ->
-        outcome = process_site_body(site, cfg)
-        stop_status = task_outcome_status(outcome)
-
-        {outcome,
-         %{
-           site_id: site.id,
-           file: site.file,
-           line: site.line,
-           mutator: site.mutator,
-           index: idx,
-           total: total,
-           status: stop_status
-         }}
-      end
-    )
+  defp process_site_task(%Site{} = site, _idx, _total, cfg) do
+    process_site_body(site, cfg)
   end
-
-  defp task_outcome_status({:ok, _site, _src, {:completed, %{failures: f}, _meta}, _stderr})
-       when is_integer(f) and f > 0,
-       do: :killed
-
-  defp task_outcome_status({:ok, _site, _src, {:completed, %{}, _meta}, _stderr}), do: :survived
-  defp task_outcome_status({:ok, _site, _src, {:timeout, _meta}, _stderr}), do: :timeout
-  defp task_outcome_status({:ok, _site, _src, {:error, _reason, _meta}, _stderr}), do: :error
-  defp task_outcome_status({:compile_error, _site, _msg}), do: :compile_error
-  defp task_outcome_status({:ast_miss, _site}), do: :compile_error
-  defp task_outcome_status({:site_not_found, _site}), do: :compile_error
-
-  defp task_outcome_status({:abort, _reason, _details}), do: :error
 
   defp process_site_body(%Site{} = site, cfg) do
     case AstCache.get(cfg.ast_cache, site.file) do
