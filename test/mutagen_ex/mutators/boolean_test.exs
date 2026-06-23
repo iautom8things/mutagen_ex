@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.BooleanTest do
 
   alias MutagenEx.Mutators.Boolean
 
-  test "name is :boolean" do
-    assert Boolean.name() == :boolean
+  describe "name/0" do
+    test "name is :boolean" do
+      assert Boolean.name() == :boolean
+    end
   end
 
   describe "match?/1" do

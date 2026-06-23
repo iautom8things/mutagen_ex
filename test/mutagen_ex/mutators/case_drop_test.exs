@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.CaseDropTest do
 
   alias MutagenEx.Mutators.CaseDrop
 
-  test "name is :case_drop" do
-    assert CaseDrop.name() == :case_drop
+  describe "name/0" do
+    test "name is :case_drop" do
+      assert CaseDrop.name() == :case_drop
+    end
   end
 
   describe "match?/1" do

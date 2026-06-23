@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.LiteralTest do
 
   alias MutagenEx.Mutators.Literal
 
-  test "name is :literal" do
-    assert Literal.name() == :literal
+  describe "name/0" do
+    test "name is :literal" do
+      assert Literal.name() == :literal
+    end
   end
 
   describe "match?/1 — bare values" do
@@ -121,7 +123,7 @@ defmodule MutagenEx.Mutators.LiteralTest do
     test ":ok for bare booleans and integers" do
       assert Literal.validate(true) == :ok
       assert Literal.validate(0) == :ok
-      assert Literal.validate(7) == :ok
+      assert Literal.validate(1) == :ok
     end
 
     @tag :validate

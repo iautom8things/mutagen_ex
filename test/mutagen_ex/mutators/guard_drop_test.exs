@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.GuardDropTest do
 
   alias MutagenEx.Mutators.GuardDrop
 
-  test "name is :guard_drop" do
-    assert GuardDrop.name() == :guard_drop
+  describe "name/0" do
+    test "name is :guard_drop" do
+      assert GuardDrop.name() == :guard_drop
+    end
   end
 
   describe "match?/1" do

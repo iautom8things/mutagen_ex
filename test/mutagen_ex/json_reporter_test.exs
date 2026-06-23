@@ -100,7 +100,8 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
 
-      for key <- ~w(version meta scope tests baseline coverage mutation warnings aborted details) do
+      for key <-
+            ~w(version meta scope tests baseline coverage mutation warnings aborted details truncated) do
         refute decoded[key] == :null, "key #{key} should not be null on success"
         assert Map.has_key?(decoded, key), "key #{key} missing from success document"
       end
@@ -340,7 +341,7 @@ defmodule MutagenEx.JsonReporterTest do
       decoded = decode(iodata)
 
       for key <-
-            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason details) do
+            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason details truncated) do
         assert Map.has_key?(decoded, key), "abort doc missing top-level key #{key}"
       end
     end
@@ -455,7 +456,7 @@ defmodule MutagenEx.JsonReporterTest do
       # remote function call to the forbidden M.f shapes. The check looks
       # at AST nodes, not raw text, so module-doc mentions of
       # "IO.puts" / "System.halt" don't false-positive.
-      source = File.read!("lib/mutagen_ex/json_reporter.ex")
+      source = File.read!(Path.expand("../../lib/mutagen_ex/json_reporter.ex", __DIR__))
       {:ok, ast} = Code.string_to_quoted(source)
 
       forbidden = [
@@ -634,7 +635,10 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, _iodata, _code, _config}
+      assert_received {:io, iodata, _code, _config}
+      decoded = decode(iodata)
+      assert decoded["abort_reason"] == "no_tests_match"
+      assert decoded["aborted"] == true
     end
 
     @tag :exit_codes
@@ -737,7 +741,10 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, _iodata, _code, _config}
+      assert_received {:io, iodata, _code, _config}
+      decoded = decode(iodata)
+      assert decoded["abort_reason"] == "unrecoverable_restore_failure"
+      assert decoded["aborted"] == true
     end
 
     @tag :exit_codes

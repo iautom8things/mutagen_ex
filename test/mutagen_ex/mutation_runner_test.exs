@@ -50,9 +50,11 @@ defmodule MutagenEx.MutationRunnerTest do
   # `:cover` stop hygiene (defensive — none of these tests instrument cover, but
   # CoverageRunner tests may have left it running. Per H-Tt3.)
   setup do
-    # Start the ExUnit fake's Agent. on_exit kills it so each test has
-    # an isolated state machine.
-    {:ok, _pid} = ExUnitFake.start_link()
+    # Start the ExUnit fake's Agent under ExUnit's supervisor so it is
+    # torn down SYNCHRONOUSLY at the end of each test — the fixed name is
+    # always free before the next test's setup, with no `:already_started`
+    # race to defend against.
+    start_supervised!(%{id: ExUnitFake, start: {ExUnitFake, :start_link, []}})
 
     on_exit(fn ->
       # Under `mix test --cover` the harness owns :cover_server; stopping it
@@ -83,36 +85,7 @@ defmodule MutagenEx.MutationRunnerTest do
     @agent :mutagen_ex_runner_test_exunit_fake
 
     def start_link do
-      # A prior test's Agent should die when its test process exits
-      # (it's linked), but under suite load the BEAM's name-registry
-      # cleanup can lag the next test's setup just long enough for
-      # `:already_started` to surface. Defensively reap any stale
-      # registration before re-registering.
-      case Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent) do
-        {:ok, pid} ->
-          {:ok, pid}
-
-        {:error, {:already_started, stale}} ->
-          Process.exit(stale, :kill)
-          # Wait until the name actually clears before retrying so the
-          # second start_link doesn't race the same way.
-          wait_until_unregistered()
-          Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
-      end
-    end
-
-    defp wait_until_unregistered(remaining_ms \\ 500) do
-      cond do
-        Process.whereis(@agent) == nil ->
-          :ok
-
-        remaining_ms <= 0 ->
-          :ok
-
-        true ->
-          Process.sleep(10)
-          wait_until_unregistered(remaining_ms - 10)
-      end
+      Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
     end
 
     def set_results(results), do: Agent.update(@agent, fn s -> %{s | results: results} end)

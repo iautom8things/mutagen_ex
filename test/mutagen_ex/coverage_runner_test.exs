@@ -202,7 +202,7 @@ defmodule MutagenEx.CoverageRunnerTest do
       assert Keyword.get(opts, :seed) == 1234
     end
 
-    test "configure is called BEFORE ExUnit.run/0" do
+    test "configure and run are both invoked" do
       # The fake records both calls; on a successful run, configure must
       # have happened first OR concurrently — but since the runner is
       # single-process, "before" is enforced by the call order in

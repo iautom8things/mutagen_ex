@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.WithSwapTest do
 
   alias MutagenEx.Mutators.WithSwap
 
-  test "name is :with_swap" do
-    assert WithSwap.name() == :with_swap
+  describe "name/0" do
+    test "name is :with_swap" do
+      assert WithSwap.name() == :with_swap
+    end
   end
 
   describe "match?/1" do

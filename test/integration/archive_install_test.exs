@@ -151,6 +151,9 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
     assert is_integer(total) and total > 0,
            "expected mutation.total > 0, got: #{inspect(total)}\n" <>
              "full document: #{inspect(decoded, pretty: true, limit: :infinity)}"
+
+    assert mutation["completed"] > 0,
+           "expected at least one mutation to have executed, not just been enumerated"
   end
 
   defp clean_env(scratch_dir) do

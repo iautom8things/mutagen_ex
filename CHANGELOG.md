@@ -173,7 +173,7 @@ Shipped with v0.1.0 and tracked for later releases:
 
 (Several of these were fixed in the Unreleased cycle above.)
 
-[0.1.0]: https://github.com/autom8things/mutagen_ex/releases/tag/v0.1.0
+[0.1.0]: https://github.com/iautom8things/mutagen_ex/releases/tag/v0.1.0
 
 ---
 
@@ -771,4 +771,3 @@ Shipped with v0.1.0 and tracked for later releases:
   supervised teardown + `:code.purge` settle pass + recursive shutdown
   through the link tree close the underlying Code.Server hang condition.
   *(mutagen-wrd.18)*
-

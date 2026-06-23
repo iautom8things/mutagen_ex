@@ -53,7 +53,7 @@ Per the refined plan:
 ```spec-meta
 id: mutagen.mutators
 kind: module
-status: draft
+status: active
 summary: Ten AST mutators with validate predicates and content-addressed mutation IDs.
 surface:
   - lib/mutagen_ex/mutators.ex
@@ -70,6 +70,19 @@ surface:
 decisions:
   - mutagen.decision.content_addressed_ids
   - mutagen.decision.validate_predicates
+realized_by:
+  api_boundary:
+    - "MutagenEx.Mutators"
+    - "MutagenEx.Mutators.Arith"
+    - "MutagenEx.Mutators.Compare"
+    - "MutagenEx.Mutators.Boolean"
+    - "MutagenEx.Mutators.Literal"
+    - "MutagenEx.Mutators.WithSwap"
+    - "MutagenEx.Mutators.CaseDrop"
+    - "MutagenEx.Mutators.Pipeline"
+    - "MutagenEx.Mutators.ResultTuple"
+    - "MutagenEx.Mutators.ElseRemoval"
+    - "MutagenEx.Mutators.GuardDrop"
 ```
 
 ```spec-requirements
@@ -161,123 +174,145 @@ decisions:
 ```spec-scenarios
 - id: mutagen.mutators.s1
   covers: [mutagen.mutators.r1, mutagen.mutators.r3]
-  given: |
-    Source `def f(x), do: x + 1` at line 5 column 17.
-  when: The `arith` mutator processes the `+` node.
-  then: |
-    `match?` returns true. `mutate/1` returns the AST for `x - 1`.
-    `validate/1` returns `:ok`. The site ID is
-    `"lib/foo.ex:<hash>:arith"` where `<hash>` is the `:erlang.phash2`
-    of the normalized `+` AST node.
+  given:
+    - |
+      Source `def f(x), do: x + 1` at line 5 column 17.
+  when:
+    - The `arith` mutator processes the `+` node.
+  then:
+    - |
+      `match?` returns true. `mutate/1` returns the AST for `x - 1`.
+      `validate/1` returns `:ok`. The site ID is
+      `"lib/foo.ex:<hash>:arith"` where `<hash>` is the `:erlang.phash2`
+      of the normalized `+` AST node.
 
 - id: mutagen.mutators.s2
   covers: [mutagen.mutators.r2]
-  given: |
-    A `with` clause `with {:ok, a} <- f(), {:ok, b} <- g(a), do: a + b`.
-  when: The `with_swap` mutator swaps the two clauses to produce
-        `with {:ok, b} <- g(a), {:ok, a} <- f(), do: a + b`.
-  then: |
-    `validate/1` returns `{:skip, :bound_var_used_before_binding}` because
-    `g(a)` now references `a` before it's bound. The site is recorded in
-    `mutation.skipped` with that reason and is NOT executed.
+  given:
+    - |
+      A `with` clause `with {:ok, a} <- f(), {:ok, b} <- g(a), do: a + b`.
+  when:
+    - |
+      The `with_swap` mutator swaps the two clauses to produce
+      `with {:ok, b} <- g(a), {:ok, a} <- f(), do: a + b`.
+  then:
+    - |
+      `validate/1` returns `{:skip, :bound_var_used_before_binding}` because
+      `g(a)` now references `a` before it's bound. The site is recorded in
+      `mutation.skipped` with that reason and is NOT executed.
 
 - id: mutagen.mutators.s3
   covers: [mutagen.mutators.r4]
-  given: |
-    A file `lib/foo.ex` containing several mutation candidates. The
-    enumerator is run once producing site IDs `S1`. Then `mix format` runs
-    on the same file. Then the enumerator is run again producing site IDs
-    `S2`.
-  when: Comparing the two ID sets.
-  then: |
-    `S1 == S2` (set equality).
+  given:
+    - |
+      A file `lib/foo.ex` containing several mutation candidates. The
+      enumerator is run once producing site IDs `S1`. Then `mix format` runs
+      on the same file. Then the enumerator is run again producing site IDs
+      `S2`.
+  when:
+    - Comparing the two ID sets.
+  then:
+    - |
+      `S1 == S2` (set equality).
 
 - id: mutagen.mutators.s4
   covers: [mutagen.mutators.r5]
-  given: |
-    The `compare` mutator and a randomly generated `<` binary operation AST.
-  when: We apply `mutate/1` twice in succession.
-  then: |
-    The doubly-swapped AST is structurally equal to the input. Property
-    tested with `StreamData`.
+  given:
+    - The `compare` mutator and a randomly generated `<` binary operation AST.
+  when:
+    - We apply `mutate/1` twice in succession.
+  then:
+    - |
+      The doubly-swapped AST is structurally equal to the input. Property
+      tested with `StreamData`.
 
 - id: mutagen.mutators.s5
   covers: [mutagen.mutators.r6]
-  given: |
-    Any mutator and any source AST where `validate/1` of the swap returned
-    `:ok`.
-  when: We `Macro.to_string/1` the swap and then `Code.string_to_quoted/2`
-        the resulting string.
-  then: |
-    The round-trip succeeds: the parsed string is structurally equivalent
-    to the swapped AST.
+  given:
+    - |
+      Any mutator and any source AST where `validate/1` of the swap returned
+      `:ok`.
+  when:
+    - |
+      We `Macro.to_string/1` the swap and then `Code.string_to_quoted/2`
+      the resulting string.
+  then:
+    - |
+      The round-trip succeeds: the parsed string is structurally equivalent
+      to the swapped AST.
 
 - id: mutagen.mutators.s6
   covers: [mutagen.mutators.r1, mutagen.mutators.r2]
-  given: |
-    An `if x do ... else ... end` block.
-  when: The `else_removal` mutator removes the `else` branch and `validate/1`
-        runs on the swap.
-  then: |
-    `validate/1` checks the surrounding context; if the call site of the
-    enclosing function pattern-matches an explicit `else`-returning shape,
-    it returns `{:skip, :structurally_invalid}`. Otherwise `:ok`.
+  given:
+    - An `if x do ... else ... end` block.
+  when:
+    - |
+      The `else_removal` mutator removes the `else` branch and `validate/1`
+      runs on the swap.
+  then:
+    - |
+      `validate/1` checks the surrounding context; if the call site of the
+      enclosing function pattern-matches an explicit `else`-returning shape,
+      it returns `{:skip, :structurally_invalid}`. Otherwise `:ok`.
 
 - id: mutagen.mutators.s7
   covers: [mutagen.mutators.r8]
-  given: |
-    A module with a guarded-recursive-base-case pattern, e.g.
+  given:
+    - |
+      A module with a guarded-recursive-base-case pattern, e.g.
 
-        def count_down(n) when is_integer(n) do
-          case n do
-            n when n > 0 -> count_down(n - 1)
-            0 -> :done
+          def count_down(n) when is_integer(n) do
+            case n do
+              n when n > 0 -> count_down(n - 1)
+              0 -> :done
+            end
           end
-        end
 
-    and a test that calls `count_down(3)` expecting `:done`.
-  when: |
-    `:case_drop` drops the last clause (`0 -> :done`), the mutated
-    module compiles, and `MutationRunner` executes the cited test.
-  then: |
-    `validate/1` returns `:ok` (the catalog does not prove coverage).
-    At runtime the recursion reaches `count_down(0)` which fails the
-    `n > 0` guard on the surviving clause and raises `CaseClauseError`.
-    The cited test fails. The site is classified `:killed` per
-    mutagen.mutation_pipeline.r5. The site is NOT classified
-    `:timeout`. Tests requiring deterministic `:timeout` must trigger
-    divergence by another mechanism (e.g., `:arith` against the
-    recursive descent).
+      and a test that calls `count_down(3)` expecting `:done`.
+  when:
+    - |
+      `:case_drop` drops the last clause (`0 -> :done`), the mutated
+      module compiles, and `MutationRunner` executes the cited test.
+  then:
+    - |
+      `validate/1` returns `:ok` (the catalog does not prove coverage).
+      At runtime the recursion reaches `count_down(0)` which fails the
+      `n > 0` guard on the surviving clause and raises `CaseClauseError`.
+      The cited test fails. The site is classified `:killed` per
+      mutagen.mutation_pipeline.r5. The site is NOT classified
+      `:timeout`. Tests requiring deterministic `:timeout` must trigger
+      divergence by another mechanism (e.g., `:arith` against the
+      recursive descent).
 ```
 
 ```spec-verification
 - id: mutagen.mutators.v1
-  covers: [mutagen.mutators.r1, mutagen.mutators.r2]
+  covers: [mutagen.mutators.r1, mutagen.mutators.r2, mutagen.mutators.r7]
   kind: command
-  command: mix test test/mutagen_ex/mutators_test.exs
+  target: mix test test/mutagen_ex/mutators_test.exs
   execute: true
 
 - id: mutagen.mutators.v2
   covers: [mutagen.mutators.r3, mutagen.mutators.r4]
   kind: command
-  command: mix test test/mutagen_ex/mutators/id_stability_test.exs
+  target: mix test test/mutagen_ex/mutators/id_stability_test.exs
   execute: true
 
 - id: mutagen.mutators.v3
   covers: [mutagen.mutators.r5, mutagen.mutators.r6]
   kind: command
-  command: mix test test/mutagen_ex/mutators_property_test.exs
+  target: mix test test/mutagen_ex/mutators_property_test.exs
   execute: true
 
 - id: mutagen.mutators.v4
   covers: [mutagen.mutators.r2]
   kind: command
-  command: mix test test/mutagen_ex/mutators/ --only validate
+  target: mix test test/mutagen_ex/mutators/ --only validate
   execute: true
 
 - id: mutagen.mutators.v5
   covers: [mutagen.mutators.r8]
   kind: command
-  command: mix test test/mutagen_ex/mutators/case_drop_classification_test.exs
+  target: mix test test/mutagen_ex/mutators/case_drop_classification_test.exs
   execute: true
 ```

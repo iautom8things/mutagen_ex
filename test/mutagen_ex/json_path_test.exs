@@ -22,6 +22,8 @@ defmodule MutagenEx.JsonPathTest do
 
   use ExUnit.Case, async: true
 
+  Code.require_file("../support/path_helpers.exs", __DIR__)
+
   alias MutagenEx.JsonPath
 
   describe "validate_literal/1 — pure-string checks (s10a, s10b)" do
@@ -268,46 +270,5 @@ defmodule MutagenEx.JsonPathTest do
     Path.join(base, suffix)
   end
 
-  # Resolve every symlink in `path` using the same algorithm `canonicalize/2`
-  # uses for its project root. Returns the fully-resolved absolute path.
-  # Used in tests to predict what `canonicalize/2` will produce on a host
-  # whose tmp / etc / var paths are themselves symlinks (macOS).
-  defp resolve_symlinks(path) do
-    absolute = Path.expand(path)
-    segments = Path.split(absolute)
-
-    {head, rest} =
-      case segments do
-        ["/" | tail] -> {"/", tail}
-        other -> {"", other}
-      end
-
-    walk_resolve(rest, head)
-  end
-
-  defp walk_resolve([], acc), do: acc
-
-  defp walk_resolve([segment | rest], acc) do
-    candidate = Path.join(acc, segment)
-
-    case File.lstat(candidate) do
-      {:ok, %File.Stat{type: :symlink}} ->
-        {:ok, target} = File.read_link(candidate)
-        resolved_target = Path.expand(target, acc)
-
-        new_segments =
-          case Path.split(resolved_target) do
-            ["/" | inner] -> inner ++ rest
-            inner -> inner ++ rest
-          end
-
-        walk_resolve(new_segments, "/")
-
-      {:ok, _stat} ->
-        walk_resolve(rest, candidate)
-
-      {:error, :enoent} ->
-        Path.join([candidate | rest])
-    end
-  end
+  defp resolve_symlinks(path), do: MutagenEx.Test.PathHelpers.resolve_symlinks(path)
 end

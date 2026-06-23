@@ -26,7 +26,7 @@ is not a peer of the runner per mutagen.decision.mutation_loop_private.
 ```spec-meta
 id: mutagen.mutation_pipeline
 kind: workflow
-status: draft
+status: active
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
   - lib/mutagen_ex/baseline.ex
@@ -48,6 +48,18 @@ decisions:
   - mutagen.decision.supervision_tree
   - mutagen.decision.per_run_beam_cache
   - mutagen.decision.code_server_facade
+realized_by:
+  api_boundary:
+    - "MutagenEx.Baseline"
+    - "MutagenEx.BeamCache"
+    - "MutagenEx.MutationRunner"
+    - "MutagenEx.MutationRunner.MutationLoop"
+    - "MutagenEx.Telemetry"
+    - "MutagenEx.Progress"
+    - "MutagenEx.Application"
+    - "MutagenEx.Test.CodeServer"
+    - "MutagenEx.Test.CodeServerFacade"
+    - "Mix.Tasks.Mutagen"
 ```
 
 ```spec-requirements
@@ -375,254 +387,195 @@ decisions:
 ```spec-scenarios
 - id: mutagen.mutation_pipeline.s1
   covers: [mutagen.mutation_pipeline.r1]
-  given: |
-    A cited test suite has one failing test before any mutation.
-  when: `Baseline.run/1` executes.
-  then: |
-    The pipeline halts. The JSON has `aborted: true`, `abort_reason:
-    "baseline_red"`, and `baseline.failures` contains an entry naming the
-    failing test. No mutation phase runs.
+  given:
+    - A cited test suite has one failing test before any mutation.
+  when:
+    - "`Baseline.run/1` executes."
+  then:
+    - The pipeline halts.
+    - "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains an entry naming the failing test."
+    - No mutation phase runs.
 
 - id: mutagen.mutation_pipeline.s2
   covers: [mutagen.mutation_pipeline.r3]
-  given: |
-    A scope target `--scope MutagenEx.MutationRunner` resolves to one of
-    the tool's own modules.
-  when: `MutationRunner.run/1` starts.
-  then: |
-    Run aborts before any compile. JSON `aborted: true`, `abort_reason:
-    "self_mutation_refused"`.
+  given:
+    - A scope target `--scope MutagenEx.MutationRunner` resolves to one of the tool's own modules.
+  when:
+    - "`MutationRunner.run/1` starts."
+  then:
+    - Run aborts before any compile.
+    - "JSON `aborted: true`, `abort_reason: \"self_mutation_refused\"`."
 
 - id: mutagen.mutation_pipeline.s3
   covers: [mutagen.mutation_pipeline.r4, mutagen.mutation_pipeline.r5]
-  given: |
-    A mutation creates a deterministic infinite loop in the mutated
-    module (e.g., `:arith` flipping `count_down(n - 1)` to
-    `count_down(n + 1)` so the recursion diverges from its base case).
-    `Config.timeout_ms` is 1000.
-  when: The mutation phase processes that site.
-  then: |
-    Approximately 1000ms after the test run begins, the site is classified
-    `:timeout`. The next-iteration mutation result has
-    `tainted_predecessors: true`. The runner continues to subsequent sites
-    rather than aborting. Note: a `:case_drop` mutation that drops a
-    recursion's base case does NOT produce `:timeout` in this scenario
-    — it raises `CaseClauseError` on the first iteration that reaches
-    the dropped value and classifies `:killed` (per r5 and
-    mutagen.mutators.r8).
+  given:
+    - A mutation creates a deterministic infinite loop in the mutated module (e.g., `:arith` flipping `count_down(n - 1)` to `count_down(n + 1)` so the recursion diverges from its base case).
+    - "`Config.timeout_ms` is 1000."
+  when:
+    - The mutation phase processes that site.
+  then:
+    - Approximately 1000ms after the test run begins, the site is classified `:timeout`.
+    - "The next-iteration mutation result has `tainted_predecessors: true`."
+    - The runner continues to subsequent sites rather than aborting.
+    - "Note: a `:case_drop` mutation that drops a recursion's base case does NOT produce `:timeout` in this scenario — it raises `CaseClauseError` on the first iteration that reaches the dropped value and classifies `:killed` (per r5 and mutagen.mutators.r8)."
 
 - id: mutagen.mutation_pipeline.s4
   covers: [mutagen.mutation_pipeline.r5]
-  given: |
-    A mutated module produces source that `Code.compile_quoted/1` refuses
-    (rare: the mutator's `validate/1` should have caught it, but we accept
-    discoveries at runtime).
-  when: The mutation phase processes that site.
-  then: |
-    The site is classified `:compile_error`. The
-    `mutation.compile_errors[]` array gets an entry. The kill rate
-    denominator does NOT increase by this site.
+  given:
+    - "A mutated module produces source that `Code.compile_quoted/1` refuses (rare: the mutator's `validate/1` should have caught it, but we accept discoveries at runtime)."
+  when:
+    - The mutation phase processes that site.
+  then:
+    - "The site is classified `:compile_error`."
+    - "The `mutation.compile_errors[]` array gets an entry."
+    - The kill rate denominator does NOT increase by this site.
 
 - id: mutagen.mutation_pipeline.s5
   covers: [mutagen.mutation_pipeline.r6]
-  given: |
-    A successful mutation phase completes for a given site.
-  when: The next site begins processing.
-  then: |
-    `:code.which(<the just-mutated module>)` returns the same path it
-    returned before the mutation. The module's MD5 (via
-    `<mod>.module_info(:md5)`) matches the original module's MD5 from
-    before mutation.
+  given:
+    - A successful mutation phase completes for a given site.
+  when:
+    - The next site begins processing.
+  then:
+    - "`:code.which(<the just-mutated module>)` returns the same path it returned before the mutation."
+    - "The module's MD5 (via `<mod>.module_info(:md5)`) matches the original module's MD5 from before mutation."
 
 - id: mutagen.mutation_pipeline.s6
   covers: [mutagen.mutation_pipeline.r7]
-  given: |
-    A mutation timeout leaves a named GenServer (or new ETS table)
-    registered.
-  when: The runner snapshots after that mutation.
-  then: |
-    A warning is emitted naming the new registered process or ETS table.
-    Every mutation result subsequent to this one in `mutation.results[]`
-    has `tainted_predecessors: true`.
+  given:
+    - A mutation timeout leaves a named GenServer (or new ETS table) registered.
+  when:
+    - The runner snapshots after that mutation.
+  then:
+    - A warning is emitted naming the new registered process or ETS table.
+    - "Every mutation result subsequent to this one in `mutation.results[]` has `tainted_predecessors: true`."
 
 - id: mutagen.mutation_pipeline.s7
   covers: [mutagen.mutation_pipeline.r8]
-  given: |
-    A scoped module's source contains `use GenServer`.
-  when: That module is selected as a mutation target.
-  then: |
-    The JSON has `mutation.state_drift_warning` mentioning
-    `[GenServer]` in the relevant module's record. The pipeline
-    continues; the warning is non-fatal.
+  given:
+    - A scoped module's source contains `use GenServer`.
+  when:
+    - That module is selected as a mutation target.
+  then:
+    - "The JSON has `mutation.state_drift_warning` mentioning `[GenServer]` in the relevant module's record."
+    - The pipeline continues; the warning is non-fatal.
 
 - id: mutagen.mutation_pipeline.s8
   covers: [mutagen.mutation_pipeline.r9]
-  given: |
-    A mutated module produces compiler warnings on stderr.
-  when: The mutation runs.
-  then: |
-    The warnings appear in `mutation.results[i].warnings` of that site.
-    No stderr line was written to the actual terminal.
+  given:
+    - A mutated module produces compiler warnings on stderr.
+  when:
+    - The mutation runs.
+  then:
+    - "The warnings appear in `mutation.results[i].warnings` of that site."
+    - No stderr line was written to the actual terminal.
 
 - id: mutagen.mutation_pipeline.s9
   covers: [mutagen.mutation_pipeline.r12]
-  given: |
-    A mutated module is loaded for a site, and a fault inside the
-    loaded-mutation window (e.g. a misbehaving `:capture_io` seam, or
-    any runtime error in the window) raises an exception before the
-    runner can call `restore/3` itself.
-  when: The exception propagates out of `MutationLoop.run/1`.
-  then: |
-    The runner runs restore (best-effort via `safe_restore/3`) before
-    the exception escapes. After the runner returns to the caller via
-    `reraise/2`, the originally-mutated module's MD5
-    (`<mod>.module_info(:md5)`) matches its pre-mutation value, and
-    the raised exception's `__STACKTRACE__` is preserved.
+  given:
+    - A mutated module is loaded for a site, and a fault inside the loaded-mutation window (e.g. a misbehaving `:capture_io` seam, or any runtime error in the window) raises an exception before the runner can call `restore/3` itself.
+  when:
+    - The exception propagates out of `MutationLoop.run/1`.
+  then:
+    - The runner runs restore (best-effort via `safe_restore/3`) before the exception escapes.
+    - "After the runner returns to the caller via `reraise/2`, the originally-mutated module's MD5 (`<mod>.module_info(:md5)`) matches its pre-mutation value, and the raised exception's `__STACKTRACE__` is preserved."
 
 - id: mutagen.mutation_pipeline.s10
   covers: [mutagen.mutation_pipeline.r12]
-  given: |
-    A site whose mutated AST fails to compile (`:compile_error`
-    branch). The defensive restore that follows ALSO fails (e.g. the
-    AST cache became corrupted, or a test-injected `:compiler` seam
-    rejects the original AST).
-  when: The runner processes that site.
-  then: |
-    The runner aborts with `{:error, :unrecoverable_restore_failure,
-    ...}` whose `message` names both the restore failure and the
-    original `:compile_error` cause. The failure is NOT silently
-    discarded as it was prior to bw mutagen-wrd.17.
+  given:
+    - A site whose mutated AST fails to compile (`:compile_error` branch). The defensive restore that follows ALSO fails (e.g. the AST cache became corrupted, or a test-injected `:compiler` seam rejects the original AST).
+  when:
+    - The runner processes that site.
+  then:
+    - "The runner aborts with `{:error, :unrecoverable_restore_failure, ...}` whose `message` names both the restore failure and the original `:compile_error` cause."
+    - The failure is NOT silently discarded as it was prior to bw mutagen-wrd.17.
 
 - id: mutagen.mutation_pipeline.s11
   covers: [mutagen.mutation_pipeline.r13]
-  given: |
-    The `:mutagen_ex` application is started via
-    `Application.ensure_all_started(:mutagen_ex)`.
-  when: We inspect the BEAM's named-process registry.
-  then: |
-    `Process.whereis(MutagenEx.TaskSup)` returns a pid and
-    `Process.whereis(MutagenEx.Supervisor)` returns a pid. Both
-    pids stay alive until the application stops.
+  given:
+    - "The `:mutagen_ex` application is started via `Application.ensure_all_started(:mutagen_ex)`."
+  when:
+    - We inspect the BEAM's named-process registry.
+  then:
+    - "`Process.whereis(MutagenEx.TaskSup)` returns a pid and `Process.whereis(MutagenEx.Supervisor)` returns a pid."
+    - Both pids stay alive until the application stops.
 
 - id: mutagen.mutation_pipeline.s12
   covers: [mutagen.mutation_pipeline.r14]
-  given: |
-    A `Task.Supervisor.start_child(MutagenEx.TaskSup, fun)` task
-    whose body `spawn_link`'s (a) a named GenServer that traps exits
-    and runs a 20 ms `Process.sleep/1` in its `terminate/2` callback,
-    and (b) an unnamed worker that does not trap exits.
-  when: |
-    The caller monitors all three pids, then calls
-    `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task_pid)`.
-  then: |
-    A `:DOWN` arrives for each monitored pid within the supervisor's
-    `:shutdown_timeout` (5_000 ms upper bound). After the trapped
-    GenServer's `:DOWN`, its registered name is released within a
-    bounded poll window.
+  given:
+    - "A `Task.Supervisor.start_child(MutagenEx.TaskSup, fun)` task whose body `spawn_link`'s (a) a named GenServer that traps exits and runs a 20 ms `Process.sleep/1` in its `terminate/2` callback, and (b) an unnamed worker that does not trap exits."
+  when:
+    - The caller monitors all three pids, then calls `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task_pid)`.
+  then:
+    - "A `:DOWN` arrives for each monitored pid within the supervisor's `:shutdown_timeout` (5_000 ms upper bound)."
+    - "After the trapped GenServer's `:DOWN`, its registered name is released within a bounded poll window."
 
 - id: mutagen.mutation_pipeline.s13
   covers: [mutagen.mutation_pipeline.r14, mutagen.mutation_pipeline.r7]
-  given: |
-    A `MutationLoop.run/1` site whose task body `spawn_link`'s a
-    named GenServer (class (a)/(b) descendant per r14) and then
-    blocks forever, forcing `Config.timeout_ms` to fire.
-  when: The runner snapshots before and after that mutation.
-  then: |
-    The outcome is `{:timeout, _meta}`. The post-mutation
-    snapshot delta against pre-mutation snapshot is empty for
-    `Process.registered()`, `:ets.all()`, and
-    `:persistent_term.info().count` — the linked descendant was
-    reaped by `terminate_child/2`'s recursive shutdown.
+  given:
+    - A `MutationLoop.run/1` site whose task body `spawn_link`'s a named GenServer (class (a)/(b) descendant per r14) and then blocks forever, forcing `Config.timeout_ms` to fire.
+  when:
+    - The runner snapshots before and after that mutation.
+  then:
+    - "The outcome is `{:timeout, _meta}`."
+    - "The post-mutation snapshot delta against pre-mutation snapshot is empty for `Process.registered()`, `:ets.all()`, and `:persistent_term.info().count` — the linked descendant was reaped by `terminate_child/2`'s recursive shutdown."
 
 - id: mutagen.mutation_pipeline.s14
   covers: [mutagen.mutation_pipeline.r16]
-  given: |
-    A `cfg.sites` list containing N 3-tuple sites against the same
-    `cfg.ast_cache` file. Each site has distinct `{line, column,
-    original_ast, mutated_ast}` so the byte-identity comparison is
-    not trivially equal across sites.
-  when: |
-    `MutationRunner.run/1` executes the per-site swap for each site.
-  then: |
-    For every site, the mutated file AST handed to the compiler is
-    byte-for-byte identical (Elixir term `==`) to the file AST that
-    an unconditional per-site `Macro.prewalk/2` over the same
-    `(file_ast, site)` input would have produced. Equality is
-    asserted against an independent reference walker that mirrors
-    `node_matches_site?/2` and `Macro.prewalk/2`'s descent. The
-    `Macro.prewalk` count over file ASTs during `run/1` does not
-    exceed `length(distinct files in cfg.sites)` regardless of N
-    (the pre-compute is one walk per file).
+  given:
+    - A `cfg.sites` list containing N 3-tuple sites against the same `cfg.ast_cache` file. Each site has distinct `{line, column, original_ast, mutated_ast}` so the byte-identity comparison is not trivially equal across sites.
+  when:
+    - "`MutationRunner.run/1` executes the per-site swap for each site."
+  then:
+    - "For every site, the mutated file AST handed to the compiler is byte-for-byte identical (Elixir term `==`) to the file AST that an unconditional per-site `Macro.prewalk/2` over the same `(file_ast, site)` input would have produced. Equality is asserted against an independent reference walker that mirrors `node_matches_site?/2` and `Macro.prewalk/2`'s descent."
+    - "The `Macro.prewalk` count over file ASTs during `run/1` does not exceed `length(distinct files in cfg.sites)` regardless of N (the pre-compute is one walk per file)."
 
 - id: mutagen.mutation_pipeline.s15
   covers: [mutagen.mutation_pipeline.r16]
-  given: |
-    A bare-literal site (`%Site{original_ast: 1, mutated_ast: 0,
-    mutator: :literal}`) whose `line`/`column` point at the parent
-    operator/clause-head's coordinates (the enumerator's
-    ambient-threading convention).
-  when: |
-    `MutationRunner.run/1` executes the per-site swap for that site.
-  then: |
-    The site is NOT in the path index (the pre-compute deliberately
-    skips bare literals because their `original_ast` carries no
-    metadata). The runner falls back to the ambient-threading walker
-    (`replace_bare_site/2`) and produces a mutated file AST that
-    places `mutated_ast` at the bare value's position. The legacy
-    reference output (manual ambient walk) matches the runner's
-    output byte-for-byte.
+  given:
+    - "A bare-literal site (`%Site{original_ast: 1, mutated_ast: 0, mutator: :literal}`) whose `line`/`column` point at the parent operator/clause-head's coordinates (the enumerator's ambient-threading convention)."
+  when:
+    - "`MutationRunner.run/1` executes the per-site swap for that site."
+  then:
+    - The site is NOT in the path index (the pre-compute deliberately skips bare literals because their `original_ast` carries no metadata).
+    - "The runner falls back to the ambient-threading walker (`replace_bare_site/2`) and produces a mutated file AST that places `mutated_ast` at the bare value's position."
+    - The legacy reference output (manual ambient walk) matches the runner's output byte-for-byte.
 
 - id: mutagen.mutation_pipeline.s16
   covers: [mutagen.mutation_pipeline.r6]
-  given: |
-    A site whose scoped module exists on the BEAM's code path (has a
-    real `.beam` resolvable via `:code.where_is_file/1`). The
-    `MutationRunner.run/1` cycle compiles the mutated AST, runs the
-    test, and reaches the restore point.
-  when: |
-    The runner invokes `MutagenEx.BeamCache.restore/3` for that
-    module via the configured `code_server` seam.
-  then: |
-    The `code_server.load_binary/3` callback is invoked exactly once
-    with the original `{module, filename, binary}` triple captured by
-    the pre-pass `snapshot/3` (no `Code.compile_quoted/2` call is
-    made on the original AST during restore). After the cycle, the
-    module's MD5 (via `<mod>.module_info(:md5)`) matches the
-    pre-mutation MD5. The ETS table holding the snapshot is deleted
-    when `run/1` returns (`:ets.info/1` returns `:undefined`); on a
-    `raise`/`throw`/`exit` exit path the `after` clause still
-    deletes the table.
+  given:
+    - A site whose scoped module exists on the BEAM's code path (has a real `.beam` resolvable via `:code.where_is_file/1`). The `MutationRunner.run/1` cycle compiles the mutated AST, runs the test, and reaches the restore point.
+  when:
+    - "The runner invokes `MutagenEx.BeamCache.restore/3` for that module via the configured `code_server` seam."
+  then:
+    - "The `code_server.load_binary/3` callback is invoked exactly once with the original `{module, filename, binary}` triple captured by the pre-pass `snapshot/3` (no `Code.compile_quoted/2` call is made on the original AST during restore)."
+    - "After the cycle, the module's MD5 (via `<mod>.module_info(:md5)`) matches the pre-mutation MD5."
+    - "The ETS table holding the snapshot is deleted when `run/1` returns (`:ets.info/1` returns `:undefined`); on a `raise`/`throw`/`exit` exit path the `after` clause still deletes the table."
 
 - id: mutagen.mutation_pipeline.s17
   covers: [mutagen.mutation_pipeline.r6]
-  given: |
-    A mutation cycle where the BeamCache snapshot pre-pass has run and
-    populated the ETS table for every scoped module BEFORE the per-site
-    loop dispatches.
-  when: |
-    The `async_stream_nolink/4` dispatch begins and two workers handle
-    sites that target the SAME module (e.g. duplicate-position sites
-    or two sites in different functions of the same module).
-  then: |
-    Neither worker triggers a snapshot during its task body — both
-    read from the pre-populated table. `code_server.get_object_code/1`
-    is invoked once per distinct scoped module during the pre-pass and
-    zero times during the per-site loop. The TOCTOU window between
-    "current module load state" and "snapshot capture" is therefore
-    closed at the run boundary: even under `--max-concurrency > 1`,
-    no two workers can race to snapshot the same module.
+  given:
+    - A mutation cycle where the BeamCache snapshot pre-pass has run and populated the ETS table for every scoped module BEFORE the per-site loop dispatches.
+  when:
+    - The `async_stream_nolink/4` dispatch begins and two workers handle sites that target the SAME module (e.g. duplicate-position sites or two sites in different functions of the same module).
+  then:
+    - "Neither worker triggers a snapshot during its task body — both read from the pre-populated table. `code_server.get_object_code/1` is invoked once per distinct scoped module during the pre-pass and zero times during the per-site loop."
+    - "The TOCTOU window between \"current module load state\" and \"snapshot capture\" is therefore closed at the run boundary: even under `--max-concurrency > 1`, no two workers can race to snapshot the same module."
 ```
 
 ```spec-verification
 - id: mutagen.mutation_pipeline.v1
+  kind: command
+  target: mix test test/mutagen_ex/baseline_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r1
     - mutagen.mutation_pipeline.r2
-  kind: command
-  command: mix test test/mutagen_ex/baseline_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v2
+  kind: command
+  target: mix test test/mutagen_ex/mutation_runner_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r3
     - mutagen.mutation_pipeline.r4
@@ -631,56 +584,55 @@ decisions:
     - mutagen.mutation_pipeline.r7
     - mutagen.mutation_pipeline.r8
     - mutagen.mutation_pipeline.r9
-  kind: command
-  command: mix test test/mutagen_ex/mutation_runner_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v3
+  kind: command
+  target: mix test --only spike test/mutagen_ex/integration/c1_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r6
     - mutagen.mutation_pipeline.r11
-  kind: command
-  command: mix test --only spike test/mutagen_ex/integration/c1_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v4
-  covers: [mutagen.mutation_pipeline.r10]
   kind: command
-  command: mix test --only spike test/mutagen_ex/integration/c2_test.exs
+  target: mix test --only spike test/mutagen_ex/integration/c2_test.exs
   execute: true
+  covers:
+    - mutagen.mutation_pipeline.r10
 
 - id: mutagen.mutation_pipeline.v5
-  covers: [mutagen.mutation_pipeline.r12]
   kind: command
-  command: mix test test/mutagen_ex/mutation_runner_raise_test.exs
+  target: mix test test/mutagen_ex/mutation_runner_raise_test.exs
   execute: true
+  covers:
+    - mutagen.mutation_pipeline.r12
 
 - id: mutagen.mutation_pipeline.v6
+  kind: command
+  target: mix test test/mutagen_ex/supervision_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r13
     - mutagen.mutation_pipeline.r14
-  kind: command
-  command: mix test test/mutagen_ex/supervision_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v7
+  kind: command
+  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r15
-  kind: command
-  command: mix test test/mutagen_ex/mutation_runner_parallel_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v8
+  kind: command
+  target: mix test test/mutagen_ex/mutation_runner_batched_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r16
-  kind: command
-  command: mix test test/mutagen_ex/mutation_runner_batched_test.exs
-  execute: true
 
 - id: mutagen.mutation_pipeline.v9
+  kind: command
+  target: mix test test/mutagen_ex/beam_cache_test.exs
+  execute: true
   covers:
     - mutagen.mutation_pipeline.r6
-  kind: command
-  command: mix test test/mutagen_ex/beam_cache_test.exs
-  execute: true
 ```

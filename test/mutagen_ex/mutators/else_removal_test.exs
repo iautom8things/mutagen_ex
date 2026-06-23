@@ -3,8 +3,10 @@ defmodule MutagenEx.Mutators.ElseRemovalTest do
 
   alias MutagenEx.Mutators.ElseRemoval
 
-  test "name is :else_removal" do
-    assert ElseRemoval.name() == :else_removal
+  describe "name/0" do
+    test "name is :else_removal" do
+      assert ElseRemoval.name() == :else_removal
+    end
   end
 
   describe "match?/1" do
