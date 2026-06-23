@@ -360,7 +360,7 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 | `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
 | `--max-sites <int>` | Upper bound on enumerated mutation sites for one run. Default `10000`. Exceeding the cap aborts with `abort_reason: "too_many_sites"` BEFORE the mutation runner starts — narrow `--scope` (or raise the cap) to proceed. |
 | `--budget-ms <int>` | Optional aggregate wall-clock budget for the mutation phase, in milliseconds. Default unbounded (`--timeout-ms` still bounds each site). When elapsed, the runner stops dispatching new sites and emits a `truncated: true` partial JSON report. |
-| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (fully serial). Set to `System.schedulers_online()` or a positive integer to opt in to parallel dispatch. See [Parallel mode](#parallel-mode-and-observability) below. |
+| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (fully serial). Set to `System.schedulers_online()` or a positive integer to opt in to parallel dispatch. See [Parallel mode](#parallel-mode-streaming-and-progress) below. |
 | `--stream` | Emit one NDJSON line per completed site (and `start`/`end` envelope lines) to the same sink the aggregate document goes to. Off by default. |
 | `--no-progress` | Suppress the human-readable per-site progress feed on stderr. Default is auto-on when stderr is a TTY, auto-off otherwise. |
 
@@ -368,35 +368,22 @@ The flag surface above is exhaustive. `mix mutagen --no-json`
 and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 — see Known limitations.
 
-## Parallel mode and observability
+## Parallel mode, streaming, and progress
 
 Mutagen includes the wiring for parallel per-site dispatch, NDJSON
-streaming, and `:telemetry` events. The mechanism is in place; the default value
-of `--max-concurrency` is `1` because the in-process pipeline shares
-ExUnit's global server, the Code.Server's per-module load locks, and
-`:cover` instrumentation across all per-site tasks (see "Known
-limitations" below). Set `--max-concurrency N` explicitly when your
-scope and test corpus are arranged for collision-free parallel
+streaming, and a per-site progress feed. The mechanism is in place; the
+default value of `--max-concurrency` is `1` because the in-process
+pipeline shares ExUnit's global server, the Code.Server's per-module
+load locks, and `:cover` instrumentation across all per-site tasks (see
+"Known limitations" below). Set `--max-concurrency N` explicitly when
+your scope and test corpus are arranged for collision-free parallel
 execution.
 
-### Telemetry events
-
-The library dispatches `:telemetry` events at well-defined points.
-Attach your own handlers; `mutagen_ex` ships no built-in subscriber.
-
-| Event | Measurements | Metadata |
-|---|---|---|
-| `[:mutagen_ex, :run, :start]` | `system_time` | `argv` |
-| `[:mutagen_ex, :coverage, :stop]` | `duration` | `covered_files`, `covered_lines` |
-| `[:mutagen_ex, :baseline, :stop]` | `duration` | `passed`, `failed` |
-| `[:mutagen_ex, :enumeration, :stop]` | `sites` | `skipped` |
-| `[:mutagen_ex, :site, :start]` | `system_time` | `site_id`, `file`, `line`, `mutator`, `index`, `total` |
-| `[:mutagen_ex, :site, :stop]` | `duration` | `site_id`, `file`, `line`, `mutator`, `status`, `index`, `total` |
-| `[:mutagen_ex, :run, :stop]` | `duration` | `aborted`, `abort_reason`, `killed`, `survived`, `timeout`, `compile_error`, `error` |
-
-The `coverage`, `baseline`, and `site` spans use `:telemetry.span/3`,
-so a paired `:exception` event fires automatically if the wrapped
-phase raises.
+Mutagen has **no runtime dependencies** — it installs cleanly as a
+dependency-free Mix archive (`mix archive.install`). Per-site
+observation (NDJSON streaming and the progress feed below) rides the
+mutation runner's single `:on_site_completed` callback rather than a
+`:telemetry` event surface.
 
 ### NDJSON streaming (`--stream`)
 
@@ -429,9 +416,9 @@ is written to stderr:
 [14/345] timeout  lib/foo.ex:51 :case_drop
 ```
 
-Pass `--no-progress` to suppress unconditionally. The feed is wired
-to the `[:mutagen_ex, :site, :stop]` telemetry event via
-`MutagenEx.Progress`.
+Pass `--no-progress` to suppress unconditionally. The feed is driven
+by the mutation runner's `:on_site_completed` callback (the same
+per-site seam `--stream` rides) via `MutagenEx.Progress`.
 
 ### Resource caps
 

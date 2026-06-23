@@ -157,10 +157,9 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
       File.write!(dest, contents)
     end)
 
-    # 3. Minimal mix.exs: the shadow app depends on the real mutagen_ex for the
-    #    `mix mutagen` task and on :telemetry (the shadow lib emits the same
-    #    telemetry events). No test aliases — the harness drives `mix mutagen`
-    #    directly via System.cmd.
+    # 3. Minimal mix.exs: the shadow app depends only on the real mutagen_ex
+    #    for the `mix mutagen` task. No test aliases — the harness drives
+    #    `mix mutagen` directly via System.cmd.
     File.write!(Path.join(shadow_dir, "mix.exs"), mix_exs(app_name, project_root))
 
     # 4. A test_helper so the shadow project's own `mix test` (used by the
@@ -296,7 +295,6 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
 
       defp deps do
         [
-          {:telemetry, "~> 1.0"},
           {:mutagen_ex, path: #{inspect(project_root)}}
         ]
       end

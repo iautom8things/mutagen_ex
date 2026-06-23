@@ -427,95 +427,101 @@ defmodule Mix.Tasks.Mutagen do
   #                                           unrecoverable_restore_failure,
   #                                           self_mutation_refused
   defp run_pipeline(argv, dispatch) do
-    # Per `mutagen.mutation_pipeline.r15`, the `[:mutagen_ex, :run,
-    # :start]` event fires once at pipeline entry. The `:run, :stop`
-    # event fires at exit (success or abort).
-    started_at = System.monotonic_time()
+    # The per-site progress reporter (when enabled) rides the runner's
+    # `:on_site_completed` callback — see `phase_mutation/7`. We decide
+    # enablement once at entry (before phase_cli parses) so the same
+    # reporter spans the whole mutation phase; `--no-progress` skips it
+    # outright. A full `--progress=auto` decision happens in
+    # `MutagenEx.Progress.enabled?/1`.
+    progress_reporter = build_progress_reporter(argv)
 
-    MutagenEx.Telemetry.execute(
-      [:mutagen_ex, :run, :start],
-      %{system_time: System.system_time()},
-      %{argv: argv}
-    )
+    case do_pipeline(argv, dispatch, progress_reporter) do
+      {:ok, report, config} ->
+        maybe_emit_stream_end(report, config)
+        emit_success(report, config, dispatch)
 
-    # Subscribe the progress handler (when enabled) before the
-    # mutation phase starts so site `.stop` events get drawn live.
-    progress_handler_id = maybe_attach_progress_handler(argv)
+      {:abort, %Report{} = report, config, reason, details} ->
+        maybe_emit_stream_end(
+          %Report{report | aborted: true, abort_reason: Atom.to_string(reason)},
+          config
+        )
 
-    try do
-      result =
-        case do_pipeline(argv, dispatch) do
-          {:ok, report, config} ->
-            maybe_emit_stream_end(report, config)
-            emit_run_stop(report, started_at, false, nil)
-            emit_success(report, config, dispatch)
-
-          {:abort, %Report{} = report, config, reason, details} ->
-            maybe_emit_stream_end(
-              %Report{report | aborted: true, abort_reason: Atom.to_string(reason)},
-              config
-            )
-
-            emit_run_stop(report, started_at, true, reason)
-            emit_abort(report, config, reason, details, dispatch)
-        end
-
-      result
-    after
-      _ = maybe_detach_progress_handler(progress_handler_id)
+        emit_abort(report, config, reason, details, dispatch)
     end
   end
 
-  # Argv-scan for `--no-progress` to decide attachment. We do this at
-  # entry (before phase_cli parses) so the handler is attached over
-  # the entire pipeline; if the user passed `--no-progress` we never
-  # subscribe in the first place. A full `--progress=auto` decision
-  # happens in `MutagenEx.Progress.enabled?/1` once we have a Config.
-  defp maybe_attach_progress_handler(argv) do
+  @doc false
+  # Test seam for the per-site progress reporter. Production code calls
+  # `build_progress_reporter/1`, which resolves the `--no-progress` /
+  # TTY-auto decision from argv. Tests call this directly to pin the
+  # reporter's behavior (index counter, payload→meta projection,
+  # rendering) without depending on whether the test VM's stderr is a
+  # TTY. `mode` is the resolved `MutagenEx.Progress` mode (`:on` |
+  # `:off` | `:auto`); `device` is the I/O sink the rendered line is
+  # written to (production: `:stderr`).
+  @spec __build_progress_reporter__(:on | :off | :auto, IO.device()) ::
+          (term(), non_neg_integer() -> :ok) | nil
+  def __build_progress_reporter__(mode, device \\ :stderr) do
+    if MutagenEx.Progress.enabled?(mode) do
+      counter = :counters.new(1, [:atomics])
+
+      fn payload, total ->
+        :counters.add(counter, 1, 1)
+        index = :counters.get(counter, 1)
+        meta = progress_meta(payload, index, total)
+        MutagenEx.Progress.report(meta, device)
+      end
+    else
+      nil
+    end
+  end
+
+  # Argv-scan for `--no-progress` to decide enablement. We do this at
+  # entry (before phase_cli parses) so the reporter is composed over the
+  # entire mutation phase; if the user passed `--no-progress` we never
+  # build a reporter. Returns either `nil` (no progress) or a
+  # 2-arity function `(payload, total)` the mutation phase composes into
+  # the runner's `:on_site_completed` callback. The reporter is
+  # stateful: it carries a running site index across calls via its
+  # closed-over counter, so `MutagenEx.Progress.report/2` gets a
+  # `[index/total]` prefix without the runner having to thread
+  # index/total through the callback payload.
+  defp build_progress_reporter(argv) do
     progress =
       cond do
         "--no-progress" in argv -> :off
         true -> :auto
       end
 
-    if MutagenEx.Progress.enabled?(progress) do
-      id = {:mutagen_ex_progress, make_ref()}
-
-      :telemetry.attach(
-        id,
-        [:mutagen_ex, :site, :stop],
-        fn _event, _measurements, metadata, _config ->
-          MutagenEx.Progress.report(metadata)
-        end,
-        nil
-      )
-
-      id
-    else
-      nil
-    end
+    __build_progress_reporter__(progress)
   end
 
-  defp maybe_detach_progress_handler(nil), do: :ok
-  defp maybe_detach_progress_handler(id), do: :telemetry.detach(id)
+  # Build the `MutagenEx.Progress.report/2` meta map from an
+  # `:on_site_completed` callback payload. `{:result, map}` carries the
+  # site's `:status`; `{:compile_error, entry}` is always a
+  # `:compile_error` status.
+  defp progress_meta({:result, result}, index, total) do
+    %{
+      index: index,
+      total: total,
+      status: Map.get(result, :status, :unknown),
+      file: Map.get(result, :file, ""),
+      line: Map.get(result, :line, 0),
+      mutator: Map.get(result, :mutator, :unknown),
+      site_id: Map.get(result, :id)
+    }
+  end
 
-  defp emit_run_stop(%Report{} = report, started_at, aborted, reason) do
-    duration = System.monotonic_time() - started_at
-    mutation = report.mutation || %{}
-
-    MutagenEx.Telemetry.execute(
-      [:mutagen_ex, :run, :stop],
-      %{duration: duration},
-      %{
-        aborted: aborted,
-        abort_reason: reason && Atom.to_string(reason),
-        killed: Map.get(mutation, :killed, 0),
-        survived: Map.get(mutation, :survived, 0),
-        timeout: Map.get(mutation, :timeout, 0),
-        compile_error: Map.get(mutation, :compile_error, 0),
-        error: 0
-      }
-    )
+  defp progress_meta({:compile_error, entry}, index, total) do
+    %{
+      index: index,
+      total: total,
+      status: :compile_error,
+      file: Map.get(entry, :file, ""),
+      line: Map.get(entry, :line, 0),
+      mutator: Map.get(entry, :mutator, :unknown),
+      site_id: Map.get(entry, :id)
+    }
   end
 
   defp maybe_emit_stream_end(%Report{} = report, %Config{stream: true} = config) do
@@ -525,7 +531,7 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_emit_stream_end(_, _), do: :ok
 
-  defp do_pipeline(argv, dispatch) do
+  defp do_pipeline(argv, dispatch, progress_reporter) do
     report0 = base_report(nil)
 
     with {:ok, config} <- phase_cli(argv, dispatch),
@@ -556,7 +562,8 @@ defmodule Mix.Tasks.Mutagen do
              enum_result.sites,
              scope_records,
              dispatch,
-             report5
+             report5,
+             progress_reporter
            ) do
       report = %Report{
         report5
@@ -740,40 +747,14 @@ defmodule Mix.Tasks.Mutagen do
       test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
     }
 
-    # `mutagen.mutation_pipeline.r15`: `[:mutagen_ex, :coverage, :start
-    # | :stop]` brackets the coverage phase. The `.stop` metadata
-    # carries `covered_files` and `covered_lines` so a telemetry
-    # subscriber can report progress without re-walking the result.
-    MutagenEx.Telemetry.span(
-      :coverage,
-      %{in_scope_modules: length(in_scope_modules)},
-      fn ->
-        case mod.run(input) do
-          {:ok, result} ->
-            covered = result.covered_lines
+    case mod.run(input) do
+      {:ok, result} ->
+        {:ok, result}
 
-            stop_meta = %{
-              covered_files: map_size(covered),
-              covered_lines:
-                Enum.reduce(covered, 0, fn {_f, lines}, acc ->
-                  acc + line_count(lines)
-                end)
-            }
-
-            {{:ok, result}, stop_meta}
-
-          {:error, reason, details} ->
-            {{:abort, report, config, reason, details},
-             %{aborted: true, abort_reason: Atom.to_string(reason)}}
-        end
-      end
-    )
+      {:error, reason, details} ->
+        {:abort, report, config, reason, details}
+    end
   end
-
-  defp line_count(lines) when is_list(lines), do: length(lines)
-  defp line_count(%MapSet{} = lines), do: MapSet.size(lines)
-  defp line_count(lines) when is_bitstring(lines), do: byte_size(lines)
-  defp line_count(_), do: 0
 
   # `--max-sites` flows in here so an over-budget enumeration aborts
   # before the runner even starts. The enumerator returns
@@ -781,11 +762,6 @@ defmodule Mix.Tasks.Mutagen do
   # exceed `Config.max_sites`; that becomes an abort-JSON document so
   # the user gets a structured "your scope is too large, narrow it"
   # signal rather than an OOM.
-  #
-  # Per `mutagen.mutation_pipeline.r15`, `[:mutagen_ex, :enumeration,
-  # :stop]` is a fire-and-forget telemetry event (we don't wrap
-  # enumeration in a span because the enumerator is fast and
-  # synchronous; the measurement that matters is the site count).
   defp phase_enumerator(
          %Config{max_sites: max_sites} = config,
          ast_cache,
@@ -800,21 +776,9 @@ defmodule Mix.Tasks.Mutagen do
 
     case mod.enumerate(ast_cache, scope_records, covered_lines, max_sites: max_sites) do
       %{sites: _, skipped: _, warnings: _} = enum_result ->
-        MutagenEx.Telemetry.execute(
-          [:mutagen_ex, :enumeration, :stop],
-          %{sites: length(Map.get(enum_result, :sites, []))},
-          %{skipped: length(Map.get(enum_result, :skipped, []))}
-        )
-
         {:ok, enum_result}
 
       {:error, :too_many_sites, details} ->
-        MutagenEx.Telemetry.execute(
-          [:mutagen_ex, :enumeration, :stop],
-          %{sites: 0},
-          %{skipped: 0, aborted: true, abort_reason: "too_many_sites"}
-        )
-
         {:abort, report, config, :too_many_sites, details}
     end
   end
@@ -835,42 +799,25 @@ defmodule Mix.Tasks.Mutagen do
       test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
     }
 
-    # `mutagen.mutation_pipeline.r15`: `[:mutagen_ex, :baseline, :start
-    # | :stop]` brackets baseline. The `.stop` metadata carries
-    # `passed` and `failed` so consumers can detect baseline-red
-    # without parsing the JSON.
-    MutagenEx.Telemetry.span(
-      :baseline,
-      %{},
-      fn ->
-        case mod.run(input) do
-          {:ok, result} ->
-            {{:ok, result}, %{passed: result.passed, failed: result.failed}}
+    case mod.run(input) do
+      {:ok, result} ->
+        {:ok, result}
 
-          {:error, :baseline_red, details} ->
-            # r1: baseline failures populate `baseline` on the abort report.
-            partial_baseline = %{
-              "passed" => Map.get(details, :passed, 0),
-              "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
-              "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1)
-            }
+      {:error, :baseline_red, details} ->
+        # r1: baseline failures populate `baseline` on the abort report.
+        partial_baseline = %{
+          "passed" => Map.get(details, :passed, 0),
+          "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
+          "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1)
+        }
 
-            partial = %Report{report | baseline: partial_baseline}
+        partial = %Report{report | baseline: partial_baseline}
 
-            {{:abort, partial, config, :baseline_red, details},
-             %{
-               passed: Map.get(details, :passed, 0),
-               failed: Map.get(details, :failed, length(Map.get(details, :failures, []))),
-               aborted: true,
-               abort_reason: "baseline_red"
-             }}
+        {:abort, partial, config, :baseline_red, details}
 
-          {:error, reason, details} ->
-            {{:abort, report, config, reason, details},
-             %{aborted: true, abort_reason: Atom.to_string(reason)}}
-        end
-      end
-    )
+      {:error, reason, details} ->
+        {:abort, report, config, reason, details}
+    end
   end
 
   defp phase_mutation(
@@ -880,7 +827,8 @@ defmodule Mix.Tasks.Mutagen do
          sites,
          scope_records,
          dispatch,
-         report
+         report,
+         progress_reporter
        ) do
     mod = Map.fetch!(dispatch, :mutation)
 
@@ -903,11 +851,14 @@ defmodule Mix.Tasks.Mutagen do
     # honest reflection of the in-process pipeline's shared ExUnit /
     # Code.Server / cover state — see the caveat paragraph in r15.
     #
-    # When `--stream` is set, the `:on_site_completed` seam emits one
-    # NDJSON line per site (in input order) to the same sink the final
-    # document goes to. `start` and `end` envelope lines bracket the
-    # stream so naive consumers can `JSON.parse(line)` and route on
-    # the `"kind"` discriminator.
+    # The `:on_site_completed` seam fires once per completed site (in
+    # input order, both `--max-concurrency 1` and `> 1`). It is the
+    # single per-site observation point: when `--stream` is set it
+    # emits one NDJSON line per site to the same sink the final
+    # document goes to, and when progress is enabled (TTY auto-detect,
+    # not `--no-progress`) it draws the per-site progress feed on
+    # stderr. The two consumers are independent and compose here — a
+    # run can stream, show progress, both, or neither.
     site_sink = stream_sink(config, dispatch)
 
     if config.stream do
@@ -919,7 +870,9 @@ defmodule Mix.Tasks.Mutagen do
       )
     end
 
-    on_site_completed =
+    total = length(sites)
+
+    stream_fn =
       if config.stream do
         fn
           {:result, result_map} -> MutagenEx.JsonStreamer.emit_result(site_sink, result_map)
@@ -927,6 +880,13 @@ defmodule Mix.Tasks.Mutagen do
         end
       else
         fn _ -> :ok end
+      end
+
+    on_site_completed =
+      fn payload ->
+        stream_fn.(payload)
+        if progress_reporter, do: progress_reporter.(payload, total)
+        :ok
       end
 
     # The in-process pipeline shares ExUnit globals, the Code.Server,

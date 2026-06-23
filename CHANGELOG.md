@@ -27,14 +27,11 @@ file for traceability.
   matching entry in the final document. Per-site lines arrive in input
   order even under parallel dispatch.
 
-- **`:telemetry` events.** The library now dispatches `:telemetry` events
-  at run, coverage, baseline, enumeration, and per-site boundaries, so you
-  can attach your own handlers, dashboards, or progress UIs. mutagen_ex
-  ships no built-in subscriber. See the README "Telemetry events" table.
-
 - **Per-site progress feed.** When stderr is a TTY, a one-line-per-site
   progress feed is printed (e.g. `[12/345] killed lib/foo.ex:42 :arith`).
-  Suppress it with `--no-progress`.
+  Suppress it with `--no-progress`. The feed is driven by the mutation
+  runner's `:on_site_completed` callback (the same per-site seam
+  `--stream` rides).
 
 - **Test-suite gates documented.** The default `mix test` run now excludes
   the slow end-to-end (`:e2e_slow`) and integration-spike (`:spike`) tag
@@ -53,6 +50,18 @@ file for traceability.
   only timing and some advisory diagnostic text changed. A benchmark
   harness for reproducing these numbers ships at
   `priv/helper_scripts/bench_ast_perf.exs`.
+
+### Removed
+
+- **`:telemetry` event API and runtime dependency.** The producer-only
+  `:telemetry` event surface (run / coverage / baseline / enumeration /
+  per-site events) is removed, and `:telemetry` is no longer a runtime
+  dependency. It shipped no built-in subscriber and its only in-tree
+  consumer was the progress feed, which now rides the mutation runner's
+  `:on_site_completed` callback. Dropping the dependency makes the runtime
+  dependency-free, so `mix archive.install` produces a working
+  `mix mutagen` (a Mix archive cannot carry dependencies). External
+  telemetry handlers, if any, no longer receive events.
 
 ### Fixed
 
@@ -426,7 +435,7 @@ Shipped with v0.1.0 and tracked for later releases:
   (`test/mutagen_ex/determinism_test.exs`, re-targeted from the
   lane fixture). *(mutagen-wrd.25.2.)*
 
-- **Parallel mutation loop, telemetry, NDJSON streaming, and progress
+- **Parallel mutation loop, NDJSON streaming, and progress
   feedback.** The mutation runner now dispatches per-site work through
   `Task.Supervisor.async_stream_nolink/4` under `MutagenEx.TaskSup`
   with `:ordered: true`, so results are collected in input order
@@ -436,9 +445,11 @@ Shipped with v0.1.0 and tracked for later releases:
   opt in). New requirement: `mutagen.mutation_pipeline.r15`.
   - `:telemetry` events at well-defined points: `run.start/stop`,
     `coverage.start/stop`, `baseline.start/stop`, `enumeration.stop`,
-    and per-site `site.start/stop`. Consumers attach their own
-    handlers; the library ships no built-in subscriber. See the new
-    `MutagenEx.Telemetry` module.
+    and per-site `site.start/stop`. **Superseded and removed** (see the
+    `[Unreleased]` Removed section): the producer-only event API and the
+    `:telemetry` runtime dependency were dropped so the archive install
+    is dependency-free; per-site observation now rides the runner's
+    `:on_site_completed` callback. *(mutagen-hcs.7.)*
   - `--stream` enables NDJSON-per-site emission via the new
     `MutagenEx.JsonStreamer`. Each line carries a `"kind"`
     discriminator (`"start"`, `"result"`, `"compile_error"`, `"end"`)
@@ -451,6 +462,7 @@ Shipped with v0.1.0 and tracked for later releases:
   - New dependency: `:telemetry ~> 1.0` (lightweight, no transitive
     deps). The runner emits events through the standard
     `:telemetry.execute/3` and `:telemetry.span/3` surfaces.
+    **Later removed in mutagen-hcs.7** — the runtime is now dependency-free.
   - *(mutagen-wrd.30, closes F17 from the consolidated review.)*
 
 ### Security

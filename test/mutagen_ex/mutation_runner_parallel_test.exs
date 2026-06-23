@@ -14,10 +14,10 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     * Byte-identical aggregate output across `max_concurrency` values
       on deterministic input (the merge gate "Parallel run produces
       byte-identical JSON to serial run on a deterministic scope").
-    * Telemetry `[:mutagen_ex, :site, :start | :stop]` fires once per
-      site, even under parallel dispatch.
     * `:on_site_completed` callback fires once per site, in input
-      order, regardless of concurrency.
+      order, regardless of concurrency. This is the single per-site
+      observation seam (NDJSON streaming and the progress feed both
+      ride it); there is no `:telemetry` event.
 
   These tests deliberately use synthetic `Site{}` records and the
   `Process`-dictionary-free `Agent`-backed `ExUnitFake` (also used by
@@ -227,99 +227,6 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   end
 
   # ---------------------------------------------------------------------------
-  # r15: telemetry events fire per-site
-  # ---------------------------------------------------------------------------
-
-  describe "telemetry: [:mutagen_ex, :site, :start | :stop] fires per-site" do
-    test "site events fire once per site in parallel mode" do
-      ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0})
-
-      sites = for i <- 1..4, do: build_site("site-#{i}", i + 1)
-
-      parent = self()
-      ref = make_ref()
-
-      handler_id = {:test_handler, ref}
-
-      :telemetry.attach_many(
-        handler_id,
-        [
-          [:mutagen_ex, :site, :start],
-          [:mutagen_ex, :site, :stop]
-        ],
-        fn event, measurements, metadata, _ ->
-          send(parent, {ref, event, measurements, metadata})
-        end,
-        nil
-      )
-
-      cfg = build_cfg(sites, max_concurrency: 2)
-
-      try do
-        assert {:ok, _output} = MutationRunner.run(cfg)
-
-        events = drain_events(ref, [], 200)
-
-        starts =
-          events
-          |> Enum.filter(fn {_evt, e, _m, _meta} -> e == [:mutagen_ex, :site, :start] end)
-
-        stops =
-          events
-          |> Enum.filter(fn {_evt, e, _m, _meta} -> e == [:mutagen_ex, :site, :stop] end)
-
-        assert length(starts) == 4
-        assert length(stops) == 4
-
-        # All stops carry the configured `:survived` status (we set a
-        # uniform outcome on the fake).
-        Enum.each(stops, fn {_evt, _e, _m, meta} -> assert meta.status == :survived end)
-
-        # Every stop measurement has a duration in native units.
-        Enum.each(stops, fn {_evt, _e, measurements, _meta} ->
-          assert is_integer(measurements.duration)
-          assert measurements.duration >= 0
-        end)
-      after
-        :telemetry.detach(handler_id)
-      end
-    end
-
-    test "site stop metadata names site_id, file, line, mutator, status, index, total" do
-      ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0})
-
-      sites = [build_site("only", 2)]
-
-      parent = self()
-      ref = make_ref()
-      handler_id = {:test_handler, ref}
-
-      :telemetry.attach(
-        handler_id,
-        [:mutagen_ex, :site, :stop],
-        fn _e, _m, meta, _ -> send(parent, {ref, meta}) end,
-        nil
-      )
-
-      try do
-        assert {:ok, _} = MutationRunner.run(build_cfg(sites, max_concurrency: 1))
-
-        assert_receive {^ref, meta}, 200
-
-        assert meta.site_id == "only"
-        assert meta.file == "synthetic/foo_only.ex"
-        assert meta.line == 2
-        assert meta.mutator == :arith
-        assert meta.status == :survived
-        assert meta.index == 1
-        assert meta.total == 1
-      after
-        :telemetry.detach(handler_id)
-      end
-    end
-  end
-
-  # ---------------------------------------------------------------------------
   # r15: :on_site_completed callback fires per site in input order
   # ---------------------------------------------------------------------------
 
@@ -343,20 +250,13 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       assert {:ok, _output} = MutationRunner.run(cfg)
 
       # Async_stream's :ordered: true guarantees the callback fires
-      # in input order even when tasks finish concurrently.
-      assert_receive {^ref, {:result, %{id: "a"}}}, 500
-      assert_receive {^ref, {:result, %{id: "b"}}}, 500
-      assert_receive {^ref, {:result, %{id: "c"}}}, 500
-    end
-  end
-
-  # --- helpers --------------------------------------------------------------
-
-  defp drain_events(ref, acc, timeout) do
-    receive do
-      {^ref, e, m, meta} -> drain_events(ref, [{:evt, e, m, meta} | acc], timeout)
-    after
-      timeout -> Enum.reverse(acc)
+      # in input order even when tasks finish concurrently. Each
+      # `:result` payload carries the per-site `:status` (the progress
+      # feed reads it), `:file`, `:line`, and `:mutator` — the fields
+      # the Mix task projects into the progress line.
+      assert_receive {^ref, {:result, %{id: "a", status: :survived, mutator: :arith}}}, 500
+      assert_receive {^ref, {:result, %{id: "b", status: :survived}}}, 500
+      assert_receive {^ref, {:result, %{id: "c", status: :survived}}}, 500
     end
   end
 end
