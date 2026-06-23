@@ -17,11 +17,15 @@
     {
       "text": "ORCHESTRATION PROGRESS (2026-06-22)\nLanded into epic/hcs (smoke green throughout): .4 (baseline_red guard test + README), .3 (README version labels), .2 (mix test --cover clean; rebased over .4's test_helper.exs), .6 (README JSON example + CHANGELOG; 1 verify bounce on a phantom mutation.error field, fixed + merged).\nBOUNCEs: 1 (.6 verify→implementer, factual). Scope expansions: 0.\n\nREMAINING (orchestration paused — both need outside input):\n- .5 GitHub CI: BLOCKED on a product decision. mix test.integration is red on main because archive_install_test fails — the .ez bundles only mutagen_ex's ebin, not the :telemetry runtime dep, so `mix mutagen` from an archive-installed host aborts (runtime_load_failed). Root: archives aren't meant to carry deps. Awaiting user call: drop archive.install (ship as dev dep) vs. make :telemetry optional/graceful.\n- .1 package files whitelist: BLOCKED on external mutagen-y8o.1 (open, different epic) — out of this run's reach.\n\nFollow-up candidates surfaced (not auto-carved, neither blocks a child): r11 /tmp-attribution flake (mutation_runner_test.exs:1181); project coverage ~79% \u003c Mix default 90%.\nEpic stays in_progress (phase:implementing). NOT pushing/PR-ing — that's the human checkpoint.",
       "timestamp": "2026-06-22T14:15:48Z"
+    },
+    {
+      "text": "WORKTREE RENAME (2026-06-23): branch epic/hcs -\u003e mutagen-hcs/hex-pm-publish-hygiene; worktree dir ../mutagen_ex-hcs -\u003e ../mutagen_ex-hex-pm-publish-hygiene. Stage mutagen-hcs.5 merges back into this renamed branch.",
+      "timestamp": "2026-06-23T11:08:36Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-22T14:15:48Z"
+  "updated_at": "2026-06-23T11:08:36Z"
 }
