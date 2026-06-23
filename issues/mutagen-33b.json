@@ -9,9 +9,15 @@
     "phase:implementing",
     "slug:tier1-review-hardening"
   ],
+  "comments": [
+    {
+      "text": "WORKTREE RENAME (2026-06-23): branch epic/33b -\u003e mutagen-33b/tier1-review-hardening; worktree dir ../mutagen_ex-33b -\u003e ../mutagen_ex-tier1-review-hardening. Stages mutagen-33b.1 and mutagen-33b.2 merge back into this renamed branch.",
+      "timestamp": "2026-06-23T11:08:36Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "[EPIC] Parallel-path correctness hardening (gate + warn; real isolation deferred)",
   "type": "task",
-  "updated_at": "2026-06-22T19:55:48Z"
+  "updated_at": "2026-06-23T11:08:36Z"
 }
