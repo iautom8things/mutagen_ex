@@ -84,7 +84,7 @@ defmodule MutagenEx.MixProject do
   defp aliases do
     [
       "test.integration":
-        "test --include downstream_integration --include archive_integration --include self_mutation test/integration"
+        "test --include downstream_integration --include archive_integration --include stream_integration --include self_mutation test/integration"
     ]
   end
 

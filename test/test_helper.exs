@@ -33,6 +33,13 @@
 #   generated host project with no `:mutagen_ex` dependency declaration.
 #   Run explicitly via `mix test --include archive_integration` or
 #   `mix test.integration`.
+# - `:stream_integration` covers the `mix mutagen --stream` CLI integration
+#   test under `test/integration/`. It boots a tmp Mix project with a
+#   `path:` dep and drives `mix mutagen --stream` via `System.cmd/3`,
+#   asserting valid line-delimited JSON (start/result/end envelopes) on
+#   stdout and exit 0 (the FunctionClauseError regression gate, mutagen-hcs.8).
+#   Run explicitly via `mix test --include stream_integration` or
+#   `mix test.integration`.
 # - `:mutagen_baseline_red_guard` tags the deliberately-red and -green
 #   cited fixture modules under `test/fixtures/baseline_red_guard/`. They
 #   are `Code.require_file/1`'d by `MutagenEx.BaselineRedGuardTest` and
@@ -75,6 +82,7 @@ ExUnit.start(
       :spike,
       :downstream_integration,
       :archive_integration,
+      :stream_integration,
       :mutagen_baseline_red_guard,
       :self_mutation
     ] ++ cover_exclusions
