@@ -11,9 +11,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-hcs",
+  "comments": [
+    {
+      "text": "IMPLEMENTED (recorded by orchestrator — worker committed 56e0b4d but posted no marker/relayed no report; work confirmed real).\n\nOrchestrator pre-verification of the crux acceptance:\n- mix compile --warnings-as-errors: clean.\n- ARCHIVE TEST PASSES: `mix test --include archive_integration test/integration/archive_install_test.exs` =\u003e 1 test, 0 failures. `mix mutagen` from an archive-installed host now returns exit 0 (the whole point of Option A).\n\nChange (diff vs 0926844): telemetry.ex DELETED (-107); no :telemetry/MutagenEx.Telemetry calls remain in lib/; removed from mix.exs + mix.lock runtime deps; progress rewired onto the runner's :on_site_completed callback (mutation_runner.ex, mutagen.ex, progress.ex); new ADR .spec/decisions/drop_telemetry_event_api.md; mutation_pipeline.spec.md r15 telemetry clause superseded; README telemetry/observability section + CHANGELOG updated; telemetry-handler tests converted to callback tests (mutation_runner_parallel_test.exs, progress_test.exs); .spec/state.json regenerated.\n\nHanding to cold verifier for full gate (progress both modes + --stream coexistence, full mix test, spec consistency, scope).",
+      "timestamp": "2026-06-23T18:35:14Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Drop telemetry hook API; rewire progress onto on_site_completed; make archive dep-free",
   "type": "task",
-  "updated_at": "2026-06-23T18:13:36Z"
+  "updated_at": "2026-06-23T18:35:14Z"
 }
