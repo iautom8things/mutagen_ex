@@ -15,11 +15,15 @@
     {
       "text": "IMPLEMENTED (commit ce0a785)\n\nAdded explicit `files:` whitelist to `defp package` in mix.exs:\n  files: ~w(lib mix.exs mix.lock README.md CHANGELOG.md LICENSE)\n\nDecisions grounded in repo reality:\n- LICENSE confirmed present at repo root (MIT, from mutagen-y8o).\n- README is self-contained post-hcs.6: the annotated JSON run example is inlined directly (README lines 519-632). The test/ and priv/ paths in README are clickable GitHub links, not files that must ship. So no test/ golden fixtures or priv/ files need to be in the package.\n- Scope limited to mix.exs (package files: key only). Deps untouched (mutagen-hcs.7 owns telemetry removal).\n\nACCEPTANCE — `mix hex.build` Files list:\n    lib/** (full source tree: pipeline, mutators, mutation_runner, test facades, cli, mix/tasks/mutagen.ex, etc.)\n    mix.exs\n    mix.lock\n    README.md\n    CHANGELOG.md\n    LICENSE\n\nConfirmed ABSENT: priv/helper_scripts/ (and nested wrd25_200sites/), .spec/, test/, CLAUDE.md, AGENTS.md, Makefile, make/.\nBuild completed cleanly (checksum emitted); generated tarball removed from worktree.",
       "timestamp": "2026-06-23T18:15:24Z"
+    },
+    {
+      "text": "VERIFY: PASS\nSession: agent-averify-hcs1-ca7625c76fe28e63 (parent 033814be-550f-48f5-ab4a-ac141d9e94a3)\nLog: ~/.claude-remembers/projects/-Users-mz-dev-mz-mutagen-ex/033814be-550f-48f5-ab4a-ac141d9e94a3/subagents/agent-averify-hcs1-ca7625c76fe28e63.jsonl\n\nMechanical checks:\n- Files touched: 1 (mix.exs only? yes). Diff adds the files: key + an explanatory comment to defp package; nothing else changed.\n\nSemantic checks:\n- Nothing runtime-needed excluded (priv/ is dev-only, no :code.priv_dir/app_dir reads in lib): yes. grep of lib/ for priv_dir|app_dir|priv/ returns nothing. priv/ contains only helper_scripts/bench_fixtures (dev cruft). All File.read/Path.join in lib/ operate on consumer-supplied --scope/--tests paths at runtime, not packaged assets. test/ references in lib/ are all docstrings/comments (doctest examples, see-test notes), not compile-time file deps. lib/mutagen_ex/test/* are real library modules (facades), not the test/ dir.\n- Everything needed included (lib compiles standalone; LICENSE exists): yes. LICENSE present at repo root (MIT, 1071 bytes). Full lib/ source tree ships.\n- mix hex.build Files list correct (intended present, cruft absent): yes. Files: full lib/** tree (pipeline, mutators, mutation_runner, test facades, cli, mix/tasks/mutagen.ex, etc.), mix.exs, mix.lock, README.md, CHANGELOG.md, LICENSE. ABSENT confirmed: priv/helper_scripts/ (+ bench_fixtures), .spec/, test/, CLAUDE.md, AGENTS.md, Makefile, make/.\n- hex.build warnings: none. Build exit 0, checksum emitted (3a0dd60...), no missing-required-field warnings.\n\nVerdict: PASS\n\nNotes (advisory only): package still declares telemetry ~\u003e 1.0 dependency; that is correctly out of scope here (mutagen-hcs.7 owns telemetry removal), not a gap for this ticket. Generated mutagen_ex-0.1.0.tar removed; worktree clean.",
+      "timestamp": "2026-06-23T18:18:28Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add package files: whitelist",
   "type": "task",
-  "updated_at": "2026-06-23T18:16:43Z"
+  "updated_at": "2026-06-23T18:18:28Z"
 }
