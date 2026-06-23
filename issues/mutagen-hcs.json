@@ -21,11 +21,15 @@
     {
       "text": "WORKTREE RENAME (2026-06-23): branch epic/hcs -\u003e mutagen-hcs/hex-pm-publish-hygiene; worktree dir ../mutagen_ex-hcs -\u003e ../mutagen_ex-hex-pm-publish-hygiene. Stage mutagen-hcs.5 merges back into this renamed branch.",
       "timestamp": "2026-06-23T11:08:36Z"
+    },
+    {
+      "text": "Subticket mutagen-hcs.7 added (Option A, user-decided 2026-06-23): drop the producer-only telemetry hook API, rewire progress onto the runner's on_site_completed callback, remove :telemetry as a runtime dep → archive becomes dep-free and archive_install_test passes. Unblocks .5 (CI), which now depends on .7. Separately: .1 (package files) is now unblocked (mutagen-y8o.1 closed).",
+      "timestamp": "2026-06-23T12:35:44Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-23T11:08:36Z"
+  "updated_at": "2026-06-23T12:35:44Z"
 }
