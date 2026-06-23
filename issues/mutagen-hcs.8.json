@@ -9,9 +9,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-hcs",
+  "comments": [
+    {
+      "text": "IMPLEMENTED (commit 0b48d60)\n\nRoot cause: lib/mix/tasks/mutagen.ex stream-start path called Map.from_struct(report.meta || %{}); report.meta is a plain map (no Report.Meta struct), so Map.from_struct/1 raised FunctionClauseError on every --stream run before any NDJSON line. Fix: pass (report.meta || %{}) directly — it already carries the atom keys JsonStreamer.meta_to_wire/1 reads. NDJSON schema/kinds unchanged.\n\nCoverage: new CLI --stream integration test test/integration/stream_cli_test.exs boots a tmp Mix project (path: dep), drives mix mutagen --stream via System.cmd, asserts exit 0 + well-formed NDJSON (start -\u003e result/compile_error+ -\u003e end envelopes, each version 1 with kind discriminator) on stdout, and no NDJSON leakage onto stderr (two-sink separation intact). Tagged :stream_integration (excluded by default in test_helper, wired into mix test.integration).\n\nRegression-gate verified: stashing the one-line fix makes the new test fail with the exact Map.from_struct/1 FunctionClauseError at mutagen.ex:868; restoring it passes.\n\nAcceptance:\n- mix mutagen --stream on a real scope exits 0 with valid NDJSON (no FunctionClauseError) — verified via the new integration test.\n- New CLI --stream integration test added + green.\n- make smoke green: 643 tests, 0 failures.\n- mix test.integration (stream + downstream) green: 4 tests, 0 failures.",
+      "timestamp": "2026-06-23T19:04:59Z"
+    }
+  ],
   "priority": 1,
   "status": "in_progress",
   "title": "Fix mix mutagen --stream crash (Map.from_struct on plain map) + add CLI streaming integration test",
   "type": "bug",
-  "updated_at": "2026-06-23T18:58:17Z"
+  "updated_at": "2026-06-23T19:04:59Z"
 }
