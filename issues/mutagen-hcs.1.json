@@ -11,9 +11,15 @@
     "phase:implementing"
   ],
   "parent": "mutagen-hcs",
+  "comments": [
+    {
+      "text": "IMPLEMENTED (commit ce0a785)\n\nAdded explicit `files:` whitelist to `defp package` in mix.exs:\n  files: ~w(lib mix.exs mix.lock README.md CHANGELOG.md LICENSE)\n\nDecisions grounded in repo reality:\n- LICENSE confirmed present at repo root (MIT, from mutagen-y8o).\n- README is self-contained post-hcs.6: the annotated JSON run example is inlined directly (README lines 519-632). The test/ and priv/ paths in README are clickable GitHub links, not files that must ship. So no test/ golden fixtures or priv/ files need to be in the package.\n- Scope limited to mix.exs (package files: key only). Deps untouched (mutagen-hcs.7 owns telemetry removal).\n\nACCEPTANCE — `mix hex.build` Files list:\n    lib/** (full source tree: pipeline, mutators, mutation_runner, test facades, cli, mix/tasks/mutagen.ex, etc.)\n    mix.exs\n    mix.lock\n    README.md\n    CHANGELOG.md\n    LICENSE\n\nConfirmed ABSENT: priv/helper_scripts/ (and nested wrd25_200sites/), .spec/, test/, CLAUDE.md, AGENTS.md, Makefile, make/.\nBuild completed cleanly (checksum emitted); generated tarball removed from worktree.",
+      "timestamp": "2026-06-23T18:15:24Z"
+    }
+  ],
   "priority": 2,
   "status": "in_progress",
   "title": "Add package files: whitelist",
   "type": "task",
-  "updated_at": "2026-06-23T18:13:37Z"
+  "updated_at": "2026-06-23T18:15:24Z"
 }
