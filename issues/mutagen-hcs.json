@@ -25,11 +25,15 @@
     {
       "text": "Subticket mutagen-hcs.7 added (Option A, user-decided 2026-06-23): drop the producer-only telemetry hook API, rewire progress onto the runner's on_site_completed callback, remove :telemetry as a runtime dep → archive becomes dep-free and archive_install_test passes. Unblocks .5 (CI), which now depends on .7. Separately: .1 (package files) is now unblocked (mutagen-y8o.1 closed).",
       "timestamp": "2026-06-23T12:35:44Z"
+    },
+    {
+      "text": "Subticket mutagen-hcs.8 added (ship-blocker, surfaced by .7 audit): {\"abort_reason\":\"missing_scope\",\"aborted\":true,\"baseline\":null,\"coverage\":null,\"details\":{\"message\":\"at least one --scope target is required\"},\"meta\":{\"elixir_version\":\"1.19.5\",\"exunit_seed\":0,\"otp_version\":\"28\",\"tool_version\":\"0.1.0\"},\"mutation\":null,\"scope\":[],\"tests\":null,\"truncated\":false,\"version\":\"1\",\"warnings\":[]} hard-crashes (Map.from_struct on a plain meta map at mutagen.ex) — confirmed PRE-EXISTING (reproduces at base, independent of .7). .7 approved on its declared scope (telemetry removal/archive/progress, double-verified); --stream carved to .8 + needs CLI integration coverage. Also noted: mutagen.ast spec.check verification command is stale (defp-\u003edef after wrd.25.2) — pre-existing, lower priority.",
+      "timestamp": "2026-06-23T18:55:40Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-23T12:35:44Z"
+  "updated_at": "2026-06-23T18:55:40Z"
 }
