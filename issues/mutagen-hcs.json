@@ -29,11 +29,15 @@
     {
       "text": "Subticket mutagen-hcs.8 added (ship-blocker, surfaced by .7 audit): {\"abort_reason\":\"missing_scope\",\"aborted\":true,\"baseline\":null,\"coverage\":null,\"details\":{\"message\":\"at least one --scope target is required\"},\"meta\":{\"elixir_version\":\"1.19.5\",\"exunit_seed\":0,\"otp_version\":\"28\",\"tool_version\":\"0.1.0\"},\"mutation\":null,\"scope\":[],\"tests\":null,\"truncated\":false,\"version\":\"1\",\"warnings\":[]} hard-crashes (Map.from_struct on a plain meta map at mutagen.ex) — confirmed PRE-EXISTING (reproduces at base, independent of .7). .7 approved on its declared scope (telemetry removal/archive/progress, double-verified); --stream carved to .8 + needs CLI integration coverage. Also noted: mutagen.ast spec.check verification command is stale (defp-\u003edef after wrd.25.2) — pre-existing, lower priority.",
       "timestamp": "2026-06-23T18:55:40Z"
+    },
+    {
+      "text": "ORCHESTRATED — epic code-complete (2026-06-23)\nChildren closed: 8/8 (.1 package files, .2 mix test --cover, .3 README versions, .4 baseline_red guard, .5 GitHub CI, .6 README JSON+CHANGELOG, .7 drop-telemetry/dep-free-archive, .8 --stream crash fix).\nScope expansions: 2 (.7 = user-decided Option A; .8 = ship-blocker surfaced by .7's audit).\nBOUNCEs: 1 code bounce (.6 verify→impl: phantom mutation.error field). 1 audit bounce on .7 resolved as re-scope+carve (--stream crash confirmed pre-existing → .8, not .7's fault).\nUser decisions: archive.install kept → Option A (telemetry dropped, progress rewired onto on_site_completed); integrate current main into the epic mid-flight (pulled in y8o/bqd/835 incl. SpecLedEx migration).\nMid-flight integration: merged main (b31354f) into the epic at 0926844; 4 conflicts resolved by integration worker (scope_resolver tests took main's converged fix; test_helper union; CHANGELOG kept our rewrite).\n\nEpic branch: mutagen-hcs/hex-pm-publish-hygiene @ a751e3e (atop integrated main).\nFinal gates green: mix test --seed 0 643/0; mix format clean; deps.unlock clean; mix test.integration 4/0 (stream + archive + downstream + self_mutation — archive_install now passes from a dep-free .ez).\n\nNOT pushed / no PR — deliberate human checkpoint. Epic stays in_progress (phase:implementing) for the ship pipeline.\nOpen follow-up (NOT tracked yet, pending user): mutagen.ast spec.check verification command is stale (defp→def after wrd.25.2) — pre-existing, spec.validate passes, kept out of CI gates.",
+      "timestamp": "2026-06-23T19:12:38Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-23T18:55:40Z"
+  "updated_at": "2026-06-23T19:12:38Z"
 }
