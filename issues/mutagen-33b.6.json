@@ -8,7 +8,9 @@
   "created": "2026-06-22T12:47:10Z",
   "description": "Gate the (now correctness-only) epic closed. Blocked by CF1 (mutagen-33b.1) and CF2a (mutagen-33b.2). CF2b (mutagen-33b.3) is DEFERRED and intentionally NOT a blocker.\n\nSCOPE CHANGE (2026-06-22 review): F2 (coverage-driven test selection) was split into epic mutagen-xez, so this capstone NO LONGER blocks on / verifies F2b parity. mutagen-33b is now the parallel-path CORRECTNESS workstream only.\n\n## Verify\n- CF1 worker-crash test green and NON-VACUOUS (recording code_server stub on a snapshotted module); no mutated module survives an aborted parallel run; the restore sweep is ordered strictly after sibling-task teardown.\n- CF2a experimental warning present + documented (help text + README), fires on the resolved max_concurrency \u003e 1, silent for 1.\n- Full suite green incl. e2e / downstream_integration; a parallel (--max-concurrency 2) e2e run completes without leaving global :cover / code-server / ExUnit state dirty.\n\n## Honest closed-state (review finding H5)\nOn close, parallel-path correctness is GATED + WARNED, not fully achieved -- the real in-VM-vs-OS isolation fix (CF2b, mutagen-33b.3) remains deferred behind a measured-need build-gate. The epic title/summary reflect \"gate + warn parallel; defer real isolation\" so \"Done\" is not mis-read as \"parallel is now safe\".\n\n## Done\n- CF1 and CF2a closed and the above checks pass on the epic branch.",
   "id": "mutagen-33b.6",
-  "labels": [],
+  "labels": [
+    "phase:verifying"
+  ],
   "parent": "mutagen-33b",
   "priority": 1,
   "status": "in_progress",
