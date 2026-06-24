@@ -24,6 +24,10 @@
     {
       "text": "GATE RE-EVALUATION (2026-06-24, after rebase onto current main 84f90a5):\n- Epic rebased clean onto main; now 4 commits on top (CF2a, CF1, state-regen, spec-delta mutagen-33b.7). main is a clean ancestor. mix test 645/0, compile --warnings-as-errors clean, format + deps gates green.\n- The original delta-gate is RETIRED: main's fixes resolved the old mutagen.ast/mutagen.cli verification_command_failed errors; spec.validate now passes errors=0 warnings=0.\n- Bucket A (~29 overlap/duplicate_covers) ELIMINATED: main 22a48cf disabled that check for the facet-decomposed corpus (.spec/config.yml).\n- Bucket B (branch-guard: code-without-spec) CLEARED by mutagen-33b.7 spec delta (r17 CF1 restore-sweep ordering, r18 CF2a experimental gate, decision parallel_experimental_gate).\n- mix spec.check residual = 1 finding: [WARNING] branch_guard_unmapped_change README.md (README not mapped to any subject — repo-wide gap; config.yml line 51 sets this severity=warning). errors=0.\n\nNet: spec.check has zero ERRORs; the only finding is a project-designated advisory warning about README subject-mapping, independent of this epic's correctness work.",
       "timestamp": "2026-06-24T16:31:51Z"
+    },
+    {
+      "text": "DELIVERED. Merged to main (756c289) and pushed to origin/main. mutagen_ex is a library (no deploy to monitor); merge-to-main is the terminal shipping evidence. CF1 + CF2a + spec delta (mutagen-33b.7) closed; capstone (mutagen-33b.6) green. CF2b (mutagen-33b.3) intentionally deferred (P2, cross-epic blocked by mutagen-33b.5). Pre-existing baseline (mutagen-ua9) verified resolved on main and closed; scenario-5 golden drift spun out to mutagen-y9k. Closing epic.",
+      "timestamp": "2026-06-24T20:48:06Z"
     }
   ],
   "priority": 1,
