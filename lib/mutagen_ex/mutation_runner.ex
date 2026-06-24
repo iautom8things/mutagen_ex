@@ -358,10 +358,10 @@ defmodule MutagenEx.MutationRunner do
   # globals (`ExUnit.Server`, `:cover`, the running test config) are
   # shared across tasks, so `--max-concurrency > 1` on a real ExUnit
   # backend can produce inter-site interference. The default in v1.1
-  # remains `System.schedulers_online()`; consumers needing fully-serial
-  # behaviour pass `--max-concurrency 1`. The byte-identical-output gate
-  # is verified against the test fakes (Agent-backed `ExUnitFake`,
-  # CompilerStub) which are concurrency-safe by construction.
+  # remains `1`; consumers opting into parallel dispatch get a stderr
+  # warning because the byte-identical-output gate is verified against the
+  # test fakes (Agent-backed `ExUnitFake`, CompilerStub) which are
+  # concurrency-safe by construction.
   defp execute(cfg, drift) do
     sites = cfg.sites
 
@@ -480,6 +480,7 @@ defmodule MutagenEx.MutationRunner do
     sites = cfg.sites
     total = length(sites)
     max_concurrency = resolve_max_concurrency(cfg)
+    warn_experimental_parallel_mode(max_concurrency)
     on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
 
     initial = %{
@@ -630,6 +631,19 @@ defmodule MutagenEx.MutationRunner do
       nil -> 1
       n when is_integer(n) and n > 0 -> n
     end
+  end
+
+  defp warn_experimental_parallel_mode(max_concurrency) when max_concurrency > 1 do
+    IO.puts(:stderr, experimental_parallel_mode_warning())
+  end
+
+  defp warn_experimental_parallel_mode(_max_concurrency), do: :ok
+
+  defp experimental_parallel_mode_warning do
+    "warning: --max-concurrency > 1 is EXPERIMENTAL; " <>
+      "parallel mode may produce incorrect kill/survive classification " <>
+      "and corrupted coverage on real ExUnit/:cover backends. " <>
+      "The safe path is the default, --max-concurrency 1."
   end
 
   # Per-site task body. Returns a `task_outcome` tuple that the

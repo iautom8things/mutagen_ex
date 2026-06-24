@@ -360,7 +360,7 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 | `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
 | `--max-sites <int>` | Upper bound on enumerated mutation sites for one run. Default `10000`. Exceeding the cap aborts with `abort_reason: "too_many_sites"` BEFORE the mutation runner starts — narrow `--scope` (or raise the cap) to proceed. |
 | `--budget-ms <int>` | Optional aggregate wall-clock budget for the mutation phase, in milliseconds. Default unbounded (`--timeout-ms` still bounds each site). When elapsed, the runner stops dispatching new sites and emits a `truncated: true` partial JSON report. |
-| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (fully serial). Set to `System.schedulers_online()` or a positive integer to opt in to parallel dispatch. See [Parallel mode](#parallel-mode-streaming-and-progress) below. |
+| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (fully serial, byte-equivalent to v1.0). Values greater than `1` are EXPERIMENTAL and emit a one-shot stderr warning because real ExUnit/:cover backends can produce incorrect kill/survive classification and corrupted coverage. See [Parallel mode](#parallel-mode-streaming-and-progress) below. |
 | `--stream` | Emit one NDJSON line per completed site (and `start`/`end` envelope lines) to the same sink the aggregate document goes to. Off by default. |
 | `--no-progress` | Suppress the human-readable per-site progress feed on stderr. Default is auto-on when stderr is a TTY, auto-off otherwise. |
 
@@ -371,13 +371,16 @@ and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 ## Parallel mode, streaming, and progress
 
 Mutagen includes the wiring for parallel per-site dispatch, NDJSON
-streaming, and a per-site progress feed. The mechanism is in place; the
-default value of `--max-concurrency` is `1` because the in-process
-pipeline shares ExUnit's global server, the Code.Server's per-module
-load locks, and `:cover` instrumentation across all per-site tasks (see
-"Known limitations" below). Set `--max-concurrency N` explicitly when
-your scope and test corpus are arranged for collision-free parallel
-execution.
+streaming, and a per-site progress feed. The mechanism is in place, but
+`--max-concurrency > 1` is EXPERIMENTAL: the in-process pipeline shares
+ExUnit's global server, the Code.Server's per-module load locks, and
+`:cover` instrumentation across all per-site tasks (see "Known
+limitations" below). On real ExUnit/:cover backends, parallel dispatch
+may produce incorrect kill/survive classification and corrupted
+coverage, so resolving `--max-concurrency > 1` emits a one-shot stderr
+warning. The safe path is the default, `--max-concurrency 1`; set
+`--max-concurrency N` explicitly only when your scope and test corpus
+are arranged for collision-free parallel execution.
 
 Mutagen has **no runtime dependencies** — it installs cleanly as a
 dependency-free Mix archive (`mix archive.install`). Per-site
