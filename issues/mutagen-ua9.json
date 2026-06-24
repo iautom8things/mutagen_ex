@@ -6,6 +6,12 @@
   "description": "",
   "id": "mutagen-ua9",
   "labels": [],
+  "comments": [
+    {
+      "text": "Discovered 2026-06-24 during /orchestrate-epic mutagen-33b. `mix spec.check` is red on main (b31354f, the SpecLedEx-migration commit) on two subjects, blocking spec.check as a clean gate:\n\n1. mutagen.ast.v1 — verification command `grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/` matches nothing (functions renamed/removed; the spec's verification command is stale).\n2. mutagen.cli.v1 — `mix test test/integration/archive_install_test.exs --include archive_integration` fails: archive-installed `mix mutagen` aborts with runtime_load_failed (`telemetry.app` no such file) — archive packaging missing the telemetry dep, or a real archive-bootstrap bug.\n\nAGENTS.md (lines 49-55) declares spec.check a non-optional local gate, so main is currently violating its own stated gate. mutagen-33b was delta-gated around these (compile + mix test + own-subject verification + no NEW spec.check findings) to avoid blocking unrelated correctness work.",
+      "timestamp": "2026-06-24T11:05:06Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "mix spec.check red on main: mutagen.ast stale grep + mutagen.cli archive telemetry",
