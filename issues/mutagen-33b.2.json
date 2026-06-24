@@ -19,11 +19,15 @@
     {
       "text": "PARENT EPIC BRANCH RENAMED (2026-06-23): merge-back target epic/33b -\u003e mutagen-33b/tier1-review-hardening. This stage's own branch/worktree are unchanged (mutagen-33b.2/gate-max-concurrency @ ../mutagen_ex-gate-max-concurrency). Upstream tracking repointed.",
       "timestamp": "2026-06-23T11:08:40Z"
+    },
+    {
+      "text": "IMPLEMENTED\nSession: codex-e9a412b3\nLog: /Users/mz/dev/mz/mutagen_ex-gate-max-concurrency/.codex-runs/mutagen-33b.2.log\n\nCommit: 4d343cfaa0a111ad256eced74cf0369800984db7\nFiles touched: README.md, lib/mix/tasks/mutagen.ex, lib/mutagen_ex/mutation_runner.ex, test/mutagen_ex/mutation_runner_parallel_test.exs\nTests added: MutagenEx.MutationRunnerParallelTest \"experimental parallel-mode warning warns once for max_concurrency \u003e 1 and stays silent for max_concurrency: 1\"\nVerification stubs flipped: none\n\nSummary: MutationRunner now emits a single stderr warning whenever resolved max_concurrency is greater than 1, while preserving the serial silent path for max_concurrency == 1. The Mix task help text and README mark --max-concurrency \u003e 1 as experimental and explain the real ExUnit/:cover correctness risk while keeping the flag functional.",
+      "timestamp": "2026-06-24T11:16:48Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "CF2a: Gate --max-concurrency \u003e 1 as warned-experimental",
   "type": "task",
-  "updated_at": "2026-06-24T11:10:02Z"
+  "updated_at": "2026-06-24T11:16:48Z"
 }
