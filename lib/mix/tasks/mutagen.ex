@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -45,6 +45,11 @@ defmodule Mix.Tasks.Mutagen do
       the per-site `--timeout-ms` is still enforced). When the budget
       elapses the runner stops dispatching new sites and emits a
       `truncated: true` partial report.
+    * `--max-concurrency <int>` — per-site mutation dispatch cap. Default
+      `1` (fully serial, v1.0-equivalent). Values greater than `1` are
+      EXPERIMENTAL and emit a one-shot stderr warning because real
+      ExUnit/:cover backends can produce incorrect kill/survive
+      classification and corrupted coverage under parallel dispatch.
 
   ## Caps
 
@@ -132,6 +137,11 @@ defmodule Mix.Tasks.Mutagen do
       outside the project root must pass `--unsafe-json-outside-project`
       explicitly; a one-shot stderr warning then names the resolved
       target.
+    * **`--max-concurrency > 1` is experimental.** Parallel dispatch shares
+      ExUnit.Server, the Code.Server, and `:cover` across per-site tasks.
+      It can produce incorrect kill/survive classification and corrupted
+      coverage on real ExUnit/:cover backends; the safe path is the
+      default, `--max-concurrency 1`.
     * **`tag:NAME` charset is bounded.** `--tests tag:NAME` must match
       `~r/\\A[a-z][a-z_0-9]{0,63}\\z/` — lowercase ASCII, digits, or `_`,
       up to 64 chars, with a lowercase first character. Targets outside

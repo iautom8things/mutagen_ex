@@ -167,10 +167,10 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       sites = for i <- 1..6, do: build_site("site-#{i}", i + 1)
 
       serial_cfg = build_cfg(sites, max_concurrency: 1)
-      assert {:ok, serial_out} = MutationRunner.run(serial_cfg)
+      assert {:ok, serial_out} = run_mutation_runner(serial_cfg)
 
       parallel_cfg = build_cfg(sites, max_concurrency: 4)
-      assert {:ok, parallel_out} = MutationRunner.run(parallel_cfg)
+      assert {:ok, parallel_out} = run_mutation_runner(parallel_cfg)
 
       assert serial_out.results == parallel_out.results
       assert serial_out.compile_errors == parallel_out.compile_errors
@@ -202,7 +202,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
 
       cfg = build_cfg(sites, max_concurrency: 3, timeout_ms: 500)
 
-      assert {:ok, output} = MutationRunner.run(cfg)
+      assert {:ok, output} = run_mutation_runner(cfg)
 
       assert Enum.map(output.results, & &1.id) == ["site-1", "site-2", "site-3"]
       assert Enum.all?(output.results, &(&1.status == :killed))
@@ -221,7 +221,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       sites = [build_site("only", 2)]
       cfg = build_cfg(sites, max_concurrency: 1)
 
-      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
+      assert {:ok, %{results: [result]}} = run_mutation_runner(cfg)
       assert result.id == "only"
     end
   end
@@ -247,9 +247,8 @@ defmodule MutagenEx.MutationRunnerParallelTest do
 
       cfg = build_cfg(sites, max_concurrency: 3, on_site_completed: cb)
 
-      assert {:ok, _output} = MutationRunner.run(cfg)
+      assert {:ok, _output} = run_mutation_runner(cfg)
 
-      # Async_stream's :ordered: true guarantees the callback fires
       # in input order even when tasks finish concurrently. Each
       # `:result` payload carries the per-site `:status` (the progress
       # feed reads it), `:file`, `:line`, and `:mutator` — the fields
@@ -258,5 +257,45 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       assert_receive {^ref, {:result, %{id: "b", status: :survived}}}, 500
       assert_receive {^ref, {:result, %{id: "c", status: :survived}}}, 500
     end
+  end
+
+  describe "experimental parallel-mode warning" do
+    test "warns once for max_concurrency > 1 and stays silent for max_concurrency: 1" do
+      ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0})
+
+      parallel_sites = for i <- 1..3, do: build_site("warn-#{i}", i + 1)
+      parallel_cfg = build_cfg(parallel_sites, max_concurrency: 3)
+
+      assert {{:ok, %{results: parallel_results}}, parallel_stderr} =
+               run_and_capture_stderr(parallel_cfg)
+
+      assert length(parallel_results) == 3
+      assert parallel_stderr =~ "--max-concurrency > 1 is EXPERIMENTAL"
+      assert parallel_stderr =~ "incorrect kill/survive classification"
+      assert parallel_stderr =~ "corrupted coverage"
+      assert parallel_stderr =~ "default, --max-concurrency 1"
+
+      warning_hits =
+        Regex.scan(~r/--max-concurrency > 1 is EXPERIMENTAL/, parallel_stderr)
+        |> length()
+
+      assert warning_hits == 1
+
+      serial_cfg = build_cfg([build_site("serial", 2)], max_concurrency: 1)
+      assert {{:ok, %{results: [_]}}, ""} = run_and_capture_stderr(serial_cfg)
+    end
+  end
+
+  # --- helpers --------------------------------------------------------------
+
+  defp run_mutation_runner(cfg) do
+    {result, _stderr} = run_and_capture_stderr(cfg)
+    result
+  end
+
+  defp run_and_capture_stderr(cfg) do
+    ExUnit.CaptureIO.with_io(:stderr, fn ->
+      MutationRunner.run(cfg)
+    end)
   end
 end
