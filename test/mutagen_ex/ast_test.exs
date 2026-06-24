@@ -133,17 +133,24 @@ defmodule MutagenEx.AstTest do
     end
 
     test "does NOT call String.to_atom on the target string (r8 invariant)" do
-      # Pick a string very unlikely to already be an atom. If the
-      # function ever called String.to_atom internally, this would
-      # grow the atom table — verify it does not.
+      # Pick a string guaranteed not to already be an atom. If
+      # find_module_body ever called String.to_atom on the target, the
+      # atom would be interned and String.to_existing_atom/1 would then
+      # succeed. We assert it still raises afterwards — a precise,
+      # concurrency-proof statement of the r8 invariant that does not
+      # depend on the global atom counter (the file runs async).
       target = "Mutagen.ProbeNever_#{System.unique_integer([:positive])}_X"
       ast = quoted_module_body("Foo", "def bar, do: :ok")
 
-      before_count = :erlang.system_info(:atom_count)
-      assert Ast.find_module_body(ast, target) == :not_found
-      after_count = :erlang.system_info(:atom_count)
+      # Sanity: the probe atom must not exist before the call, otherwise
+      # the assertion below would be vacuous.
+      assert_raise ArgumentError, fn -> String.to_existing_atom(target) end
 
-      assert before_count == after_count
+      assert Ast.find_module_body(ast, target) == :not_found
+
+      # If the target atom were minted by the call, this would no longer
+      # raise. It must still raise.
+      assert_raise ArgumentError, fn -> String.to_existing_atom(target) end
     end
   end
 
