@@ -21,11 +21,15 @@
     {
       "text": "AUDIT: APPROVE (auto — selective audit)\nSession: orchestrator-3b779503\nLog: /Users/mz/.claude-personal/projects/-Users-mz-dev-mz-mutagen-ex/3b779503-5d89-4838-8350-946f2c3304f0.jsonl\n\nReasoning: Orchestrator cold-verified the spec delta firsthand. Only the 3 Allowed files changed (.spec/specs/mutation_pipeline.spec.md, .spec/decisions/parallel_experimental_gate.md, .spec/state.json). mix spec.validate status=pass errors=0 warnings=0. mix spec.check 33-\u003e29 findings: bucket-B branch_guard ERRORs naming mutagen.mutation_pipeline (missing subject/decision update) are CLEARED; r17/r18 + s18/s19 + v10/v11 added with no new duplicate_covers. Remaining 29 are pre-existing bucket-A corpus overlaps on other subjects + a README WARNING (out of scope per user). No auditor spawned per selective-audit policy.",
       "timestamp": "2026-06-24T16:26:10Z"
+    },
+    {
+      "text": "APPROVED. Merged into mutagen-33b/tier1-review-hardening (8a1cc00). Smoke green. Closing per orchestrator sign-off.",
+      "timestamp": "2026-06-24T16:26:26Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Spec delta: document CF1 parallel outer-task restore sweep + CF2a experimental gate",
   "type": "task",
-  "updated_at": "2026-06-24T16:26:11Z"
+  "updated_at": "2026-06-24T16:26:26Z"
 }
