@@ -524,16 +524,21 @@ defmodule MutagenEx.MutationRunner do
     # contract still holds for deterministic scopes — taint,
     # warnings, and counters all fold sequentially over the ordered
     # result list.
+    parallel_task_sup =
+      if max_concurrency == 1 do
+        nil
+      else
+        Map.get(cfg, :task_sup, MutagenEx.TaskSup)
+      end
+
     task_outcomes_stream =
       if max_concurrency == 1 do
         Stream.map(indexed_sites, fn {site, idx} ->
           {:ok, process_site_task(site, idx, total, cfg)}
         end)
       else
-        task_sup = Map.get(cfg, :task_sup, MutagenEx.TaskSup)
-
         Task.Supervisor.async_stream_nolink(
-          task_sup,
+          parallel_task_sup,
           indexed_sites,
           fn {site, idx} -> process_site_task(site, idx, total, cfg) end,
           max_concurrency: max_concurrency,
@@ -577,12 +582,12 @@ defmodule MutagenEx.MutationRunner do
 
         {:exit, reason}, {:ok, _acc} ->
           # An outer task exited unexpectedly (e.g. the supervisor
-          # killed it). Surface as an abort — the in-process pipeline
-          # does not have a "skip this site" recovery for outer-task
-          # death.
-          {:halt,
-           {:error, :unrecoverable_restore_failure,
-            %{message: "per-site outer task exited: " <> inspect(reason)}}}
+          # killed it). Do NOT restore inside this fold branch:
+          # ordered async_stream can surface site i's exit while sibling
+          # sites are still running. Halt with a sentinel, let the
+          # stream unwind, then teardown siblings before the restore
+          # sweep in the post-reduce case below.
+          {:halt, {:outer_task_exit, reason, parallel_task_sup}}
       end)
 
     case outcome do
@@ -595,6 +600,9 @@ defmodule MutagenEx.MutationRunner do
            warnings: Enum.reverse(acc.warnings),
            truncated: Map.get(acc, :truncated, false)
          }}
+
+      {:outer_task_exit, reason, task_sup} ->
+        abort_after_outer_task_exit(reason, task_sup, cfg)
 
       err ->
         err
@@ -1443,14 +1451,27 @@ defmodule MutagenEx.MutationRunner do
   # `code_server`-reported failure; the caller folds this through
   # the existing `:unrecoverable_restore_failure` surface.
   defp restore(file, cfg) do
-    table = Map.fetch!(cfg, :beam_cache_table)
-    code_server = code_server_module(cfg)
-
     modules =
       cfg.scope_records
       |> Enum.filter(fn %Scope{file: f} -> f == file end)
       |> Enum.map(& &1.module)
       |> Enum.uniq()
+
+    restore_modules(modules, cfg)
+  end
+
+  defp restore_all_scoped_modules(cfg) do
+    modules =
+      cfg.scope_records
+      |> Enum.map(& &1.module)
+      |> Enum.uniq()
+
+    restore_modules(modules, cfg)
+  end
+
+  defp restore_modules(modules, cfg) do
+    table = Map.fetch!(cfg, :beam_cache_table)
+    code_server = code_server_module(cfg)
 
     Enum.reduce_while(modules, :ok, fn mod, :ok ->
       case BeamCache.restore(table, mod, code_server) do
@@ -1483,6 +1504,64 @@ defmodule MutagenEx.MutationRunner do
   # `MutagenEx.Test.CodeServer`; tests inject a stub.
   defp code_server_module(cfg) do
     Map.get(cfg, :code_server, MutagenEx.Test.CodeServer)
+  end
+
+  defp abort_after_outer_task_exit(reason, task_sup, cfg) do
+    teardown_task_supervisor_children(task_sup)
+
+    message = "per-site outer task exited: " <> inspect(reason)
+
+    case restore_all_scoped_modules(cfg) do
+      :ok ->
+        {:error, :unrecoverable_restore_failure,
+         %{message: MutagenEx.JsonReporter.Sanitizer.clean(message)}}
+
+      {:error, restore_msg} ->
+        {:error, :unrecoverable_restore_failure,
+         %{
+           message:
+             MutagenEx.JsonReporter.Sanitizer.clean(
+               message <> "; restore sweep after sibling teardown failed: " <> restore_msg
+             )
+         }}
+    end
+  end
+
+  defp teardown_task_supervisor_children(nil), do: :ok
+
+  defp teardown_task_supervisor_children(task_sup) do
+    task_sup
+    |> task_supervisor_children()
+    |> Enum.each(fn pid ->
+      _ = Task.Supervisor.terminate_child(task_sup, pid)
+    end)
+
+    await_task_supervisor_drained(task_sup, 50)
+  end
+
+  defp await_task_supervisor_drained(_task_sup, 0), do: :ok
+
+  defp await_task_supervisor_drained(task_sup, attempts_left) do
+    case task_supervisor_children(task_sup) do
+      [] ->
+        :ok
+
+      children ->
+        Enum.each(children, fn pid ->
+          _ = Task.Supervisor.terminate_child(task_sup, pid)
+        end)
+
+        Process.sleep(to_timeout(millisecond: 10))
+        await_task_supervisor_drained(task_sup, attempts_left - 1)
+    end
+  end
+
+  defp task_supervisor_children(task_sup) do
+    Task.Supervisor.children(task_sup)
+  rescue
+    _ -> []
+  catch
+    _, _ -> []
   end
 
   # ---------------------------------------------------------------------------

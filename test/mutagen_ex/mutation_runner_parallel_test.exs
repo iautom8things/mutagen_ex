@@ -77,11 +77,159 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     def with_io(:stderr, fun), do: {fun.(), ""}
   end
 
+  defmodule CrashCompilerStub do
+    @moduledoc false
+    @agent :mutagen_ex_parallel_crash_compiler_stub
+
+    def start_link do
+      Agent.start_link(
+        fn ->
+          %{
+            crash_file: nil,
+            block_file: nil,
+            blocking_started?: false,
+            events: []
+          }
+        end,
+        name: @agent
+      )
+    end
+
+    def configure(crash_file, block_file) do
+      Agent.update(@agent, fn _ ->
+        %{
+          crash_file: crash_file,
+          block_file: block_file,
+          blocking_started?: false,
+          events: []
+        }
+      end)
+    end
+
+    def events do
+      Agent.get(@agent, fn state -> Enum.reverse(state.events) end)
+    end
+
+    def compile_quoted(_ast, file) do
+      %{crash_file: crash_file, block_file: block_file} =
+        Agent.get(@agent, fn state ->
+          %{crash_file: state.crash_file, block_file: state.block_file}
+        end)
+
+      cond do
+        file == crash_file ->
+          wait_for_blocking_sibling(to_timeout(second: 1))
+          record({:crashing_worker, self()})
+          Process.exit(self(), :kill)
+          Process.sleep(:infinity)
+
+        file == block_file ->
+          record({:blocking_worker_started, self()})
+          Agent.update(@agent, fn state -> %{state | blocking_started?: true} end)
+
+          receive do
+            :release -> []
+          after
+            to_timeout(second: 10) -> []
+          end
+
+        true ->
+          []
+      end
+    end
+
+    defp wait_for_blocking_sibling(timeout_ms) do
+      deadline = System.monotonic_time(:millisecond) + timeout_ms
+      wait_for_blocking_sibling_until(deadline)
+    end
+
+    defp wait_for_blocking_sibling_until(deadline) do
+      blocking_started? = Agent.get(@agent, & &1.blocking_started?)
+
+      cond do
+        blocking_started? ->
+          :ok
+
+        System.monotonic_time(:millisecond) >= deadline ->
+          :ok
+
+        true ->
+          Process.sleep(to_timeout(millisecond: 10))
+          wait_for_blocking_sibling_until(deadline)
+      end
+    end
+
+    defp record(event) do
+      Agent.update(@agent, fn state -> %{state | events: [event | state.events]} end)
+    end
+  end
+
+  defmodule RecordingCodeServer do
+    @moduledoc false
+    @behaviour MutagenEx.Test.CodeServerFacade
+
+    @agent :mutagen_ex_parallel_recording_code_server
+
+    def start_link do
+      Agent.start_link(fn -> %{task_sup: nil, snapshots: %{}, load_calls: []} end, name: @agent)
+    end
+
+    def set_task_sup(task_sup) do
+      Agent.update(@agent, fn state -> %{state | task_sup: task_sup, load_calls: []} end)
+    end
+
+    def put_snapshot(module, binary, filename) do
+      Agent.update(@agent, fn state ->
+        %{state | snapshots: Map.put(state.snapshots, module, {module, binary, filename})}
+      end)
+    end
+
+    def load_calls do
+      Agent.get(@agent, fn state -> Enum.reverse(state.load_calls) end)
+    end
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def get_object_code(module) do
+      Agent.get(@agent, fn state -> Map.get(state.snapshots, module, :error) end)
+    end
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def load_binary(module, filename, binary) do
+      task_sup = Agent.get(@agent, & &1.task_sup)
+      live_children = task_supervisor_children(task_sup)
+
+      Agent.update(@agent, fn state ->
+        call = %{
+          module: module,
+          filename: filename,
+          binary: binary,
+          live_children: live_children
+        }
+
+        %{state | load_calls: [call | state.load_calls]}
+      end)
+
+      {:module, module}
+    end
+
+    defp task_supervisor_children(nil), do: []
+
+    defp task_supervisor_children(task_sup) do
+      Task.Supervisor.children(task_sup)
+    rescue
+      _ -> []
+    catch
+      _, _ -> []
+    end
+  end
+
   setup do
     # Start the fake's Agent under ExUnit's supervisor so it is torn down
     # SYNCHRONOUSLY at the end of each test — the fixed name is always
     # free before the next test's setup.
     start_supervised!(%{id: ExUnitFake, start: {ExUnitFake, :start_link, []}})
+    start_supervised!(%{id: CrashCompilerStub, start: {CrashCompilerStub, :start_link, []}})
+    start_supervised!(%{id: RecordingCodeServer, start: {RecordingCodeServer, :start_link, []}})
     :ok
   end
 
@@ -286,6 +434,51 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     end
   end
 
+  describe "outer task crash restore sweep" do
+    test "worker exit tears down siblings before restoring snapshotted scoped modules" do
+      crash_site = build_site("crash", 2)
+      blocking_site = build_site("blocking", 3)
+
+      task_sup = start_supervised!({Task.Supervisor, []})
+      CrashCompilerStub.configure(crash_site.file, blocking_site.file)
+      RecordingCodeServer.set_task_sup(task_sup)
+
+      victim = unique_victim_module()
+      {snapshot_binary, snapshot_filename} = compile_snapshot(victim)
+      RecordingCodeServer.put_snapshot(victim, snapshot_binary, snapshot_filename)
+
+      scope_records = [
+        %Scope{file: crash_site.file, line_range: 1..3, module: victim},
+        %Scope{file: blocking_site.file, line_range: 1..4, module: victim}
+      ]
+
+      cfg =
+        build_cfg([crash_site, blocking_site],
+          max_concurrency: 2,
+          task_sup: task_sup,
+          compiler: CrashCompilerStub,
+          code_server: RecordingCodeServer,
+          scope_records: scope_records
+        )
+
+      assert {:error, :unrecoverable_restore_failure, %{message: msg}} =
+               MutationRunner.run(cfg)
+
+      assert msg =~ "per-site outer task exited"
+
+      assert [
+               %{
+                 module: ^victim,
+                 filename: ^snapshot_filename,
+                 binary: ^snapshot_binary,
+                 live_children: []
+               }
+             ] = RecordingCodeServer.load_calls()
+
+      assert Enum.any?(CrashCompilerStub.events(), &match?({:blocking_worker_started, _}, &1))
+    end
+  end
+
   # --- helpers --------------------------------------------------------------
 
   defp run_mutation_runner(cfg) do
@@ -297,5 +490,41 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     ExUnit.CaptureIO.with_io(:stderr, fn ->
       MutationRunner.run(cfg)
     end)
+  end
+
+  defp unique_victim_module do
+    Module.concat([ParallelRestoreVictim, :"M#{System.unique_integer([:positive])}"])
+  end
+
+  defp compile_snapshot(module) do
+    parent = self()
+    ref = make_ref()
+
+    ast =
+      quote do
+        defmodule unquote(module) do
+          @moduledoc false
+          def value, do: :original
+        end
+      end
+
+    _stderr =
+      ExUnit.CaptureIO.capture_io(:stderr, fn ->
+        [{^module, binary}] = Code.compile_quoted(ast)
+        send(parent, {ref, binary})
+      end)
+
+    binary =
+      receive do
+        {^ref, binary} -> binary
+      after
+        500 -> flunk("compile_snapshot did not return a BEAM binary")
+      end
+
+    filename =
+      Path.join(System.tmp_dir!(), "#{inspect(module)}.beam")
+      |> String.to_charlist()
+
+    {binary, filename}
   end
 end
