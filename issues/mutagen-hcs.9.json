@@ -17,11 +17,15 @@
     {
       "text": "APPROVED (orchestrator, re-scoped to the staleness fix). The grep verification command is correctly fixed: target changed from a bare `grep` (exits 1 on 0 matches) to `! grep -rq ...` (exits 0 when no private defp duplicates). Independently confirmed: spec.check's mutagen.ast failure MOVED off the grep command onto the SEPARATE `mix test test/mutagen_ex/ast_test.exs` verification command — proving the grep fix passes. Worker regression-proofed it (temp defp -\u003e red, removed -\u003e green).\n\nNOTE: the worker's \"spec.check status=pass\" claim was inaccurate — spec.check is still red, but on a DIFFERENT, pre-existing cause: ast_test.exs's atom-count assertion (\"does NOT call String.to_atom\") races concurrent async tests (snapshots global :erlang.system_info(:atom_count) under max_cases:20). That is a flaky-test issue, NOT staleness, and out of this ticket's scope. Carved to mutagen-hcs.10 (user-approved fix-now). Closing .9 on its staleness deliverable.",
       "timestamp": "2026-06-24T11:04:43Z"
+    },
+    {
+      "text": "Merged --ff-only into epic. Gates green: mix test --seed 0 643/0, format clean, deps.unlock clean. (spec.check's remaining red = the ast_test atom-count flake, tracked in mutagen-hcs.10.) Closing.",
+      "timestamp": "2026-06-24T11:05:11Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Fix stale mutagen.ast spec.check verification command (defp-\u003edef consolidation, inverted exit code)",
   "type": "bug",
-  "updated_at": "2026-06-24T11:04:43Z"
+  "updated_at": "2026-06-24T11:05:11Z"
 }
