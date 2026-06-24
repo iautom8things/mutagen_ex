@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-24T20:47:28Z",
+  "description": "",
+  "id": "mutagen-y9k",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "Stale golden: end_to_end_scenario_5_baseline_red.json (details message + warnings drift)",
+  "type": "bug",
+  "updated_at": "2026-06-24T20:47:28Z"
+}
