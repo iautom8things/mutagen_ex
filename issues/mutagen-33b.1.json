@@ -19,11 +19,15 @@
     {
       "text": "PARENT EPIC BRANCH RENAMED (2026-06-23): merge-back target epic/33b -\u003e mutagen-33b/tier1-review-hardening. This stage's own branch/worktree are unchanged (mutagen-33b.1/restore-on-exit @ ../mutagen_ex-restore-on-exit). Upstream tracking repointed.",
       "timestamp": "2026-06-23T11:08:40Z"
+    },
+    {
+      "text": "IMPLEMENTED\nSession: codex-59ca1479\nLog: /Users/mz/dev/mz/mutagen_ex-restore-on-exit/.codex-runs/mutagen-33b.1.log\n\nCommit: 78318fe9a57c3651ae198c597608cb45e9e2a5a6\nFiles touched: lib/mutagen_ex/mutation_runner.ex; test/mutagen_ex/mutation_runner_parallel_test.exs\nTests added: MutagenEx.MutationRunnerParallelTest test outer task crash restore sweep worker exit tears down siblings before restoring snapshotted scoped modules/1\nVerification stubs flipped: None (mutagen.mutation_pipeline.v7 was already execute: true)\n\nSummary: The parallel outer-task exit path now halts with a sentinel, tears down all sibling Task.Supervisor children, waits for the supervisor to drain, and only then sweeps every scoped module through BeamCache.restore/3. The new crash test uses a snapshotted real victim module with a recording code_server stub, forces one worker to die while a sibling is live, and asserts restore happens after sibling teardown with no live supervisor children.",
+      "timestamp": "2026-06-24T11:22:24Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "CF1: Restore scoped modules on parallel outer-task :exit + worker-crash test",
   "type": "bug",
-  "updated_at": "2026-06-23T11:08:40Z"
+  "updated_at": "2026-06-24T11:22:24Z"
 }
