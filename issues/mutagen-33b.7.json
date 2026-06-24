@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-24T16:26:27Z",
   "created": "2026-06-24T16:08:56Z",
   "description": "",
   "id": "mutagen-33b.7",
@@ -26,8 +27,8 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Spec delta: document CF1 parallel outer-task restore sweep + CF2a experimental gate",
   "type": "task",
-  "updated_at": "2026-06-24T16:26:26Z"
+  "updated_at": "2026-06-24T16:26:27Z"
 }
