@@ -13,11 +13,15 @@
     {
       "text": "WORKTREE RENAME (2026-06-23): branch epic/33b -\u003e mutagen-33b/tier1-review-hardening; worktree dir ../mutagen_ex-33b -\u003e ../mutagen_ex-tier1-review-hardening. Stages mutagen-33b.1 and mutagen-33b.2 merge back into this renamed branch.",
       "timestamp": "2026-06-23T11:08:36Z"
+    },
+    {
+      "text": "ORCHESTRATOR: mix spec.check is pre-existing red on the epic base (b31354f) for mutagen.ast + mutagen.cli (unrelated subjects) — tracked in mutagen-ua9. Per user decision, this epic's tickets are DELTA-GATED: compile --warnings-as-errors + mix test + own-subject spec verification + no NEW spec.check findings beyond those 2. CF1 (.1) and CF2a (.2) implementers being re-issued under the corrected gate (gate correction, not a quality bounce).",
+      "timestamp": "2026-06-24T11:05:06Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[EPIC] Parallel-path correctness hardening (gate + warn; real isolation deferred)",
   "type": "task",
-  "updated_at": "2026-06-23T11:08:36Z"
+  "updated_at": "2026-06-24T11:05:06Z"
 }
