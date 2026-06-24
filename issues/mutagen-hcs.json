@@ -33,11 +33,15 @@
     {
       "text": "ORCHESTRATED — epic code-complete (2026-06-23)\nChildren closed: 8/8 (.1 package files, .2 mix test --cover, .3 README versions, .4 baseline_red guard, .5 GitHub CI, .6 README JSON+CHANGELOG, .7 drop-telemetry/dep-free-archive, .8 --stream crash fix).\nScope expansions: 2 (.7 = user-decided Option A; .8 = ship-blocker surfaced by .7's audit).\nBOUNCEs: 1 code bounce (.6 verify→impl: phantom mutation.error field). 1 audit bounce on .7 resolved as re-scope+carve (--stream crash confirmed pre-existing → .8, not .7's fault).\nUser decisions: archive.install kept → Option A (telemetry dropped, progress rewired onto on_site_completed); integrate current main into the epic mid-flight (pulled in y8o/bqd/835 incl. SpecLedEx migration).\nMid-flight integration: merged main (b31354f) into the epic at 0926844; 4 conflicts resolved by integration worker (scope_resolver tests took main's converged fix; test_helper union; CHANGELOG kept our rewrite).\n\nEpic branch: mutagen-hcs/hex-pm-publish-hygiene @ a751e3e (atop integrated main).\nFinal gates green: mix test --seed 0 643/0; mix format clean; deps.unlock clean; mix test.integration 4/0 (stream + archive + downstream + self_mutation — archive_install now passes from a dep-free .ez).\n\nNOT pushed / no PR — deliberate human checkpoint. Epic stays in_progress (phase:implementing) for the ship pipeline.\nOpen follow-up (NOT tracked yet, pending user): mutagen.ast spec.check verification command is stale (defp→def after wrd.25.2) — pre-existing, spec.validate passes, kept out of CI gates.",
       "timestamp": "2026-06-23T19:12:38Z"
+    },
+    {
+      "text": "MERGED TO MAIN (2026-06-24) — direct fast-forward + push per user direction (no version bump / no PR / no hex publish).\norigin/main: b31354f → 901e928 (clean ff; epic was a superset of main via the 0926844 integration).\n\nAll 10 children closed: .1 package files, .2 mix test --cover, .3 README versions, .4 baseline_red guard, .5 GitHub CI, .6 README JSON+CHANGELOG, .7 drop-telemetry/dep-free-archive, .8 --stream crash fix, .9 ast spec.check staleness, .10 deflake ast atom-count.\nFinal main gates: compile --warnings-as-errors clean, mix test --seed 0 643/0, telemetry confirmed absent from runtime deps.\n\nREMAINING (NOT staleness, NOT CI-gated, pre-existing — surfaced while fixing spec staleness):\n- ~44 `overlap/duplicate_covers` spec-binding overlaps across subjects (mutagen.ast/cli/coverage/json_schema/...). Pre-existing on main from the SpecLedEx corpus (mutagen-835); `mix spec.check` exits nonzero on these. NOT addressed (out of \"staleness\" scope). Candidate follow-up if a fully-green spec.check is desired.\n- The 5 `branch_guard_missing_subject_update` findings were branch-relative and resolved on merge (branch == main now).\n\nEpic left OPEN pending user decision (close as delivered-to-main, vs keep to track an actual hex publish).",
+      "timestamp": "2026-06-24T11:21:10Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "[EPIC] hex.pm publish — hygiene \u0026 correctness gaps",
   "type": "epic",
-  "updated_at": "2026-06-23T19:12:38Z"
+  "updated_at": "2026-06-24T11:21:10Z"
 }
