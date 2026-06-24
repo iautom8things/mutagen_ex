@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-24T11:05:11Z",
   "created": "2026-06-23T19:50:56Z",
   "description": "Pre-existing spec-tooling staleness surfaced during the mutagen-hcs epic (2026-06-23). `mix spec.check` reports status=fail errors=1: `mutagen.ast verification_command_failed` for `.spec/specs/ast.spec.md`.\n\n## Root cause\nThe subject mutagen.ast has a verification command `grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/`. The spec's INTENT (see r-statements ~L85-86, L181-185) is that ZERO private `defp` duplicates remain — the helpers were consolidated into PUBLIC `def alias_to_module/1` and `def find_module_body/2` in lib/mutagen_ex/ast.ex (mutagen-wrd.25). So 0 matches is the SUCCESS state. But a bare `grep` exits 1 on zero matches, which spec.check reads as verification_command_failed. The command's exit-code semantics are inverted relative to the requirement.\n\n## Fix (scope: .spec/specs/ast.spec.md only)\nUpdate ONLY the verification command so that \"0 private defp duplicates\" passes (exit 0). Match the spec's own prose at L181-185 which describes `grep -rn 'defp alias_to_module' lib/mutagen_ex/ | wc -l` returning 0. Use a form that exits 0 when there are zero duplicate `defp` definitions and non-zero only if a private duplicate reappears — e.g. a negated grep (`! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/`) or a `wc -l`-equals-0 test. Do NOT change the requirement text/intent, the other verification stubs, or any lib/test code. Keep the check genuinely meaningful: it must still FAIL if someone reintroduces a private `defp alias_to_module`/`defp find_module_body` in lib/mutagen_ex/.\n\n## Acceptance\n- `mix spec.check` =\u003e status=pass errors=0 (the mutagen.ast finding gone).\n- `mix spec.validate` still pass.\n- Verify the check still catches a regression: temporarily add a `defp alias_to_module(_), do: nil` somewhere under lib/mutagen_ex/ and confirm spec.check goes red again; remove it.\n- `make smoke` green.",
   "id": "mutagen-hcs.9",
@@ -22,7 +23,7 @@
     }
   ],
   "priority": 2,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Fix stale mutagen.ast spec.check verification command (defp-\u003edef consolidation, inverted exit code)",
   "type": "bug",
   "updated_at": "2026-06-24T11:05:11Z"
