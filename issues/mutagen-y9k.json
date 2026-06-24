@@ -6,9 +6,15 @@
   "description": "",
   "id": "mutagen-y9k",
   "labels": [],
+  "comments": [
+    {
+      "text": "Spun out of mutagen-ua9 during delivery of mutagen-33b. Found by the mutagen-33b.6 capstone full e2e run: test/mutagen_ex/golden/end_to_end_scenario_5_baseline_red.json is stale vs the baseline-red details map threaded through in mutagen-wrd.39.2 — actual details now carry message:\"baseline: N test failure(s) before any mutation\" + nested warnings:{count:0}; the committed golden lacks them. Producing code lib/mutagen_ex/baseline.ex:238 (long-standing). NOT mutagen-33b-attributable. Regenerate via: REGEN=1 mix test test/mutagen_ex/end_to_end_test.exs --only e2e_slow, review diff, commit.",
+      "timestamp": "2026-06-24T20:47:58Z"
+    }
+  ],
   "priority": 2,
   "status": "open",
   "title": "Stale golden: end_to_end_scenario_5_baseline_red.json (details message + warnings drift)",
   "type": "bug",
-  "updated_at": "2026-06-24T20:47:28Z"
+  "updated_at": "2026-06-24T20:47:58Z"
 }
