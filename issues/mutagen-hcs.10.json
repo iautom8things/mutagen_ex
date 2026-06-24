@@ -17,11 +17,15 @@
     {
       "text": "APPROVED (orchestrator). Flake fixed precisely: the racy global :atom_count delta is replaced with a per-target `assert_raise ArgumentError, fn -\u003e String.to_existing_atom(target) end` before AND after the call — concurrency-proof and a sharper statement of the r8 invariant. Independently verified: mix test green across seeds 0/13/99 (643/0 each); worker regression-proved it (adding String.to_atom(target) -\u003e test fails). spec.check VALIDATION is now errors=0 (staleness + flake gone). Scope: test/mutagen_ex/ast_test.exs only. Merging.\n\nResidual spec.check nonzero exit is NOT staleness/flake and does NOT block: 5 branch_guard_missing_subject_update (branch-relative vs origin/main — vanish on merge) + ~44 overlap/duplicate_covers (pre-existing on main from the SpecLedEx corpus). Tracking decision deferred to user.",
       "timestamp": "2026-06-24T11:18:22Z"
+    },
+    {
+      "text": "Merged --ff-only into epic. Gates green: mix test --seed 0 643/0 (+ seeds 13/99 green, no flake), format clean, deps.unlock clean. Closing.",
+      "timestamp": "2026-06-24T11:18:38Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "Deflake ast_test atom-count assertion (racy global :atom_count under async)",
   "type": "bug",
-  "updated_at": "2026-06-24T11:18:22Z"
+  "updated_at": "2026-06-24T11:18:38Z"
 }
