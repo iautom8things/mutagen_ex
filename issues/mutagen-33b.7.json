@@ -1,0 +1,15 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-24T16:08:56Z",
+  "description": "",
+  "id": "mutagen-33b.7",
+  "labels": [],
+  "parent": "mutagen-33b",
+  "priority": 2,
+  "status": "open",
+  "title": "Spec delta: document CF1 parallel outer-task restore sweep + CF2a experimental gate",
+  "type": "task",
+  "updated_at": "2026-06-24T16:08:56Z"
+}
