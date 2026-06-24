@@ -1,0 +1,14 @@
+{
+  "assignee": "",
+  "blocked_by": [],
+  "blocks": [],
+  "created": "2026-06-24T11:05:06Z",
+  "description": "",
+  "id": "mutagen-ua9",
+  "labels": [],
+  "priority": 2,
+  "status": "open",
+  "title": "mix spec.check red on main: mutagen.ast stale grep + mutagen.cli archive telemetry",
+  "type": "bug",
+  "updated_at": "2026-06-24T11:05:06Z"
+}
