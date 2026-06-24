@@ -14,11 +14,15 @@
     {
       "text": "ADDITIONAL pre-existing baseline item found 2026-06-24 during the mutagen-33b capstone (mutagen-33b.6) full e2e run (--include e2e_slow):\n- test/mutagen_ex/golden/end_to_end_scenario_5_baseline_red.json is STALE vs the baseline-red details map threaded through in mutagen-wrd.39.2. Actual details now carry \"message\":\"baseline: N test failure(s) before any mutation\" + nested \"warnings\":{\"count\":0}; the committed golden lacks them. Producing code lib/mutagen_ex/baseline.ex:238 (long-standing). Regenerate via `REGEN=1 mix test test/mutagen_ex/end_to_end_test.exs --only e2e_slow`. Orthogonal to the parallel-path correctness work; NOT epic-attributable (neither CF1 c8e5318 nor CF2a 4d343cf touches the golden/baseline.ex/to_wire/emit_abort path).",
       "timestamp": "2026-06-24T11:47:38Z"
+    },
+    {
+      "text": "INVESTIGATED 2026-06-24 on main @ 756c289 — both originally-tracked items VERIFIED RESOLVED:\n- mutagen.ast: dcf06ba rewrote the verification target to `! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/` (passes on ABSENCE). grep returns no match → command exits 0. GREEN.\n- mutagen.cli: `mix test test/integration/archive_install_test.exs --include archive_integration` now passes (1 test, 0 failures); archive builds and `mix mutagen` runs from the installed .ez (telemetry dropped as a runtime dep + hex packaging hygiene). GREEN.\nAlso: main 22a48cf disabled overlap/duplicate_covers for the facet-decomposed corpus, and mix spec.validate is errors=0. Closing this ticket — titled scope (ast/cli) is done. The scenario-5 baseline-red golden-drift addendum is spun out to its own ticket below.",
+      "timestamp": "2026-06-24T20:47:28Z"
     }
   ],
   "priority": 2,
   "status": "open",
   "title": "mix spec.check red on main: mutagen.ast stale grep + mutagen.cli archive telemetry",
   "type": "bug",
-  "updated_at": "2026-06-24T11:47:38Z"
+  "updated_at": "2026-06-24T20:47:28Z"
 }
