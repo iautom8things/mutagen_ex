@@ -2,6 +2,7 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
+  "closed_at": "2026-06-24T11:18:38Z",
   "created": "2026-06-24T11:05:12Z",
   "description": "Pre-existing flaky test surfaced after mutagen-hcs.9 fixed the ast spec verification grep (2026-06-24). It keeps `mix spec.check` intermittently red (mutagen.ast's `mix test test/mutagen_ex/ast_test.exs` verification command) AND can intermittently fail the new GitHub Actions CI (.5 runs `mix test` under a random seed).\n\n## Bug\ntest/mutagen_ex/ast_test.exs, test \"does NOT call String.to_atom on the target string (r8 invariant)\" (~line 135) snapshots the GLOBAL atom table:\n    before_count = :erlang.system_info(:atom_count)\n    assert Ast.find_module_body(ast, target) == :not_found\n    after_count = :erlang.system_info(:atom_count)\n    assert before_count == after_count\nast_test runs async with max_cases:20, so a CONCURRENT async test minting an atom between the two snapshots makes after_count \u003e before_count and the assertion fails (memory note: 37994 vs 37996). Passes in isolation, flakes in the full suite / under some seeds.\n\n## Fix (scope: test/mutagen_ex/ast_test.exs, and only if needed test_helper)\nMake the r8 atom-count invariant non-racy WITHOUT weakening what it checks (the real invariant: Ast.find_module_body must not call String.to_atom on the target). Preferred approaches, pick the soundest:\n- Make this specific test (or a dedicated describe block / the module) `async: false` so no other test runs concurrently during the atom-count window — simplest, keeps the global-counter check honest.\n- OR assert the invariant more robustly: e.g. call find_module_body many times in a tight loop and assert the atom count does not grow by N (a concurrent one-off atom mint is dwarfed), or check that the specific target atom was NOT created (`:erlang...`/catch ArgumentError on `String.to_existing_atom(target)` after the call) rather than a global delta.\nKeep the test meaningful: it must still FAIL if find_module_body ever calls String.to_atom on the target.\n\n## Acceptance\n- `mix spec.check` =\u003e status=pass errors=0 (mutagen.ast green; run it a few times to confirm no flake).\n- The test still catches a regression: temporarily make find_module_body call String.to_atom(target) and confirm the test fails; revert.\n- `mix test` green across several seeds (e.g. seeds 0, 1, 42, plus a couple random) AND `make smoke` green repeated runs.",
   "id": "mutagen-hcs.10",
@@ -22,7 +23,7 @@
     }
   ],
   "priority": 1,
-  "status": "in_progress",
+  "status": "closed",
   "title": "Deflake ast_test atom-count assertion (racy global :atom_count under async)",
   "type": "bug",
   "updated_at": "2026-06-24T11:18:38Z"
