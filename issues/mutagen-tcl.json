@@ -12,11 +12,15 @@
     {
       "text": "PIVOT (2026-06-24, user-directed): the original single-owner consolidation approach was found to WEAKEN the spec. The 27 overlaps are NOT redundancy — they are intentional facet-decomposed scenarios (e.g. cli.r10's --json path-safety contract is covered by s10a traversal / s10b NUL / s10c symlink-escape / s10d symlink-inside / s10e opt-out). Consolidating to one canonical owner orphaned 29 scenarios to `covers: []` and made broad requirements under-represented; the authorizing ADR also mischaracterized them as \"redundant\". That branch was discarded.\n\nResolution: relaxed the overlap policy instead. .spec/config.yml `overlap/duplicate_covers: error -\u003e off`. (warning/info don't work: spec.check raises on ANY branch finding regardless of severity; only `off` drops the finding.) Specs are 100% untouched — all facet covers bindings preserved, zero weakening. requirement_deleted (error) still guards real deletions.\n\nResult: mix spec.check exits 0 (status=pass errors=0 warnings=0); spec.validate pass; mix test --seed 0 643/0. Diff vs main = .spec/config.yml only.",
       "timestamp": "2026-06-24T14:26:52Z"
+    },
+    {
+      "text": "Merged to main (ff): origin/main 901e928 -\u003e 22a48cf. spec.check exits 0 on the clean committed tree (verified by stashing untracked scratch); spec.validate pass; mix test --seed 0 643/0. Specs untouched (no weakening). Closing.",
+      "timestamp": "2026-06-24T14:33:14Z"
     }
   ],
   "priority": 2,
   "status": "in_progress",
   "title": "Resolve 27 duplicate_covers spec-binding overlaps (mix spec.check fully green)",
   "type": "task",
-  "updated_at": "2026-06-24T14:26:52Z"
+  "updated_at": "2026-06-24T14:33:14Z"
 }
