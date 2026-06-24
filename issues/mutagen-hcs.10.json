@@ -1,5 +1,5 @@
 {
-  "assignee": "",
+  "assignee": "Manuel Zubieta",
   "blocked_by": [],
   "blocks": [],
   "created": "2026-06-24T11:05:12Z",
@@ -8,8 +8,8 @@
   "labels": [],
   "parent": "mutagen-hcs",
   "priority": 1,
-  "status": "open",
+  "status": "in_progress",
   "title": "Deflake ast_test atom-count assertion (racy global :atom_count under async)",
   "type": "bug",
-  "updated_at": "2026-06-24T11:05:12Z"
+  "updated_at": "2026-06-24T11:05:56Z"
 }
