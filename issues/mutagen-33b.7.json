@@ -6,7 +6,7 @@
   "description": "",
   "id": "mutagen-33b.7",
   "labels": [
-    "phase:implementing"
+    "phase:merging"
   ],
   "parent": "mutagen-33b",
   "comments": [
@@ -27,5 +27,5 @@
   "status": "in_progress",
   "title": "Spec delta: document CF1 parallel outer-task restore sweep + CF2a experimental gate",
   "type": "task",
-  "updated_at": "2026-06-24T16:26:10Z"
+  "updated_at": "2026-06-24T16:26:11Z"
 }
