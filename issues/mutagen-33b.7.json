@@ -5,7 +5,9 @@
   "created": "2026-06-24T16:08:56Z",
   "description": "",
   "id": "mutagen-33b.7",
-  "labels": [],
+  "labels": [
+    "phase:implementing"
+  ],
   "parent": "mutagen-33b",
   "comments": [
     {
