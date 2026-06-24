@@ -48,6 +48,7 @@ decisions:
   - mutagen.decision.per_run_beam_cache
   - mutagen.decision.code_server_facade
   - mutagen.decision.drop_telemetry_event_api
+  - mutagen.decision.parallel_experimental_gate
 realized_by:
   api_boundary:
     - "MutagenEx.Baseline"
@@ -380,6 +381,67 @@ realized_by:
 
     Closes F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per
     site → one walk per file. *(mutagen-wrd.25.5.)*
+
+- id: mutagen.mutation_pipeline.r17
+  priority: must
+  statement: |
+    Under `cfg.max_concurrency > 1`, when the `async_stream_nolink/4`
+    fold observes an `{:exit, reason}` for a per-site outer task (a
+    per-site worker killed or aborted out-of-band — e.g. the
+    supervisor terminated it), `MutationRunner.run/1` does NOT restore
+    inside that fold branch. It halts the ordered stream with a
+    `{:outer_task_exit, reason, task_sup}` sentinel and runs cleanup in
+    the post-reduce step via `abort_after_outer_task_exit/3`, which
+    performs two strictly-ordered phases:
+      1. Tear down and drain every sibling per-site `Task.Supervisor`
+         child: `Task.Supervisor.terminate_child/2` each live child of
+         `task_sup`, then poll until the supervisor reports no children
+         (bounded retry).
+      2. ONLY AFTER the drain completes, sweep ALL scoped modules
+         (`cfg.scope_records`, de-duplicated by module) through
+         `MutagenEx.BeamCache` restore (per r6: `:code.load_binary/3`
+         against the per-run snapshot, never `Code.compile_quoted/2`).
+    The ordering is the invariant: the restore sweep is never
+    concurrent with a live sibling worker, because a sweep that loaded
+    an original binary over a module a sibling is still testing its
+    mutant on would corrupt that sibling's classification (the same
+    shared-Code.Server hazard r15's caveat and r4's timeout-purge
+    address, here for out-of-band worker death rather than timeout).
+    A killed parallel worker therefore leaves NO module loaded as its
+    mutant once `run/1` returns. The outer-task exit is itself an
+    unrecoverable run condition: `run/1` aborts with an error-shaped
+    JSON `reason: :unrecoverable_restore_failure` whose `message` names
+    the outer-task exit; if the post-teardown restore sweep ALSO fails,
+    the message additionally names the restore failure (it is not
+    silently discarded). See r6 (BeamCache restore), r4 (purge-before-
+    restore on timeout), r15 (parallel dispatch + shared-global-state
+    caveat), and
+    [`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).
+
+- id: mutagen.mutation_pipeline.r18
+  priority: must
+  statement: |
+    When the resolved `max_concurrency` (per r15's `nil → 1` resolution)
+    is greater than `1`, `MutationRunner.run/1` emits a ONE-TIME
+    EXPERIMENTAL warning to `:stderr` before dispatch. The warning names
+    the concrete risk — incorrect kill/survive classification and
+    corrupted coverage on real ExUnit/`:cover` backends — and states
+    that the safe path is the default, `--max-concurrency 1`. The
+    warning is emitted at most once per `run/1` (not once per site).
+    When the resolved `max_concurrency == 1`, the runner is SILENT: no
+    EXPERIMENTAL warning is written to stderr.
+
+    This is the gate half of the parallel-mode fork: the default
+    remains the fully-serial, v1.0-equivalent `max_concurrency == 1`
+    (r15), and `> 1` is offered as a warned, opt-in path rather than
+    blocked. The user-facing documentation mirrors the gate: `mix help
+    mutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`
+    option text) and the README both mark `--max-concurrency > 1`
+    EXPERIMENTAL with the same risk language. The real fix for the
+    shared-global-state hazard (OS-process sharding so each shard owns
+    its own ExUnit server, Code.Server, and `:cover` state) is
+    deliberately deferred; see
+    [`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).
 ```
 
 ```spec-scenarios
@@ -559,6 +621,28 @@ realized_by:
   then:
     - "Neither worker triggers a snapshot during its task body — both read from the pre-populated table. `code_server.get_object_code/1` is invoked once per distinct scoped module during the pre-pass and zero times during the per-site loop."
     - "The TOCTOU window between \"current module load state\" and \"snapshot capture\" is therefore closed at the run boundary: even under `--max-concurrency > 1`, no two workers can race to snapshot the same module."
+
+- id: mutagen.mutation_pipeline.s18
+  covers: [mutagen.mutation_pipeline.r17]
+  given:
+    - "`cfg.max_concurrency` is 2, with two sites against the same scoped (snapshotted) module: a `crash` site whose mutated-AST compile causes its per-site outer task to exit, and a `blocking` site whose worker has started and is still live when the crash exit is observed."
+    - The snapshot ETS table holds the original `{module, filename, binary}` for that module (captured by the pre-pass).
+  when:
+    - "`MutationRunner.run/1` executes and the ordered `async_stream_nolink/4` fold observes the crash site's `{:exit, reason}`."
+  then:
+    - "`run/1` returns `{:error, :unrecoverable_restore_failure, %{message: msg}}` where `msg` contains `\"per-site outer task exited\"`."
+    - "The restore sweep invokes the `code_server` `load_binary/3` callback exactly once for that module with the snapshot's original `{module, filename, binary}` triple — and at the moment that call is recorded, the task supervisor has NO live children (the sibling `blocking` worker was already torn down and drained). The recorded `live_children` for the restore call is `[]`."
+    - The `blocking` worker is observed to have started before the teardown (the sweep tore down a genuinely live sibling, not a never-started one).
+
+- id: mutagen.mutation_pipeline.s19
+  covers: [mutagen.mutation_pipeline.r18]
+  given:
+    - A deterministic test backend that classifies every site as a passing run.
+  when:
+    - "`MutationRunner.run/1` runs once with `max_concurrency: 3` (stderr captured), and once with `max_concurrency: 1` (stderr captured)."
+  then:
+    - "Under `max_concurrency: 3`, stderr contains the EXPERIMENTAL warning exactly once: it names `--max-concurrency > 1 is EXPERIMENTAL`, `incorrect kill/survive classification`, `corrupted coverage`, and the safe-path phrase `default, --max-concurrency 1`. A single-line count of the warning marker is `1` (one-time, not per-site across the 3 sites)."
+    - "Under `max_concurrency: 1`, captured stderr is empty (`\"\"`): no EXPERIMENTAL warning is emitted."
 ```
 
 ```spec-verification
@@ -633,4 +717,18 @@ realized_by:
   execute: true
   covers:
     - mutagen.mutation_pipeline.r6
+
+- id: mutagen.mutation_pipeline.v10
+  kind: command
+  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:"outer task crash restore sweep"
+  execute: true
+  covers:
+    - mutagen.mutation_pipeline.r17
+
+- id: mutagen.mutation_pipeline.v11
+  kind: command
+  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:"experimental parallel-mode warning"
+  execute: true
+  covers:
+    - mutagen.mutation_pipeline.r18
 ```

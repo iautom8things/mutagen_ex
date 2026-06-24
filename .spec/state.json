@@ -126,6 +126,17 @@
       },
       {
         "affects": [
+          "mutagen.mutation_pipeline",
+          "mutagen.cli"
+        ],
+        "date": "2026-06-24",
+        "file": ".spec/decisions/parallel_experimental_gate.md",
+        "id": "mutagen.decision.parallel_experimental_gate",
+        "status": "accepted",
+        "title": "Gate `--max-concurrency > 1` as experimental now; defer real isolation to CF2b"
+      },
+      {
+        "affects": [
           "mutagen.mutation_pipeline"
         ],
         "date": "2026-05-15",
@@ -674,7 +685,21 @@
         "file": ".spec/specs/mutation_pipeline.spec.md",
         "id": "mutagen.mutation_pipeline.r16",
         "priority": "must",
-        "statement": "`MutationRunner.run/1` builds a per-file path index once before\nthe per-site loop begins (one `Macro.prewalk/2` per distinct file\nin `cfg.sites`, regardless of site count) and uses\n`apply_swap_at_path/3` — an `O(depth)` descent along the cached\npath — to produce each site's mutated file AST. The per-file\npath index is keyed by `site.id` (the content-addressed site ID\nper mutagen.decision.content_addressed_ids) so duplicate-position\nsites do not collide.\n\nByte-identity contract: for every site, the mutated file AST\nproduced by the batched path is byte-for-byte identical to the\nfile AST that an unconditional per-site `Macro.prewalk/2` would\nhave produced (the legacy reference walker, preserved as a\nfallback). The legacy reference path is invoked when the path\nindex lacks an entry for `site.id` — for bare-literal sites\n(`Literal` mutator on a raw integer or boolean; `ResultTuple`\ntargeting bare booleans) whose `original_ast` carries no\nmetadata of its own, or for any caller that did not pre-populate\nthe path index. Bare-literal sites resolve via the\nambient-threading walker (`replace_bare_site/2`) that mirrors\n`MutagenEx.MutationEnumerator.walk_tree/6`'s descent rules.\n\nThe pre-compute is internal to `MutationRunner` and is NOT a\npublic input — callers that pass a custom `cfg` without\n`:mutated_ast_cache` retain the v1.0 swap semantics via the\nfallback. The cache lives only for the duration of `run/1`.\n\nCloses F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per\nsite → one walk per file. *(mutagen-wrd.25.5.)*",
+        "statement": "`MutationRunner.run/1` builds a per-file path index once before\nthe per-site loop begins (one `Macro.prewalk/2` per distinct file\nin `cfg.sites`, regardless of site count) and uses\n`apply_swap_at_path/3` — an `O(depth)` descent along the cached\npath — to produce each site's mutated file AST. The per-file\npath index is keyed by `site.id` (the content-addressed site ID\nper mutagen.decision.content_addressed_ids) so duplicate-position\nsites do not collide.\n\nByte-identity contract: for every site, the mutated file AST\nproduced by the batched path is byte-for-byte identical to the\nfile AST that an unconditional per-site `Macro.prewalk/2` would\nhave produced (the legacy reference walker, preserved as a\nfallback). The legacy reference path is invoked when the path\nindex lacks an entry for `site.id` — for bare-literal sites\n(`Literal` mutator on a raw integer or boolean; `ResultTuple`\ntargeting bare booleans) whose `original_ast` carries no\nmetadata of its own, or for any caller that did not pre-populate\nthe path index. Bare-literal sites resolve via the\nambient-threading walker (`replace_bare_site/2`) that mirrors\n`MutagenEx.MutationEnumerator.walk_tree/6`'s descent rules.\n\nThe pre-compute is internal to `MutationRunner` and is NOT a\npublic input — callers that pass a custom `cfg` without\n`:mutated_ast_cache` retain the v1.0 swap semantics via the\nfallback. The cache lives only for the duration of `run/1`.\n\nCloses F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per\nsite → one walk per file. *(mutagen-wrd.25.5.)*\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r17",
+        "priority": "must",
+        "statement": "Under `cfg.max_concurrency > 1`, when the `async_stream_nolink/4`\nfold observes an `{:exit, reason}` for a per-site outer task (a\nper-site worker killed or aborted out-of-band — e.g. the\nsupervisor terminated it), `MutationRunner.run/1` does NOT restore\ninside that fold branch. It halts the ordered stream with a\n`{:outer_task_exit, reason, task_sup}` sentinel and runs cleanup in\nthe post-reduce step via `abort_after_outer_task_exit/3`, which\nperforms two strictly-ordered phases:\n  1. Tear down and drain every sibling per-site `Task.Supervisor`\n     child: `Task.Supervisor.terminate_child/2` each live child of\n     `task_sup`, then poll until the supervisor reports no children\n     (bounded retry).\n  2. ONLY AFTER the drain completes, sweep ALL scoped modules\n     (`cfg.scope_records`, de-duplicated by module) through\n     `MutagenEx.BeamCache` restore (per r6: `:code.load_binary/3`\n     against the per-run snapshot, never `Code.compile_quoted/2`).\nThe ordering is the invariant: the restore sweep is never\nconcurrent with a live sibling worker, because a sweep that loaded\nan original binary over a module a sibling is still testing its\nmutant on would corrupt that sibling's classification (the same\nshared-Code.Server hazard r15's caveat and r4's timeout-purge\naddress, here for out-of-band worker death rather than timeout).\nA killed parallel worker therefore leaves NO module loaded as its\nmutant once `run/1` returns. The outer-task exit is itself an\nunrecoverable run condition: `run/1` aborts with an error-shaped\nJSON `reason: :unrecoverable_restore_failure` whose `message` names\nthe outer-task exit; if the post-teardown restore sweep ALSO fails,\nthe message additionally names the restore failure (it is not\nsilently discarded). See r6 (BeamCache restore), r4 (purge-before-\nrestore on timeout), r15 (parallel dispatch + shared-global-state\ncaveat), and\n[`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r18",
+        "priority": "must",
+        "statement": "When the resolved `max_concurrency` (per r15's `nil → 1` resolution)\nis greater than `1`, `MutationRunner.run/1` emits a ONE-TIME\nEXPERIMENTAL warning to `:stderr` before dispatch. The warning names\nthe concrete risk — incorrect kill/survive classification and\ncorrupted coverage on real ExUnit/`:cover` backends — and states\nthat the safe path is the default, `--max-concurrency 1`. The\nwarning is emitted at most once per `run/1` (not once per site).\nWhen the resolved `max_concurrency == 1`, the runner is SILENT: no\nEXPERIMENTAL warning is written to stderr.\n\nThis is the gate half of the parallel-mode fork: the default\nremains the fully-serial, v1.0-equivalent `max_concurrency == 1`\n(r15), and `> 1` is offered as a warned, opt-in path rather than\nblocked. The user-facing documentation mirrors the gate: `mix help\nmutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`\noption text) and the README both mark `--max-concurrency > 1`\nEXPERIMENTAL with the same risk language. The real fix for the\nshared-global-state hazard (OS-process sharding so each shard owns\nits own ExUnit server, Code.Server, and `:cover` state) is\ndeliberately deferred; see\n[`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).",
         "subject_id": "mutagen.mutation_pipeline"
       },
       {
@@ -2254,6 +2279,44 @@
       },
       {
         "covers": [
+          "mutagen.mutation_pipeline.r17"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "`cfg.max_concurrency` is 2, with two sites against the same scoped (snapshotted) module: a `crash` site whose mutated-AST compile causes its per-site outer task to exit, and a `blocking` site whose worker has started and is still live when the crash exit is observed.",
+          "The snapshot ETS table holds the original `{module, filename, binary}` for that module (captured by the pre-pass)."
+        ],
+        "id": "mutagen.mutation_pipeline.s18",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "`run/1` returns `{:error, :unrecoverable_restore_failure, %{message: msg}}` where `msg` contains `\"per-site outer task exited\"`.",
+          "The restore sweep invokes the `code_server` `load_binary/3` callback exactly once for that module with the snapshot's original `{module, filename, binary}` triple — and at the moment that call is recorded, the task supervisor has NO live children (the sibling `blocking` worker was already torn down and drained). The recorded `live_children` for the restore call is `[]`.",
+          "The `blocking` worker is observed to have started before the teardown (the sweep tore down a genuinely live sibling, not a never-started one)."
+        ],
+        "when": [
+          "`MutationRunner.run/1` executes and the ordered `async_stream_nolink/4` fold observes the crash site's `{:exit, reason}`."
+        ]
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r18"
+        ],
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "given": [
+          "A deterministic test backend that classifies every site as a passing run."
+        ],
+        "id": "mutagen.mutation_pipeline.s19",
+        "subject_id": "mutagen.mutation_pipeline",
+        "then": [
+          "Under `max_concurrency: 3`, stderr contains the EXPERIMENTAL warning exactly once: it names `--max-concurrency > 1 is EXPERIMENTAL`, `incorrect kill/survive classification`, `corrupted coverage`, and the safe-path phrase `default, --max-concurrency 1`. A single-line count of the warning marker is `1` (one-time, not per-site across the 3 sites).",
+          "Under `max_concurrency: 1`, captured stderr is empty (`\"\"`): no EXPERIMENTAL warning is emitted."
+        ],
+        "when": [
+          "`MutationRunner.run/1` runs once with `max_concurrency: 3` (stderr captured), and once with `max_concurrency: 1` (stderr captured)."
+        ]
+      },
+      {
+        "covers": [
           "mutagen.mutation_pipeline.r3"
         ],
         "file": ".spec/specs/mutation_pipeline.spec.md",
@@ -2947,7 +3010,8 @@
             "mutagen.decision.supervision_tree",
             "mutagen.decision.per_run_beam_cache",
             "mutagen.decision.code_server_facade",
-            "mutagen.decision.drop_telemetry_event_api"
+            "mutagen.decision.drop_telemetry_event_api",
+            "mutagen.decision.parallel_experimental_gate"
           ],
           "id": "mutagen.mutation_pipeline",
           "kind": "workflow",
@@ -3573,6 +3637,26 @@
       },
       {
         "covers": [
+          "mutagen.mutation_pipeline.r17"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:\"outer task crash restore sweep\""
+      },
+      {
+        "covers": [
+          "mutagen.mutation_pipeline.r18"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:\"experimental parallel-mode warning\""
+      },
+      {
+        "covers": [
           "mutagen.mutators.r1",
           "mutagen.mutators.r2",
           "mutagen.mutators.r7"
@@ -3880,13 +3964,13 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 20,
+    "decisions": 21,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 96,
-    "scenarios": 108,
+    "requirements": 98,
+    "scenarios": 110,
     "subjects": 9,
-    "verifications": 63
+    "verifications": 65
   },
   "verification": {
     "claims": [
@@ -4738,6 +4822,28 @@
         "verification_index": 8
       },
       {
+        "cover_id": "mutagen.mutation_pipeline.r17",
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:\"outer task crash restore sweep\"",
+        "verification_index": 9
+      },
+      {
+        "cover_id": "mutagen.mutation_pipeline.r18",
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:\"experimental parallel-mode warning\"",
+        "verification_index": 10
+      },
+      {
         "cover_id": "mutagen.mutators.r1",
         "file": ".spec/specs/mutators.spec.md",
         "kind": "command",
@@ -5050,13 +5156,13 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 1,
-      "executed": 104,
+      "executed": 106,
       "linked": 0
     },
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 20,
+    "decision_count": 21,
     "spec_count": 9
   }
 }
