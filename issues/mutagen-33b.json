@@ -21,11 +21,15 @@
     {
       "text": "ORCHESTRATED\nChildren closed: 3 (mutagen-33b.1 CF1, mutagen-33b.2 CF2a, mutagen-33b.6 capstone)\nBOUNCEs encountered: 0 (no quality bounces; the early WORKER_ERRORs were a poisoned project gate — mix spec.check pre-existing red — resolved by delta-gating, not a bounce; one noclobber re-spawn was an orchestrator wiring fix; one clean rebase of .1 over .2 for the shared test file)\nUser escalations: 0 (planning decisions only: epic base, worker mode, gate policy)\nDeferred (not driven, per epic scope): mutagen-33b.3 CF2b (P2, blocked cross-epic by mutagen-33b.5, unactionable build-gate)\nPre-existing baseline tracked out-of-scope: mutagen-ua9 (mix spec.check red on mutagen.ast stale grep + mutagen.cli archive telemetry; plus stale scenario-5 baseline-red golden)\n\nEpic branch mutagen-33b/tier1-review-hardening @ 249d377 contains both fixes, integrated, smoke + capstone green. Worker mode: Codex (personal) implementers; Claude verify/audit/rebase. Epic LEFT in_progress (phase:implementing) for the ship pipeline — epic-branch -\u003e main PR is a deliberate human checkpoint.",
       "timestamp": "2026-06-24T11:48:26Z"
+    },
+    {
+      "text": "GATE RE-EVALUATION (2026-06-24, after rebase onto current main 84f90a5):\n- Epic rebased clean onto main; now 4 commits on top (CF2a, CF1, state-regen, spec-delta mutagen-33b.7). main is a clean ancestor. mix test 645/0, compile --warnings-as-errors clean, format + deps gates green.\n- The original delta-gate is RETIRED: main's fixes resolved the old mutagen.ast/mutagen.cli verification_command_failed errors; spec.validate now passes errors=0 warnings=0.\n- Bucket A (~29 overlap/duplicate_covers) ELIMINATED: main 22a48cf disabled that check for the facet-decomposed corpus (.spec/config.yml).\n- Bucket B (branch-guard: code-without-spec) CLEARED by mutagen-33b.7 spec delta (r17 CF1 restore-sweep ordering, r18 CF2a experimental gate, decision parallel_experimental_gate).\n- mix spec.check residual = 1 finding: [WARNING] branch_guard_unmapped_change README.md (README not mapped to any subject — repo-wide gap; config.yml line 51 sets this severity=warning). errors=0.\n\nNet: spec.check has zero ERRORs; the only finding is a project-designated advisory warning about README subject-mapping, independent of this epic's correctness work.",
+      "timestamp": "2026-06-24T16:31:51Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[EPIC] Parallel-path correctness hardening (gate + warn; real isolation deferred)",
   "type": "task",
-  "updated_at": "2026-06-24T11:48:26Z"
+  "updated_at": "2026-06-24T16:31:51Z"
 }
