@@ -30,6 +30,7 @@ surface:
 decisions:
   - mutagen.decision.validate_predicates
   - mutagen.decision.static_mutator_dispatch
+  - mutagen.decision.adoption_polish_efficacy
 realized_by:
   api_boundary:
     - "MutagenEx.MutationEnumerator"
@@ -199,15 +200,18 @@ realized_by:
 
 - id: mutagen.mutation_enumeration.s4
   covers: [mutagen.mutation_enumeration.r4]
-  given: |
-    `lib/multi.ex` defines `Mod.A` and `Mod.B`. Another file defines
-    `Outer` with nested `defmodule Inner`. The scope record targets only
-    `Mod.A` or the fully qualified nested module `Outer.Inner`.
-  when: The enumerator runs.
-  then: |
-    Every emitted site's AST hash belongs to a node inside the targeted
-    `defmodule` block; no site has a hash from sibling modules' ASTs, and
-    a nested module is not looked up by the unqualified `Inner` name.
+  given:
+    - |
+      `lib/multi.ex` defines `Mod.A` and `Mod.B`. Another file defines
+      `Outer` with nested `defmodule Inner`. The scope record targets only
+      `Mod.A` or the fully qualified nested module `Outer.Inner`.
+  when:
+    - The enumerator runs.
+  then:
+    - |
+      Every emitted site's AST hash belongs to a node inside the targeted
+      `defmodule` block; no site has a hash from sibling modules' ASTs, and
+      a nested module is not looked up by the unqualified `Inner` name.
 
 - id: mutagen.mutation_enumeration.s5
   covers: [mutagen.mutation_enumeration.r5]

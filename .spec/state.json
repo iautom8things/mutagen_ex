@@ -21,6 +21,20 @@
       },
       {
         "affects": [
+          "mutagen.ast",
+          "mutagen.mutation_enumeration",
+          "mutagen.scope_resolution",
+          "mutagen.mutation_pipeline",
+          "mutagen.cli"
+        ],
+        "date": "2026-06-25",
+        "file": ".spec/decisions/adoption_polish_efficacy.md",
+        "id": "mutagen.decision.adoption_polish_efficacy",
+        "status": "accepted",
+        "title": "Adoption-polish efficacy findings: nested-module qualification + app-shaped timeout default"
+      },
+      {
+        "affects": [
           "mutagen.coverage"
         ],
         "date": "2026-05-15",
@@ -251,7 +265,7 @@
         "file": ".spec/specs/ast.spec.md",
         "id": "mutagen.ast.r2",
         "priority": "must",
-        "statement": "`MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name\nstring `target_mod_str` and returns `{:ok, body_ast}` if a node\n`{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose\n`alias_to_module(alias_ast) |> Atom.to_string()` (with the `Elixir.`\nprefix stripped) equals `target_mod_str`. Otherwise it returns\n`:not_found`. The function is total: it never raises, throws, or exits.\n",
+        "statement": "`MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name\nstring `target_mod_str` and returns `{:ok, body_ast}` if a node\n`{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose\nlexical module name (including enclosing `defmodule` parents for nested\ndefinitions) equals `target_mod_str`, comparing both `Elixir.*` and\nprefix-stripped forms. Otherwise it returns `:not_found`. The function\nis total: it never raises, throws, or exits.\n",
         "subject_id": "mutagen.ast"
       },
       {
@@ -272,7 +286,7 @@
         "file": ".spec/specs/ast.spec.md",
         "id": "mutagen.ast.r5",
         "priority": "should",
-        "statement": "For every AST shape currently handled by any donor's pre-`.25`\n`alias_to_module/1` or `find_module_body/2`, the lifted version returns\nthe same result. This is the donor-equivalence invariant — a property-\nstyle test exercises a representative AST corpus and asserts identical\noutput across donor and lifted versions.",
+        "statement": "For every AST shape currently handled by any donor's pre-`.25`\n`alias_to_module/1` or `find_module_body/2`, the lifted version returns\nthe same result, except that nested `defmodule` lookup follows\n`mutagen.ast.r2` lexical qualification semantics: the lifted helper finds\n`Outer.Inner` and does not match unqualified `Inner`, while the preserved\ndonor records its legacy AST-alias-only match for `Inner`. This is the\ndonor-equivalence invariant — a property-style test exercises a\nrepresentative AST corpus and asserts identical output across donor and\nlifted versions outside that documented nested-module carve-out.",
         "subject_id": "mutagen.ast"
       },
       {
@@ -342,7 +356,7 @@
         "file": ".spec/specs/cli.spec.md",
         "id": "mutagen.cli.r3",
         "priority": "must",
-        "statement": "`--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.\nDefault is 5000. Non-positive or non-integer values cause an error-JSON\nexit before any pipeline phase runs.\n",
+        "statement": "`--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.\nDefault is 30000. Non-positive or non-integer values cause an error-JSON\nexit before any pipeline phase runs.\n",
         "subject_id": "mutagen.cli"
       },
       {
@@ -594,7 +608,7 @@
         "file": ".spec/specs/mutation_enumeration.spec.md",
         "id": "mutagen.mutation_enumeration.r4",
         "priority": "must",
-        "statement": "For multi-`defmodule` files, enumeration only walks the in-scope module's\nAST sub-tree. Sibling modules' nodes never appear as candidate sites.\n",
+        "statement": "For multi-`defmodule` files, enumeration only walks the in-scope module's\nAST sub-tree. Sibling modules' nodes never appear as candidate sites.\nIf a `defmodule` is nested inside another `defmodule`, the nested\nmodule is matched by its fully qualified module name\n(`Outer.Inner`), not by the unqualified inner alias (`Inner`).\n",
         "subject_id": "mutagen.mutation_enumeration"
       },
       {
@@ -699,7 +713,14 @@
         "file": ".spec/specs/mutation_pipeline.spec.md",
         "id": "mutagen.mutation_pipeline.r18",
         "priority": "must",
-        "statement": "When the resolved `max_concurrency` (per r15's `nil → 1` resolution)\nis greater than `1`, `MutationRunner.run/1` emits a ONE-TIME\nEXPERIMENTAL warning to `:stderr` before dispatch. The warning names\nthe concrete risk — incorrect kill/survive classification and\ncorrupted coverage on real ExUnit/`:cover` backends — and states\nthat the safe path is the default, `--max-concurrency 1`. The\nwarning is emitted at most once per `run/1` (not once per site).\nWhen the resolved `max_concurrency == 1`, the runner is SILENT: no\nEXPERIMENTAL warning is written to stderr.\n\nThis is the gate half of the parallel-mode fork: the default\nremains the fully-serial, v1.0-equivalent `max_concurrency == 1`\n(r15), and `> 1` is offered as a warned, opt-in path rather than\nblocked. The user-facing documentation mirrors the gate: `mix help\nmutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`\noption text) and the README both mark `--max-concurrency > 1`\nEXPERIMENTAL with the same risk language. The real fix for the\nshared-global-state hazard (OS-process sharding so each shard owns\nits own ExUnit server, Code.Server, and `:cover` state) is\ndeliberately deferred; see\n[`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).",
+        "statement": "When the resolved `max_concurrency` (per r15's `nil → 1` resolution)\nis greater than `1`, `MutationRunner.run/1` emits a ONE-TIME\nEXPERIMENTAL warning to `:stderr` before dispatch. The warning names\nthe concrete risk — incorrect kill/survive classification and\ncorrupted coverage on real ExUnit/`:cover` backends — and states\nthat the safe path is the default, `--max-concurrency 1`. The\nwarning is emitted at most once per `run/1` (not once per site).\nWhen the resolved `max_concurrency == 1`, the runner is SILENT: no\nEXPERIMENTAL warning is written to stderr.\n\nThis is the gate half of the parallel-mode fork: the default\nremains the fully-serial, v1.0-equivalent `max_concurrency == 1`\n(r15), and `> 1` is offered as a warned, opt-in path rather than\nblocked. The user-facing documentation mirrors the gate: `mix help\nmutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`\noption text) and the README both mark `--max-concurrency > 1`\nEXPERIMENTAL with the same risk language. The real fix for the\nshared-global-state hazard (OS-process sharding so each shard owns\nits own ExUnit server, Code.Server, and `:cover` state) is\ndeliberately deferred; see\n[`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).\n",
+        "subject_id": "mutagen.mutation_pipeline"
+      },
+      {
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "id": "mutagen.mutation_pipeline.r19",
+        "priority": "must",
+        "statement": "The per-mutation timeout the pipeline enforces (r4's `Config.timeout_ms`)\nhas a default of `30_000` ms when `--timeout-ms` is not supplied. The\ndefault is tuned for app-shaped (Phoenix/Ecto) projects, where a single\nmutation cycle's setup plus supplemental tests can exceed five seconds\nand would otherwise be spuriously classified `:timeout`. The\n`Mix.Tasks.Mutagen` `@moduledoc` / `--timeout-ms` option text and the\nREADME both state the `30_000` ms default and the app-shaped rationale.\nThe value is the CLI default only — it does not change the timeout\nmechanism (r4) or any classification contract; callers still override it\nper run via `--timeout-ms`.",
         "subject_id": "mutagen.mutation_pipeline"
       },
       {
@@ -823,6 +844,13 @@
       },
       {
         "file": ".spec/specs/scope_resolution.spec.md",
+        "id": "mutagen.scope_resolution.r10",
+        "priority": "must",
+        "statement": "Nested `defmodule` blocks resolve under their fully qualified module\natoms. For a file whose source nests `defmodule Inner` inside\n`defmodule Outer`, file-shaped resolution returns one record per block\nwith `module` atoms `Outer` and `Outer.Inner` (never the unqualified\n`Inner`), and each `line_range` covers only that block. A module-shaped\ntarget for a nested module MUST use the fully qualified name\n(`Outer.Inner`); the unqualified inner name (`Inner`) does not match and\nreturns `reason: :module_not_found`. This mirrors the AST-layer\nnested-module qualification carve-out (mutagen.ast.r2 /\nmutagen.mutation_enumeration.r4) at the resolver boundary.",
+        "subject_id": "mutagen.scope_resolution"
+      },
+      {
+        "file": ".spec/specs/scope_resolution.spec.md",
         "id": "mutagen.scope_resolution.r2",
         "priority": "must",
         "statement": "A scope target of shape `Module.Name` (no slash, no leading lib path)\nresolves to exactly one record covering the matching `defmodule` block.\nIf no such module exists in the project source, the resolver returns a\nstructured error with `reason: :module_not_found`.\n",
@@ -874,7 +902,7 @@
         "file": ".spec/specs/scope_resolution.spec.md",
         "id": "mutagen.scope_resolution.r9",
         "priority": "must",
-        "statement": "For module-shaped and MFA-shaped targets, when no explicit\n`:source_files` option is supplied, the default\n`Path.wildcard(\"lib/**/*.ex\")` result is sorted lexicographically\n(via `Enum.sort/1`) before being searched. This closes the F30 / CF7\ndeterminism risk: `Path.wildcard/1`'s order is file-system-dependent\n(HFS+ sorts; ext4 returns inode order), so two hosts could otherwise\npick a different file when multiple sources happen to declare the\nsame `defmodule`. The sort makes the chosen file deterministic across\nhosts, preserving the byte-identical-output gate in\n`mutagen.mutation_pipeline.r15`. Callers passing an explicit\n`:source_files` list are not re-sorted — the caller already chose\nthe order.",
+        "statement": "For module-shaped and MFA-shaped targets, when no explicit\n`:source_files` option is supplied, the default\n`Path.wildcard(\"lib/**/*.ex\")` result is sorted lexicographically\n(via `Enum.sort/1`) before being searched. This closes the F30 / CF7\ndeterminism risk: `Path.wildcard/1`'s order is file-system-dependent\n(HFS+ sorts; ext4 returns inode order), so two hosts could otherwise\npick a different file when multiple sources happen to declare the\nsame `defmodule`. The sort makes the chosen file deterministic across\nhosts, preserving the byte-identical-output gate in\n`mutagen.mutation_pipeline.r15`. Callers passing an explicit\n`:source_files` list are not re-sorted — the caller already chose\nthe order.\n",
         "subject_id": "mutagen.scope_resolution"
       },
       {
@@ -1015,6 +1043,23 @@
       },
       {
         "covers": [
+          "mutagen.ast.r2"
+        ],
+        "file": ".spec/specs/ast.spec.md",
+        "given": [
+          "Quoted source `defmodule Outer do defmodule Inner do ... end end`."
+        ],
+        "id": "mutagen.ast.s5a",
+        "subject_id": "mutagen.ast",
+        "then": [
+          "The fully qualified target returns `{:ok, body_ast}` and the unqualified\ninner target returns `:not_found`.\n"
+        ],
+        "when": [
+          "`MutagenEx.Ast.find_module_body/2` is called with `\"Outer.Inner\"`\nand with `\"Inner\"`.\n"
+        ]
+      },
+      {
+        "covers": [
           "mutagen.ast.r3"
         ],
         "file": ".spec/specs/ast.spec.md",
@@ -1058,7 +1103,7 @@
         "id": "mutagen.ast.s8",
         "subject_id": "mutagen.ast",
         "then": [
-          "Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).\nA similar grep for `defp find_module_body` returns `0`.\n"
+          "Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).\nA similar grep for `defp find_module_body` returns hits only inside the\ncanonical owner `lib/mutagen_ex/ast.ex`; it returns no hits in donor\nmodules.\n"
         ],
         "when": [
           "`grep -rn \"defp alias_to_module\" lib/mutagen_ex/ | wc -l` runs."
@@ -1075,10 +1120,10 @@
         "id": "mutagen.ast.s9",
         "subject_id": "mutagen.ast",
         "then": [
-          "Output is identical for every input."
+          "Output is identical for every input except the documented nested-module\nqualification carve-out: lifted lookup finds `Multi.Inner` and rejects\nunqualified `Inner`, while the preserved donor still records the legacy\nunqualified `Inner` match."
         ],
         "when": [
-          "The donor-equivalence test runs each AST through the pre-`.25` version\nof `alias_to_module/1` (preserved as a test fixture function) and the\nnew `MutagenEx.Ast.alias_to_module/1`.\n"
+          "The donor-equivalence test runs each AST through the pre-`.25` donor\nversions (preserved as test fixture functions) and the new\n`MutagenEx.Ast` helpers.\n"
         ]
       },
       {
@@ -2013,12 +2058,12 @@
         ],
         "file": ".spec/specs/mutation_enumeration.spec.md",
         "given": [
-          "`lib/multi.ex` defines `Mod.A` and `Mod.B`. The scope record targets only `Mod.A`."
+          "`lib/multi.ex` defines `Mod.A` and `Mod.B`. Another file defines\n`Outer` with nested `defmodule Inner`. The scope record targets only\n`Mod.A` or the fully qualified nested module `Outer.Inner`.\n"
         ],
         "id": "mutagen.mutation_enumeration.s4",
         "subject_id": "mutagen.mutation_enumeration",
         "then": [
-          "Every emitted site's AST hash belongs to a node inside `Mod.A`'s `defmodule` block; no site has a hash from `Mod.B`'s AST."
+          "Every emitted site's AST hash belongs to a node inside the targeted\n`defmodule` block; no site has a hash from sibling modules' ASTs, and\na nested module is not looked up by the unqualified `Inner` name.\n"
         ],
         "when": [
           "The enumerator runs."
@@ -2604,6 +2649,23 @@
       },
       {
         "covers": [
+          "mutagen.scope_resolution.r10"
+        ],
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "given": [
+          "`lib/nested.ex` contains `defmodule Outer do ... defmodule Inner do\n... end end`, with `Outer` spanning lines 1..7 and the nested `Inner`\nspanning lines 4..6.\n"
+        ],
+        "id": "mutagen.scope_resolution.s10",
+        "subject_id": "mutagen.scope_resolution",
+        "then": [
+          "File resolution returns records whose `module` atoms are exactly\n`[Outer, Outer.Inner]` with `line_range`s `1..7` and `4..6`. The\n`Outer.Inner` target resolves to the single `4..6` record, while the\nunqualified `Inner` target returns `{:error, :module_not_found, _}`."
+        ],
+        "when": [
+          "The resolver is called for the file `lib/nested.ex`, and separately\nwith the module-shaped targets `Outer.Inner` and `Inner`.\n"
+        ]
+      },
+      {
+        "covers": [
           "mutagen.scope_resolution.r2"
         ],
         "file": ".spec/specs/scope_resolution.spec.md",
@@ -2732,7 +2794,7 @@
         "id": "mutagen.scope_resolution.s9",
         "subject_id": "mutagen.scope_resolution",
         "then": [
-          "Both calls iterate the candidate file list in the same lexicographic\norder. The implementation `MutagenEx.ScopeResolver.source_files/1`\nwraps the wildcard result in `Enum.sort/1` before returning."
+          "Both calls iterate the candidate file list in the same lexicographic\norder. The implementation `MutagenEx.ScopeResolver.source_files/1`\nwraps the wildcard result in `Enum.sort/1` before returning.\n"
         ],
         "when": [
           "`resolve/2` is called twice for the same module target with no\n`:source_files` option, on the same project.\n"
@@ -2864,7 +2926,9 @@
         "file": ".spec/specs/ast.spec.md",
         "id": "mutagen.ast",
         "meta": {
-          "decisions": [],
+          "decisions": [
+            "mutagen.decision.adoption_polish_efficacy"
+          ],
           "id": "mutagen.ast",
           "kind": "module",
           "realized_by": {
@@ -2892,7 +2956,8 @@
             "mutagen.decision.no_pretty_output_v1",
             "mutagen.decision.scope_syntax_simplified",
             "mutagen.decision.self_mutation_refused",
-            "mutagen.decision.preamble_in_run1_only"
+            "mutagen.decision.preamble_in_run1_only",
+            "mutagen.decision.adoption_polish_efficacy"
           ],
           "id": "mutagen.cli",
           "kind": "module",
@@ -2977,7 +3042,8 @@
         "meta": {
           "decisions": [
             "mutagen.decision.validate_predicates",
-            "mutagen.decision.static_mutator_dispatch"
+            "mutagen.decision.static_mutator_dispatch",
+            "mutagen.decision.adoption_polish_efficacy"
           ],
           "id": "mutagen.mutation_enumeration",
           "kind": "module",
@@ -3011,7 +3077,8 @@
             "mutagen.decision.per_run_beam_cache",
             "mutagen.decision.code_server_facade",
             "mutagen.decision.drop_telemetry_event_api",
-            "mutagen.decision.parallel_experimental_gate"
+            "mutagen.decision.parallel_experimental_gate",
+            "mutagen.decision.adoption_polish_efficacy"
           ],
           "id": "mutagen.mutation_pipeline",
           "kind": "workflow",
@@ -3094,7 +3161,8 @@
         "id": "mutagen.scope_resolution",
         "meta": {
           "decisions": [
-            "mutagen.decision.scope_syntax_simplified"
+            "mutagen.decision.scope_syntax_simplified",
+            "mutagen.decision.adoption_polish_efficacy"
           ],
           "id": "mutagen.scope_resolution",
           "kind": "module",
@@ -3155,7 +3223,7 @@
         "file": ".spec/specs/ast.spec.md",
         "kind": "command",
         "subject_id": "mutagen.ast",
-        "target": "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
+        "target": "! grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/ | grep -v 'lib/mutagen_ex/ast.ex:'"
       },
       {
         "covers": [
@@ -3657,6 +3725,16 @@
       },
       {
         "covers": [
+          "mutagen.mutation_pipeline.r19"
+        ],
+        "execute": true,
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/cli_test.exs:98"
+      },
+      {
+        "covers": [
           "mutagen.mutators.r1",
           "mutagen.mutators.r2",
           "mutagen.mutators.r7"
@@ -3714,7 +3792,8 @@
           "mutagen.scope_resolution.r1",
           "mutagen.scope_resolution.r2",
           "mutagen.scope_resolution.r3",
-          "mutagen.scope_resolution.r5"
+          "mutagen.scope_resolution.r5",
+          "mutagen.scope_resolution.r10"
         ],
         "execute": true,
         "file": ".spec/specs/scope_resolution.spec.md",
@@ -3840,7 +3919,7 @@
         "hasher_version": 1
       },
       "MutagenEx.Ast": {
-        "hash": "3d8919871c5168d8fc842484cc1a66411972e404ec4b91b5c625879c29b8a39a",
+        "hash": "67fa8ea2db188bff8c1b1681dc17d30ece0373e4fe2b0e0eddac5c0effe4ce34",
         "hasher_version": 1
       },
       "MutagenEx.AstCache": {
@@ -3876,7 +3955,7 @@
         "hasher_version": 1
       },
       "MutagenEx.MutationEnumerator": {
-        "hash": "7b26928a93a5d246ad2a9135b30427e5d66d52bf0a812935479e36f64317d719",
+        "hash": "4522ce9334b543e1919c03399c3ef57530b988a0f85cde266bdb7a8fd96a5f5e",
         "hasher_version": 1
       },
       "MutagenEx.MutationRunner": {
@@ -3964,13 +4043,13 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 21,
+    "decisions": 22,
     "exceptions": 0,
     "findings": 0,
-    "requirements": 98,
-    "scenarios": 110,
+    "requirements": 100,
+    "scenarios": 112,
     "subjects": 9,
-    "verifications": 65
+    "verifications": 66
   },
   "verification": {
     "claims": [
@@ -4015,7 +4094,7 @@
         "required_strength": "claimed",
         "strength": "executed",
         "subject_id": "mutagen.ast",
-        "target": "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/",
+        "target": "! grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/ | grep -v 'lib/mutagen_ex/ast.ex:'",
         "verification_index": 1
       },
       {
@@ -4844,6 +4923,17 @@
         "verification_index": 10
       },
       {
+        "cover_id": "mutagen.mutation_pipeline.r19",
+        "file": ".spec/specs/mutation_pipeline.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "mutagen.mutation_pipeline",
+        "target": "mix test test/mutagen_ex/cli_test.exs:98",
+        "verification_index": 11
+      },
+      {
         "cover_id": "mutagen.mutators.r1",
         "file": ".spec/specs/mutators.spec.md",
         "kind": "command",
@@ -4944,6 +5034,17 @@
       },
       {
         "cover_id": "mutagen.scope_resolution.r1",
+        "file": ".spec/specs/scope_resolution.spec.md",
+        "kind": "command",
+        "meets_minimum": true,
+        "required_strength": "claimed",
+        "strength": "executed",
+        "subject_id": "mutagen.scope_resolution",
+        "target": "mix test test/mutagen_ex/scope_resolver_test.exs",
+        "verification_index": 0
+      },
+      {
+        "cover_id": "mutagen.scope_resolution.r10",
         "file": ".spec/specs/scope_resolution.spec.md",
         "kind": "command",
         "meets_minimum": true,
@@ -5156,13 +5257,13 @@
     "default_minimum_strength": "claimed",
     "strength_summary": {
       "claimed": 1,
-      "executed": 106,
+      "executed": 108,
       "linked": 0
     },
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 21,
+    "decision_count": 22,
     "spec_count": 9
   }
 }

@@ -42,7 +42,8 @@ surface:
   - lib/mutagen_ex/ast.ex
   - test/mutagen_ex/ast_test.exs
   - test/mutagen_ex/ast_donor_equivalence_test.exs
-decisions: []
+decisions:
+  - mutagen.decision.adoption_polish_efficacy
 realized_by:
   api_boundary:
     - "MutagenEx.Ast"
@@ -160,14 +161,16 @@ realized_by:
 
 - id: mutagen.ast.s5a
   covers: [mutagen.ast.r2]
-  given: |
-    Quoted source `defmodule Outer do defmodule Inner do ... end end`.
-  when: |
-    `MutagenEx.Ast.find_module_body/2` is called with `"Outer.Inner"`
-    and with `"Inner"`.
-  then: |
-    The fully qualified target returns `{:ok, body_ast}` and the unqualified
-    inner target returns `:not_found`.
+  given:
+    - "Quoted source `defmodule Outer do defmodule Inner do ... end end`."
+  when:
+    - |
+      `MutagenEx.Ast.find_module_body/2` is called with `"Outer.Inner"`
+      and with `"Inner"`.
+  then:
+    - |
+      The fully qualified target returns `{:ok, body_ast}` and the unqualified
+      inner target returns `:not_found`.
 
 - id: mutagen.ast.s6
   covers: [mutagen.ast.r3]
@@ -191,31 +194,35 @@ realized_by:
 
 - id: mutagen.ast.s8
   covers: [mutagen.ast.r4]
-  given: |
-    The codebase after `mutagen-wrd.25.01` has landed.
-  when: |
-    `grep -rn "defp alias_to_module" lib/mutagen_ex/ | wc -l` runs.
-  then: |
-    Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).
-    A similar grep for `defp find_module_body` returns hits only inside the
-    canonical owner `lib/mutagen_ex/ast.ex`; it returns no hits in donor
-    modules.
+  given:
+    - The codebase after `mutagen-wrd.25.01` has landed.
+  when:
+    - "`grep -rn \"defp alias_to_module\" lib/mutagen_ex/ | wc -l` runs."
+  then:
+    - |
+      Output is `0` (the canonical function is public in `lib/mutagen_ex/ast.ex`).
+      A similar grep for `defp find_module_body` returns hits only inside the
+      canonical owner `lib/mutagen_ex/ast.ex`; it returns no hits in donor
+      modules.
 
 - id: mutagen.ast.s9
   covers: [mutagen.ast.r5]
-  given: |
-    A corpus of 20+ AST shapes representative of the existing test fixtures
-    (quoted modules with aliases, nested aliases, attributes, function
-    heads, guards).
-  when: |
-    The donor-equivalence test runs each AST through the pre-`.25` donor
-    versions (preserved as test fixture functions) and the new
-    `MutagenEx.Ast` helpers.
-  then: |
-    Output is identical for every input except the documented nested-module
-    qualification carve-out: lifted lookup finds `Multi.Inner` and rejects
-    unqualified `Inner`, while the preserved donor still records the legacy
-    unqualified `Inner` match.
+  given:
+    - |
+      A corpus of 20+ AST shapes representative of the existing test fixtures
+      (quoted modules with aliases, nested aliases, attributes, function
+      heads, guards).
+  when:
+    - |
+      The donor-equivalence test runs each AST through the pre-`.25` donor
+      versions (preserved as test fixture functions) and the new
+      `MutagenEx.Ast` helpers.
+  then:
+    - |
+      Output is identical for every input except the documented nested-module
+      qualification carve-out: lifted lookup finds `Multi.Inner` and rejects
+      unqualified `Inner`, while the preserved donor still records the legacy
+      unqualified `Inner` match.
 ```
 
 ```spec-verification
@@ -232,7 +239,7 @@ realized_by:
 - id: mutagen.ast.v2
   covers: [mutagen.ast.r4]
   kind: command
-  target: "! grep -rq 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/"
+  target: "! grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/ | grep -v 'lib/mutagen_ex/ast.ex:'"
   execute: true
   description: |
     Mechanical check that no donor module still carries a private duplicate
