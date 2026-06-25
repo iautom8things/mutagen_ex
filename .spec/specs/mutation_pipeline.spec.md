@@ -49,6 +49,7 @@ decisions:
   - mutagen.decision.code_server_facade
   - mutagen.decision.drop_telemetry_event_api
   - mutagen.decision.parallel_experimental_gate
+  - mutagen.decision.adoption_polish_efficacy
 realized_by:
   api_boundary:
     - "MutagenEx.Baseline"
@@ -442,6 +443,20 @@ realized_by:
     its own ExUnit server, Code.Server, and `:cover` state) is
     deliberately deferred; see
     [`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).
+
+- id: mutagen.mutation_pipeline.r19
+  priority: must
+  statement: |
+    The per-mutation timeout the pipeline enforces (r4's `Config.timeout_ms`)
+    has a default of `30_000` ms when `--timeout-ms` is not supplied. The
+    default is tuned for app-shaped (Phoenix/Ecto) projects, where a single
+    mutation cycle's setup plus supplemental tests can exceed five seconds
+    and would otherwise be spuriously classified `:timeout`. The
+    `Mix.Tasks.Mutagen` `@moduledoc` / `--timeout-ms` option text and the
+    README both state the `30_000` ms default and the app-shaped rationale.
+    The value is the CLI default only — it does not change the timeout
+    mechanism (r4) or any classification contract; callers still override it
+    per run via `--timeout-ms`.
 ```
 
 ```spec-scenarios
@@ -731,4 +746,11 @@ realized_by:
   execute: true
   covers:
     - mutagen.mutation_pipeline.r18
+
+- id: mutagen.mutation_pipeline.v12
+  kind: command
+  target: mix test test/mutagen_ex/cli_test.exs:98
+  execute: true
+  covers:
+    - mutagen.mutation_pipeline.r19
 ```

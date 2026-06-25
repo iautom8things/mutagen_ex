@@ -31,6 +31,7 @@ surface:
   - lib/mutagen_ex/scope_resolver.ex
 decisions:
   - mutagen.decision.scope_syntax_simplified
+  - mutagen.decision.adoption_polish_efficacy
 realized_by:
   api_boundary:
     - "MutagenEx.ScopeResolver"
@@ -122,6 +123,20 @@ realized_by:
     `mutagen.mutation_pipeline.r15`. Callers passing an explicit
     `:source_files` list are not re-sorted — the caller already chose
     the order.
+
+- id: mutagen.scope_resolution.r10
+  priority: must
+  statement: |
+    Nested `defmodule` blocks resolve under their fully qualified module
+    atoms. For a file whose source nests `defmodule Inner` inside
+    `defmodule Outer`, file-shaped resolution returns one record per block
+    with `module` atoms `Outer` and `Outer.Inner` (never the unqualified
+    `Inner`), and each `line_range` covers only that block. A module-shaped
+    target for a nested module MUST use the fully qualified name
+    (`Outer.Inner`); the unqualified inner name (`Inner`) does not match and
+    returns `reason: :module_not_found`. This mirrors the AST-layer
+    nested-module qualification carve-out (mutagen.ast.r2 /
+    mutagen.mutation_enumeration.r4) at the resolver boundary.
 ```
 
 ```spec-scenarios
@@ -241,11 +256,29 @@ realized_by:
       Both calls iterate the candidate file list in the same lexicographic
       order. The implementation `MutagenEx.ScopeResolver.source_files/1`
       wraps the wildcard result in `Enum.sort/1` before returning.
+
+- id: mutagen.scope_resolution.s10
+  covers: [mutagen.scope_resolution.r10]
+  given:
+    - |
+      `lib/nested.ex` contains `defmodule Outer do ... defmodule Inner do
+      ... end end`, with `Outer` spanning lines 1..7 and the nested `Inner`
+      spanning lines 4..6.
+  when:
+    - |
+      The resolver is called for the file `lib/nested.ex`, and separately
+      with the module-shaped targets `Outer.Inner` and `Inner`.
+  then:
+    - |
+      File resolution returns records whose `module` atoms are exactly
+      `[Outer, Outer.Inner]` with `line_range`s `1..7` and `4..6`. The
+      `Outer.Inner` target resolves to the single `4..6` record, while the
+      unqualified `Inner` target returns `{:error, :module_not_found, _}`.
 ```
 
 ```spec-verification
 - id: mutagen.scope_resolution.v1
-  covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2, mutagen.scope_resolution.r3, mutagen.scope_resolution.r5]
+  covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2, mutagen.scope_resolution.r3, mutagen.scope_resolution.r5, mutagen.scope_resolution.r10]
   kind: command
   target: mix test test/mutagen_ex/scope_resolver_test.exs
   execute: true

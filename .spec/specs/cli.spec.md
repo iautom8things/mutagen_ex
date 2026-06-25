@@ -37,6 +37,7 @@ decisions:
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.self_mutation_refused
   - mutagen.decision.preamble_in_run1_only
+  - mutagen.decision.adoption_polish_efficacy
 realized_by:
   api_boundary:
     - "Mix.Tasks.Mutagen"
