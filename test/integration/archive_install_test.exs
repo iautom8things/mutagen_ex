@@ -66,9 +66,8 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
     app_module = Macro.camelize(app_name) <> ".Application"
     agent_name = Macro.camelize(app_name) <> ".Store"
-    app_path = Path.join([tmp_dir, "lib", app_name, "application.ex"])
-
-    File.mkdir_p!(Path.dirname(app_path))
+    app_dir = String.replace(app_name, ~r/_(\d)/, "\\1")
+    app_path = Path.join([tmp_dir, "lib", app_dir, "application.ex"])
 
     File.write!(app_path, """
     defmodule #{app_module} do
@@ -78,7 +77,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
       @impl Application
       def start(_type, _args) do
         children = [
-          {Agent, fn -> 41 end, name: #{agent_name}}
+          %{id: #{agent_name}, start: {Agent, :start_link, [fn -> 41 end, [name: #{agent_name}]]}}
         ]
 
         Supervisor.start_link(children, strategy: :one_for_one, name: #{app_module}.Supervisor)
