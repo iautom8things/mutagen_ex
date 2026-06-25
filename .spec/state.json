@@ -172,6 +172,17 @@
       {
         "affects": [
           "mutagen.cli",
+          "mutagen.mutation_pipeline"
+        ],
+        "date": "2026-06-25",
+        "file": ".spec/decisions/runtime_preamble_starts_host_app.md",
+        "id": "mutagen.decision.runtime_preamble_starts_host_app",
+        "status": "accepted",
+        "title": "The `run/1` runtime preamble starts the host OTP application"
+      },
+      {
+        "affects": [
+          "mutagen.cli",
           "mutagen.scope_resolution"
         ],
         "date": "2026-05-13",
@@ -328,7 +339,7 @@
         "file": ".spec/specs/cli.spec.md",
         "id": "mutagen.cli.r14",
         "priority": "must",
-        "statement": "Before the first pipeline phase runs, `mix mutagen` ensures the host\nproject's modules are loaded into the BEAM, the `:ex_unit` application\nis started, and the `:mutagen_ex` application is started. Concretely,\n`Mix.Tasks.Mutagen.run/1` invokes (in order):\n\n  1. `Mix.Task.run(\"loadpaths\")` — adds the host project's\n     `_build/<env>/lib/<app>/ebin` to `:code` paths so\n     `:code.which/1` can locate scope modules.\n  2. `Mix.Task.run(\"compile\")` — compiles the host project (no-op\n     when already compiled).\n  3. `Application.ensure_all_started(:mutagen_ex)` — boots\n     `MutagenEx.Application` so `MutagenEx.TaskSup` is alive when\n     `MutationLoop` dispatches per-site tasks (see\n     [mutagen.mutation_pipeline](mutation_pipeline.spec.md) and\n     mutagen.decision.supervision_tree).\n  4. `ExUnit.start(autorun: false)` — starts the `:ex_unit`\n     application so cited test files (which `use ExUnit.Case`) can\n     load. `autorun: false` is critical: `CoverageRunner`,\n     `Baseline`, and `MutationLoop` each drive `ExUnit.run/0`\n     themselves per the in-process pipeline contract.\n\nWithout this preamble, a downstream caller invoking `mix mutagen`\nfrom a fresh shell against their own project aborts with\n`:module_beam_missing` (modules not loaded), `:test_file_load_failed`\n(ExUnit not started, raising `cannot use ExUnit.Case without\nstarting the ExUnit application`), or a no-process crash on\n`MutagenEx.TaskSup` (`:mutagen_ex` application not started).\n\nThe preamble lives in `run/1` ONLY. `run/2` (the documented test\nseam) stays preamble-free per\nmutagen.decision.preamble_in_run1_only. The existing test suite\ndrives the Mix task via `run/2` from inside an already-running\n`mix test` invocation; running the preamble again would risk\ndouble-compile and ExUnit ordering conflicts.\n\nLibrary callers invoking `MutagenEx.MutationRunner.run/1` directly\n(the documented library entry per `README.md`) are responsible for\nensuring `:mutagen_ex` is started themselves. The library entry is\nNOT in this requirement's surface — `r14` covers the CLI entry only.\n",
+        "statement": "Before the first pipeline phase runs, `mix mutagen` ensures the host\nproject's modules are loaded into the BEAM, the host OTP application\nis started, the `:ex_unit` application is started, and the\n`:mutagen_ex` application is started. Concretely,\n`Mix.Tasks.Mutagen.run/1` invokes (in order):\n\n  1. `Mix.Task.run(\"loadpaths\")` — adds the host project's\n     `_build/<env>/lib/<app>/ebin` to `:code` paths so\n     `:code.which/1` can locate scope modules.\n  2. `Mix.Task.run(\"compile\")` — compiles the host project (no-op\n     when already compiled).\n  3. `Mix.Task.run(\"app.start\")` — starts the consumer project's OTP\n     application so Repo/Sandbox, PubSub, Mox, and supervised support\n     processes required by tests are alive. Immediately after\n     `app.start`, the preamble calls `Mix.Local.append_archives/0` so\n     archive-installed `mutagen_ex` remains visible if `app.start`\n     reset Mix archive code paths.\n  4. `Application.ensure_all_started(:mutagen_ex)` — boots\n     `MutagenEx.Application` so `MutagenEx.TaskSup` is alive when\n     `MutationLoop` dispatches per-site tasks (see\n     [mutagen.mutation_pipeline](mutation_pipeline.spec.md) and\n     mutagen.decision.supervision_tree).\n  5. `ExUnit.start(autorun: false)` — starts the `:ex_unit`\n     application so cited test files (which `use ExUnit.Case`) can\n     load. `autorun: false` is critical: `CoverageRunner`,\n     `Baseline`, and `MutationLoop` each drive `ExUnit.run/0`\n     themselves per the in-process pipeline contract.\n\nWithout this preamble, a downstream caller invoking `mix mutagen`\nfrom a fresh shell against their own project aborts with\n`:module_beam_missing` (modules not loaded), `:test_file_load_failed`\n(ExUnit not started, raising `cannot use ExUnit.Case without\nstarting the ExUnit application`), a no-process crash on\n`MutagenEx.TaskSup` (`:mutagen_ex` application not started), or\nhost-test setup failures because the host OTP supervision tree was\nnever started.\n\n`--no-host-app` and `MUTAGEN_NO_HOST_APP=1|true|yes` opt out of the\n`app.start` step only. The rest of the preamble still runs. This is\nreserved for self-test sandboxes and libraries that deliberately want\nminimal host boot.\n\nThe preamble lives in `run/1` ONLY. `run/2` (the documented test\nseam) stays preamble-free per\nmutagen.decision.preamble_in_run1_only. The existing test suite\ndrives the Mix task via `run/2` from inside an already-running\n`mix test` invocation; running the preamble again would risk\ndouble-compile and ExUnit ordering conflicts.\n\nLibrary callers invoking `MutagenEx.MutationRunner.run/1` directly\n(the documented library entry per `README.md`) are responsible for\nensuring `:mutagen_ex` is started themselves. The library entry is\nNOT in this requirement's surface — `r14` covers the CLI entry only.\n",
         "subject_id": "mutagen.cli"
       },
       {
@@ -678,7 +689,7 @@
         "file": ".spec/specs/mutation_pipeline.spec.md",
         "id": "mutagen.mutation_pipeline.r13",
         "priority": "must",
-        "statement": "The `:mutagen_ex` application starts a one-for-one supervisor\n(`MutagenEx.Application` → `MutagenEx.Supervisor`) whose only\nchild is a named `Task.Supervisor` registered as\n`MutagenEx.TaskSup`. Every per-site mutation task spawned by\n`MutationLoop.run/1` is a child of `MutagenEx.TaskSup`. The\nsupervisor is started automatically when `:mutagen_ex` boots\n(via `mod: {MutagenEx.Application, []}` in mix.exs), giving both\n`mix mutagen` CLI invocations and library callers depending on\n`:mutagen_ex` a supervision tree on application start. See\nmutagen.decision.supervision_tree.\n",
+        "statement": "The `:mutagen_ex` application starts a one-for-one supervisor\n(`MutagenEx.Application` → `MutagenEx.Supervisor`) whose only\nchild is a named `Task.Supervisor` registered as\n`MutagenEx.TaskSup`. Every per-site mutation task spawned by\n`MutationLoop.run/1` is a child of `MutagenEx.TaskSup`. The\nsupervisor is started automatically when `:mutagen_ex` boots\n(via `mod: {MutagenEx.Application, []}` in mix.exs), giving both\n`mix mutagen` CLI invocations and library callers depending on\n`:mutagen_ex` a supervision tree on application start. See\nmutagen.decision.supervision_tree. The `mix mutagen` CLI preamble\nadditionally boots the host project's own OTP application alongside\nthis tree (see mutagen.cli.r14, mutagen.cli.r16, and\nmutagen.decision.runtime_preamble_starts_host_app); this requirement's\ncontract for `MutagenEx.TaskSup` and `MutagenEx.Supervisor` is\nunaffected by that host-owned tree.\n",
         "subject_id": "mutagen.mutation_pipeline"
       },
       {
@@ -1359,7 +1370,7 @@
         "id": "mutagen.cli.s14a",
         "subject_id": "mutagen.cli",
         "then": [
-          "The preamble runs before any phase. After the preamble:\n`:code.which(Foo)` returns a charlist path (modules loaded);\n`Application.started_applications/0` includes both `:mutagen_ex`\nand `:ex_unit`; `Process.whereis(MutagenEx.TaskSup)` is a live PID.\nThe coverage, baseline, and mutation phases then run normally and\nthe document emitted has `aborted: false`.\n"
+          "The preamble runs before any phase. After the preamble:\n`:code.which(Foo)` returns a charlist path (modules loaded);\n`Application.started_applications/0` includes the host application,\n`:mutagen_ex`, and `:ex_unit`; host supervised processes are live;\n`Process.whereis(MutagenEx.TaskSup)` is a live PID.\nThe coverage, baseline, and mutation phases then run normally and\nthe document emitted has `aborted: false`.\n"
         ],
         "when": [
           "`Mix.Tasks.Mutagen.run/1` starts."
@@ -3911,7 +3922,7 @@
   "realization": {
     "api_boundary": {
       "Mix.Tasks.Mutagen": {
-        "hash": "b2ad3011c527da9b91300aed430f3735cdedb8be22ebeb147faf6c1bde79823b",
+        "hash": "557013be6b2c1c49f42b6446feb6f333c010a7b3ee72316cf201eee82f4a7824",
         "hasher_version": 1
       },
       "MutagenEx.Application": {
@@ -3935,7 +3946,7 @@
         "hasher_version": 1
       },
       "MutagenEx.CLI": {
-        "hash": "234d684f71916590a895806913801ab0ec76eb9bd3afaf63ed9818edfdd61e2b",
+        "hash": "097468e000e6260e1710d357009cdf600446cc3e8a32e10e95c3730533511c39",
         "hasher_version": 1
       },
       "MutagenEx.Config": {
@@ -4043,7 +4054,7 @@
   "specification_version": "1.0",
   "summary": {
     "decision_parse_errors": 0,
-    "decisions": 22,
+    "decisions": 23,
     "exceptions": 0,
     "findings": 0,
     "requirements": 100,
@@ -5263,7 +5274,7 @@
     "threshold_failures": 0
   },
   "workspace": {
-    "decision_count": 22,
+    "decision_count": 23,
     "spec_count": 9
   }
 }

@@ -261,7 +261,12 @@ realized_by:
     (via `mod: {MutagenEx.Application, []}` in mix.exs), giving both
     `mix mutagen` CLI invocations and library callers depending on
     `:mutagen_ex` a supervision tree on application start. See
-    mutagen.decision.supervision_tree.
+    mutagen.decision.supervision_tree. The `mix mutagen` CLI preamble
+    additionally boots the host project's own OTP application alongside
+    this tree (see mutagen.cli.r14, mutagen.cli.r16, and
+    mutagen.decision.runtime_preamble_starts_host_app); this requirement's
+    contract for `MutagenEx.TaskSup` and `MutagenEx.Supervisor` is
+    unaffected by that host-owned tree.
 
 - id: mutagen.mutation_pipeline.r14
   priority: must
