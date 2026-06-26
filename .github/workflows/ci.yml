@@ -14,6 +14,9 @@ jobs:
   build:
     name: Compile, test, format
     runs-on: ubuntu-latest
+    # The whole job runs in ~1.5 min; this bounds a runaway/hung test so it
+    # fails with a clear timeout instead of an ambiguous external cancellation.
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
