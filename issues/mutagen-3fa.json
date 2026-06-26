@@ -25,11 +25,15 @@
     {
       "text": "ORCHESTRATED (rebase + integration pass)\n\nRebased the epic branch onto current main and brought it to a shippable,\nall-green state:\n\n- Rebased mutagen-3fa/phoenix-ecto-adoption-polish onto main (was ~20\n  commits behind). Resolved two spec conflicts (ast.s8/s9,\n  mutation_enumeration.s4) keeping the nested-module qualification intent.\n- Migrated the epic's old-schema spec edits to main's migrated SpecLedEx\n  schema (scalar-\u003earray scenarios; ast v2 target carve-out). Added\n  scope_resolution r10/s10 and mutation_pipeline r19/v12 coverage for the\n  closed children's code changes, plus decision adoption_polish_efficacy\n  for the cross-cutting branch-guard finding. (commit 789a1b4)\n- DISCOVERED: mutagen-1jx was closed but its 3 commits (host-app preamble\n  fix — the highest-impact finding) were NOT merged into the epic. Rebased\n  its branch onto the reconciled epic HEAD, resolved the .spec/state.json\n  (generated) conflict, and ff-merged it in (a80eed4..cc4e55a).\n\nFinal gates on epic HEAD cc4e55a: mix spec.check status=pass (errors=0,\nwarnings=0, branch findings=0); make smoke 654 tests, 0 failures; mix\nformat --check-formatted clean; deps.unlock --check-unused clean.\n\nAll 4 children's work is now on the epic branch. Branch is ready for a\nsingle human PR to main (deliberate checkpoint — not pushed). The\nmutagen-1jx stage worktree (mutagen_ex-runtime-preamble-host-app) is\nmerged and can be cleaned up.",
       "timestamp": "2026-06-25T15:22:09Z"
+    },
+    {
+      "text": "Epic shipped: fast-forwarded into main at cc4e55a and pushed to origin/main (756c289..cc4e55a). All stage children closed (last: mutagen-1jx). Stage + epic worktrees cleaned up. spec.check green on the merged tree.",
+      "timestamp": "2026-06-26T16:05:18Z"
     }
   ],
   "priority": 1,
   "status": "in_progress",
   "title": "[EPIC] Phoenix/Ecto adoption polish — efficacy-study findings",
   "type": "epic",
-  "updated_at": "2026-06-25T15:22:09Z"
+  "updated_at": "2026-06-26T16:05:18Z"
 }
