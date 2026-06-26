@@ -190,8 +190,17 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
     scope = "lib/" <> rewrite_path(Path.relative_to(target.lib, "lib"))
     tests = shadow_test_path(target.test)
 
+    # Pin a tight per-mutation timeout. The CLI default was raised to
+    # 30_000 ms for app-shaped (Phoenix/Ecto) suites that boot a host app
+    # (`mutagen.cli.r3` / `mutagen.mutation_pipeline.r19`), but this dogfood
+    # target mutates mutagen_ex's own modules whose cited tests are fast
+    # unit tests. Inheriting the 30 s default makes every timing-out mutant
+    # cost 6x and balloons this integration test (~25 s -> ~90 s), which
+    # overruns the CI lane. 5_000 ms is the value this test ran green under
+    # before the default changed; it does not alter what the test asserts
+    # (that mutagen produces a self-mutation score without aborting).
     {out, code} =
-      System.cmd("mix", ["mutagen", "--scope", scope, "--tests", tests],
+      System.cmd("mix", ["mutagen", "--scope", scope, "--tests", tests, "--timeout-ms", "5000"],
         cd: shadow_dir,
         stderr_to_stdout: false,
         env: clean_env()
