@@ -106,6 +106,11 @@ defmodule MutagenEx.MutationRunnerTest do
 
     defp handle_next({:result, r}), do: r
 
+    defp handle_next({:report_options, observer}) do
+      send(observer, {:ex_unit_options, Application.get_all_env(:ex_unit)})
+      %{failures: 0, total: 1, excluded: 0, skipped: 0}
+    end
+
     defp handle_next({:raise, msg}), do: raise(msg)
 
     defp handle_next({:sleep_then, ms, r}) do
@@ -488,9 +493,13 @@ defmodule MutagenEx.MutationRunnerTest do
   @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
   test "configures the mutation phase with one test case at a time and the given seed" do
     cfg = %{base_cfg(build_site()) | seed: 42}
+    ExUnitFake.set_results([{:report_options, self()}])
 
     assert {:ok, %{results: [_]}} = MutationRunner.run(cfg)
-    assert [max_cases: 1, seed: 42, include: [], exclude: [:test]] = ExUnitFake.get_configure()
+    assert_receive {:ex_unit_options, options}
+
+    assert %{max_cases: 1, seed: 42, include: [], exclude: [:test], max_failures: 1} =
+             Map.new(options)
   end
 
   describe "r5: five outcomes" do
