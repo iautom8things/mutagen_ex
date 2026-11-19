@@ -521,7 +521,8 @@ defmodule MutagenEx.CoverageRunnerTest do
           ex_unit_server: ExUnitServerFake
         )
 
-      assert {:ok, _} = CoverageRunner.run(cfg)
+      assert {:ok, %{test_modules: modules}} = CoverageRunner.run(cfg)
+      assert modules == cfg.test_modules
 
       calls = Process.get(:ex_unit_server_fake_calls) |> Enum.reverse()
 
@@ -553,13 +554,44 @@ defmodule MutagenEx.CoverageRunnerTest do
     end
 
     @tag spec: "mutagen.mutation_pipeline.r10"
-    test "default for :test_modules is [] — no add_module calls when payload absent" do
+    test "no add_module calls when neither a payload nor cited files are present" do
       cfg =
         base_cfg_with_fakes(ex_unit_server: ExUnitServerFake)
         |> Map.delete(:test_modules)
 
       assert {:ok, _} = CoverageRunner.run(cfg)
       assert Process.get(:ex_unit_server_fake_calls) == nil
+    end
+
+    @tag spec: "mutagen.mutation_pipeline.r25"
+    test "reports a cited symlink whose path does not match the compiled case source" do
+      dir =
+        Path.join(System.tmp_dir!(), "mutagen_case_symlink_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf!(dir) end)
+      real = Path.join(dir, "real_test.exs")
+      link = Path.join(dir, "alias_test.exs")
+
+      File.write!(real, """
+      defmodule SymlinkCase do
+        def __ex_unit__, do: :sample
+        def __ex_unit__(:config), do: %{async?: false, group: nil, parameterize: nil}
+      end
+      """)
+
+      File.ln_s!(real, link)
+
+      cfg =
+        base_cfg_with_fakes()
+        |> Map.put(:test_filter, %TestFilter{files: [link], include: [], exclude: []})
+        |> Map.put(:test_loader, fn ^link -> Code.compile_file(real) end)
+
+      assert {:error, :test_file_load_failed, %{file: ^link, message: message}} =
+               CoverageRunner.run(cfg)
+
+      assert message =~ "compiled source path"
+      assert message =~ "real path instead of the symlink"
     end
 
     test "empty :test_modules with default :ex_unit_server does not crash" do

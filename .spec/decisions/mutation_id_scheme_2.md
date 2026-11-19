@@ -1,6 +1,7 @@
 ---
 id: mutagen.decision.mutation_id_scheme_2
 status: accepted
+supersedes: mutagen.decision.content_addressed_ids
 date: 2026-11-19
 affects:
   - mutagen.mutators

@@ -6,7 +6,7 @@ defmodule MutagenEx.DeterminismTest do
   This is the safety-net test that anchors the wrd25 refactor epic.
   It pins the property the whole epic must preserve: **two
   consecutive invocations of the `mix mutagen` pipeline against the
-  same input produce byte-identical JSON output**. See
+  same input produce byte-identical JSON output excluding `meta.timings_ms`**. See
   `mutagen.decision.serial_execution_and_seed` and
   `mutagen.mutation_pipeline.r15` for the determinism contract.
 
@@ -16,9 +16,8 @@ defmodule MutagenEx.DeterminismTest do
   normalise per-host fields (elixir/otp version, cover-warning paths,
   bitmap byte counts) so the goldens hold across machines. This test
   asserts a stronger and orthogonal property: same host, same
-  process, same inputs → byte-identical OUTPUT. No normalisation —
-  any drift between the two runs is the determinism contract
-  breaking.
+  process and inputs produce identical output bytes after removing
+  the elapsed timings.
 
   ## What this test does
 
@@ -31,8 +30,8 @@ defmodule MutagenEx.DeterminismTest do
   3. Resets per-scenario state (`:cover.stop`, beam reload,
      `Code.compile_file` of the cited test file).
   4. Runs the same invocation again, captures iodata.
-  5. Asserts the two raw iodata blobs are byte-identical via
-     `IO.iodata_to_binary/1` compare.
+  5. Removes `meta.timings_ms` from each raw binary and compares the
+     remaining bytes.
 
   ## Targeting
 
@@ -106,7 +105,8 @@ defmodule MutagenEx.DeterminismTest do
   end
 
   describe "deterministic JSON output across consecutive runs (mutagen.r2 contract)" do
-    test "two runs of mix mutagen against arith_dense.ex produce byte-identical iodata", ctx do
+    @tag spec: "mutagen.json_schema.r25"
+    test "two mutagen runs produce identical bytes excluding phase timings", ctx do
       argv = [
         "--scope",
         "lib/arith_dense.ex",
@@ -119,15 +119,11 @@ defmodule MutagenEx.DeterminismTest do
       ]
 
       reset_pipeline_state!(ctx)
-      bin1 = run_capture!(argv)
+      bin1 = argv |> run_capture!() |> without_timings()
 
       reset_pipeline_state!(ctx)
-      bin2 = run_capture!(argv)
+      bin2 = argv |> run_capture!() |> without_timings()
 
-      # The contract: byte-for-byte identical output. No normalisation
-      # — any drift between the two runs is the determinism property
-      # breaking, which is what this test exists to catch before the
-      # wrd25 refactor.
       assert bin1 == bin2, """
       mutagen pipeline output differed between two consecutive runs against
       the same input. This breaks the determinism contract documented in
@@ -141,6 +137,17 @@ defmodule MutagenEx.DeterminismTest do
       #{first_diff_window(bin1, bin2)}
       """
     end
+  end
+
+  defp without_timings(binary) do
+    report = :json.decode(binary)
+    assert %{"meta" => %{"timings_ms" => %{}}} = report
+
+    normalized =
+      Regex.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, binary, "")
+
+    assert :json.decode(normalized) == update_in(report["meta"], &Map.delete(&1, "timings_ms"))
+    normalized
   end
 
   # ---------------------------------------------------------------------------

@@ -106,6 +106,11 @@ defmodule MutagenEx.MutationRunnerTest do
 
     defp handle_next({:result, r}), do: r
 
+    defp handle_next({:change_state, change}) do
+      change.()
+      %{failures: 0, total: 1}
+    end
+
     defp handle_next({:report_options, observer}) do
       send(observer, {:ex_unit_options, Application.get_all_env(:ex_unit)})
       %{failures: 0, total: 1, excluded: 0, skipped: 0}
@@ -218,7 +223,10 @@ defmodule MutagenEx.MutationRunnerTest do
 
   defmodule ExUnitServerStub do
     @moduledoc false
-    def discard_pending_modules, do: :ok
+    def discard_pending_modules do
+      Process.put(:exunit_server_drains, Process.get(:exunit_server_drains, 0) + 1)
+      :ok
+    end
 
     def add_module(_mod, _cfg) do
       Process.put(:exunit_server_stub_calls, (Process.get(:exunit_server_stub_calls) || 0) + 1)
@@ -568,6 +576,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
         assert message =~ "ExUnit.run/0 #{expected} during mutation"
         assert message =~ "boom"
+        assert Process.delete(:exunit_server_drains) == 1
       end
     end
   end
@@ -607,36 +616,9 @@ defmodule MutagenEx.MutationRunnerTest do
     # r4 cooperative-cancellation regression (bw mutagen-wrd.13)
     # ---------------------------------------------------------------------------
     #
-    # The bug behind bw mutagen-wrd.13 was that a timed-out task was
-    # killed by `Task.shutdown(task, :brutal_kill)` mid-flight inside
-    # `:code.load_binary/3`, leaving the Code.Server with an orphaned
-    # per-module load lock. The fix is two-phase cancellation:
-    #
-    #   phase 1: `Task.shutdown(task, cancel_grace_ms)` — sends
-    #            `:shutdown` (trappable). A task that traps exits and
-    #            returns normally during the grace window unwinds
-    #            cleanly, releasing its locks.
-    #   phase 2: `Task.shutdown(task, :brutal_kill)` — only if phase 1
-    #            timed out. Plus a `:code.purge/1` settle pass on the
-    #            site's scoped modules before restore.
-    #
-    # The tests below are load-bearing on the fix:
-    #
-    #   * The graceful test proves phase 1 actually runs and can
-    #     produce a `:timeout` classification without the brutal path.
-    #     If a regression skipped the cooperative phase, this test
-    #     would still pass (the task would just be brutal-killed) so
-    #     we ALSO assert `cancel_mode == :graceful` indirectly via
-    #     classification + timing.
-    #   * The brutal test proves phase 2 still fires for tasks that
-    #     ignore `:shutdown`. Without phase 2 the runner would hang
-    #     forever.
-    #   * The settle test proves `:code.purge/1` is invoked for the
-    #     site's scoped modules on a timeout. If a regression dropped
-    #     the purge call, the next site's compile-and-load cycle would
-    #     deadlock on a real timed-out site — but the deadlock is
-    #     environmental and hard to reproduce inside a unit test. The
-    #     observable proxy is "purge was called for the scope module".
+    # The grace window lets a timed-out task handle :shutdown. Its reply
+    # still counts as a timeout, and the runner purges scoped modules
+    # before restoring them.
 
     @tag spec: "mutagen.mutation_pipeline.r4"
     test "a clean reply during graceful cancellation is still a timeout" do
@@ -922,11 +904,9 @@ defmodule MutagenEx.MutationRunnerTest do
       # process-growth kind. If `grew?` were dropped from the warning
       # gate too, this also fails. The warning shape is enforced by
       # snapshot_warning/2 in mutation_runner.ex.
-      assert Enum.any?(warnings, &(&1 =~ "state_leak after site " <> site1.id)),
-             "expected a state_leak warning naming site #{site1.id}; got: #{inspect(warnings)}"
-
-      assert Enum.any?(warnings, &(&1 =~ "processes+")),
-             "expected the state_leak warning to report process growth; got: #{inspect(warnings)}"
+      assert [warning] = leak_warnings(warnings)
+      assert warning =~ "state_leak after site " <> site1.id
+      assert warning =~ "processes: #{inspect(leaked_name)} +1"
 
       # Sanity: the leak actually happened (registered name survived
       # into the assertion phase). Without this, a future change to
@@ -934,6 +914,158 @@ defmodule MutagenEx.MutationRunnerTest do
       # vacuously fail to detect the regression.
       assert is_pid(Process.whereis(leaked_name)),
              "the test's own :leak_proc helper failed to register #{inspect(leaked_name)} — the rest of this test would be vacuous"
+    end
+
+    test "logger module bookkeeping does not taint later sites" do
+      module = __MODULE__.FreshLogger
+
+      assert_bookkeeping_key_ignored({:logger_config, module}, fn ->
+        :logger.allow(:notice, module)
+        assert :logger.get_module_level(module) == []
+      end)
+    end
+
+    test "Elixir compiler bookkeeping does not taint later sites" do
+      assert_bookkeeping_key_ignored(:elixir_erl_compiler, fn ->
+        :persistent_term.put(:elixir_erl_compiler, :bookkeeping)
+      end)
+    end
+
+    test "an explicit Logger module level is reported as a leak" do
+      clear_stubs()
+      module = __MODULE__.SilencedLogger
+      key = {:logger_config, module}
+      on_exit(fn -> :persistent_term.erase(key) end)
+
+      ExUnitFake.set_results([
+        {:change_state, fn -> :ok = Logger.put_module_level(module, :none) end}
+      ])
+
+      sites = for id <- ~w(set_logger_level next), do: build_site(id: id)
+
+      assert {:ok, %{results: [_, next], warnings: [warning]}} =
+               MutationRunner.run(base_cfg(sites))
+
+      assert :logger.get_module_level(module) == [{module, :none}]
+      assert next.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
+      assert warning =~ "persistent_term: #{inspect(key)} +1"
+      refute warning =~ ":none"
+    end
+
+    test "a newly leaked persistent key is reported even when another key is removed" do
+      clear_stubs()
+      old_key = {__MODULE__, :old_entry}
+      new_key = {__MODULE__, :leaked_entry}
+      :persistent_term.put(old_key, :old)
+
+      on_exit(fn ->
+        :persistent_term.erase(old_key)
+        :persistent_term.erase(new_key)
+      end)
+
+      ExUnitFake.set_results([
+        {:change_state,
+         fn ->
+           :persistent_term.erase(old_key)
+           :persistent_term.put(new_key, :value_not_for_the_report)
+         end}
+      ])
+
+      sites = for id <- ~w(leaker second third), do: build_site(id: id)
+      assert {:ok, %{results: results, warnings: [warning]}} = MutationRunner.run(base_cfg(sites))
+      assert Enum.map(results, & &1.tainted_predecessors) == [false, true, true]
+      assert [warning] = leak_warnings([warning])
+      assert warning =~ "persistent_term: #{inspect(new_key)} +1"
+      refute warning =~ "value_not_for_the_report"
+    end
+
+    test "replacing an unnamed ETS table under another owner is not growth" do
+      clear_stubs()
+      owner = start_supervised!({Agent, fn -> :ets.new(:mutagen_pool, []) end})
+
+      successor =
+        start_supervised!(%{id: :new_owner, start: {Agent, :start_link, [fn -> nil end]}})
+
+      original = Agent.get(owner, & &1)
+
+      ExUnitFake.set_results([
+        {:change_state,
+         fn ->
+           Agent.update(owner, &:ets.delete/1)
+           Agent.update(successor, fn _ -> :ets.new(:mutagen_pool, []) end)
+         end}
+      ])
+
+      sites = for id <- ~w(rotate next), do: build_site(id: id)
+      assert {:ok, %{results: [_, next], warnings: []}} = MutationRunner.run(base_cfg(sites))
+      refute next.tainted_predecessors
+      assert :ets.info(original, :name) == :undefined
+      assert :ets.info(Agent.get(successor, & &1), :name) == :mutagen_pool
+    end
+
+    test "a second unnamed ETS table under the same name reports the count delta" do
+      clear_stubs()
+      owner = start_supervised!({Agent, fn -> [:ets.new(:mutagen_pool, [])] end})
+
+      ExUnitFake.set_results([
+        {:change_state,
+         fn ->
+           Agent.update(owner, fn tables -> [:ets.new(:mutagen_pool, []) | tables] end)
+         end}
+      ])
+
+      sites = for id <- ~w(leaker next), do: build_site(id: id)
+
+      assert {:ok, %{results: [_, next], warnings: [warning]}} =
+               MutationRunner.run(base_cfg(sites))
+
+      assert next.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
+      assert warning =~ "ets: :mutagen_pool +1"
+      assert length(Agent.get(owner, & &1)) == 2
+    end
+
+    test "restarting a registered process under the same name is not growth" do
+      clear_stubs()
+      name = :mutagen_test_restarted_process
+      original = spawn(fn -> Process.sleep(:infinity) end)
+      Process.register(original, name)
+
+      on_exit(fn ->
+        if pid = Process.whereis(name), do: Process.exit(pid, :kill)
+      end)
+
+      ExUnitFake.set_results([{:leak_proc, name, %{failures: 0, total: 1}}])
+      sites = for id <- ~w(restart next), do: build_site(id: id)
+      assert {:ok, %{results: [_, next], warnings: []}} = MutationRunner.run(base_cfg(sites))
+      refute next.tainted_predecessors
+      assert is_pid(Process.whereis(name))
+      refute Process.whereis(name) == original
+    end
+
+    test "serial snapshots carry forward state from the previous site's callback" do
+      clear_stubs()
+      key = {__MODULE__, :between_sites}
+      on_exit(fn -> :persistent_term.erase(key) end)
+
+      sites = for id <- ~w(first second third), do: build_site(id: id)
+
+      cfg =
+        Map.put(base_cfg(sites), :on_site_completed, fn
+          {:result, %{id: "first"}} -> :persistent_term.put(key, :present)
+          _ -> :ok
+        end)
+
+      assert {:ok, %{results: [first, second, third], warnings: [warning]}} =
+               MutationRunner.run(cfg)
+
+      refute first.tainted_predecessors
+      refute second.tainted_predecessors
+      assert third.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
+      assert warning =~ "state_leak after site second:"
+      assert warning =~ "persistent_term: #{inspect(key)} +1"
     end
 
     test "site with NO state growth (no leak, no timeout) does NOT taint the next site" do
@@ -957,8 +1089,32 @@ defmodule MutagenEx.MutationRunnerTest do
       assert r1.status == :survived
       assert r1.tainted_predecessors == false
       assert r2.tainted_predecessors == false
-      refute Enum.any?(warnings, &(&1 =~ "state_leak"))
+      assert leak_warnings(warnings) == []
     end
+  end
+
+  defp leak_warnings(warnings) do
+    for {:host_names, :state_leak, sites} <- warnings,
+        warning <- MutagenEx.JsonReporter.render_host_names(:state_leak, sites, true),
+        do: warning
+  end
+
+  defp assert_bookkeeping_key_ignored(key, put) do
+    clear_stubs()
+
+    case :persistent_term.get(key, :missing) do
+      :missing -> on_exit(fn -> :persistent_term.erase(key) end)
+      original -> on_exit(fn -> :persistent_term.put(key, original) end)
+    end
+
+    :persistent_term.erase(key)
+    ExUnitFake.set_results([{:change_state, put}])
+
+    sites = for id <- ~w(bookkeeping next), do: build_site(id: id)
+    assert {:ok, %{results: [_, next], warnings: warnings}} = MutationRunner.run(base_cfg(sites))
+    assert :persistent_term.get(key, :missing) != :missing
+    refute next.tainted_predecessors
+    assert leak_warnings(warnings) == []
   end
 
   # ---------------------------------------------------------------------------

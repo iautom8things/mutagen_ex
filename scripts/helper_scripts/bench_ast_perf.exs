@@ -267,7 +267,8 @@ defmodule Wrd25.BenchAstPerf do
               _ -> :ok
             end
 
-          sha = :crypto.hash(:sha256, binary) |> Base.encode16(case: :lower)
+          deterministic_bytes = without_timings(binary)
+          sha = :crypto.hash(:sha256, deterministic_bytes) |> Base.encode16(case: :lower)
           {total, completed, aborted, abort_reason} = parse_counts(binary)
 
           %{
@@ -311,6 +312,10 @@ defmodule Wrd25.BenchAstPerf do
   #         ...
   #       }
   #     }
+  defp without_timings(binary) do
+    Regex.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, binary, "")
+  end
+
   defp parse_counts(binary) do
     total =
       case Regex.run(~r/"total"\s*:\s*(\d+)/, binary) do
