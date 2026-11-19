@@ -35,6 +35,7 @@ decisions:
   - mutagen.decision.static_mutator_dispatch
   - mutagen.decision.adoption_polish_efficacy
   - mutagen.decision.ancora_migration
+  - mutagen.decision.planned_runtime_sites
 ```
 
 ```spec-requirements
@@ -189,6 +190,51 @@ decisions:
     same AST after dropping metadata, including for bare literals,
     receivers and parenthesized operands. Disabling source reporting
     skips span collection without changing mutation IDs or order.
+
+- id: mutagen.mutation_enumeration.r12
+  priority: must
+  statement: |
+    A group's fingerprint is the lowercase MD5 of the canonical identity
+    encoding of its list of normalized clauses or statements in file walk
+    order. Planned entries carry the fingerprint of their existing ID
+    group. Formatting, comments, blank lines, and edits outside the group
+    preserve the fingerprint. For named definitions, matching fingerprints
+    preserve the mapping from ID to clause occurrence and path within that
+    clause. File-root paths also match when the clauses stay at the same
+    file-root paths.
+
+- id: mutagen.mutation_enumeration.r13
+  priority: must
+  statement: |
+    Planned enumeration selects sites whose inclusive span from `line`
+    through `end_line || line` overlaps a supplied changed-line range in
+    the same file. It ignores coverage and retains validator skips in the
+    skipped list with the same planned metadata. Enumeration without
+    planned mode keeps the coverage filter and result shape.
+
+- id: mutagen.mutation_enumeration.r14
+  priority: must
+  statement: |
+    A planned entry has `runtime?: true` exactly when it has a named
+    enclosing function, that definition is a `def` or `defp`, and the
+    entry is outside `quote`.
+
+- id: mutagen.mutation_enumeration.r15
+  priority: must
+  statement: |
+    From a file's planned entries, fingerprint scope keeps only entries
+    whose group is absent from the base source or has a different
+    fingerprint there. A new file scopes all its planned entries. A base
+    source that fails to parse scopes all the planned entries and returns
+    a warning.
+
+- id: mutagen.mutation_enumeration.r16
+  priority: must
+  statement: |
+    Each planned runtime entry belongs to exactly one outcome bucket by
+    ID. Killed, survived, timed-out, skipped, and compile-error entries
+    are evaluated. Runner errors are not run. IDs absent from all run
+    output are uncovered candidates pending the coverage decision.
 ```
 
 ```spec-scenarios
@@ -314,4 +360,9 @@ decisions:
     - mutagen.mutation_enumeration.r9
     - mutagen.mutation_enumeration.r10
     - mutagen.mutation_enumeration.r11
+    - mutagen.mutation_enumeration.r12
+    - mutagen.mutation_enumeration.r13
+    - mutagen.mutation_enumeration.r14
+    - mutagen.mutation_enumeration.r15
+    - mutagen.mutation_enumeration.r16
 ```

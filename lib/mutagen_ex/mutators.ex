@@ -111,13 +111,16 @@ defmodule MutagenEx.Mutators do
   @spec site_id(String.t(), {tuple() | nil, ast_node(), non_neg_integer()}, mutator_name()) ::
           String.t()
   def site_id(relative_file, {enclosing, node, ordinal}, mutator_name) do
-    hash =
-      {enclosing, node, ordinal}
-      |> encode_identity()
-      |> :erlang.md5()
-      |> Base.encode16(case: :lower)
-
+    hash = identity_hash({enclosing, node, ordinal})
     "#{relative_file}:#{hash}:#{mutator_name}"
+  end
+
+  @doc false
+  def identity_hash(term) do
+    term
+    |> encode_identity()
+    |> :erlang.md5()
+    |> Base.encode16(case: :lower)
   end
 
   # Each tag identifies its type. A scalar length counts bytes, and a
@@ -127,8 +130,16 @@ defmodule MutagenEx.Mutators do
   defp encode_identity(value) when is_float(value), do: scalar(?f, <<value::float-64>>)
   defp encode_identity(value) when is_binary(value), do: scalar(?b, value)
 
+  defp encode_identity([]), do: "l0:"
+
   defp encode_identity(value) when is_list(value),
     do: [frame(?l, length(value)) | Enum.map(value, &encode_identity/1)]
+
+  defp encode_identity({first, second}),
+    do: [frame(?t, 2), encode_identity(first), encode_identity(second)]
+
+  defp encode_identity({first, second, third}),
+    do: [frame(?t, 3), encode_identity(first), encode_identity(second), encode_identity(third)]
 
   defp encode_identity(value) when is_tuple(value),
     do: [frame(?t, tuple_size(value)) | Enum.map(Tuple.to_list(value), &encode_identity/1)]

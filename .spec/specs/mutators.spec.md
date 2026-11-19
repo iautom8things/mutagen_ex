@@ -70,6 +70,7 @@ surface:
   - lib/mutagen_ex/mutators/guard_drop.ex
 decisions:
   - mutagen.decision.mutation_site_paths
+  - mutagen.decision.planned_runtime_sites
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.validate_predicates
   - mutagen.decision.with_swap_failure_priority
@@ -213,6 +214,13 @@ decisions:
     parameters and the guard in one `when` node: `mutate/1` returns that
     node unchanged and `validate/1` returns
     `{:skip, :structurally_invalid}`.
+
+- id: mutagen.mutators.r12
+  priority: must
+  statement: |
+    Site IDs and group fingerprints use the same canonical encoding and
+    lowercase MD5. A site ID hashes its lexical identity tuple. A group
+    fingerprint hashes its list of normalized clause or statement ASTs.
 ```
 
 ```spec-scenarios
@@ -486,4 +494,5 @@ decisions:
     - mutagen.mutators.r9
     - mutagen.mutators.r10
     - mutagen.mutators.r11
+    - mutagen.mutators.r12
 ```
