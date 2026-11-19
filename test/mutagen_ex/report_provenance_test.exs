@@ -170,6 +170,37 @@ defmodule MutagenEx.ReportProvenanceTest do
   end
 
   @tag spec: "mutagen.json_schema.r22"
+  test "a test filter struct keeps its cited file" do
+    filter = %TestFilter{include: [], exclude: [], files: ["checks/cited_test.exs"]}
+    assert abort(%Report{tests: filter})["tests"]["files"] == filter.files
+  end
+
+  @tag spec: "mutagen.json_schema.r29"
+  test "automatic file names require host output and source reporting" do
+    path = "checks/#{@canary}_test.exs"
+
+    report = %Report{
+      meta: %{
+        tests_selected: [%{path: path, why: :convention}],
+        escalation: [%{step: :module, files_added: [path]}]
+      },
+      tests: %{include: [], exclude: [], files: [path], host_paths?: true}
+    }
+
+    assert %{"meta" => %{"tests_selected" => [%{"path" => :null, "why" => "convention"}]}} =
+             abort(report)
+
+    with_names = abort(%{report | include_host_output: true})
+
+    assert get_in(with_names, ["meta", "tests_selected"]) == [
+             %{"path" => path, "why" => "convention"}
+           ]
+
+    assert get_in(with_names, ["tests", "files"]) == [path]
+    refute inspect(abort(%{report | include_host_output: true, source: false})) =~ @canary
+  end
+
+  @tag spec: "mutagen.json_schema.r22"
   test "all default strings in a maximal aggregate and its stream have declared provenance" do
     file = "lib/site.ex"
     location = {:location, {file, 1}}
@@ -183,6 +214,10 @@ defmodule MutagenEx.ReportProvenanceTest do
       mutator: :arith,
       before: "a + 1",
       before_source: "a + 1",
+      excerpt_line: 1,
+      fingerprint: String.duplicate("a", 32),
+      in_scope: :changed_group,
+      selection: %{killed_at: :narrow, steps_run: [:narrow]},
       after: "a - 1",
       status: :killed,
       warnings: ["timeout"]
@@ -196,7 +231,18 @@ defmodule MutagenEx.ReportProvenanceTest do
         tool_version: "test",
         elixir_version: "test",
         otp_version: "test",
-        timings_ms: %{boot: 1, coverage: 2, baseline: 3, mutation: 4, total: 10}
+        since: %{ref: "main", base: String.duplicate("b", 40)},
+        incomplete: [%{reason: :symlink, path: file}],
+        tests_selected: [%{path: file, why: :convention}],
+        escalation: [%{step: :module, files_added: [file]}],
+        timings_ms: %{
+          boot: 1,
+          coverage: 2,
+          baseline: 3,
+          mutation: 4,
+          total: 10,
+          mutant_deadline: 5000
+        }
       },
       scope: [%{file: file, line_range: 1..2, module: Example}],
       tests: %{include: [:cli, location], exclude: [:cli, location], files: [file]},
@@ -204,6 +250,7 @@ defmodule MutagenEx.ReportProvenanceTest do
       baseline: %{passed: 0, failed: 1, failures: failures},
       mutation: %{
         results: [site],
+        pending: [Map.put(site, :reason, :uncovered)],
         compile_errors: [compile_error],
         skipped: [%{site_id: "id", file: file, reason: :validate_refused, mutator: :arith}],
         state_drift_warning: %{Example => [GenServer]}
@@ -217,6 +264,7 @@ defmodule MutagenEx.ReportProvenanceTest do
         reason: :invalid_input,
         site_id: "id",
         phase: :coverage,
+        cause: :invalid_ref,
         step: :coverage,
         flag: "--tests",
         failures: failures,
@@ -260,11 +308,14 @@ defmodule MutagenEx.ReportProvenanceTest do
     assert MapSet.new(["kind" | paths(wire, "") ++ stream_fields]) == declared
   end
 
+  defp paths(value, "mutation.results[].excerpt_line" = path) when is_integer(value), do: [path]
   defp paths(value, path) when is_binary(value), do: [path]
   defp paths(list, path) when is_list(list), do: Enum.flat_map(list, &paths(&1, path <> "[]"))
 
   defp paths(map, "meta.timings_ms") when is_map(map) do
-    assert Map.keys(map) |> Enum.sort() == ~w(baseline boot coverage mutation total)
+    assert Map.keys(map) |> Enum.sort() ==
+             ~w(baseline boot coverage mutant_deadline mutation total)
+
     assert Enum.all?(Map.values(map), &is_integer/1)
     ["meta.timings_ms"]
   end

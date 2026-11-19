@@ -20,11 +20,14 @@ defmodule MutagenEx.CLI do
 
   ## Recognised flags
 
-    * `--scope <target>` — required, repeatable (max 100 occurrences). Raw
-      target string; shape validation happens during scope resolution.
-    * `--tests <target>` — required, repeatable (max 100 occurrences). Raw
-      target string; shape validation happens during test selection.
-    * `--timeout-ms <int>` — positive integer, default 30000.
+    * `--scope <target>` — required without `--since`, repeatable up to 100
+      occurrences. Shape validation happens during scope resolution.
+    * `--tests <target>` — repeatable up to 100 occurrences. Use `auto` as a
+      standalone target. With `--since`, omission defaults to `auto`.
+    * `--since <ref>` — plan changed runtime sites from the merge base.
+    * `--no-escalate` — disable survivor escalation with automatic selection.
+    * `--escalate-max-files <int>` — non-negative cap per step, default 20.
+    * `--timeout-ms <int>` — positive per-mutant deadline override.
     * `--seed <int>` — non-negative integer, default 0.
     * `--json <path>` — optional file path; when omitted, the final document
       is written to stdout. The path is validated at parse time (NUL bytes
@@ -123,10 +126,10 @@ defmodule MutagenEx.CLI do
          :ok <- check_invalid(invalid),
          :ok <- check_no_extra_args(rest),
          scopes = collect(parsed, :scope),
-         tests = collect(parsed, :tests),
-         :ok <-
-           require_nonempty(scopes, :missing_scope, "at least one --scope target is required"),
-         :ok <- require_nonempty(tests, :missing_tests, "at least one --tests target is required"),
+         since = Keyword.get(parsed, :since),
+         :ok <- require_scope(scopes, since),
+         {:ok, tests} <- pick_tests(collect(parsed, :tests), since),
+         {:ok, escalate_max_files} <- pick_escalate_max_files(parsed),
          :ok <- refuse_self_mutation(scopes),
          :ok <- validate_tag_charset(tests),
          :ok <- enforce_target_cap(scopes, :scope),
@@ -145,7 +148,11 @@ defmodule MutagenEx.CLI do
        %Config{
          scopes: scopes,
          tests: tests,
+         since: since,
+         escalate: Keyword.get(parsed, :escalate, true),
+         escalate_max_files: escalate_max_files,
          timeout_ms: timeout_ms,
+         timeout_override: Keyword.has_key?(parsed, :timeout_ms),
          fail_fast: Keyword.get(parsed, :fail_fast, true),
          boot_timeout_ms: boot_timeout_ms,
          host_app: Keyword.get(parsed, :host_app, true),
@@ -213,6 +220,9 @@ defmodule MutagenEx.CLI do
   @option_switches [
     scope: :keep,
     tests: :keep,
+    since: :string,
+    escalate: :boolean,
+    escalate_max_files: :integer,
     timeout_ms: :integer,
     fail_fast: :boolean,
     boot_timeout_ms: :integer,
@@ -262,6 +272,12 @@ defmodule MutagenEx.CLI do
         {:error, :invalid_seed,
          %{flag: flag, value: value, message: "--seed requires a non-negative integer"}}
 
+      flag == "--since" ->
+        {:error, :invalid_since_ref, %{cause: :invalid_ref}}
+
+      flag == "--escalate-max-files" ->
+        invalid_escalate_max_files()
+
       flag == "--max-sites" ->
         {:error, :invalid_max_sites,
          %{flag: flag, value: value, message: "--max-sites requires a positive integer"}}
@@ -296,6 +312,41 @@ defmodule MutagenEx.CLI do
 
   defp require_nonempty([], reason, message), do: {:error, reason, %{message: message}}
   defp require_nonempty(_, _, _), do: :ok
+
+  defp require_scope(scopes, nil) do
+    require_nonempty(scopes, :missing_scope, "at least one --scope target is required")
+  end
+
+  defp require_scope(_scopes, _since), do: :ok
+
+  defp pick_tests([], since) when is_binary(since), do: {:ok, ["auto"]}
+  defp pick_tests(["auto"], _since), do: {:ok, ["auto"]}
+
+  defp pick_tests(tests, _since) do
+    if "auto" in tests do
+      {:error, :invalid_input, %{flag: "--tests", message: "--tests auto must stand alone"}}
+    else
+      with :ok <-
+             require_nonempty(tests, :missing_tests, "at least one --tests target is required") do
+        {:ok, tests}
+      end
+    end
+  end
+
+  defp pick_escalate_max_files(parsed) do
+    case Keyword.get(parsed, :escalate_max_files, 20) do
+      n when is_integer(n) and n >= 0 -> {:ok, n}
+      _ -> invalid_escalate_max_files()
+    end
+  end
+
+  defp invalid_escalate_max_files do
+    {:error, :invalid_input,
+     %{
+       flag: "--escalate-max-files",
+       message: "--escalate-max-files requires a non-negative integer"
+     }}
+  end
 
   # Per `mutagen.cli.r12`: cap repetition of `--scope` / `--tests` at
   # @target_cap. The cap is structural — checked before any filesystem

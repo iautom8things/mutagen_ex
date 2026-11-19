@@ -400,12 +400,49 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
 A survivor means “the tests you selected miss it”. First rerun with a
 wider `--tests` selection before writing a test.
 
+## Changed-code runs
+
+```bash
+MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json
+```
+
+Mutagen compares the working tree with the merge base of the ref and HEAD.
+CI needs the history that contains the merge base. The run plans mutations
+in named runtime functions on touched lines, then compares their group
+fingerprints with the base source. Formatting, comments, and moved
+unchanged functions contribute no runtime sites. Use `--scope` to narrow
+the diff further. An empty runtime plan finishes before host setup.
+
+Automatic test selection looks for `a/b_test.exs` under the configured
+test roots for `a/b.ex` under a configured source root. Changed test files
+also join a `--since` run. If mutants survive, Mutagen first searches
+uncited test files for the full module name, or for the module's last
+segment as a whole word in a file that aliases its parent. It then
+searches for function calls or captures in files that contain the last
+module segment. The search counts text mentions, including comments, and
+uses path order to break ties. Each step takes up to 20 files by default.
+Mutagen requires each added file to pass on the original code. A pass
+judges its mutants with the files admitted in that pass.
+
+`meta.since` records the ref, merge base, and site counts.
+`meta.incomplete` records paths skipped or unreadable and sites that the
+runner dropped. `mutation.pending` shows sites with no outcome, including
+uncovered sites and covered sites left unrun. Coverage includes green
+tests added during escalation. `meta.tests_selected` lists why each test
+file joined, and each result lists the steps it ran. Use
+`--include-host-output` to see discovered test paths when source reporting
+is enabled. Changed-code and automatic runs emit each final outcome after all passes
+when `--stream` is enabled.
+
+Site IDs are stable within an unchanged function. Editing a function can
+reassign IDs, so use them to inspect the current report.
+
 ## Running in CI
 
 Run with `MIX_ENV=test` and use `--json PATH` for the report artifact.
 Keep stderr out of CI artifacts.
 
-Set `--timeout-ms` well below the 30-second default for scopes whose
+Set `--timeout-ms` for scopes whose
 tests finish quickly. A runaway mutant can consume the full timeout. Set
 `--budget-ms` to stop dispatching new mutants once the mutation phase
 has used its budget. Use `meta.timings_ms` to size both limits on your CI
@@ -416,14 +453,17 @@ the average cost per mutant.
 
 | Flag | Purpose |
 |---|---|
-| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
-| `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
+| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required without `--since`. Repeatable up to 100 occurrences. |
+| `--tests <target>` | A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Repeatable up to 100 times. Use `auto` on its own. Required without `--since`. |
 | `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
-| `--no-source` | Omit source excerpts, file and function fields from mutation results and compile errors, including stream entries. |
+| `--no-source` | Omit source excerpts, excerpt lines, file and function fields from mutation results and compile errors, including stream entries. |
 | `--include-host-output` | Include captured compiler and test stderr and abort messages, with best-effort redaction. |
 | `--no-test-alias` | Skip entries in the host's test alias before the test task. |
 | `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
-| `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `30000`. Must be positive. Phoenix/Ecto-style apps often need the larger default because setup and supplemental tests can make a single mutation cycle exceed five seconds. |
+| `--since <ref>` | Plan changed runtime sites from the merge base. Defaults to `--tests auto`. |
+| `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
+| `--escalate-max-files <int>` | Maximum test files each extra pass considers. Default `20`. |
+| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor and a 30000 ms ceiling. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |

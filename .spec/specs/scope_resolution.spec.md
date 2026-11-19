@@ -28,8 +28,10 @@ kind: module
 status: active
 summary: Resolves --scope targets to {file, line_range, module} records over parsed ASTs.
 surface:
+  - lib/mutagen_ex/changed_scope.ex
   - lib/mutagen_ex/scope_resolver.ex
 decisions:
+  - mutagen.decision.changed_code_run
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.adoption_polish_efficacy
@@ -140,6 +142,15 @@ decisions:
     mutagen.mutation_enumeration.r4) at the resolver boundary. A nested
     declaration with an absolute alias (`Elixir.Other`) or a literal atom
     uses that module directly. `__MODULE__.Inner` resolves to `Outer.Inner`.
+- id: mutagen.scope_resolution.r11
+  priority: must
+  statement: |
+    A --since plan admits sites and validator skips whose spans touch
+    changed lines and whose enclosing group differs from the renamed or
+    same-path merge-base source. It intersects with explicit scope when
+    present. Deletion anchors touch the existing line on each side.
+    A pure rename or formatting-only change has no in-scope entries.
+
 ```
 
 ```spec-scenarios
