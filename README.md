@@ -7,8 +7,8 @@ classifying every mutation as `killed`, `survived`, `timeout`, `error`, or
 
 The CLI (`mix mutagen`) is the supported user-facing entry point;
 `MutagenEx.MutationRunner.run/1` is the equivalent library-caller entry
-point. The JSON document is the only output. Both are stable contracts
-as of v0.1.0.
+point. The CLI ends each run with an aggregate JSON document.
+`--stream` writes per-site events to the same destination before it.
 
 ## Why mutagen_ex (and how it differs from muzak)
 
@@ -28,11 +28,10 @@ that don't change for reasons unrelated to the code under test.
 
 Concretely, mutagen_ex differs from muzak on five deliberate axes:
 
-- **JSON-first, single-document output — no pretty human renderer by
-  design.** `mix mutagen` emits exactly one JSON document (to stdout or
-  `--json <path>`) and nothing else. There is no `--no-json` pretty mode;
-  supplying it is a hard error, not a silent fallback. Humans pipe through
-  `jq`. See [`.spec/decisions/no_pretty_output_v1.md`](.spec/decisions/no_pretty_output_v1.md).
+- **JSON output.** `mix mutagen` writes the aggregate document to stdout or
+  `--json <path>`. Use `--stream` to receive per-site JSON lines before
+  the aggregate, or pipe the aggregate through `jq` to inspect it.
+  [Output format decision](.spec/decisions/no_pretty_output_v1.md).
 
 - **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
   The hash includes the enclosing module, function name and declared arity,
@@ -48,7 +47,7 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   `meta.id_scheme: "2"`, and matching `meta.elixir_version` and
   `meta.otp_version` before comparing. IDs and reports from earlier
   versions cannot be compared with version 2.
-  [Mutation ID scheme 2](.spec/decisions/mutation_site_paths.md).
+  [Mutation ID scheme 2](.spec/decisions/mutation_id_scheme_2.md).
 
 - **Deterministic, serial-by-default execution.** Every phase — baseline,
   coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
@@ -64,7 +63,7 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   consumed by automation. Human ergonomics are explicitly secondary in v1.
 
 - **In-process pipeline (vs muzak's child-BEAM-per-mutation).** mutagen_ex
-  swaps bytecode via `Code.compile_quoted/1` and restores from a cached AST,
+  swaps bytecode via `Code.compile_quoted/2` and restores from a cached binary,
   all inside the same BEAM VM as the Mix task — roughly 10x faster per
   mutation than spawning a fresh node each time, which matters when a model
   is waiting on feedback. The trade-off is honest: shared-VM state drift on
@@ -128,12 +127,15 @@ treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
 ### Mutator confidence
 
 Every aggregate `mutation.results[]` entry and every NDJSON `"result"` line
-has a `"confidence"` field. The ratings are qualitative judgments about
-each operator. Even a high-rated survivor can be equivalent to the original
-code. A CI gate can filter for
+has a `"confidence"` field. The ratings apply to whole operators and draw
+on manual review of survivors from two Phoenix apps. Even a high-rated
+survivor can be equivalent to the original code. A CI gate can filter for
 `status == "survived" and confidence == "high"`. The field is part of
 report schema version `"2"`. The summary counts results of both confidence
 levels.
+
+The ratings are provisional. We will re-measure each mutator as more files
+are judged.
 
 | Mutator | Confidence | Reason |
 |---|---|---|
@@ -143,10 +145,10 @@ levels.
 | `literal` | high | A caller can observe the changed value or pattern. |
 | `with_swap` | low | Two checks can still return the same failure in practice, or their failures may never occur together. |
 | `case_drop` | high | Inputs handled by the removed final arm can now raise a clause error. |
-| `pipeline` | high | A different stage receives the original input. Some stages commute. |
+| `pipeline` | low | Independent stages often give the same result in either order, as with LiveView assigns or `Map.put/3` calls on different keys. |
 | `result_tuple` | high | The tag swap changes which consumers treat a result as success or failure. |
 | `else_removal` | high | Removing the branch changes how a false condition or failed match is handled. |
-| `guard_drop` | high | Dropping the guard can let a clause accept values it used to reject. |
+| `guard_drop` | low | Callers often cannot supply a value that the removed guard would have rejected. |
 
 `with_swap` applies its failure-priority filters only when the two clauses
 are independent. It treats a pair as dependent when a name bound by
@@ -159,7 +161,7 @@ uses `binding()`, `dbg()` or `__ENV__`. It records skip reasons in
 | `bound_var_used_before_binding` | A variable-shaped name in the moved-first expression also appears as a binding in the now-later pattern. The check ignores module attributes and binary modifiers. |
 | `insufficient_refutable_patterns` | In an independent pair, either match uses an unguarded variable, a wildcard, or a literal pattern with an equal literal expression. |
 | `indistinguishable_failures` | In an independent pair, both expressions are the same literal or read the same variable. |
-| `else_ignores_failure` | An independent pair has a single `else` arm with an unguarded wildcard. |
+| `else_ignores_failure` | An independent pair has a single unguarded variable or wildcard `else` arm whose body ignores the failure. |
 
 The RHS name check can skip a valid swap when the name has an outer binding
 or appears only inside a nested binder or quote. This includes names local
@@ -308,21 +310,22 @@ See `.spec/decisions/supervision_tree.md`.
 
 ## What `mix mutagen` does
 
-For each `--scope` target, mutagen_ex:
+For the selected scopes, mutagen_ex:
 
 1. Resolves the target to one or more `(module, file)` pairs.
-2. Runs the cited tests once unmodified to establish a green baseline
-   (red baseline aborts the run).
-3. Records line-level coverage for the in-scope modules.
-4. Enumerates mutation sites under the AST of each in-scope file,
-   restricted to covered lines.
+2. Runs the cited tests to record line-level coverage for the in-scope
+   modules.
+3. Enumerates mutation sites in each in-scope file's AST on covered lines.
+4. Runs the cited tests on the original code to check the baseline.
+   A red baseline aborts the run.
 5. For each site, applies the mutator, recompiles the module in place,
    re-runs the cited tests, and classifies the result.
 6. Restores the original module after every site.
 7. Emits the final JSON document.
 
-Tests run **serially** in every phase. The run is single-process: there is
-no worker pool, no shelled-out subprocess.
+Tests run serially within each pass. Mutation sites run serially by default
+in the same BEAM VM. `--max-concurrency` enables experimental parallel
+dispatch.
 
 Mutagen applies changes in memory via `Code.compile_quoted/2` and restores
 the original module after every site. The byte-identity contract covers
@@ -346,6 +349,18 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
             --json out/mutagen.json
 ```
 
+## Running in CI
+
+Run with `MIX_ENV=test` and use `--json PATH` for the report artifact.
+Keep stderr out of CI artifacts.
+
+Set `--timeout-ms` well below the 30-second default for scopes whose
+tests finish quickly. A runaway mutant can consume the full timeout. Set
+`--budget-ms` to stop dispatching new mutants once the mutation phase
+has used its budget. Use `meta.timings_ms` to size both limits on your CI
+runner. Dividing mutation time by the number of attempted sites gives
+the average cost per mutant.
+
 ## Flags
 
 | Flag | Purpose |
@@ -368,9 +383,8 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
 | `--stream` | Emit one NDJSON line per completed site (and `start`/`end` envelope lines) to the same sink the aggregate document goes to. Off by default. |
 | `--no-progress` | Suppress the human-readable per-site progress feed on stderr. Default is auto-on when stderr is a TTY, auto-off otherwise. |
 
-The flag surface above is exhaustive. `mix mutagen --no-json`
-and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
-— see Known limitations.
+See [Known limitations](#known-limitations) for rejected options such
+as `--no-json` and `--scope file.ex:Module`.
 
 ## Per-mutant fail-fast
 
@@ -435,7 +449,9 @@ shape is byte-equal to the equivalent entry in the aggregate
 Per-site lines (`"result"` / `"compile_error"`) arrive in **input
 order** even under `--max-concurrency > 1`, because the runner
 collects via `async_stream`'s `:ordered: true` default and the
-streaming callback fires from a sequential post-fold.
+streaming callback fires from a sequential post-fold. The final line
+on the sink is the aggregate document without a `kind` field. Timings
+appear only in that document.
 
 ### Progress feedback
 
@@ -547,142 +563,214 @@ bytes dropped by the input and output caps.
 
 ## JSON output
 
-`mix mutagen` emits exactly one JSON document — to stdout, or to the file
-named by `--json <path>`. It always ends with a single trailing newline.
-The same shape is used for a successful run and for an aborted one; the
-`aborted` flag tells the two apart.
+The aggregate JSON document goes to stdout or the file named by
+`--json <path>` and ends with a newline. With `--stream`, it follows
+the [per-site events](#ndjson-streaming---stream).
+
+`meta.timings_ms` measures elapsed milliseconds for boot, coverage,
+baseline and mutation. The total also includes work between phases such
+as enumeration, through report assembly. A phase that did not run shows
+zero. For a fixed environment and deterministic tests, `meta.timings_ms`
+is the only non-deterministic report field.
 
 ### Successful run
 
-Below is a real, annotated example of a completed run that mutated one
-arithmetic helper. (Comments are added here for explanation — the actual
-output is plain JSON with no comments.)
+This example comes from a copy of the lane fixture with `ExUnit.start()`
+in `test/test_helper.exs`. The output is indented for readability.
 
-```jsonc
+```bash
+MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
+  --tests test/lane_fixture/arith_test.exs
+```
+
+```json
 {
-  // Schema version of this document.
-  "version": "2",
-
-  // false  → the pipeline ran to completion (exit code 0).
-  // true   → the run was aborted before finishing (non-zero exit).
-  "aborted": false,
-  // The abort reason as a string, or null when "aborted" is false.
   "abort_reason": null,
-  // true if a --budget-ms cap stopped the run early. A graceful partial
-  // result, NOT an abort — "aborted" stays false and the exit code is 0.
-  "truncated": false,
-
-  // Environment + run parameters this document was produced under.
-  "meta": {
-    "id_scheme": "2",
-    "tool_version": "0.1.0",     // mutagen_ex version
-    "elixir_version": "1.19.6",
-    "otp_version": "28",
-    "exunit_seed": 0,            // the --seed value used for test ordering
-    "fail_fast": true
-  },
-
-  // What was mutated, resolved from --scope.
-  "scope": [
-    {
-      "module": "LaneFixture.Arith",
-      "file": "lib/lane_fixture/arith.ex",
-      "line_range": [1, 19]
-    }
-  ],
-
-  // Which tests judged the mutations, resolved from --tests.
-  "tests": {
-    "files": ["test/lane_fixture/arith_test.exs"],
-    "include": [],               // ExUnit include filters (e.g. from tag:)
-    "exclude": []
-  },
-
-  // The unmodified-code baseline. The run aborts before mutating if any
-  // cited test fails here (see "Baseline guard rail").
+  "aborted": false,
   "baseline": {
-    "passed": 5,
     "failed": 0,
-    "failures": []
+    "failures": [],
+    "passed": 5
   },
-
-  // Lines that were covered by the cited tests, per file. Only covered
-  // lines are eligible for mutation.
   "coverage": {
     "covered_lines": {
-      "lib/lane_fixture/arith.ex": { "bytes": 4 }
+      "lib/lane_fixture/arith.ex": [
+        12,
+        14,
+        16,
+        18
+      ]
     }
   },
-
-  // The heart of the report: every mutation that was applied and judged.
+  "details": {},
+  "meta": {
+    "elixir_version": "1.19.6",
+    "exunit_seed": 0,
+    "fail_fast": true,
+    "id_scheme": "2",
+    "otp_version": "28",
+    "timings_ms": {
+      "baseline": 3,
+      "boot": 75,
+      "coverage": 58,
+      "mutation": 80,
+      "total": 235
+    },
+    "tool_version": "0.1.0"
+  },
   "mutation": {
-    "total": 6,        // completed results
-    "completed": 6,    // sites actually run
-    "killed": 5,       // a cited test caught the mutation (good)
-    "survived": 1,     // no test caught it — a possible coverage gap
-    "timeout": 0,      // the mutated code exceeded --timeout-ms
-    "compile_error": 0, // the mutation did not compile
-
-    // Fraction of completed mutations that were killed: killed / completed.
-    // 1.0 is a perfect score; 0.0 is valid (still exit 0), not a failure.
-    "kill_rate": 0.8333333333333334,
-
-    // One entry per mutation that ran. Each describes the edit and verdict.
+    "compile_error": 0,
+    "compile_errors": [],
+    "completed": 7,
+    "kill_rate": 0.7142857142857143,
+    "killed": 5,
     "results": [
       {
-        // Scheme 2 ID. The function field is null outside named definitions.
-        "id": "lib/lane_fixture/arith.ex:f7fc9974f882553f6b11c5428b0baac6:arith",
-        "function": "LaneFixture.Arith.add/2",
-        "file": "lib/lane_fixture/arith.ex",
-        "line": 12,
-        "column": 24,
-        "mutator": "arith",     // which mutator produced this edit
-        "confidence": "high",   // rating assigned to the mutator
-        "before": "a + b",      // original source at the site
-        "after": "a - b",       // the mutated source that was tested
+        "after": "a - b",
+        "before": "a + b",
         "before_source": "a + b",
-        // killed | survived | timeout | error
+        "column": 24,
+        "confidence": "high",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.add/2",
+        "id": "lib/lane_fixture/arith.ex:f7fc9974f882553f6b11c5428b0baac6:arith",
+        "line": 12,
+        "mutator": "arith",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": { "count": 1 } // count of advisory warnings for this site
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
       },
       {
-        "id": "lib/lane_fixture/arith.ex:d821575fe16fe3710afb032918744e6b:literal",
-        "function": "LaneFixture.Arith.div_safe/2",
-        "file": "lib/lane_fixture/arith.ex",
-        "line": 18,
-        "column": 29,
-        "mutator": "literal",
+        "after": "a + b",
+        "before": "a - b",
+        "before_source": "a - b",
+        "column": 24,
         "confidence": "high",
-        "before": "0",
-        "after": "1",
-        "before_source": "0",
-        "status": "survived",   // no cited test failed on this edit
-        "tainted_predecessors": false,
-        "warnings": { "count": 1 }
-      }
-      // ... remaining results elided ...
-    ],
-
-    // Sites that failed to compile when mutated, with a diagnostic message.
-    "compile_errors": [],
-
-    // Sites that were enumerated but not run, with a reason.
-    "skipped": [
-      {
-        "site_id": "lib/lane_fixture/arith.ex:10714624:guard_drop",
         "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.sub/2",
+        "id": "lib/lane_fixture/arith.ex:02f1348e12b94f92cdcfe1d5cbd6634a:arith",
+        "line": 14,
+        "mutator": "arith",
+        "status": "killed",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
+      },
+      {
+        "after": "a / b",
+        "before": "a * b",
+        "before_source": "a * b",
+        "column": 24,
+        "confidence": "high",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.mul/2",
+        "id": "lib/lane_fixture/arith.ex:8d516b89cd37a53d164ad5a2afe29ed0:arith",
+        "line": 16,
+        "mutator": "arith",
+        "status": "killed",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
+      },
+      {
+        "after": "div_safe(a, b)",
+        "before": "div_safe(a, b) when b != 0",
+        "before_source": "div_safe(a, b) when b != 0",
+        "column": 22,
+        "confidence": "low",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.div_safe/2",
+        "id": "lib/lane_fixture/arith.ex:50c6b355d96c53576c96a09782b8533d:guard_drop",
+        "line": 18,
         "mutator": "guard_drop",
-        "reason": "structurally_invalid"
+        "status": "survived",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
+      },
+      {
+        "after": "b == 0",
+        "before": "b != 0",
+        "before_source": "b != 0",
+        "column": 29,
+        "confidence": "high",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.div_safe/2",
+        "id": "lib/lane_fixture/arith.ex:702f2afcc0d5994b0372219de4bcc4d0:compare",
+        "line": 18,
+        "mutator": "compare",
+        "status": "killed",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
+      },
+      {
+        "after": "1",
+        "before": "0",
+        "before_source": "0",
+        "column": 29,
+        "confidence": "high",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.div_safe/2",
+        "id": "lib/lane_fixture/arith.ex:d821575fe16fe3710afb032918744e6b:literal",
+        "line": 18,
+        "mutator": "literal",
+        "status": "survived",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
+      },
+      {
+        "after": "a * b",
+        "before": "a / b",
+        "before_source": "a / b",
+        "column": 41,
+        "confidence": "high",
+        "file": "lib/lane_fixture/arith.ex",
+        "function": "LaneFixture.Arith.div_safe/2",
+        "id": "lib/lane_fixture/arith.ex:2edeb721487365fa8cb5322bae381f16:arith",
+        "line": 18,
+        "mutator": "arith",
+        "status": "killed",
+        "tainted_predecessors": false,
+        "warnings": [
+          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
+        ]
       }
     ],
-    "state_drift_warning": {}
+    "skipped": [],
+    "state_drift_warning": {},
+    "survived": 2,
+    "timeout": 0,
+    "total": 7
   },
-
-  // Populated only on an abort (see below); empty on success.
-  "details": {},
-  // Run-level advisory warning count.
-  "warnings": { "count": 0 }
+  "scope": [
+    {
+      "file": "lib/lane_fixture/arith.ex",
+      "line_range": [
+        1,
+        19
+      ],
+      "module": "LaneFixture.Arith"
+    }
+  ],
+  "tests": {
+    "exclude": [],
+    "files": [
+      "test/lane_fixture/arith_test.exs"
+    ],
+    "include": []
+  },
+  "truncated": false,
+  "version": "2",
+  "warnings": []
 }
 ```
 
@@ -694,42 +782,43 @@ does not exist — `aborted` is `true`, the phase blocks that never ran are
 reason-specific fields. The exit code is non-zero. The reason strings are
 enumerated in the [Exit codes](#exit-codes) section.
 
-```jsonc
+```json
 {
-  "version": "2",
+  "abort_reason": "module_not_found",
   "aborted": true,
-  "abort_reason": "module_not_found",   // names which guard tripped
-  "truncated": false,
-  "meta": {
-    "id_scheme": "2",
-    "tool_version": "0.1.0",
-    "elixir_version": "1.19.6",
-    "otp_version": "28",
-    "exunit_seed": 0,
-    "fail_fast": true
-  },
-  // Phases that never ran are null rather than empty objects.
-  "scope": [],
-  "tests": null,
   "baseline": null,
   "coverage": null,
-  "mutation": null,
-  // Why the run aborted, plus reason-specific fields.
   "details": {
-    "message": "module Elixir.MyApp.Missing could not be resolved",
-    "module": "Elixir.MyApp.Missing"
+    "message": "no `defmodule LaneFixture.Missing` found in any project source file",
+    "module": "Elixir.LaneFixture.Missing",
+    "target": "LaneFixture.Missing"
   },
+  "meta": {
+    "elixir_version": "1.19.6",
+    "exunit_seed": 0,
+    "fail_fast": true,
+    "id_scheme": "2",
+    "otp_version": "28",
+    "timings_ms": {
+      "baseline": 0,
+      "boot": 141,
+      "coverage": 0,
+      "mutation": 0,
+      "total": 153
+    },
+    "tool_version": "0.1.0"
+  },
+  "mutation": null,
+  "scope": [],
+  "tests": null,
+  "truncated": false,
+  "version": "2",
   "warnings": []
 }
 ```
 
-The two examples above are derived directly from the project's golden
-fixtures — `test/mutagen_ex/golden/end_to_end_scenario_1_arith.json` and
-`error_unresolvable_scope.json` — so the field names and shapes match the
-real output byte-for-byte. The full fixture set is the authoritative
-schema-by-example, and the behavioural contract lives in
-`.spec/specs/json_schema.spec.md`; both ship in the source repository
-rather than the published package.
+Both examples are from CLI runs on the fixture. The schema contract is
+in [`.spec/specs/json_schema.spec.md`](.spec/specs/json_schema.spec.md).
 
 ## Baseline guard rail
 
