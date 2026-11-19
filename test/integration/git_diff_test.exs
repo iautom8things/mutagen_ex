@@ -216,7 +216,10 @@ defmodule MutagenEx.GitDiffIntegrationTest do
     assert skipped == [
              %{path: "lib/change.ex", reason: :type_change},
              %{path: "lib/new_link.ex", reason: :symlink},
-             %{path: "lib/sub.ex", reason: :gitlink}
+             %{path: "lib/sub.ex", reason: :gitlink},
+             %{path: "lib/base_link.ex", reason: :preexisting_symlink},
+             %{path: "lib/new_link.ex", reason: :preexisting_symlink},
+             %{path: "lib/sub.ex", reason: :preexisting_gitlink}
            ]
 
     assert {:error, :diff_unavailable, %{cause: :base_symlink}} =
@@ -398,7 +401,9 @@ defmodule MutagenEx.GitDiffIntegrationTest do
               files: %{},
               skipped: [
                 %{path: "lib/sub", reason: :symlink},
-                %{path: "lib/vendor", reason: :gitlink}
+                %{path: "lib/vendor", reason: :gitlink},
+                %{path: "lib/sub", reason: :preexisting_symlink},
+                %{path: "lib/vendor", reason: :preexisting_gitlink}
               ],
               warnings: []
             }} = GitDiff.changed_lines(base, cd: repo)
@@ -415,7 +420,14 @@ defmodule MutagenEx.GitDiffIntegrationTest do
     git!(repo, ["update-index", "--add", "--cacheinfo", "160000,#{base},lib"])
     File.mkdir!(Path.join(repo, "lib"))
 
-    assert {:ok, %{skipped: [%{path: "lib", reason: :gitlink}], warnings: []}} =
+    assert {:ok,
+            %{
+              skipped: [
+                %{path: "lib", reason: :gitlink},
+                %{path: "lib", reason: :preexisting_gitlink}
+              ],
+              warnings: []
+            }} =
              GitDiff.changed_lines(base, cd: repo)
   end
 
@@ -531,6 +543,290 @@ defmodule MutagenEx.GitDiffIntegrationTest do
 
     Process.sleep(750)
     refute File.exists?(Path.join(repo, "escaped-child"))
+  end
+
+  describe "checkout boundaries" do
+    @describetag :tmp_dir
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "rejects a submodule at a parent of a source root", %{tmp_dir: tmp} do
+      repo = submodule_fixture!(tmp)
+
+      assert {:error, :diff_unavailable,
+              %{cause: :nested_git_checkout, component: "apps/x", type: :regular}} =
+               GitDiff.changed_lines("main", cd: repo, roots: ["apps/x/lib"])
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "rejects nested repositories whose .git entry is a directory", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      nested = Path.join(repo, "apps/local")
+      File.mkdir_p!(nested)
+      init!(nested)
+      write!(nested, "lib/a.ex", "independent\n")
+      commit!(nested, "Nested")
+
+      assert {:error, :diff_unavailable,
+              %{cause: :nested_git_checkout, component: "apps/local", type: :directory}} =
+               GitDiff.changed_lines("HEAD", cd: repo, roots: ["apps/local/lib"])
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "rejects reads from inside a submodule checkout", %{tmp_dir: tmp} do
+      checkout = Path.join(submodule_fixture!(tmp), "apps/x")
+      base = sha(checkout)
+
+      assert {:error, :diff_unavailable, %{cause: :inside_submodule, hint: hint}} =
+               GitDiff.changed_lines("HEAD", cd: checkout)
+
+      assert hint =~ "inside a submodule checkout is not supported"
+
+      assert {:error, :diff_unavailable, %{cause: :inside_submodule}} =
+               GitDiff.base_file(base, "lib/a.ex", cd: checkout)
+    end
+
+    @tag spec: "mutagen.git_diff.r1"
+    test "reports unchanged index links when edits reach their targets", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/regular.ex", "base\n")
+      write!(repo, "other/o.ex", "base\n")
+      commit!(repo, "Initial")
+      initial = sha(repo)
+      File.ln_s!("../other", Path.join(repo, "lib/sub"))
+      File.ln_s!("../other/o.ex", Path.join(repo, "lib/o.ex"))
+      git!(repo, ~w(add lib))
+      git!(repo, ["update-index", "--add", "--cacheinfo", "160000,#{initial},lib/vendor"])
+      File.mkdir!(Path.join(repo, "lib/vendor"))
+      git!(repo, ["commit", "-m", "Track links"])
+      base = sha(repo)
+      write!(repo, "other/o.ex", "edited\n")
+      write!(repo, "other/added.ex", "new code\n")
+      git!(repo, ~w(add other))
+      git!(repo, ["commit", "-m", "Edit targets"])
+
+      assert {:ok,
+              %{
+                files: %{},
+                warnings: [],
+                skipped: [
+                  %{path: "lib/o.ex", reason: :preexisting_symlink},
+                  %{path: "lib/sub", reason: :preexisting_symlink},
+                  %{path: "lib/vendor", reason: :preexisting_gitlink}
+                ]
+              }} = GitDiff.changed_lines(base, cd: repo)
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "uses disk case folding even when core.ignorecase is false", %{tmp_dir: repo} do
+      init!(repo)
+      git!(repo, ~w(config core.ignorecase false))
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+      write!(repo, "Lib/new.ex", "case alias\n")
+      git!(repo, ~w(add -- Lib/new.ex))
+      git!(repo, ["commit", "-m", "Case variant"])
+
+      original = File.stat!(Path.join(repo, "lib"))
+
+      expected =
+        case File.stat(Path.join(repo, "LIB")) do
+          {:ok, %{inode: inode, major_device: device}}
+          when inode == original.inode and device == original.major_device ->
+            %{"Lib/new.ex" => [{1, 1}]}
+
+          _ ->
+            %{}
+        end
+
+      assert {:ok, %{files: ^expected}} = GitDiff.changed_lines(base, cd: repo)
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "matches normalized roots in both Git case modes and keeps tracked spelling", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      roots = ["café", "한"]
+      for root <- roots, do: write!(repo, root <> "/base.ex", "base\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+
+      for root <- roots do
+        path = String.normalize(root, :nfd) <> "/alias.ex"
+        write!(repo, path, "normalized alias\n")
+        git!(repo, ["-c", "core.precomposeunicode=false", "add", "--", path])
+      end
+
+      git!(repo, ["commit", "-m", "Normalized spelling"])
+
+      for mode <- ["false", "true"], root <- roots do
+        git!(repo, ["config", "core.ignorecase", mode])
+        path = String.normalize(root, :nfd) <> "/alias.ex"
+
+        assert {:ok, %{files: %{^path => [{1, 1}]}}} =
+                 GitDiff.changed_lines(base, cd: repo, roots: [root])
+      end
+    end
+
+    @tag spec: "mutagen.git_diff.r1"
+    test "reads a rename across a root boundary as an addition", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/base.ex", "base\n")
+      write!(repo, "test/support/outside.ex", "first\nsecond\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+      git!(repo, ~w(mv test/support/outside.ex lib/moved.ex))
+
+      assert_case_modes(repo, base, %{"lib/moved.ex" => [{1, 2}]})
+    end
+
+    @tag spec: "mutagen.git_diff.r5"
+    test "an out-of-root patch does not consume the output or file size cap", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+      write!(repo, "lib/a.ex", "changed\n")
+      write!(repo, "priv/large.bin", :binary.copy(<<0, 1, 2, 3>>, 5 * 1024 * 1024))
+      git!(repo, ~w(add priv/large.bin))
+
+      assert_case_modes(repo, base, %{"lib/a.ex" => [{1, 1}]})
+    end
+
+    @tag spec: "mutagen.git_diff.r5"
+    test "out-of-root changes do not consume the changed file cap", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+      write!(repo, "lib/a.ex", "changed\n")
+      for n <- 1..2_001, do: write!(repo, "test/#{n}.exs", "outside\n")
+      git!(repo, ~w(add test))
+
+      assert_case_modes(repo, base, %{"lib/a.ex" => [{1, 1}]})
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "distinguishes an unchanged symlinked root and reports invalid component types", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      write!(repo, "src/a.ex", "base\n")
+      File.ln_s!("src", Path.join(repo, "lib"))
+      commit!(repo, "Symlinked root")
+      base = sha(repo)
+
+      assert {:error, :diff_unavailable,
+              %{cause: :preexisting_symlinked_root, root: "lib", component: "lib", type: :symlink}} =
+               GitDiff.changed_lines(base, cd: repo)
+
+      assert {:error, :diff_unavailable,
+              %{
+                cause: :invalid_root_directory,
+                root: "src/a.ex/nested",
+                component: "src/a.ex",
+                type: :regular
+              }} =
+               GitDiff.changed_lines(base, cd: repo, roots: ["src/a.ex/nested"])
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "fails closed when a root is replaced while Git produces the diff", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      write!(repo, "lib/a.ex", "edit\n")
+
+      cmd = fn executable, args, opts ->
+        result = System.cmd(executable, args, opts)
+
+        if "diff" in args do
+          File.rename!(Path.join(repo, "lib"), Path.join(repo, "old-lib"))
+          File.mkdir!(Path.join(repo, "lib"))
+        end
+
+        result
+      end
+
+      assert {:error, :diff_unavailable, %{cause: :root_changed}} =
+               GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
+    end
+
+    @tag spec: ["mutagen.git_diff.r2", "mutagen.git_diff.r8"]
+    test "error paths in hints and details have no control characters", %{tmp_dir: tmp} do
+      repo = Path.join(tmp, "checkout\e[31m\ntext")
+      File.mkdir!(repo)
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+
+      assert {:error, :diff_unavailable,
+              %{cause: :invalid_root_directory, root: "ab", component: "ab"}} =
+               GitDiff.changed_lines("HEAD", cd: repo, roots: ["a\e\nb"])
+
+      home = Path.join(tmp, "isolated-home")
+      File.mkdir!(home)
+
+      cmd = fn executable, args, opts ->
+        opts = opts |> put_command_env("HOME", home) |> put_command_env("XDG_CONFIG_HOME", home)
+        opts = put_command_env(opts, "GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+        System.cmd(executable, args, opts)
+      end
+
+      assert {:error, :diff_unavailable, %{cause: :dubious_ownership, hint: hint}} =
+               GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
+
+      refute Regex.match?(~r/\p{Cc}/u, hint)
+      assert hint =~ "checkout[31mtext"
+    end
+
+    @tag spec: "mutagen.git_diff.r8"
+    test "a missing kill executable preserves the timeout error", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+
+      cmd = fn executable, args, opts ->
+        if "diff" in args,
+          do: System.cmd("/bin/sleep", ["2"], opts),
+          else: System.cmd(executable, args, opts)
+      end
+
+      kill_cmd = fn _executable, args, opts ->
+        System.cmd(Path.join(repo, "absent-kill"), args, opts)
+      end
+
+      assert {:error, :diff_unavailable,
+              %{cause: :timeout, step: :diff, child_may_still_run: true}} =
+               GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd, kill_cmd: kill_cmd, timeout: 500)
+    end
+  end
+
+  defp submodule_fixture!(tmp) do
+    source = Path.join(tmp, "source")
+    repo = Path.join(tmp, "superproject")
+    for dir <- [source, repo], do: File.mkdir!(dir)
+    init!(source)
+    init!(repo)
+    write!(source, "lib/a.ex", "submodule source\n")
+    commit!(source, "Source")
+    write!(repo, "apps/x/lib/a.ex", "superproject source\n")
+    commit!(repo, "Base")
+    git!(repo, ~w(switch -c pr))
+    git!(repo, ~w(rm -r apps/x))
+    git!(repo, ["-c", "protocol.file.allow=always", "submodule", "add", "--", source, "apps/x"])
+    git!(repo, ["commit", "-m", "Replace project with submodule"])
+    repo
+  end
+
+  defp assert_case_modes(repo, base, expected) do
+    for mode <- ["false", "true"] do
+      git!(repo, ["config", "core.ignorecase", mode])
+      assert {:ok, %{files: ^expected, renames: %{}}} = GitDiff.changed_lines(base, cd: repo)
+    end
   end
 
   describe "read guards with real Git" do
