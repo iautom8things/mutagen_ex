@@ -430,10 +430,15 @@ decisions:
   statement: |
     After the helpers load, every coverage, baseline, and mutation pass
     keeps the ExUnit configuration the helpers set, except for the
-    options Mutagen sets before each pass: `seed` (r4), `max_cases: 1`,
-    and `include` and `exclude`, which hold the cited selection merged
-    with the helpers' filters (mutagen.test_selection.r8). Formatters the
-    helper configures therefore run on every pass.
+    options Mutagen sets for its phase: `seed` (r4), `max_cases: 1`,
+    `max_failures` (unbounded in coverage and baseline, and set by
+    mutagen.mutation_pipeline.r20 in the mutation phase), and `include`
+    and `exclude`, which hold the cited selection merged with the
+    helpers' filters (mutagen.test_selection.r8). A phase keeps the
+    helpers' formatters and may append its own failure formatter. When
+    the phase ends, Mutagen restores each of these options, and
+    `trace`, to its value before the phase. Formatters the helper
+    configures therefore run on every pass.
 
     Mutagen removes the `ExUnit.after_suite/1` callbacks registered
     during host setup from ExUnit's configuration before the first pass,
