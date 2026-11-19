@@ -445,9 +445,13 @@ defmodule MutagenEx.MutationEnumerator do
   # via the Mix task.
   defp try_mutators(node, ambient, context, env, acc) do
     mutators =
-      node
-      |> pre_filter_mutators(env.mutators, env.dispatch_mode)
-      |> Enum.filter(& &1.match?(node))
+      if function_reference?(node, context) do
+        []
+      else
+        node
+        |> pre_filter_mutators(env.mutators, env.dispatch_mode)
+        |> Enum.filter(& &1.match?(node))
+      end
 
     case mutators do
       [] ->
@@ -468,6 +472,21 @@ defmodule MutagenEx.MutationEnumerator do
         end)
     end
   end
+
+  # `&fun/arity` and `&Mod.fun/arity` parse their reference as a `/` call.
+  # The reference names a function, so no mutator treats it as division.
+  # This follows the shapes Elixir's capture expansion accepts.
+  defp function_reference?({:/, _, [target, arity]}, %{parent: {:&, _, [_]}})
+       when is_integer(arity),
+       do: function_target?(target)
+
+  defp function_reference?(_node, _context), do: false
+
+  defp function_target?({name, _meta, context}) when is_atom(name) and is_atom(context),
+    do: true
+
+  defp function_target?({{:., _, [_module, name]}, _meta, []}) when is_atom(name), do: true
+  defp function_target?(_target), do: false
 
   defp identity_expression(node, %{parent: parent, index: index})
        when is_integer(node) or is_boolean(node),
