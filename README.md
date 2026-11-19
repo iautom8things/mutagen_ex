@@ -611,11 +611,11 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
     "id_scheme": "2",
     "otp_version": "28",
     "timings_ms": {
-      "baseline": 3,
-      "boot": 75,
-      "coverage": 58,
-      "mutation": 80,
-      "total": 235
+      "baseline": 2,
+      "boot": 93,
+      "coverage": 49,
+      "mutation": 98,
+      "total": 266
     },
     "tool_version": "0.1.0"
   },
@@ -639,9 +639,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "arith",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "a + b",
@@ -656,9 +654,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "arith",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "a / b",
@@ -673,9 +669,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "arith",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "div_safe(a, b)",
@@ -690,9 +684,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "guard_drop",
         "status": "survived",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "b == 0",
@@ -707,9 +699,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "compare",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "1",
@@ -724,9 +714,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "literal",
         "status": "survived",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       },
       {
         "after": "a * b",
@@ -741,9 +729,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
         "mutator": "arith",
         "status": "killed",
         "tainted_predecessors": false,
-        "warnings": [
-          "warning: redefining module LaneFixture.Arith (current version loaded from _build/test/lib/lane_fixture/ebin/Elixir.LaneFixture.Arith.beam)\n    │\n  1 │ defmodule LaneFixture.Arith do\n    │ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    │\n    └─ lib/lane_fixture/arith.ex:1: LaneFixture.Arith (module)"
-        ]
+        "warnings": []
       }
     ],
     "skipped": [],
@@ -778,9 +764,9 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
 ### Aborted run
 
 When the run cannot proceed — for example, `--scope` names a module that
-does not exist — `aborted` is `true`, the phase blocks that never ran are
-`null`, and `details` carries a human-readable `message` plus any
-reason-specific fields. The exit code is non-zero. The reason strings are
+does not exist, `aborted` is `true` and the phase blocks that never ran are
+`null`. The default `details` contains a fixed hint and any available
+structured facts. The exit code is non-zero. The reason strings are
 enumerated in the [Exit codes](#exit-codes) section.
 
 ```json
@@ -790,9 +776,10 @@ enumerated in the [Exit codes](#exit-codes) section.
   "baseline": null,
   "coverage": null,
   "details": {
-    "message": "no `defmodule LaneFixture.Missing` found in any project source file",
+    "hint": "Check the module name and that its source compiles.",
     "module": "Elixir.LaneFixture.Missing",
-    "target": "LaneFixture.Missing"
+    "note": "Stderr may carry unredacted host output. Do not publish it as a CI artifact.",
+    "step": "scope"
   },
   "meta": {
     "elixir_version": "1.19.6",
@@ -802,10 +789,10 @@ enumerated in the [Exit codes](#exit-codes) section.
     "otp_version": "28",
     "timings_ms": {
       "baseline": 0,
-      "boot": 141,
+      "boot": 62,
       "coverage": 0,
       "mutation": 0,
-      "total": 153
+      "total": 72
     },
     "tool_version": "0.1.0"
   },
