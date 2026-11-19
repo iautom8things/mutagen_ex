@@ -39,7 +39,7 @@ defmodule MutagenEx.PlannedSitesTest do
     assert Mutators.identity_hash([quoted], :ast_list) == digest([quoted])
 
     for entry <- ast |> plan_ast() |> planned_entries() do
-      assert entry.fingerprint ==
+      assert MutationEnumerator.site_fingerprint(entry) ==
                Map.fetch!(MutationEnumerator.group_fingerprints(ast), entry.group_key)
     end
   end
@@ -143,7 +143,7 @@ defmodule MutagenEx.PlannedSitesTest do
              )
 
     assert %{line: 4, end_line: 5, group_key: {Sample, :multiline, 1}, runtime?: true} = site
-    assert is_binary(site.fingerprint)
+    assert is_binary(MutationEnumerator.site_fingerprint(site))
 
     assert %{
              reason: :bound_var_used_before_binding,
@@ -153,7 +153,7 @@ defmodule MutagenEx.PlannedSitesTest do
              runtime?: true
            } = skip
 
-    assert is_binary(skip.fingerprint)
+    assert is_binary(MutationEnumerator.site_fingerprint(skip))
 
     assert %{sites: [%MutationEnumerator.Site{line: 2}], skipped: []} =
              MutationEnumerator.enumerate(cache, [scope], coverage, mutators: mutators)
@@ -176,11 +176,12 @@ defmodule MutagenEx.PlannedSitesTest do
 
     assert %{sites: [%{mutator: :result_tuple} = site]} = plan(source, [4..4])
     base = String.replace(source, ":error", ":ok")
-    assert MutationEnumerator.fingerprint_scope([site], base) == {[site], []}
+    assert {[%{id: id}], []} = MutationEnumerator.fingerprint_scope([site], base)
+    assert id == site.id
   end
 
   @tag spec: "mutagen.mutation_enumeration.r13"
-  test "a changed with-body result tuple is planned without including the binding tuple" do
+  test "a changed with-body result tuple is planned on the body line" do
     source =
       module_source("""
       def target(x) do
@@ -190,8 +191,10 @@ defmodule MutagenEx.PlannedSitesTest do
       end
       """)
 
-    assert [%{mutator: :result_tuple}] =
-             Enum.filter(plan(source, [4..4]).sites, &(&1.mutator == :result_tuple))
+    assert Enum.any?(plan(source, [4..4]).sites, fn
+             %{original_ast: {:ok, {:y, _, nil} = value}} -> Ast.node_line(value) == 4
+             _ -> false
+           end)
   end
 
   @tag spec: "mutagen.mutation_enumeration.r13"
@@ -222,6 +225,43 @@ defmodule MutagenEx.PlannedSitesTest do
 
     assert %{sites: [%{mutator: :literal}, %{mutator: :literal}]} = plan(source, [5..5])
     assert %{sites: []} = plan(source, [8..8])
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "standalone literal-only returns after an arrow are selected on the return line" do
+    source =
+      module_source("""
+      def target(x) do
+        case x do
+          :a ->
+            {:ok, nil}
+          :b ->
+            {:error, :unavailable}
+          _ ->
+            true
+        end
+      end
+      """)
+
+    for {line, ast} <- [{5, {:ok, nil}}, {7, {:error, :unavailable}}, {9, true}] do
+      assert Enum.any?(plan(source, [line..line]).sites, &(&1.original_ast == ast))
+    end
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "a multiline result tuple is selected on its positionless opening line" do
+    source =
+      module_source("""
+      def target(x) do
+        {:error,
+         %Result{value: x}}
+      end
+      """)
+
+    assert %{sites: [%{mutator: :result_tuple} = site]} = plan(source, [3..3])
+    base = String.replace(source, ":error", ":ok")
+    assert {[%{id: id}], []} = MutationEnumerator.fingerprint_scope([site], base)
+    assert id == site.id
   end
 
   @tag spec: "mutagen.mutation_enumeration.r13"
@@ -259,10 +299,37 @@ defmodule MutagenEx.PlannedSitesTest do
     source = module_source("def target(x), do: {:ok, [x + 1, 0]}")
     ast = parse(source)
     scopes = [scope(@file_path, Sample, 1..3)]
-    opts = [planned: %{@file_path => [{1, 3}]}]
+    opts = [planned: %{@file_path => [{1, 3}]}, source: false]
 
     assert MutationEnumerator.enumerate(%{@file_path => {ast, source}}, scopes, %{}, opts) ==
              MutationEnumerator.enumerate(%{@file_path => ast}, scopes, %{}, opts)
+  end
+
+  @tag spec: ["mutagen.mutation_enumeration.r11", "mutagen.mutation_enumeration.r13"]
+  test "a planned multiline return keeps its exact excerpt when converted for the runner" do
+    source =
+      module_source("""
+      def target(x) do
+        {:error,
+         %Result{value: x}}
+      end
+      """)
+
+    cache = %{@file_path => {parse(source), source}}
+    scopes = [scope(@file_path, Sample, 1..6)]
+    opts = [planned: %{@file_path => [{3, 3}]}]
+
+    assert %{sites: [planned]} = MutationEnumerator.enumerate(cache, scopes, %{}, opts)
+
+    assert %MutationEnumerator.Site{source_span: {offset, length}} =
+             MutationEnumerator.to_site(planned)
+
+    assert binary_part(source, offset, length) == "{:error,\n   %Result{value: x}}"
+
+    assert %{sites: [without_source]} =
+             MutationEnumerator.enumerate(cache, scopes, %{}, Keyword.put(opts, :source, false))
+
+    assert without_source == %{planned | source_span: nil}
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -316,13 +383,50 @@ defmodule MutagenEx.PlannedSitesTest do
 
     {entries, hashes} = trace_group_hashes(fn -> planned_entries(plan(source, [2..2])) end)
     assert [%{reason: :structurally_invalid, group_key: @group}] = entries
-    assert [clauses] = hashes
-    assert [{:def, _, [{:target, _, _} | _]}] = clauses
+    assert hashes == []
 
-    {{[], []}, base_hashes} =
+    {{[], []}, hashes} =
       trace_group_hashes(fn -> MutationEnumerator.fingerprint_scope(entries, source) end)
 
-    assert base_hashes == hashes
+    assert [clauses, clauses] = hashes
+    assert [{:def, _, [{:target, _, _} | _]}] = clauses
+  end
+
+  @tag spec: ["mutagen.mutation_enumeration.r12", "mutagen.mutation_enumeration.r15"]
+  test "new files do not hash planned groups and shared keys hash only on first comparison" do
+    source =
+      module_source("""
+      def target(x), do: x + 1
+      def added(x), do: x * 1
+      """)
+
+    {{new_file, []}, hashes} =
+      trace_group_hashes(fn ->
+        entries = planned_entries(plan(source))
+        MutationEnumerator.fingerprint_scope(entries, :absent)
+      end)
+
+    assert length(new_file) == 4
+    assert hashes == []
+
+    base = module_source("def target(x), do: x - 1")
+
+    {{entries, []}, hashes} =
+      trace_group_hashes(fn -> MutationEnumerator.fingerprint_scope(new_file, base) end)
+
+    assert length(entries) == 4
+    assert [[{:def, _, [{:target, _, _} | _]}], [{:def, _, [{:target, _, _} | _]}]] = hashes
+    target = Enum.filter(entries, &(&1.group_key == @group))
+    assert [%{fingerprint: digest}, %{fingerprint: digest}] = target
+    assert is_binary(digest)
+
+    assert Enum.reject(entries, &(&1.group_key == @group)) ==
+             Enum.reject(new_file, &(&1.group_key == @group))
+
+    {{^entries, []}, hashes} =
+      trace_group_hashes(fn -> MutationEnumerator.fingerprint_scope(entries, base) end)
+
+    assert [[{:def, _, [{:target, _, _} | _]}]] = hashes
   end
 
   @tag spec: "mutagen.mutation_enumeration.r15"
@@ -359,6 +463,50 @@ defmodule MutagenEx.PlannedSitesTest do
     refute before[inner] == after_edit[inner]
     refute before[@group] == after_edit[@group]
     assert Map.drop(before, [inner, @group]) == Map.drop(after_edit, [inner, @group])
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "definitions with nil heads retain their bodies in the enclosing fingerprint" do
+    source = fn first, second ->
+      module_source("""
+      if Mix.env() == :test do
+        def a(x), do: x
+        def nil, do: #{first}
+        def nil, do: #{second}
+      end
+      """)
+    end
+
+    before = source.("x + 1", "y + 1")
+    swapped = source.("y + 1", "x + 1")
+    key = {Sample, {:if, :_}}
+
+    ids = fn code ->
+      for site <- plan(code).sites, site.group_key == key and site.mutator == :arith, do: site.id
+    end
+
+    assert [first, second] = ids.(before)
+    assert [^second, ^first] = ids.(swapped)
+
+    refute MutationEnumerator.group_fingerprints(parse(before))[key] ==
+             MutationEnumerator.group_fingerprints(parse(swapped))[key]
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "unindexed module declarations retain their expressions in the enclosing fingerprint" do
+    before =
+      module_source("""
+      if Mix.env() == :test do
+        def a(x), do: x
+        defmodule Unindexed, other: x + 1
+      end
+      """)
+
+    after_edit = String.replace(before, "x + 1", "x - 1")
+    key = {Sample, {:if, :_}}
+
+    refute MutationEnumerator.group_fingerprints(parse(before))[key] ==
+             MutationEnumerator.group_fingerprints(parse(after_edit))[key]
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
