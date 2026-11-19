@@ -43,7 +43,7 @@ defmodule MutagenEx.MixProject do
   #
   # The `:files` whitelist ships only the runtime library and the docs a
   # consumer needs. Hex's default globs would otherwise sweep in dev cruft:
-  # the bench/spike scripts under `priv/helper_scripts/` (including the nested
+  # the bench/spike scripts under `scripts/helper_scripts/` (including the nested
   # `wrd25_200sites/` fixture mix project), the `.spec/` corpus, `CLAUDE.md` /
   # `AGENTS.md`, and the `Makefile` / `make/` worktree tooling. The README's
   # JSON example is inlined (mutagen-hcs.6), so it no longer depends on the

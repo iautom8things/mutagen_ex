@@ -185,7 +185,7 @@ defmodule MutagenEx.MutationRunner do
           mutated_ast: Macro.t(),
           status: :killed | :survived | :timeout | :error,
           tainted_predecessors: boolean(),
-          warnings: [String.t()],
+          warnings: [String.t() | {atom(), String.t()}],
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil,
           source_text: String.t() | nil
@@ -195,10 +195,12 @@ defmodule MutagenEx.MutationRunner do
   @type compile_error_entry :: %{
           id: String.t(),
           file: String.t(),
+          function: String.t() | nil,
           line: pos_integer(),
           column: pos_integer(),
           mutator: atom(),
-          message: String.t()
+          message: String.t(),
+          exception: module() | nil
         }
 
   @typedoc "Aggregated runner result."
@@ -298,10 +300,17 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp run_configured(cfg, options) do
-    ExUnitFacade.with_options(options, fn ->
-      drift = compute_state_drift_warnings(cfg)
-      run_with_beam_cache(cfg, drift)
-    end)
+    ignore_conflict = Code.get_compiler_option(:ignore_module_conflict)
+    Code.put_compiler_option(:ignore_module_conflict, true)
+
+    try do
+      ExUnitFacade.with_options(options, fn ->
+        drift = compute_state_drift_warnings(cfg)
+        run_with_beam_cache(cfg, drift)
+      end)
+    after
+      Code.put_compiler_option(:ignore_module_conflict, ignore_conflict)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -475,6 +484,7 @@ defmodule MutagenEx.MutationRunner do
       compile_errors: [],
       state_drift_warning: drift,
       warnings: [],
+      host_warnings: [],
       tainted: false,
       truncated: false
     }
@@ -612,8 +622,7 @@ defmodule MutagenEx.MutationRunner do
         outcome
 
       {:error, message} ->
-        {:error, :unrecoverable_restore_failure,
-         %{message: MutagenEx.JsonReporter.Sanitizer.clean(message)}}
+        {:error, :unrecoverable_restore_failure, %{message: message}}
     end
   end
 
@@ -694,6 +703,8 @@ defmodule MutagenEx.MutationRunner do
   defp run_one_site_task(%Site{} = site, file_ast, source_text, cfg) do
     case mutate_at_path(file_ast, site) do
       {:ok, mutated_ast} ->
+        cfg = Map.put(cfg, :host_snapshot, MutagenEx.Test.RunGroup.snapshot())
+
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
             run_within_restore(site, file_ast, source_text, compile_stderr, cfg)
@@ -705,11 +716,10 @@ defmodule MutagenEx.MutationRunner do
             # call restore defensively to keep state hygiene uniform.
             # Per r6, restore failure on this branch is also abort-worthy
             # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
-            # `message` is already sanitized by safe_compile_quoted/3
-            # (r10/r11 cap + redact applied there before this branch).
             case restore(site.file, cfg) do
               :ok ->
-                {:compile_error, site, message}
+                warnings = MutagenEx.Test.RunGroup.host_warnings(cfg.host_snapshot, false)
+                {:compile_error, site, message, warnings}
 
               {:error, restore_msg} ->
                 {:abort, :unrecoverable_restore_failure,
@@ -717,11 +727,8 @@ defmodule MutagenEx.MutationRunner do
                    site_id: site.id,
                    file: site.file,
                    message:
-                     MutagenEx.JsonReporter.Sanitizer.clean(
-                       "restore failed on :compile_error branch: " <>
-                         restore_msg <>
-                         " (original :compile_error: " <> message <> ")"
-                     )
+                     "restore failed on :compile_error branch: " <>
+                       restore_msg <> " (original :compile_error: " <> message.message <> ")"
                  }}
             end
         end
@@ -738,6 +745,7 @@ defmodule MutagenEx.MutationRunner do
                test_modules: cfg.test_modules,
                timeout_ms: cfg.timeout_ms,
                failure_times: Map.get(cfg, :failure_times),
+               host_snapshot: cfg.host_snapshot,
                serial?: resolve_max_concurrency(cfg) == 1,
                ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
                ex_unit_server: Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
@@ -763,7 +771,7 @@ defmodule MutagenEx.MutationRunner do
          %{
            site_id: site.id,
            file: site.file,
-           message: MutagenEx.JsonReporter.Sanitizer.clean(message)
+           message: message
          }}
     end
   end
@@ -798,7 +806,9 @@ defmodule MutagenEx.MutationRunner do
         []
       end
 
-    next_tainted = tainted_now or grew? or match?({:timeout, _}, outcome)
+    host_warnings = post_meta.host_warnings
+    next_tainted = tainted_now or grew? or host_warnings != [] or match?({:timeout, _}, outcome)
+    print_host_output(run_warnings)
 
     result = %{
       id: site.id,
@@ -811,7 +821,7 @@ defmodule MutagenEx.MutationRunner do
       mutated_ast: site.mutated_ast,
       status: status,
       tainted_predecessors: tainted_now,
-      warnings: run_warnings,
+      warnings: Enum.uniq(acc.host_warnings ++ host_warnings) ++ run_warnings,
       # Threaded through for the JSON renderer's verbatim-source-slice
       # path (`mutagen.json_schema.r4`). When `end_line`/`end_column`
       # are nil, the renderer falls back to aliasing `before` into
@@ -829,24 +839,41 @@ defmodule MutagenEx.MutationRunner do
      %{
        acc
        | results: [result | acc.results],
-         warnings: snapshot_warning ++ acc.warnings,
+         warnings: host_warnings ++ snapshot_warning ++ acc.warnings,
+         host_warnings: Enum.uniq(acc.host_warnings ++ host_warnings),
          tainted: next_tainted
      }}
   end
 
-  defp fold_task_outcome({:compile_error, site, message}, _cfg, acc, on_site_completed) do
+  defp fold_task_outcome(
+         {:compile_error, site, details, host_warnings},
+         _cfg,
+         acc,
+         on_site_completed
+       ) do
+    print_host_output([{:host_output, details.message}])
+
     entry = %{
       id: site.id,
+      function: site.function,
       file: site.file,
       line: site.line,
       column: site.column,
       mutator: site.mutator,
-      message: message
+      message: details.message,
+      exception: details[:exception]
     }
 
     _ = on_site_completed.({:compile_error, entry})
 
-    {:cont, %{acc | compile_errors: [entry | acc.compile_errors]}}
+    {:cont,
+     %{
+       acc
+       | compile_errors: [entry | acc.compile_errors],
+         warnings: host_warnings ++ acc.warnings,
+         host_warnings: Enum.uniq(acc.host_warnings ++ host_warnings),
+         tainted: acc.tainted or host_warnings != []
+     }}
   end
 
   defp fold_task_outcome({:ast_miss, site}, _cfg, acc, _on_site_completed) do
@@ -1030,9 +1057,9 @@ defmodule MutagenEx.MutationRunner do
         try do
           {:ok, compile_fn.(ast, file)}
         rescue
-          e -> {:error, Exception.message(e)}
+          e -> {:error, %{exception: e.__struct__, message: Exception.message(e)}}
         catch
-          kind, value -> {:error, "#{kind}: #{inspect(value)}"}
+          kind, value -> {:error, %{message: "#{kind}: #{inspect(value)}"}}
         end
       end)
 
@@ -1040,16 +1067,9 @@ defmodule MutagenEx.MutationRunner do
       {:ok, modules} ->
         {:ok, modules, stderr}
 
-      {:error, message} ->
-        # mutagen.json_schema.r10/r11: bound + redact the compile-error
-        # body. Stderr can be multi-MB for some warning-heavy mutations,
-        # and exception messages can echo source slices.
-        sanitized =
-          MutagenEx.JsonReporter.Sanitizer.clean(
-            message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)
-          )
-
-        {:error, :compile_error, sanitized}
+      {:error, details} ->
+        message = details.message <> if(stderr == "", do: "", else: "\nstderr:\n" <> stderr)
+        {:error, :compile_error, %{details | message: message}}
     end
   end
 
@@ -1161,16 +1181,12 @@ defmodule MutagenEx.MutationRunner do
 
     case restore_all_scoped_modules(cfg) do
       :ok ->
-        {:error, :unrecoverable_restore_failure,
-         %{message: MutagenEx.JsonReporter.Sanitizer.clean(message)}}
+        {:error, :unrecoverable_restore_failure, %{message: message}}
 
       {:error, restore_msg} ->
         {:error, :unrecoverable_restore_failure,
          %{
-           message:
-             MutagenEx.JsonReporter.Sanitizer.clean(
-               message <> "; restore sweep after sibling teardown failed: " <> restore_msg
-             )
+           message: message <> "; restore sweep after sibling teardown failed: " <> restore_msg
          }}
     end
   end
@@ -1232,31 +1248,33 @@ defmodule MutagenEx.MutationRunner do
 
   defp classify({:timeout, %{failure_recorded?: true} = meta}, compile_stderr) do
     warnings =
-      compose_warnings([compile_stderr, meta.stderr, "deadline exceeded after a test failure"])
+      compose_warnings([compile_stderr, meta.stderr]) ++
+        ["deadline exceeded after a test failure"]
 
     {:killed, warnings, meta}
   end
 
   defp classify({:timeout, meta}, compile_stderr) do
-    warnings = compose_warnings([compile_stderr, meta.stderr, "timeout"])
+    warnings = compose_warnings([compile_stderr, meta.stderr]) ++ ["timeout"]
     {:timeout, warnings, meta}
   end
 
   defp classify({:error, reason, meta}, compile_stderr) do
-    warnings = compose_warnings([compile_stderr, meta.stderr, "error: " <> inspect(reason)])
+    warnings =
+      compose_warnings([compile_stderr, meta.stderr, "error: " <> inspect(reason)]) ++
+        ["test runner error"]
+
     {:error, warnings, meta}
   end
 
   defp compose_warnings(parts) do
-    # mutagen.json_schema.r10/r11: warnings carry compile-stderr and
-    # in-runner stderr that can include source slices + secrets. Bound
-    # each part to the 4 KiB cap and apply the configured redactions
-    # before they hit results[i].warnings.
-    parts
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.map(&MutagenEx.JsonReporter.Sanitizer.clean/1)
+    for text <- parts, String.trim(text) != "", do: {:host_output, text}
+  end
+
+  defp print_host_output(warnings) do
+    if Process.get(:mutagen_report_device) do
+      for {:host_output, text} <- warnings, do: IO.puts(:stderr, text)
+    end
   end
 
   defp snapshot_warning(%Site{} = site, delta) do
