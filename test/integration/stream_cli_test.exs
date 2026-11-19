@@ -95,7 +95,7 @@ defmodule MutagenEx.Integration.StreamCliTest do
     defmodule #{calc_module} do
       @moduledoc false
 
-      def add(a, b), do: a + b
+      def add(a, b), do: a + b + 0
     end
     """)
 
@@ -228,6 +228,28 @@ defmodule MutagenEx.Integration.StreamCliTest do
 
     refute stream_emitted_on_stderr?(stderr),
            "NDJSON envelope lines must not leak onto stderr (json sink is stdout):\n#{stderr}"
+
+    {abort_out, 2} =
+      System.cmd(
+        "sh",
+        ["-c", shell_command(port_args ++ ["--max-sites", "1"], stderr_path)],
+        cd: tmp_dir,
+        env: clean_env()
+      )
+
+    assert [
+             %{
+               "kind" => "end",
+               "aborted" => true,
+               "abort_reason" => "too_many_sites",
+               "version" => "2",
+               "meta" => %{"id_scheme" => "2"}
+             }
+           ] =
+             abort_out
+             |> String.split("\n", trim: true)
+             |> Enum.filter(&stream_line?/1)
+             |> Enum.map(&:json.decode/1)
   end
 
   # Build a `sh -c` command string that runs `mix <args>` with stderr

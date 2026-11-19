@@ -92,15 +92,40 @@ defmodule MutagenEx.Mutators do
   def site_id(relative_file, {enclosing, node, ordinal}, mutator_name) do
     hash =
       {enclosing, node, ordinal}
-      |> :erlang.term_to_binary([:deterministic])
+      |> encode_identity()
       |> :erlang.md5()
       |> Base.encode16(case: :lower)
 
     "#{relative_file}:#{hash}:#{mutator_name}"
   end
 
-  # Compiler resolution metadata is significant even when the AST shape agrees.
-  @identity_metadata [:alias, :context, :counter, :if_undefined, :imports, :no_parens]
+  # Each tag identifies its type. A scalar length counts bytes, and a
+  # container length counts elements. Map keys sort by their encoded bytes.
+  defp encode_identity(value) when is_atom(value), do: scalar(?a, Atom.to_string(value))
+  defp encode_identity(value) when is_integer(value), do: scalar(?i, Integer.to_string(value))
+  defp encode_identity(value) when is_float(value), do: scalar(?f, <<value::float-64>>)
+  defp encode_identity(value) when is_binary(value), do: scalar(?b, value)
+
+  defp encode_identity(value) when is_list(value),
+    do: [frame(?l, length(value)) | Enum.map(value, &encode_identity/1)]
+
+  defp encode_identity(value) when is_tuple(value),
+    do: [frame(?t, tuple_size(value)) | Enum.map(Tuple.to_list(value), &encode_identity/1)]
+
+  defp encode_identity(value) when is_map(value) do
+    ordered =
+      value
+      |> Enum.map(fn {key, item} -> {IO.iodata_to_binary(encode_identity(key)), item} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    [
+      frame(?m, map_size(value))
+      | Enum.map(ordered, fn {key, item} -> [key, encode_identity(item)] end)
+    ]
+  end
+
+  defp scalar(tag, bytes), do: [frame(tag, byte_size(bytes)), bytes]
+  defp frame(tag, size), do: [tag, Integer.to_string(size), ?:]
 
   @doc false
   @spec identity_node(ast_node()) :: ast_node()
@@ -114,16 +139,12 @@ defmodule MutagenEx.Mutators do
     end)
   end
 
+  # Dynamic receivers use this parser flag to distinguish map field access.
   defp identity_metadata({:., _, [receiver, _name]}, meta) do
-    meta = if module_receiver?(receiver), do: Keyword.delete(meta, :no_parens), else: meta
-    keep_identity_metadata(meta)
+    if module_receiver?(receiver), do: [], else: Keyword.take(meta, [:no_parens])
   end
 
-  defp identity_metadata(_form, meta), do: keep_identity_metadata(meta)
-
-  defp keep_identity_metadata(meta) do
-    meta |> Keyword.take(@identity_metadata) |> Enum.sort_by(&elem(&1, 0))
-  end
+  defp identity_metadata(_form, _meta), do: []
 
   defp module_receiver?({:__aliases__, _, _}), do: true
   defp module_receiver?({:__MODULE__, _, context}) when is_atom(context), do: true

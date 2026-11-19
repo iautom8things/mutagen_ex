@@ -193,7 +193,7 @@ defmodule MutagenEx.Mutators.IdStabilityTest do
   end
 
   @tag spec: "mutagen.mutators.r3"
-  test "compiler resolution metadata stays in the identity while spelling and positions drop" do
+  test "only semantic parser metadata stays in the identity" do
     identity = fn source ->
       {:ok, cache} = AstCache.load([@sample_file], reader: fn _ -> source end)
       {:ok, {ast, _}} = AstCache.get(cache, @sample_file)
@@ -214,10 +214,128 @@ defmodule MutagenEx.Mutators.IdStabilityTest do
     hydrated =
       {:call, [closing: [line: 3, column: 8], format: :keyword], [{:x, [counter: 10], nil}]}
 
-    assert Mutators.identity_node(hydrated) == {:call, [], [{:x, [counter: 10], nil}]}
+    assert Mutators.identity_node(hydrated) == {:call, [], [{:x, [], nil}]}
+  end
 
-    refute Mutators.identity_node(hydrated) ==
-             Mutators.identity_node({:call, [], [{:x, [counter: 11], nil}]})
+  @tag spec: ["mutagen.mutators.r3", "mutagen.mutators.r4"]
+  test "a literal in a different parent and a sibling attribute do not take an existing ID" do
+    original = """
+    defmodule IdSample do
+      @retries 1
+      def exercise(x), do: x + 1
+    end
+
+    defmodule OtherSample do
+      @retries 1
+    end
+    """
+
+    changed =
+      original
+      |> String.replace("@retries 1", "@extra 1\n  @retries 1", global: false)
+      |> String.replace("def exercise(x), do: x + 1", "def exercise(x), do: (retry(1); x + 1)")
+
+    old = enumerate(original).sites |> Enum.filter(&(&1.mutator == :literal))
+    new = enumerate(changed).sites |> Enum.filter(&(&1.mutator == :literal))
+    assert length(old) == 3
+    assert length(new) == 5
+
+    [extra, retries, retry, expr, sibling] = Enum.map(new, & &1.id)
+    assert [retries, expr, sibling] == Enum.map(old, & &1.id)
+    assert length(Enum.uniq([extra, retries, retry, expr, sibling])) == 5
+  end
+
+  @tag spec: ["mutagen.ast.r2", "mutagen.scope_resolution.r10", "mutagen.mutation_enumeration.r4"]
+  test "protocols and implementations have lexical modules and quotes keep their outer definition" do
+    source = """
+    defmodule IdSample do
+      defprotocol Render do
+        @size 1 + 1
+        def render(term)
+      end
+
+      defimpl Render, for: Integer do
+        def render(x), do: x + 1
+      end
+
+      alias String.Chars, as: Text
+      defimpl Text, for: Atom, do: def(to_string(x), do: x + 1)
+
+      defguard allowed(x) when x + 1 > 0
+      defguardp private_allowed(x) when x + 1 > 0
+
+      defmacro __using__(_) do
+        quote do
+          def helper(x), do: x + 1
+          defmodule Phantom do
+            def helper(x), do: x + 1
+          end
+        end
+      end
+
+      def helper(x), do: x + 1
+      def unquote(name)(x), do: x + 1
+      def unquote(name), do: 1 + 1
+    end
+    """
+
+    {:ok, scopes} = ScopeResolver.resolve(@sample_file, loader: fn _ -> source end)
+
+    assert Enum.map(scopes, & &1.module) == [
+             IdSample,
+             IdSample.Render,
+             IdSample.Render.Integer,
+             String.Chars.Atom
+           ]
+
+    {:ok, cache} = AstCache.load([@sample_file], reader: fn _ -> source end)
+    {:ok, {ast, _}} = AstCache.get(cache, @sample_file)
+    assert {:ok, _} = Ast.find_module_body(ast, "IdSample.Render.Integer")
+    assert :not_found = Ast.find_module_body(ast, "IdSample.Phantom")
+
+    sites = arith_sites(enumerate(source))
+
+    assert Enum.map(sites, & &1.function) == [
+             nil,
+             "IdSample.Render.Integer.render/1",
+             "String.Chars.Atom.to_string/1",
+             "IdSample.allowed/1",
+             "IdSample.private_allowed/1",
+             "IdSample.__using__/1",
+             "IdSample.__using__/1",
+             "IdSample.helper/1",
+             nil,
+             nil
+           ]
+
+    [helper] = Enum.filter(sites, &(&1.function == "IdSample.helper/1"))
+
+    assert {:ok, [%{function: {"helper", 1}, line_range: range}]} =
+             ScopeResolver.resolve("IdSample.helper/1",
+               source_files: [@sample_file],
+               loader: fn _ -> source end
+             )
+
+    assert range == helper.line..helper.line
+  end
+
+  @tag spec: ["mutagen.scope_resolution.r1", "mutagen.mutation_enumeration.r4"]
+  test "file scope spellings resolve to the same file and mutation IDs" do
+    source = module_source(@body)
+    {:ok, cache} = AstCache.load([@sample_file], reader: fn _ -> source end)
+    {:ok, {ast, _}} = AstCache.get(cache, @sample_file)
+
+    for spelling <- ["./" <> @sample_file, "lib//id_sample.ex", Path.expand(@sample_file)] do
+      assert {:ok, [%{file: @sample_file} = scope]} =
+               ScopeResolver.resolve(spelling, loader: fn ^spelling -> source end)
+
+      result =
+        MutationEnumerator.enumerate(%{@sample_file => ast}, [scope], %{
+          @sample_file => MapSet.new(1..50)
+        })
+
+      assert Enum.map(entries(result), & &1.id) == Enum.map(entries(enumerate(source)), & &1.id)
+    end
   end
 
   @tag spec: "mutagen.mutators.r3"

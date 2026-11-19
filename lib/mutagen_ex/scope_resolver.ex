@@ -1,17 +1,18 @@
 defmodule MutagenEx.ScopeResolver.Scope do
   @moduledoc """
-  A single resolved scope record. `file` is the path the resolver read
-  source from; `line_range` is an inclusive `Range` of source lines; `module`
-  is the atom name of the resolved module.
+  A resolved scope record. `file` is relative to the project root.
+  `line_range` is an inclusive range of source lines, and `module` is the
+  resolved module atom. MFA targets also carry a `{name, arity}` selector.
   """
 
   @enforce_keys [:file, :line_range, :module]
-  defstruct [:file, :line_range, :module]
+  defstruct [:file, :line_range, :module, :function]
 
   @type t :: %__MODULE__{
           file: String.t(),
           line_range: Range.t(),
-          module: module()
+          module: module(),
+          function: {String.t(), non_neg_integer()} | nil
         }
 end
 
@@ -122,21 +123,31 @@ defmodule MutagenEx.ScopeResolver do
   def resolve(target, opts \\ []) when is_binary(target) do
     loader = Keyword.get(opts, :loader, &File.read!/1)
 
-    cond do
-      String.contains?(target, ":") ->
-        {:error, :colon_syntax_unsupported,
-         %{
-           target: target,
-           message:
-             "scope target #{inspect(target)} uses the colon form, which is not supported in v1"
-         }}
+    result =
+      cond do
+        String.contains?(target, ":") ->
+          {:error, :colon_syntax_unsupported,
+           %{
+             target: target,
+             message:
+               "scope target #{inspect(target)} uses the colon form, which is not supported in v1"
+           }}
 
-      file_target?(target) ->
-        resolve_file(target, loader)
+        file_target?(target) ->
+          resolve_file(target, loader)
 
-      true ->
-        resolve_symbolic(target, loader, opts)
+        true ->
+          resolve_symbolic(target, loader, opts)
+      end
+
+    with {:ok, records} <- result do
+      {:ok, Enum.map(records, &%{&1 | file: normalize_path(&1.file)})}
     end
+  end
+
+  defp normalize_path(file) do
+    # `force` also makes paths outside the root relative, with ../ segments.
+    Path.relative_to(Path.expand(file), File.cwd!(), force: true)
   end
 
   # --- shape dispatch --------------------------------------------------------
@@ -379,7 +390,16 @@ defmodule MutagenEx.ScopeResolver do
           ranges ->
             merged = merge_ranges(ranges)
             constrained = constrain(merged, mod_range)
-            {:ok, [%Scope{file: file, line_range: constrained, module: mod_atom}]}
+
+            {:ok,
+             [
+               %Scope{
+                 file: file,
+                 line_range: constrained,
+                 module: mod_atom,
+                 function: {fun_str, arity}
+               }
+             ]}
         end
 
       :not_found ->
@@ -435,129 +455,48 @@ defmodule MutagenEx.ScopeResolver do
 
   # --- AST walking ------------------------------------------------------------
 
-  # Find every (possibly nested) `defmodule` block in an AST. Returns a list
-  # of `{module_atom, line_range}` in source order.
   defp find_defmodules(ast) do
-    ast
-    |> collect_defmodules(nil, [])
+    Enum.map(Ast.module_blocks(ast), fn {module, node, _body} ->
+      {module, node_line_range(node)}
+    end)
+  end
+
+  defp find_defmodule_block(ast, target) do
+    Enum.find_value(Ast.module_blocks(ast), :not_found, fn {module, node, body} ->
+      if Atom.to_string(module) == target, do: {:ok, node_line_range(node), body, module}
+    end)
+  end
+
+  defp find_function_clauses(body, name, arity) do
+    body
+    |> function_clauses(name, arity, [])
     |> Enum.reverse()
   end
 
-  defp collect_defmodules({:defmodule, _meta, [alias_ast, [do: body]]} = node, parent, acc) do
-    case Ast.declared_module(alias_ast, parent) do
-      nil ->
-        collect_defmodules(body, parent, acc)
+  defp function_clauses({kind, _, _}, _name, _arity, acc)
+       when kind in [:quote, :defmodule, :defprotocol, :defimpl],
+       do: acc
 
-      mod ->
-        body
-        |> collect_defmodules(mod, [{mod, node_line_range(node)} | acc])
-    end
-  end
-
-  defp collect_defmodules({left, right}, parent, acc) do
-    acc = collect_defmodules(left, parent, acc)
-    collect_defmodules(right, parent, acc)
-  end
-
-  defp collect_defmodules(tuple, parent, acc) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> collect_defmodules(parent, acc)
-  end
-
-  defp collect_defmodules([head | tail], parent, acc) do
-    acc = collect_defmodules(head, parent, acc)
-    collect_defmodules(tail, parent, acc)
-  end
-
-  defp collect_defmodules([], _parent, acc), do: acc
-  defp collect_defmodules(_literal, _parent, acc), do: acc
-
-  # Locate the `defmodule mod` block specifically, returning its line range,
-  # its inner body AST (the AST under `[do: ...]`), AND the matched module
-  # atom (which comes from the AST — `r8`, mutagen-wrd.20). `target_mod_str`
-  # is compared against `Atom.to_string/1` of each `:__aliases__`-derived
-  # module atom, so the user's input is never passed through
-  # `String.to_atom/1`.
-  #
-  # This is NOT the same as `MutagenEx.Ast.find_module_body/2`: this
-  # variant returns the line range and module atom too, which the
-  # resolver needs for the `%Scope{}` record. The bare body lookup in
-  # `MutagenEx.Ast` is enough for the enumerator and runner, but the
-  # resolver needs the extra metadata. The shared piece — alias→module
-  # conversion — flows through `MutagenEx.Ast.alias_to_module/1`.
-  defp find_defmodule_block(ast, target_mod_str) do
-    find_defmodule_block(ast, target_mod_str, nil)
-  end
-
-  defp find_defmodule_block({:defmodule, _meta, [alias_ast, [do: body]]} = node, target, parent) do
-    case Ast.declared_module(alias_ast, parent) do
-      nil ->
-        find_defmodule_block(body, target, parent)
-
-      mod_atom ->
-        if Atom.to_string(mod_atom) == target do
-          {:ok, node_line_range(node), body, mod_atom}
-        else
-          find_defmodule_block(body, target, mod_atom)
-        end
-    end
-  end
-
-  defp find_defmodule_block({left, right}, target, parent) do
-    case find_defmodule_block(left, target, parent) do
-      :not_found -> find_defmodule_block(right, target, parent)
-      {:ok, _range, _body, _mod_atom} = found -> found
-    end
-  end
-
-  defp find_defmodule_block(tuple, target, parent) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> find_defmodule_block(target, parent)
-  end
-
-  defp find_defmodule_block([head | tail], target, parent) do
-    case find_defmodule_block(head, target, parent) do
-      :not_found -> find_defmodule_block(tail, target, parent)
-      {:ok, _range, _body, _mod_atom} = found -> found
-    end
-  end
-
-  defp find_defmodule_block([], _target, _parent), do: :not_found
-  defp find_defmodule_block(_literal, _target, _parent), do: :not_found
-
-  # Find every `def`/`defp`/`defmacro`/`defmacrop` clause matching the given
-  # function name and arity. Returns the list of line ranges (one per
-  # clause) in source order. Atom safety (`r8`, mutagen-wrd.20):
-  # `fun_str` is a string; we compare it against `Atom.to_string/1` of
-  # each AST `def`-head atom, so the user's function-name input is never
-  # passed through `String.to_atom/1`.
-  defp find_function_clauses(body, fun_str, arity) do
-    {_, acc} =
-      Macro.prewalk(body, [], fn node, acc ->
-        case extract_def(node) do
-          {:ok, fun_atom, ^arity, range} ->
-            if is_atom(fun_atom) and Atom.to_string(fun_atom) == fun_str do
-              {node, [range | acc]}
-            else
-              {node, acc}
-            end
-
-          _ ->
-            {node, acc}
-        end
-      end)
-
-    Enum.reverse(acc)
-  end
-
-  defp extract_def(node) do
+  defp function_clauses({_, meta, args} = node, name, arity, acc) when is_list(meta) do
     case Ast.definition_signature(node) do
-      {name, arity} -> {:ok, name, arity, node_line_range(node)}
-      nil -> :error
+      {fun, ^arity} ->
+        if Atom.to_string(fun) == name, do: [node_line_range(node) | acc], else: acc
+
+      nil when is_list(args) ->
+        function_clauses(args, name, arity, acc)
+
+      _ ->
+        acc
     end
   end
+
+  defp function_clauses({_, value}, name, arity, acc),
+    do: function_clauses(value, name, arity, acc)
+
+  defp function_clauses(list, name, arity, acc) when is_list(list),
+    do: Enum.reduce(list, acc, &function_clauses(&1, name, arity, &2))
+
+  defp function_clauses(_, _name, _arity, acc), do: acc
 
   # --- range plumbing --------------------------------------------------------
 
