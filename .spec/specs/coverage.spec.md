@@ -167,7 +167,8 @@ decisions:
 
     When `:test_modules` is absent, coverage discovers the cited cases
     after loading all cited test files. This includes cases from files
-    already required in the same VM and files just loaded.
+    already required in the same VM and files just loaded. A successful
+    coverage pass returns the registered list for later pipeline phases.
 
 - id: mutagen.coverage.r9
   priority: must

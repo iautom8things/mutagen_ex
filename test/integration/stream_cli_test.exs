@@ -129,6 +129,16 @@ defmodule MutagenEx.Integration.StreamCliTest do
       end
     end
 
+    defmodule #{calc_module}ParameterizedTest do
+      use ExUnit.Case, async: true, parameterize: [%{left: 1, right: 2}, %{left: 2, right: 3}]
+
+      test "each registration receives its parameters", %{left: left, right: right} do
+        # Give the measured baseline a duration above the millisecond resolution.
+        Process.sleep(5)
+        assert #{calc_module}.add(left, right) == left + right
+      end
+    end
+
     defmodule #{calc_module}.Helper do
       def expected, do: 3
     end
@@ -190,7 +200,11 @@ defmodule MutagenEx.Integration.StreamCliTest do
       |> Enum.split(-1)
 
     refute Map.has_key?(aggregate, "kind")
-    assert %{"mutation" => %{"results" => aggregate_results}} = aggregate
+
+    assert %{
+             "baseline" => %{"passed" => 5, "failed" => 0},
+             "mutation" => %{"results" => aggregate_results}
+           } = aggregate
 
     kinds = Enum.map(ndjson, & &1["kind"])
 
@@ -245,6 +259,10 @@ defmodule MutagenEx.Integration.StreamCliTest do
     end_line = List.last(ndjson)
 
     assert %{"timings_ms" => timings} = aggregate["meta"]
+
+    assert mutagen_out =~
+             ~r/"timings_ms":\{"baseline":\d+,"boot":\d+,"coverage":\d+,"mutation":\d+,"total":\d+\}/
+
     assert Map.keys(timings) |> Enum.sort() == ~w(baseline boot coverage mutation total)
     assert Enum.all?(timings, fn {_, ms} -> is_integer(ms) and ms >= 0 end)
     assert timings["boot"] > 0

@@ -231,9 +231,10 @@ decisions:
     only fires when a file is freshly evaluated, every phase that calls
     `ExUnit.run/0` after the first one MUST re-register the cited test
     modules via `ExUnit.Server.add_module/2` before its run.
-    `CoverageRunner` and `Baseline` discover cited cases after loading
-    the files. The orchestrator hands `MutationRunner` the loaded cases
-    from `MutagenEx.TestModuleDiscovery.discover/1`. Without this, the
+    `CoverageRunner` discovers the cited cases after loading the files.
+    The CLI reuses that list for baseline and mutation, keeping it only
+    for the current run. Standalone baseline calls can discover cases
+    after loading the files. Without this, the
     affected phase would silently classify every run as zero-test
     (`%{total: 0, failures: 0}`); for baseline that disables the
     `:baseline_red` guard rail (mutagen-wrd.37), and for coverage
@@ -577,7 +578,12 @@ decisions:
     `__ex_unit__/0`. Ordinary helper modules in those files are never
     registered as cases. Cases declared in source retain their declaration
     order within each cited file. Loaded cases without a matching
-    declaration follow in module name order.
+    declaration follow in module name order. If the source for a loaded
+    case cannot be read or parsed, order the cases by module name.
+    Registration preserves the ExUnit case's configuration, including
+    parameterization, while forcing `async?: false`. If a cited symlink
+    does not match any loaded case's compiled source path, report
+    `test_file_load_failed` with the cited path and explain the mismatch.
 ```
 
 ```spec-scenarios

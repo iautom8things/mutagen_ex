@@ -677,9 +677,10 @@ defmodule Mix.Tasks.Mutagen do
          report4 = %Report{report3 | coverage: coverage_to_report(coverage_result)},
          {:ok, enum_result} <-
            phase_enumerator(config, ast_cache, scope_records, coverage_result, dispatch, report4),
+         {:ok, test_input} <- phase_test_modules(config, coverage_result, test_filter, report4),
          {:ok, baseline_result, %Report{} = report4} <-
            time_phase(:baseline, report4, fn ->
-             phase_baseline(config, test_filter, dispatch, report4, state)
+             phase_baseline(config, test_input, dispatch, report4, state)
            end),
          report5 = %Report{
            report4
@@ -690,7 +691,7 @@ defmodule Mix.Tasks.Mutagen do
            time_phase(:mutation, report5, fn ->
              phase_mutation(
                config,
-               test_filter,
+               test_input,
                ast_cache,
                enum_result.sites,
                scope_records,
@@ -934,16 +935,26 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
+  defp phase_test_modules(config, coverage, test_filter, report) do
+    case MutagenEx.TestModuleDiscovery.for_tests(Map.put(coverage, :test_filter, test_filter)) do
+      modules when is_list(modules) ->
+        {:ok, %{test_filter: test_filter, test_modules: modules}}
+
+      {:error, reason, details} ->
+        {:abort, report, config, reason, details}
+    end
+  end
+
   defp phase_baseline(
          %Config{seed: seed} = config,
-         test_filter,
+         test_input,
          dispatch,
          %Report{} = report,
          state
        ) do
     mod = Map.fetch!(dispatch, :baseline)
 
-    input = %{seed: seed, test_filter: test_filter}
+    input = Map.put(test_input, :seed, seed)
 
     case run_suite_phase(state, config, :baseline, fn -> mod.run(input) end) do
       {:ok, result} ->
@@ -991,7 +1002,7 @@ defmodule Mix.Tasks.Mutagen do
 
   defp phase_mutation(
          %Config{seed: seed, timeout_ms: timeout_ms, budget_ms: budget_ms} = config,
-         test_filter,
+         test_input,
          ast_cache,
          sites,
          scope_records,
@@ -1001,14 +1012,6 @@ defmodule Mix.Tasks.Mutagen do
        ) do
     mod = Map.fetch!(dispatch, :mutation)
 
-    # `MutationLoop` re-registers `test_modules` with `ExUnit.Server`
-    # before every per-site `ExUnit.run/0` because the server consumes
-    # its registered-module list per run. With the hardcoded `[]` this
-    # used to be, every site reported zero tests and every mutation was
-    # classified `:survived` (mutagen-wrd.12). Derive from the resolved
-    # `test_filter.files` so the production pipeline matches what
-    # `mutagen.mutation_pipeline.r5` requires.
-    #
     # `budget_ms` (from `--budget-ms`, mutagen.cli.r13) is an optional
     # aggregate wall-clock cap. `nil` means unbounded.
     #
@@ -1080,19 +1083,18 @@ defmodule Mix.Tasks.Mutagen do
     # holds independent of N on deterministic input.
     resolved_max_concurrency = config.max_concurrency || 1
 
-    input = %{
-      seed: seed,
-      timeout_ms: timeout_ms,
-      fail_fast: config.fail_fast,
-      budget_ms: budget_ms,
-      test_filter: test_filter,
-      ast_cache: ast_cache,
-      sites: sites,
-      scope_records: scope_records,
-      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files),
-      max_concurrency: resolved_max_concurrency,
-      on_site_completed: on_site_completed
-    }
+    input =
+      Map.merge(test_input, %{
+        seed: seed,
+        timeout_ms: timeout_ms,
+        fail_fast: config.fail_fast,
+        budget_ms: budget_ms,
+        ast_cache: ast_cache,
+        sites: sites,
+        scope_records: scope_records,
+        max_concurrency: resolved_max_concurrency,
+        on_site_completed: on_site_completed
+      })
 
     case mod.run(input) do
       {:ok, result} ->

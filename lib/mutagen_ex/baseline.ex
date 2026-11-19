@@ -118,8 +118,9 @@ defmodule MutagenEx.Baseline do
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
-         :ok <- load_test_files(cfg) do
-      run_cited_tests(cfg)
+         :ok <- load_test_files(cfg),
+         modules when is_list(modules) <- MutagenEx.TestModuleDiscovery.for_tests(cfg) do
+      run_cited_tests(cfg, modules)
     end
   end
 
@@ -127,7 +128,7 @@ defmodule MutagenEx.Baseline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp run_cited_tests(cfg) do
+  defp run_cited_tests(cfg, modules) do
     failures = :ets.new(:baseline_failures, [:ordered_set, :public])
 
     try do
@@ -137,7 +138,7 @@ defmodule MutagenEx.Baseline do
           :ets.insert(failures, {System.unique_integer([:monotonic]), {test.module, test.name}})
         end)
 
-      :ok = register_test_modules(cfg)
+      :ok = register_test_modules(cfg, modules)
 
       with {:ok, result} <-
              MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end) do
@@ -177,14 +178,8 @@ defmodule MutagenEx.Baseline do
   # registry before the baseline's own run. Symmetric with what
   # `MutagenEx.MutationRunner.MutationLoop.execute_with_timeout/1`
   # does per site.
-  defp register_test_modules(cfg) do
+  defp register_test_modules(cfg, modules) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-
-    modules =
-      Map.get_lazy(cfg, :test_modules, fn ->
-        MutagenEx.TestModuleDiscovery.discover(cfg.test_filter.files)
-      end)
-
     MutagenEx.Test.ExUnitServer.register_cited_modules(server, modules)
   end
 

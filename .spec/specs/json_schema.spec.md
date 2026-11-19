@@ -475,8 +475,9 @@ Top-level keys, all present in every variant unless noted:
     error. The total measures pipeline entry through report assembly,
     before encoding and output, and includes work between phases such as
     enumeration. Stream envelopes and per-site lines omit `timings_ms`.
-    For a fixed environment and deterministic input, `meta.timings_ms`
-    is the only field excluded from byte-for-byte comparisons.
+    `meta.timings_ms` is the only field whose values Mutagen itself makes
+    non-deterministic. Captured host output may contain timestamps,
+    process identifiers or references.
 ```
 
 ```spec-scenarios
