@@ -537,6 +537,7 @@ defmodule MutagenEx.EndToEndTest do
   end
 
   describe "Scenario 3b: guarded.ex exercises the `guard_drop` mutator" do
+    @tag spec: "mutagen.mutators.r11"
     test "guard_drop sites kill or skip cleanly, never compile-error in results", _ctx do
       json =
         run_pipeline!([
@@ -564,6 +565,14 @@ defmodule MutagenEx.EndToEndTest do
 
       assert Enum.all?(mutation["results"], &(&1["status"] != "compile_error")),
              "the guard_drop mutator must never produce :compile_error in results"
+
+      guard_drop_results = Enum.filter(mutation["results"], &(&1["mutator"] == "guard_drop"))
+
+      assert [_, _] = guard_drop_results,
+             "expected one guard_drop result per guarded head, got #{inspect(guard_drop_sites)}"
+
+      assert Enum.all?(guard_drop_results, &(&1["status"] in ["killed", "survived"]))
+      refute Enum.any?(mutation["skipped"], &(&1["mutator"] == "guard_drop"))
 
       Enum.each(mutation["skipped"], fn s ->
         assert is_binary(s["site_id"])

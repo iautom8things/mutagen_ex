@@ -307,6 +307,7 @@ defmodule MutagenEx.JsonReporter do
 
   alias MutagenEx.JsonReporter.Report
   alias MutagenEx.JsonReporter.Sanitizer
+  alias MutagenEx.Mutators
 
   @behaviour MutagenEx.Pipeline.ReporterOkFacade
   @behaviour MutagenEx.Pipeline.ReporterErrorFacade
@@ -562,13 +563,16 @@ defmodule MutagenEx.JsonReporter do
 
   @doc false
   def result_to_wire(%{} = result) do
+    mutator = Map.fetch!(result, :mutator)
+
     %{
       "id" => Map.fetch!(result, :id),
       "function" => Map.get(result, :function),
       "file" => to_string(Map.fetch!(result, :file)),
       "line" => Map.fetch!(result, :line),
       "column" => Map.fetch!(result, :column),
-      "mutator" => Atom.to_string(Map.fetch!(result, :mutator)),
+      "mutator" => Atom.to_string(mutator),
+      "confidence" => mutator |> Mutators.confidence() |> Atom.to_string(),
       "before" => Map.fetch!(result, :before),
       "before_source" => Map.fetch!(result, :before_source),
       "after" => Map.fetch!(result, :after),

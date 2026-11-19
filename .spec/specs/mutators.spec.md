@@ -4,7 +4,8 @@ The catalog of AST transformations applied to source. Ten mutators ship in v1.
 Each is a module that exposes a `match?/1` (does this AST node qualify?), a
 `mutate/1` (produce the swapped AST), and a `validate/1` (would the result
 compile sensibly, or should the site be skipped?). Each produces a stable,
-content-addressed ID independent of source formatting.
+content-addressed ID independent of source formatting. Each also carries a
+static confidence rating that reports attach to its results.
 
 ## Intent
 
@@ -30,7 +31,7 @@ Per the refined plan:
 2. `compare` — `== ↔ !=`, `< ↔ >=`, `> ↔ <=`.
 3. `boolean` — `and ↔ or`, `&& ↔ ||`, drop `not`/`!`.
 4. `literal` — flip `true ↔ false`, swap small integer literals.
-5. `with_swap` — reorder `with` clauses.
+5. `with_swap` — swap the first two leading `<-` clauses of a `with`.
 6. `case_drop` — drop the last clause of a `case`/`cond`. See note below on
    the *guarded-recursive-base-case* pattern: when the surviving clauses do
    not cover every value reachable at runtime, the mutated module raises
@@ -71,6 +72,8 @@ decisions:
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.validate_predicates
+  - mutagen.decision.with_swap_failure_priority
+  - mutagen.decision.mutator_confidence
   - mutagen.decision.ancora_migration
 ```
 
@@ -88,10 +91,12 @@ decisions:
 - id: mutagen.mutators.r2
   priority: must
   statement: |
-    `validate/1` rejection reasons used in v1 include
-    `:structurally_invalid`, `:no_op_shadowed`, and
-    `:bound_var_used_before_binding`. Each rejected site lands in
-    `mutation.skipped[]` with `{site_id, reason}`. Per
+    Every `validate/1` result is `:ok` or `{:skip, reason}` with one of
+    six reasons: `:structurally_invalid`, `:no_op_shadowed`,
+    `:bound_var_used_before_binding`, or the `with_swap` reasons
+    `:insufficient_refutable_patterns`, `:indistinguishable_failures` and
+    `:else_ignores_failure`. Each rejected site lands in
+    `mutation.skipped[]` with `{site_id, reason}` and is not executed. Per
     mutagen.decision.validate_predicates, the rejection happens before any
     compile so `:compile_error` is reserved for genuine compile failures
     discovered at runtime.
@@ -157,6 +162,56 @@ decisions:
     must exceed `Config.timeout_ms`) should use `:arith` against the
     recursive descent so the recursion truly diverges without
     encountering a clause-miss.
+
+- id: mutagen.mutators.r9
+  priority: must
+  statement: |
+    `with_swap` swaps only the first two leading `<-` clauses of a `with`.
+    Later clauses and the `do` and `else` blocks keep their positions.
+    `validate/1` checks the swapped node in this order:
+
+      1. `{:skip, :bound_var_used_before_binding}` when the moved-first
+         right-hand side contains a variable-shaped name that the
+         moved-second pattern binds. Module attributes and binary segment
+         modifiers do not count as reads. Pins, guards and modifiers in the
+         pattern do not count as bindings.
+      2. `:ok` when the clauses are dependent: a name bound by either
+         pattern occurs anywhere in the other clause, including its pins,
+         guards and binary sizes, or either clause calls `binding`,
+         no-argument `dbg` (bare or through `Kernel`) or reads `__ENV__`.
+      3. `{:skip, :insufficient_refutable_patterns}` when either pattern is
+         an unguarded variable or `_`, or a literal equal to its literal
+         right-hand side.
+      4. `{:skip, :indistinguishable_failures}` when both right-hand sides
+         are the same variable or equal literals.
+      5. `{:skip, :else_ignores_failure}` when `else` has exactly one arm
+         and its pattern is the bare `_`.
+      6. `:ok` otherwise.
+
+    Literal equality ignores the position metadata `line`, `column`,
+    `end_line`, `end_column`, `closing`, `last`, `end_of_expression`,
+    `newlines` and `parens`, and the order of map entries with scalar keys.
+
+- id: mutagen.mutators.r10
+  priority: must
+  statement: |
+    `MutagenEx.Mutators.confidence/1` returns `:low` for `:with_swap` and
+    `:high` for each of the other nine registered names. A registered
+    module that exports `confidence/0` supplies its own rating and one that
+    does not gets `:high`. A name outside the catalog raises
+    `ArgumentError` with the message `unknown mutator: <inspected name>`.
+
+- id: mutagen.mutators.r11
+  priority: must
+  statement: |
+    For a `when` node with two operands, `guard_drop`'s `mutate/1` returns
+    the first operand, the clause head or pattern without its guard, and
+    `validate/1` returns `:ok` for it. A covered guarded `def`, `case`
+    or single-parameter `fn` clause therefore yields a `guard_drop` site
+    and no `skipped` entry. A multi-parameter `fn` clause keeps all
+    parameters and the guard in one `when` node: `mutate/1` returns that
+    node unchanged and `validate/1` returns
+    `{:skip, :structurally_invalid}`.
 ```
 
 ```spec-scenarios
@@ -271,6 +326,148 @@ decisions:
       `:timeout`. Tests requiring deterministic `:timeout` must trigger
       divergence by another mechanism (e.g., `:arith` against the
       recursive descent).
+
+- id: mutagen.mutators.s8
+  covers: [mutagen.mutators.r9, mutagen.mutators.r2]
+  given:
+    - |
+      Independent pairs with a clause that always matches:
+      `with a <- f(), :ok <- g(), do: a`,
+      `with :ok <- :ok, :ok <- g(), do: :done` and the three-clause
+      `with a <- f(), b <- g(), :ok <- h(), do: {a, b}`.
+    - |
+      The dependent pair `with ^x <- :old, x <- :new, do: :pass`, whose
+      second pattern is a bare variable, run with `x = :old`.
+  when:
+    - "`with_swap` swaps each and `validate/1` runs on the swap."
+  then:
+    - Each independent pair returns `{:skip, :insufficient_refutable_patterns}`.
+    - |
+      The dependent pair returns `:ok`. The original returns `:pass` and
+      the swap returns `:old`.
+
+- id: mutagen.mutators.s9
+  covers: [mutagen.mutators.r9]
+  given:
+    - |
+      Sources parsed with `columns: true, token_metadata: true` whose two
+      right-hand sides are equal literals: `%{a: 1, b: %{c: 2}}` against
+      `%{b: %{c: 2}, a: 1}`, a multiline `{:a, :b, :c}` against a one-line
+      copy, `Foo.Bar` twice and `<<1, 2>>` twice, matched by `:left` and
+      `:right`.
+    - |
+      `with :ok <- x, {:ok, x} <- x, do: :pass` run with `x = {:ok, :ok}`.
+  when:
+    - "`with_swap` swaps each and `validate/1` runs on the swap."
+  then:
+    - |
+      Each equal-literal pair returns `{:skip, :indistinguishable_failures}`
+      and both orders return the same literal.
+    - |
+      The repeated-variable pair returns `:ok` because the second pattern
+      rebinds `x`. The original returns `{:ok, :ok}` and the swap returns
+      `:pass`.
+
+- id: mutagen.mutators.s10
+  covers: [mutagen.mutators.r9]
+  given:
+    - |
+      `with :ok <- f(), :ok <- g(), do: :done, else: (_ -> :error)` and the
+      same expression with `else: (error -> error)`.
+    - |
+      `with {:ok, x} <- a, {:ok, x} <- b, do: x, else: (_ -> :failed)` run
+      with `a = {:ok, 1}` and `b = {:ok, 2}`.
+    - |
+      A three-clause `with` whose `else` has a `{:error, reason}` arm and
+      a `_` arm.
+  when:
+    - "`with_swap` swaps each and `validate/1` runs on the swap."
+  then:
+    - |
+      The sole wildcard arm returns `{:skip, :else_ignores_failure}` and
+      the `error -> error` arm returns `:ok`.
+    - |
+      The rebinding pair returns `:ok` despite its wildcard arm. The
+      original returns `2` and the swap returns `1`.
+    - |
+      The three-clause swap returns `:ok` and leaves the third clause and
+      both blocks unchanged.
+
+- id: mutagen.mutators.s11
+  covers: [mutagen.mutators.r9]
+  given:
+    - |
+      Pairs with a sole `_` `else` arm whose moved-first pattern reads the
+      other pattern's binding through `^x`, `<<_v::binary-size(n)>>` or
+      the guard `n when n > x`, run with an outer binding of that name.
+    - |
+      Pairs whose clauses use `binding()`, `Kernel.binding()`,
+      no-argument `dbg()` or `__ENV__` next to a fresh binding.
+  when:
+    - "`with_swap` swaps each and `validate/1` runs on the swap."
+  then:
+    - |
+      Each returns `:ok`. Each pin, size and guard swap returns `:pass`
+      where the original returned the `else` value, and each
+      introspection swap changes the returned value.
+    - |
+      Without an outer binding, a kept pin, guard or size swap fails to
+      compile with an undefined variable diagnostic.
+
+- id: mutagen.mutators.s12
+  covers: [mutagen.mutators.r10]
+  given:
+    - The ten registered mutator names and the name `:not_in_catalog`.
+  when:
+    - "`Mutators.confidence/1` runs on each."
+  then:
+    - "`:with_swap` returns `:low` and the other nine return `:high`."
+    - |
+      `:not_in_catalog` raises `ArgumentError` with the message
+      `unknown mutator: :not_in_catalog`.
+
+- id: mutagen.mutators.s13
+  covers: [mutagen.mutators.r9]
+  given:
+    - |
+      `with {:ok, limit} <- a, true <- b < @limit, do: limit` and
+      `with @expected <- a, :ok <- (if expected, do: :ok, else: :no), do: :pass`
+      in a module that defines both attributes.
+    - |
+      `with {:ok, binary} <- a, :ok <- String.to_atom("#{b}"), do: binary`
+      and the same pair with `~s|#{b}|`.
+    - |
+      `with {:ok, x} <- a, :ok <- (fn x -> x end).(:b), do: x` run with
+      `a = :a`.
+  when:
+    - "`with_swap` swaps each and `validate/1` runs on the swap."
+  then:
+    - |
+      The attribute and interpolation pairs return `:ok` and each swap
+      changes the returned value.
+    - |
+      Interpolating the bound name itself, `"#{binary}"`, returns
+      `{:skip, :bound_var_used_before_binding}`.
+    - |
+      The nested `fn` binder also returns
+      `{:skip, :bound_var_used_before_binding}`, although the swap compiles
+      and returns `:b` where the original returns `:a`.
+
+- id: mutagen.mutators.s14
+  covers: [mutagen.mutators.r11]
+  given:
+    - |
+      The lane fixture `lib/lane_fixture/guarded.ex` with
+      `def only_positive(n) when is_integer(n) and n > 0` and
+      `def only_atoms(x) when is_atom(x)`, and its tests, which call each
+      function with an argument its guard rejects.
+  when:
+    - "`mix mutagen` runs with that file as scope and its test file as tests."
+  then:
+    - |
+      `mutation.results` holds two `guard_drop` entries with `after`
+      values `only_positive(n)` and `only_atoms(x)`, both `killed`.
+    - "`mutation.skipped` holds no `guard_drop` entry."
 ```
 
 ```spec-verification
@@ -285,4 +482,7 @@ decisions:
     - mutagen.mutators.r6
     - mutagen.mutators.r7
     - mutagen.mutators.r8
+    - mutagen.mutators.r9
+    - mutagen.mutators.r10
+    - mutagen.mutators.r11
 ```
