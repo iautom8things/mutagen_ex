@@ -3,9 +3,10 @@ defmodule MutagenEx.Test.FailureFormatter do
 
   use GenServer
 
-  def options(on_failure) do
-    formatters = Application.get_env(:ex_unit, :formatters, [ExUnit.CLIFormatter])
-    [formatters: formatters ++ [__MODULE__], mutagen_on_failure: on_failure]
+  def attach(options, on_failure) do
+    options
+    |> Keyword.update!(:formatters, &(&1 ++ [__MODULE__]))
+    |> Keyword.put(:mutagen_on_failure, on_failure)
   end
 
   @impl GenServer

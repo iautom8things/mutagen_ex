@@ -297,8 +297,6 @@ defmodule MutagenEx.SupervisionTest do
 
     import ExUnit.Assertions
 
-    def configure(_opts), do: :ok
-
     def run do
       assert self() in Task.Supervisor.children(MutagenEx.TaskSup)
       name = :persistent_term.get({MutagenEx.SupervisionTest, :sleepy_helper_name})
@@ -309,6 +307,8 @@ defmodule MutagenEx.SupervisionTest do
 
   defmodule NoopExUnitServer do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(_mod, _cfg), do: :ok
   end
 

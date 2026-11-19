@@ -15,9 +15,6 @@ defmodule MutagenEx.Test.ExUnit do
   @behaviour MutagenEx.Test.ExUnitFacade
 
   @impl MutagenEx.Test.ExUnitFacade
-  defdelegate configure(opts), to: ExUnit
-
-  @impl MutagenEx.Test.ExUnitFacade
   defdelegate run(), to: ExUnit
 
   @doc false
@@ -26,13 +23,14 @@ defmodule MutagenEx.Test.ExUnit do
       max_cases: 1,
       max_failures: max_failures,
       seed: seed,
+      formatters: Application.get_env(:ex_unit, :formatters, [ExUnit.CLIFormatter]),
       include: filter.include,
       exclude: filter.exclude
     ]
   end
 
   @doc false
-  def with_options(ex_unit, options, run) do
+  def with_options(options, run) do
     # ExUnit.run/0 also persists its effective trace setting.
     previous =
       for key <- [:trace | Keyword.keys(options)] do
@@ -40,13 +38,16 @@ defmodule MutagenEx.Test.ExUnit do
       end
 
     try do
-      ex_unit.configure(options)
+      put_options(options)
       run.()
     after
-      Enum.each(previous, fn
-        {key, {:ok, value}} -> Application.put_env(:ex_unit, key, value)
-        {key, :error} -> Application.delete_env(:ex_unit, key)
-      end)
+      put_options(for {key, {:ok, value}} <- previous, do: {key, value})
+
+      for {key, :error} <- previous, do: Application.delete_env(:ex_unit, key)
     end
+  end
+
+  defp put_options(options) do
+    Enum.each(options, fn {key, value} -> Application.put_env(:ex_unit, key, value) end)
   end
 end

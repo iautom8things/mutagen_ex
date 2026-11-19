@@ -58,12 +58,13 @@ file for traceability.
   Early abort lines include the report version and ID scheme.
 - **Mutants stop executing tests after the first failure by default.**
   A failure recorded before the deadline kills the mutant, even when
-  a later test would make a full run time out. Surviving mutants,
-  baseline, and coverage run the full suite. Use `--no-fail-fast` for
-  full runs and historical timeout verdicts. Report schema 2
-  records the selected mode in `meta.fail_fast`. ExUnit may still run teardown
-  and later `setup_all` callbacks in an active async group. Skipped
-  tests can change per-mutant warnings and taint on later sites.
+  a later test would make a full run time out. Baseline and coverage
+  have no failure cap. Report schema 2 records the mode in
+  `meta.fail_fast`.
+  Equivalence assumes tests run independently. If a test sets up or
+  cleans up state for another, skipping it can change later mutants'
+  verdicts, warnings, and taint. These suites already depend on the
+  ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock

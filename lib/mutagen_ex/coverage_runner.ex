@@ -356,15 +356,11 @@ defmodule MutagenEx.CoverageRunner do
   end
 
   defp run_cited_tests(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
-    options = MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
-
-    MutagenEx.Test.ExUnit.with_options(ex_unit, options, fn ->
-      with :ok <- load_test_files(cfg),
-           :ok <- register_test_modules(cfg) do
-        run_exunit(cfg)
-      end
-    end)
+    with :ok <- load_test_files(cfg),
+         :ok <- register_test_modules(cfg) do
+      options = MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
+      MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end)
+    end
   end
 
   # The runner loads test files exactly once; mutation_pipeline.r10
@@ -401,13 +397,7 @@ defmodule MutagenEx.CoverageRunner do
   # per site.
   defp register_test_modules(cfg) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-    test_modules = Map.get(cfg, :test_modules, [])
-
-    Enum.each(test_modules, fn {mod, mod_cfg} ->
-      server.add_module(mod, mod_cfg)
-    end)
-
-    :ok
+    MutagenEx.Test.ExUnitServer.register_cited_modules(server, Map.get(cfg, :test_modules, []))
   end
 
   defp run_exunit(cfg) do
