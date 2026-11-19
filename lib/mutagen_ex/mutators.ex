@@ -111,14 +111,48 @@ defmodule MutagenEx.Mutators do
   @spec site_id(String.t(), {tuple() | nil, ast_node(), non_neg_integer()}, mutator_name()) ::
           String.t()
   def site_id(relative_file, {enclosing, node, ordinal}, mutator_name) do
-    hash =
-      {enclosing, node, ordinal}
-      |> encode_identity()
-      |> :erlang.md5()
-      |> Base.encode16(case: :lower)
-
+    hash = identity_hash({enclosing, node, ordinal})
     "#{relative_file}:#{hash}:#{mutator_name}"
   end
+
+  @doc false
+  def identity_hash(term) do
+    term |> encode_identity() |> hash_identity()
+  end
+
+  @doc false
+  def identity_hash(asts, :ast_list) do
+    [frame(?l, length(asts)) | prepend_asts(asts, [])]
+    |> hash_identity()
+  end
+
+  defp hash_identity(encoded) do
+    encoded
+    |> :erlang.md5()
+    |> Base.encode16(case: :lower)
+  end
+
+  # Emit the same bytes as identity_node/1 followed by encode_identity/1.
+  # The group hash can skip building an intermediate normalized AST.
+  defp prepend_ast({form, meta, args}, tail) when is_atom(form) and is_list(meta),
+    do: ["t3:", encode_identity(form), "l0:" | prepend_ast(args, tail)]
+
+  defp prepend_ast({form, meta, args}, tail) when is_list(meta) do
+    args = prepend_ast(args, tail)
+    fields = [encode_identity(identity_metadata(form, meta)) | args]
+    ["t3:" | prepend_ast(form, fields)]
+  end
+
+  defp prepend_ast({left, right}, tail), do: ["t2:" | prepend_ast(left, prepend_ast(right, tail))]
+  defp prepend_ast([], tail), do: ["l0:" | tail]
+
+  defp prepend_ast(list, tail) when is_list(list),
+    do: [frame(?l, length(list)) | prepend_asts(list, tail)]
+
+  defp prepend_ast(value, tail), do: [encode_identity(value) | tail]
+
+  defp prepend_asts([], tail), do: tail
+  defp prepend_asts([node | rest], tail), do: prepend_ast(node, prepend_asts(rest, tail))
 
   # Each tag identifies its type. A scalar length counts bytes, and a
   # container length counts elements. Map keys sort by their encoded bytes.
@@ -127,8 +161,16 @@ defmodule MutagenEx.Mutators do
   defp encode_identity(value) when is_float(value), do: scalar(?f, <<value::float-64>>)
   defp encode_identity(value) when is_binary(value), do: scalar(?b, value)
 
+  defp encode_identity([]), do: "l0:"
+
   defp encode_identity(value) when is_list(value),
     do: [frame(?l, length(value)) | Enum.map(value, &encode_identity/1)]
+
+  defp encode_identity({first, second}),
+    do: ["t2:", encode_identity(first), encode_identity(second)]
+
+  defp encode_identity({first, second, third}),
+    do: ["t3:", encode_identity(first), encode_identity(second), encode_identity(third)]
 
   defp encode_identity(value) when is_tuple(value),
     do: [frame(?t, tuple_size(value)) | Enum.map(Tuple.to_list(value), &encode_identity/1)]
@@ -145,20 +187,24 @@ defmodule MutagenEx.Mutators do
     ]
   end
 
+  defp scalar(tag, bytes) when byte_size(bytes) <= 32,
+    do: <<tag, Integer.to_string(byte_size(bytes))::binary, ?:, bytes::binary>>
+
   defp scalar(tag, bytes), do: [frame(tag, byte_size(bytes)), bytes]
-  defp frame(tag, size), do: [tag, Integer.to_string(size), ?:]
+  defp frame(tag, size), do: <<tag, Integer.to_string(size)::binary, ?:>>
 
   @doc false
   @spec identity_node(ast_node()) :: ast_node()
-  def identity_node(ast) do
-    Macro.prewalk(ast, fn
-      {form, meta, args} when is_list(meta) ->
-        {form, identity_metadata(form, meta), args}
+  def identity_node({form, meta, args}) when is_atom(form) and is_list(meta),
+    do: {form, [], identity_node(args)}
 
-      other ->
-        other
-    end)
-  end
+  def identity_node({form, meta, args}) when is_list(meta),
+    do: {identity_node(form), identity_metadata(form, meta), identity_node(args)}
+
+  def identity_node({form, meta, args}), do: {identity_node(form), meta, identity_node(args)}
+  def identity_node({left, right}), do: {identity_node(left), identity_node(right)}
+  def identity_node(list) when is_list(list), do: Enum.map(list, &identity_node/1)
+  def identity_node(node), do: node
 
   # Dynamic receivers use this parser flag to distinguish map field access.
   defp identity_metadata({:., _, [receiver, _name]}, meta) do

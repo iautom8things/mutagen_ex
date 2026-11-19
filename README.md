@@ -954,6 +954,22 @@ regression test for this lives in
   `Task.Supervisor.async_nolink/2` or `DynamicSupervisor.start_child/2`,
   can outlive the timeout. The host supervisor owns those children.
 
+### Changed-line gate planning
+
+The gate planner compares changed lines and the enclosing group's source
+fingerprint. An edit to a module attribute such as `@limit`, a
+`defguard`, a `defmacro`, a `defdelegate` target, `alias`, `import`,
+`use` options, or `defstruct` defaults can change runtime behavior and
+still plan zero runtime sites. Callers of a changed private helper
+keep their own fingerprints. Pure deletions, including removed clauses
+and guards, can also plan zero sites because the diff may supply no
+new-side lines.
+
+Runtime classification uses syntax. A named `def` or `defp` outside
+`quote` qualifies even if only compile-time code calls it. An expression
+inside `unquote` still falls outside the runtime plan when it sits
+inside `quote`, even if a runtime call evaluates the expression.
+
 ## Performance
 
 The source checkout includes a benchmark harness at
