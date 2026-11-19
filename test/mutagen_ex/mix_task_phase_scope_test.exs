@@ -16,14 +16,9 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
       `Config.scopes` order is preserved through the pipeline);
     * a single `:scope` call returning a multi-record chunk preserves the
       chunk's internal order;
-    * a large workload (2000 targets × 5 records = 10_000 records)
-      completes in well under a second.
-
-  The timing assertion is the falsifier for O(n²): the old code would
-  perform ~50M `++` operations on this workload and take many seconds on
-  modest hardware; the new code is linear. We set a generous 2_000 ms
-  ceiling to leave headroom for slow CI runners while still falsifying
-  the quadratic regression.
+    * eight times as many targets cost at most ten times the reductions.
+  The pipeline skips report encoding in the scaling check so the measurement
+  follows scope resolution and accumulation.
   """
 
   use ExUnit.Case, async: true
@@ -77,7 +72,8 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
           %Scope{
             file: "lib/#{target}_#{i}.ex",
             line_range: 1..10,
-            module: Module.concat([Mutagen.Synthetic, "T_#{target}_#{i}"])
+            module:
+              Process.get(:fixed_module) || Module.concat([Mutagen.Synthetic, "T_#{target}_#{i}"])
           }
         end
 
@@ -188,57 +184,43 @@ defmodule MutagenEx.MixTaskPhaseScopeTest do
     end
   end
 
-  describe "phase_scope — O(n) performance regression (bw mutagen-wrd.22 / F-PERF-12)" do
-    @tag :perf
-    test "10_000 records across 2_000 targets completes well under the O(n^2) bound" do
-      # Falsifies regression from the linear accumulator back to
-      # `acc ++ records`. At 2000 targets × 5 records the old code does
-      # roughly 5 * (0 + 5 + 10 + ... + 9995) ≈ 25M element copies for
-      # `++`; on commodity hardware that comfortably exceeds 2 seconds.
-      # The linear implementation completes in low double-digit
-      # milliseconds. The 2_000 ms ceiling has plenty of headroom for
-      # slow CI runners without giving the quadratic implementation any
-      # room to pass.
-      #
-      # We bypass `CLI.parse/1` via the `:cli` dispatch seam so the
-      # `--scope` repetition cap (which exists for a different reason —
-      # bounding user input — see `mutagen.cli.r12`) doesn't intercept
-      # this performance check.
+  defmodule SilentAbort do
+    def emit_error(_report, _reason), do: {[], 2}
+  end
 
-      Process.put(:capture_target, self())
-      Process.put(:records_per_target, 5)
+  @tag :perf
+  test "scope accumulation scales linearly in process reductions" do
+    Process.put(:capture_target, self())
+    Process.put(:records_per_target, 5)
+    Process.put(:fixed_module, Mutagen.Synthetic)
 
-      n_targets = 2_000
+    dispatch = %{
+      cli: CliPassthrough,
+      scope: PhaseScopeCollaborator,
+      tests: PhaseTestsAbort,
+      io: PhaseScopeIo,
+      reporter_error: SilentAbort
+    }
 
-      synthetic_config = %Config{
-        scopes: for(i <- 1..n_targets, do: "tgt#{i}"),
-        tests: ["test/t_test.exs"]
-      }
+    scope_reductions(10, dispatch)
+    control = scope_reductions(2_000, dispatch)
+    large = scope_reductions(16_000, dispatch)
 
-      Process.put(:cli_passthrough_config, synthetic_config)
+    assert large < 10 * control,
+           "eight times as many targets cost #{large} reductions versus #{control}"
+  end
 
-      dispatch = %{
-        cli: CliPassthrough,
-        scope: PhaseScopeCollaborator,
-        tests: PhaseTestsAbort,
-        io: PhaseScopeIo
-      }
+  defp scope_reductions(count, dispatch) do
+    config = %Config{
+      scopes: for(i <- 1..count, do: "tgt#{i}"),
+      tests: ["test/t_test.exs"]
+    }
 
-      # Wall-clock the full pipeline call. `phase_scope` is the dominant
-      # cost — all other phases are stubbed or trivial; the abort fires
-      # immediately after `phase_tests` returns its error.
-      {us, result} =
-        :timer.tc(fn -> Mix.Tasks.Mutagen.run([], dispatch) end)
-
-      ms = div(us, 1_000)
-
-      assert {:aborted, :no_tests_match, report} = result
-      assert length(report.scope) == n_targets * 5
-
-      assert ms < 2_000,
-             "phase_scope appears to be O(n^2) again: " <>
-               "#{n_targets} targets × 5 records took #{ms}ms " <>
-               "(expected < 2_000ms for an O(n) accumulator)"
-    end
+    Process.put(:cli_passthrough_config, config)
+    {:reductions, before} = Process.info(self(), :reductions)
+    assert {:aborted, :no_tests_match, report} = Mix.Tasks.Mutagen.run([], dispatch)
+    {:reductions, after_} = Process.info(self(), :reductions)
+    assert length(report.scope) == count * 5
+    after_ - before
   end
 end
