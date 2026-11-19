@@ -22,16 +22,19 @@ defmodule MutagenEx.Integration.HostSetupTest do
   end
 
   describe "path dependency" do
+    @tag spec: ["mutagen.cli.r14", "mutagen.cli.r20", "mutagen.cli.r22"]
     test "runs the host helper and sandbox tests across mutation cycles", %{dependency: host} do
       assert_host_run(host)
     end
   end
 
   describe "installed archive" do
+    @tag spec: ["mutagen.cli.r14", "mutagen.cli.r16", "mutagen.cli.r20", "mutagen.cli.r22"]
     test "runs the same host setup with a partitioned database", %{archive: host} do
       assert_host_run(host)
     end
 
+    @tag spec: "mutagen.test_selection.r8"
     test "an explicit line selection narrows the helper's includes", %{archive: host} do
       helper_path = "checks/test_helper.exs"
       helper = File.read!(Path.join(host.dir, helper_path))
@@ -47,11 +50,13 @@ defmodule MutagenEx.Integration.HostSetupTest do
       end)
     end
 
+    @tag spec: "mutagen.cli.r18"
     test "refuses the default dev environment before attempting host startup", %{archive: host} do
       host = put_env(host, "MIX_ENV", nil)
       assert abort(host, "invalid_mix_env") =~ "current Mix environment: dev"
     end
 
+    @tag spec: ["mutagen.cli.r5", "mutagen.cli.r19"]
     test "reports an unreachable database as one JSON value on stdout and in a file", %{
       archive: host
     } do
@@ -74,6 +79,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
       assert abort_message(report, "host_app_start_failed") =~ "Could not start application"
     end
 
+    @tag spec: "mutagen.cli.r19"
     test "reports a host loadpaths failure", %{archive: host} do
       mixfile = File.read!(Path.join(host.dir, "mix.exs"))
 
@@ -89,18 +95,21 @@ defmodule MutagenEx.Integration.HostSetupTest do
       )
     end
 
+    @tag spec: "mutagen.cli.r19"
     test "reports a host compiler error", %{archive: host} do
       with_file(host, @scope, "defmodule HostSetupFixture.Orders do", fn ->
         assert abort(host, "host_compile_failed") =~ "token missing"
       end)
     end
 
+    @tag spec: "mutagen.cli.r19"
     test "reports a missing helper", %{archive: host} do
       with_file(host, "checks/test_helper.exs", nil, fn ->
         assert abort(host, "test_helper_load_failed", ["--stream"]) =~ "checks/test_helper.exs"
       end)
     end
 
+    @tag spec: ["mutagen.cli.r19", "mutagen.json_schema.r11"]
     test "reports a raising helper with sanitized details", %{archive: host} do
       with_file(
         host,
@@ -115,10 +124,12 @@ defmodule MutagenEx.Integration.HostSetupTest do
       )
     end
 
+    @tag spec: ["mutagen.test_selection.r3", "mutagen.cli.r20"]
     test "honors custom-path tags and runs the cleanup once", %{archive: host} do
       assert_host_run(host, "tag:pricing")
     end
 
+    @tag spec: ["mutagen.coverage.r11", "mutagen.cli.r20", "mutagen.json_schema.r14"]
     test "all-excluded coverage aborts and runs cleanup once", %{archive: host} do
       trace = Path.join(host.dir, "runs.log")
       File.write!(trace, "")
@@ -145,6 +156,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
       )
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r22"
     test "a timed-out mutant releases the shared Sandbox before the next site", %{archive: host} do
       original_scope = File.read!(Path.join(host.dir, @scope))
 
@@ -197,6 +209,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
       end)
     end
 
+    @tag spec: ["mutagen.cli.r19", "mutagen.json_schema.r17"]
     test "redacts the password from Ecto.InvalidURLError", %{archive: host} do
       with_file(
         host,
@@ -213,6 +226,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
       )
     end
 
+    @tag spec: "mutagen.cli.r14"
     test "skipping the host app still loads the helper", %{archive: host} do
       with_file(
         host,

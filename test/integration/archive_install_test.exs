@@ -14,7 +14,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
   @project_root Path.expand("../..", __DIR__)
 
-  @tag spec: "mutagen.cli.r5"
+  @tag spec: ["mutagen.cli.r5", "mutagen.cli.r16", "mutagen.cli.r19", "mutagen.cli.r21"]
   test "fresh-shell `mix mutagen` succeeds when mutagen_ex is installed as an archive" do
     version = MutagenEx.MixProject.project()[:version]
     archive_filename = "mutagen_ex-#{version}.ez"

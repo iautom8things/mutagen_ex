@@ -151,6 +151,7 @@ defmodule MutagenEx.CoverageRunnerTest do
     end
   end
 
+  @tag spec: "mutagen.coverage.r1"
   test "the empty cover server started by a helper can be replaced" do
     tools = Path.wildcard(Path.join([to_string(:code.root_dir()), "lib", "tools-*", "ebin"]))
     Enum.each(tools, &Code.append_path/1)
@@ -164,6 +165,7 @@ defmodule MutagenEx.CoverageRunnerTest do
     end
   end
 
+  @tag spec: "mutagen.coverage.r11"
   test "coverage catches ExUnit exits and throws and rejects a suite with no tests executed" do
     cfg = base_cfg_with_fakes()
 

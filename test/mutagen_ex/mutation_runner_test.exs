@@ -551,6 +551,7 @@ defmodule MutagenEx.MutationRunnerTest do
       assert is_binary(entry.message)
     end
 
+    @tag spec: ["mutagen.mutation_pipeline.r5", "mutagen.mutation_pipeline.r21"]
     test "an ExUnit raise, exit or throw aborts with the site ID" do
       for {kind, expected} <- [raise: "raised", exit: "caught exit", throw: "caught throw"] do
         clear_stubs()

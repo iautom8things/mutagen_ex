@@ -31,6 +31,7 @@ defmodule MutagenEx.CLITest do
   alias MutagenEx.CLI
   alias MutagenEx.Config
 
+  @tag spec: ["mutagen.cli.r14", "mutagen.cli.r21", "mutagen.cli.r22"]
   test "parses the boot deadline and test alias opt-out" do
     args = ["--scope", "lib/example.ex", "--tests", "test/example_test.exs"]
     assert {:ok, %{boot_timeout_ms: 300_000, test_alias: true, host_app: true}} = CLI.parse(args)

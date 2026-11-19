@@ -95,6 +95,7 @@ defmodule MutagenEx.BaselineTest do
     end
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r21"
   test "baseline catches ExUnit exits and throws and rejects a suite with no tests executed" do
     input = %{
       seed: 0,
