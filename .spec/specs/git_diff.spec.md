@@ -14,6 +14,7 @@ surface:
 decisions:
   - mutagen.decision.git_diff_read_only
   - mutagen.decision.git_diff_raw_worktree
+  - mutagen.decision.git_diff_directory_scope
 ```
 
 ```spec-requirements
@@ -28,8 +29,9 @@ decisions:
     changes, timestamp-only changes, and untracked files contribute no ranges.
     Intent-to-add files can contribute ranges. Changed symlinks, gitlinks,
     type changes, and entries Git can only describe as binary are listed in
-    skipped with a reason. Only a result with no ranges or skipped entries
-    carries :empty_diff. Every range ends within the working file's line count.
+    skipped with a reason. A symlink or gitlink at or under a root is reported
+    even without a source extension. Only a result with no ranges or skipped
+    entries carries :empty_diff. Every range ends within the working file's line count.
 
 - id: mutagen.git_diff.r2
   priority: must
@@ -38,7 +40,11 @@ decisions:
     path and maps each selected rename destination to its source path, including
     pure renames. Whitespace and non-ASCII bytes in Git paths are preserved.
     Absolute paths and paths with a parent traversal segment are rejected.
-    Roots and base-file paths are relative to the configured working directory.
+    Roots and base-file paths are relative to the resolved working directory.
+    The reader requires a Git working tree and verifies that each component
+    of a configured diff root is a real directory. When Git's core.ignorecase
+    is true, tracked paths match roots case-insensitively and retain their
+    original spelling in the result.
 
 - id: mutagen.git_diff.r3
   priority: must
@@ -79,8 +85,8 @@ decisions:
     literal regular-file path inside the configured roots. A missing tree entry yields
     :absent. Failed lookups and invalid inputs yield structured errors. A
     caller can use the old path of a rename to read the original base blob.
-    A symlink entry and a base ID that names an object other than a commit
-    have distinct error causes.
+    A symlink entry, the zero object ID, and a base ID that names an object
+    other than a commit have distinct error causes.
 
 - id: mutagen.git_diff.r7
   priority: must
@@ -93,9 +99,10 @@ decisions:
   priority: must
   statement: |
     Git enforces ownership checks using the standard global safe.directory
-    configuration. Dubious ownership has a distinct cause and fixed hint.
+    configuration. Dubious ownership has a distinct cause and a hint with the
+    resolved checkout and the command to authorize it explicitly.
     Every Git call has a configurable deadline, defaulting to 30 seconds.
-    A timed-out Git child is killed and the read returns :timeout as its cause.
+    A timeout terminates the Git process group and returns :timeout as its cause.
     Git diagnostics are captured and are absent from the tool's stderr and
     returned error details.
 ```

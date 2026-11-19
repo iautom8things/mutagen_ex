@@ -195,7 +195,9 @@ defmodule MutagenEx.GitDiffTest do
     assert {:ok, _} = GitDiff.changed_lines(@ref, cmd: cmd)
     assert_received {:git, ["version"], _}
     assert_received {:git, ["rev-parse", "--is-shallow-repository"], _}
+    assert_received {:git, ["rev-parse", "--is-inside-work-tree"], _}
     assert_received {:git, ["config", "--null", "--name-only", "--get-regexp", _], _}
+    assert_received {:git, ["config", "--type=bool", "--get", "core.ignorecase"], _}
     assert_received {:git, ["rev-parse", "--show-prefix"], _}
 
     assert_received {:git,
@@ -234,7 +236,7 @@ defmodule MutagenEx.GitDiffTest do
     assert "diff.external=" in prefix
     assert "diff.noPrefix=false" in prefix
 
-    for _ <- 1..9, do: assert_received({:git_prefix, ^prefix})
+    for _ <- 1..11, do: assert_received({:git_prefix, ^prefix})
     refute_received {:git_prefix, _}
 
     assert %{
@@ -418,6 +420,8 @@ defmodule MutagenEx.GitDiffTest do
     defaults = %{
       version: {"git version 2.54.0\n", 0},
       worktree: {"\n", 0},
+      inside_worktree: {"true\n", 0},
+      ignore_case: {"", 1},
       info_attributes:
         {Path.join(Process.get(:git_diff_test_dir), "nonexistent-attributes") <> "\n", 0},
       ambiguity: {"refs/heads/main\n", 0},
@@ -447,6 +451,8 @@ defmodule MutagenEx.GitDiffTest do
 
   defp step_for(["version"]), do: :version
   defp step_for(["rev-parse", "--show-prefix"]), do: :worktree
+  defp step_for(["rev-parse", "--is-inside-work-tree"]), do: :inside_worktree
+  defp step_for(["config", "--type=bool", "--get", "core.ignorecase"]), do: :ignore_case
 
   defp step_for(["rev-parse", "--path-format=absolute", "--git-path", "info/attributes"]),
     do: :info_attributes
@@ -488,7 +494,9 @@ defmodule MutagenEx.GitDiffTest do
         [
           :version,
           :repository,
+          :inside_worktree,
           :config,
+          :ignore_case,
           :worktree,
           :info_attributes,
           :ambiguity,

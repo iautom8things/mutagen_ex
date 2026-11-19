@@ -250,7 +250,8 @@ defmodule MutagenEx.GitDiffIntegrationTest do
              GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
 
     assert hint =~ "owning user"
-    assert hint =~ "safe.directory"
+    assert hint =~ "git config --global --add safe.directory"
+    assert hint =~ repo
     write!(home, ".gitconfig", "[safe]\n\tdirectory = #{repo}\n")
 
     assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} =
@@ -314,6 +315,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
     write!(repo, "lib/a.ex", "feature\n")
     commit!(repo, "Feature")
     git!(repo, ~w(tag main))
+    git!(repo, ~w(config core.warnAmbiguousRefs false))
 
     assert {:error, :diff_unavailable, %{cause: :ambiguous_ref, hint: hint}} =
              GitDiff.changed_lines("main", cd: repo)
@@ -376,6 +378,408 @@ defmodule MutagenEx.GitDiffIntegrationTest do
     assert {:error, :diff_unavailable, %{cause: :non_commit_base}} =
              GitDiff.base_file(blob, "lib/a.ex", cd: repo)
   end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r1"
+  test "skips directory symlinks and gitlinks under a source root", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/regular.ex", "base\n")
+    write!(repo, "other/hidden.ex", "other\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+
+    File.ln_s!("../other", Path.join(repo, "lib/sub"))
+    git!(repo, ~w(add lib/sub))
+    git!(repo, ["update-index", "--add", "--cacheinfo", "160000,#{base},lib/vendor"])
+    File.mkdir!(Path.join(repo, "lib/vendor"))
+
+    assert {:ok,
+            %{
+              files: %{},
+              skipped: [
+                %{path: "lib/sub", reason: :symlink},
+                %{path: "lib/vendor", reason: :gitlink}
+              ],
+              warnings: []
+            }} = GitDiff.changed_lines(base, cd: repo)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r1"
+  test "reports a gitlink at the root when the working directory is real", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/regular.ex", "base\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+    git!(repo, ~w(rm -r lib))
+    git!(repo, ["update-index", "--add", "--cacheinfo", "160000,#{base},lib"])
+    File.mkdir!(Path.join(repo, "lib"))
+
+    assert {:ok, %{skipped: [%{path: "lib", reason: :gitlink}], warnings: []}} =
+             GitDiff.changed_lines(base, cd: repo)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r2"
+  test "rejects a symlink at a source root or in its ancestry", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/main.ex", "base\n")
+    write!(repo, "apps/foo/lib/main.ex", "base\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+    File.rename!(Path.join(repo, "lib"), Path.join(repo, "other"))
+    File.rename!(Path.join(repo, "apps/foo"), Path.join(repo, "moved"))
+    File.ln_s!("other", Path.join(repo, "lib"))
+    File.ln_s!("../moved", Path.join(repo, "apps/foo"))
+    git!(repo, ~w(add --all))
+
+    for root <- ["lib", "apps/foo/lib", "missing"] do
+      assert {:error, :diff_unavailable, %{cause: :invalid_root_directory, root: ^root}} =
+               GitDiff.changed_lines(base, cd: repo, roots: [root])
+    end
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r2"
+  test "includes a case-variant tracked path when Git configuration ignores case", %{
+    tmp_dir: repo
+  } do
+    init!(repo)
+    git!(repo, ~w(config core.ignorecase false))
+    write!(repo, "lib/main.ex", "base\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+    write!(repo, "Lib/new.ex", "case variant\n")
+    git!(repo, ~w(add -- Lib/new.ex))
+    git!(repo, ["commit", "-m", "Case-variant path"])
+    git!(repo, ~w(config core.ignorecase true))
+
+    assert {:ok, %{files: %{"Lib/new.ex" => [{1, 1}]}}} =
+             GitDiff.changed_lines(base, cd: repo)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r2"
+  test "resolves a symlinked project inside a different checkout", %{tmp_dir: tmp} do
+    repo = Path.join(tmp, "repo")
+    other = Path.join(tmp, "other")
+    for dir <- [repo, other], do: File.mkdir!(dir)
+    init!(repo)
+    init!(other)
+    write!(other, "lib/unrelated.ex", "other\n")
+    commit!(other, "Other checkout")
+    write!(repo, "apps/foo/lib/a.ex", "base\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+    write!(repo, "apps/foo/lib/a.ex", "changed\n")
+    link = Path.join(other, "linked")
+    File.ln_s!(Path.join(repo, "apps/foo"), link)
+
+    assert {:ok, %{base: ^base, files: %{"lib/a.ex" => [{1, 1}]}}} =
+             GitDiff.changed_lines(base, cd: link)
+
+    assert GitDiff.base_file(base, "lib/a.ex", cd: link) == {:ok, "base\n"}
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r2"
+  test "refuses a bare repository", %{tmp_dir: repo} do
+    git!(repo, ~w(init --bare --template=))
+    File.mkdir!(Path.join(repo, "lib"))
+
+    assert {:error, :diff_unavailable, %{cause: :not_inside_worktree}} =
+             GitDiff.changed_lines("HEAD", cd: repo)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r6"
+  test "distinguishes the zero object ID from a non-commit base", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/a.ex", "base\n")
+    commit!(repo, "Base")
+
+    assert {:ok, "base\n"} = GitDiff.base_file(sha(repo), "lib/a.ex", cd: repo)
+
+    for size <- [40, 64] do
+      assert {:error, :diff_unavailable, %{cause: :zero_base_sha}} =
+               GitDiff.base_file(String.duplicate("0", size), "lib/a.ex", cd: repo)
+    end
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r8"
+  test "timeout terminates descendants that could continue after Git exits", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/a.ex", "base\n")
+    commit!(repo, "Base")
+
+    shim =
+      write!(repo, "slow-git", """
+      #!/bin/sh
+      ( /bin/sleep 1; printf alive > escaped-child ) &
+      wait
+      """)
+
+    File.chmod!(shim, 0o755)
+
+    cmd = fn executable, args, opts ->
+      if "diff" in args, do: System.cmd(shim, [], opts), else: System.cmd(executable, args, opts)
+    end
+
+    assert {:error, :diff_unavailable, %{cause: :timeout, step: :diff}} =
+             GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd, timeout: 500)
+
+    Process.sleep(750)
+    refute File.exists?(Path.join(repo, "escaped-child"))
+  end
+
+  describe "read guards with real Git" do
+    @describetag :tmp_dir
+
+    setup %{tmp_dir: repo} do
+      init!(repo)
+      path = write!(repo, "lib/a.ex", "first\nold second\n")
+      commit!(repo, "Base")
+      %{repo: repo, path: path, base: sha(repo)}
+    end
+
+    @tag spec: "mutagen.git_diff.r7"
+    test "Git has no system attributes source", %{repo: repo, base: base} do
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          argv = flags ++ ~w(var GIT_ATTR_SYSTEM)
+          # Git 2.41 supports the guard but does not expose this git-var query.
+          control = System.cmd(exec, argv, put_command_env(opts, "GIT_ATTR_NOSYSTEM", "1"))
+          assert System.cmd(exec, argv, opts) == control
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r1"
+    test "reports an unrecognized mode in Git's diff response", %{
+      repo: repo,
+      path: path,
+      base: base
+    } do
+      File.write!(path, "replacement\n")
+      cmd = edit_git_output("diff", &:binary.replace(&1, ":100644 100644 ", ":100644 140000 "))
+
+      assert {:ok, %{files: %{}, skipped: [%{path: "lib/a.ex", reason: :unsupported_mode}]}} =
+               GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r6"
+    test "refuses a tree entry where a regular base blob is required", %{repo: repo} do
+      write!(repo, "lib/tree.ex/nested.ex", "source\n")
+      commit!(repo, "Add directory")
+
+      assert {:error, :diff_unavailable, %{cause: :not_a_regular_file}} =
+               GitDiff.base_file(sha(repo), "lib/tree.ex", cd: repo)
+    end
+
+    @tag spec: "mutagen.git_diff.r6"
+    test "rejects extra bytes on a successful Git blob read", %{repo: repo, base: base} do
+      cmd = edit_git_output("show", &("warning: unexpected diagnostic\n" <> &1))
+
+      assert {:error, :diff_unavailable, %{step: :base_file, cause: :invalid_output}} =
+               GitDiff.base_file(base, "lib/a.ex", cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r5"
+    test "refuses a repository with only a remote promisor setting", %{repo: repo, base: base} do
+      git!(repo, ~w(config remote.origin.promisor true))
+
+      assert {:error, :diff_unavailable, %{cause: :promisor_repository, hint: hint}} =
+               GitDiff.changed_lines(base, cd: repo)
+
+      assert hint =~ "full checkout"
+    end
+
+    @tag spec: "mutagen.git_diff.r1"
+    test "bounds working-file reads even when Git emits a small patch", %{repo: repo, path: path} do
+      File.open!(path, [:write, :binary], fn file ->
+        IO.binwrite(file, "old\n")
+        {:ok, _} = :file.position(file, 64 * 1024 * 1024)
+        IO.binwrite(file, "\n")
+      end)
+
+      commit!(repo, "Large sparse source")
+      File.open!(path, [:read, :write, :binary], &IO.binwrite(&1, "new\n"))
+
+      assert {:error, :diff_unavailable, %{cause: :working_file_limit}} =
+               GitDiff.changed_lines("HEAD", cd: repo)
+    end
+
+    @tag spec: "mutagen.git_diff.r7"
+    test "Git's checkout conversion settings cannot change raw line ranges", %{
+      repo: repo,
+      path: path,
+      base: base
+    } do
+      git!(repo, ~w(config core.autocrlf true))
+      git!(repo, ~w(config core.safecrlf true))
+      git!(repo, ~w(config core.eol crlf))
+      File.write!(path, "first\r\nchanged second\r\n")
+
+      assert {:ok, %{files: %{"lib/a.ex" => [{1, 2}]}}} =
+               GitDiff.changed_lines(base, cd: repo)
+    end
+
+    @tag spec: "mutagen.git_diff.r1"
+    test "rejects a changed line starting at zero in Git's diff response", %{
+      repo: repo,
+      path: path,
+      base: base
+    } do
+      File.write!(path, "new first\nold second\n")
+      cmd = edit_git_output("diff", &:binary.replace(&1, "+1 @@", "+0 @@"))
+
+      assert {:error, :diff_unavailable, %{step: :diff, cause: :invalid_output}} =
+               GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r7"
+    test "Git's byte threshold does not reclassify small source as binary", %{
+      repo: repo,
+      path: path,
+      base: base
+    } do
+      git!(repo, ~w(config core.bigFileThreshold 1))
+      File.write!(path, "changed first line\nold second\n")
+      git!(repo, ~w(add lib/a.ex))
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          {output, 0} = System.cmd(exec, flags ++ ["diff", "--numstat", base, "--", "lib"], opts)
+          assert output == "1\t1\tlib/a.ex\n"
+        end)
+
+      assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} =
+               GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r4"
+    test "a Git status probe cannot refresh optional index data", %{
+      repo: repo,
+      path: path,
+      base: base
+    } do
+      File.touch!(path, {{2001, 1, 1}, {0, 0, 0}})
+      index = Path.join(repo, ".git/index")
+      before = File.read!(index)
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          assert {"", 0} =
+                   System.cmd(exec, flags ++ ~w(status --porcelain --untracked-files=no), opts)
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+      assert File.read!(index) == before
+    end
+
+    @tag spec: "mutagen.git_diff.r4"
+    test "an absent promisor blob cannot launch a lazy fetch", %{repo: repo, base: base} do
+      remote = Path.join(repo, "remote.git")
+      git!(repo, ["init", "--bare", "--template=", remote])
+      partial = Path.join(repo, "partial")
+      File.mkdir!(partial)
+      init!(partial)
+      git!(partial, ["remote", "add", "origin", remote])
+      git!(partial, ~w(config remote.origin.promisor true))
+      missing = String.duplicate("f", 40)
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          opts = Keyword.put(opts, :cd, partial)
+          argv = flags ++ ["cat-file", "-p", missing]
+          # Older supported Git versions rely on promisor rejection.
+          control = put_command_env(opts, "GIT_NO_LAZY_FETCH", "1")
+          {output, status} = System.cmd(exec, argv, control)
+          assert status != 0
+          assert output =~ "Not a valid object name"
+          assert System.cmd(exec, argv, opts) == {output, status}
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r4"
+    test "Git denies file transport even when config allows it", %{repo: repo, base: base} do
+      git!(repo, ~w(config protocol.file.allow always))
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          {output, status} = System.cmd(exec, flags ++ ["ls-remote", repo], opts)
+          assert status != 0
+          assert output =~ "transport 'file' not allowed"
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r4"
+    test "Git ignores the isolated system configuration file", %{repo: repo, base: base} do
+      system = write!(repo, "system-config", "[roundthree]\nvalue = active\n")
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          opts = put_command_env(opts, "GIT_CONFIG_SYSTEM", system)
+          assert {"", 1} = System.cmd(exec, flags ++ ~w(config --get roundthree.value), opts)
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r4"
+    test "the configured clean driver stays disabled even with attributes active", %{
+      repo: repo,
+      base: base
+    } do
+      write!(repo, ".gitattributes", "lib/a.ex filter=guard-probe\n")
+      commit!(repo, "Assign clean driver")
+      helper = write!(repo, "clean-probe", "#!/bin/sh\nprintf transformed\n")
+      File.chmod!(helper, 0o755)
+      git!(repo, ["config", "filter.guard-probe.clean", "./clean-probe"])
+      attr_source = sha(repo)
+      unfiltered = git!(repo, ~w(hash-object --no-filters lib/a.ex))
+
+      cmd =
+        probe_diff(fn exec, flags, opts ->
+          opts = put_command_env(opts, "GIT_ATTR_SOURCE", attr_source)
+          assert {^unfiltered, 0} = System.cmd(exec, flags ++ ~w(hash-object lib/a.ex), opts)
+        end)
+
+      assert {:ok, _} = GitDiff.changed_lines(base, cd: repo, cmd: cmd)
+    end
+  end
+
+  defp edit_git_output(operation, edit) do
+    fn executable, args, opts ->
+      case System.cmd(executable, args, opts) do
+        {output, 0} = result ->
+          if operation in args, do: {edit.(output), 0}, else: result
+
+        result ->
+          result
+      end
+    end
+  end
+
+  defp probe_diff(probe) do
+    fn executable, args, opts ->
+      case Enum.split_while(args, &(&1 != "diff")) do
+        {flags, ["diff" | _]} -> probe.(executable, flags, opts)
+        _ -> :ok
+      end
+
+      System.cmd(executable, args, opts)
+    end
+  end
+
+  defp put_command_env(opts, key, value),
+    do: Keyword.update!(opts, :env, &Map.put(&1, key, value))
 
   defp init!(repo) do
     git!(repo, ~w(init --template= --initial-branch=main))
