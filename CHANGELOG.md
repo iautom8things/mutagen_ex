@@ -113,9 +113,17 @@ file for traceability.
   It honors helper filters, runs after-suite callbacks once, and releases
   ExUnit processes and their Sandbox owners after a mutant times out.
 - A host compile, application startup, or test helper failure produces the
-  usual error JSON at the selected output path.
-- JSON reports redact common credential formats by default. If a report
-  file cannot be written safely, the task warns and writes to stdout.
+  usual error JSON at the selected output path. A helper failure names the
+  helper's own line and, when it came from a file the helper evaluated, that
+  file and line as `origin_file` and `origin_line`. Each of these documents
+  notes in `details.note` that stderr is not redacted and should not be
+  published as a CI artifact.
+- A missing or corrupt report module in the installed tool produces a
+  `runtime_load_failed` document instead of a `MatchError`.
+- JSON reports redact common credential formats by default, including
+  compound keys such as `DATABASE_PASSWORD`, `api-token`, and
+  `AWS_SECRET_ACCESS_KEY`. If a report file cannot be written safely, the
+  task warns and writes to stdout.
 
 - **`guard_drop` mutations now run.** The enumerator validates the
   mutated node, but `guard_drop` rejected any node without its `when`
