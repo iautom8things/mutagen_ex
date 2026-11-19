@@ -131,14 +131,148 @@ defmodule MutagenEx.Mutators.WithSwapTest do
     end
 
     @tag :validate
-    test "the moved clause cannot pin or guard against a binding that now comes later" do
-      for source <- [
-            "with {:ok, a} <- f(), ^a <- g(), do: a",
-            "with {:ok, a} <- f(), b when b > a <- g(), do: b",
-            "with _a <- f(), :ok <- g(_a), do: :done"
+    test "keeps swaps that can change which binding is available in the other clause" do
+      for {source, inputs, original, swapped} <- [
+            {"with ^x <- :old, x <- :new, do: :pass", [x: :old], :pass, :old},
+            {"with ^x <- {:ok, :new}, {:ok, x} <- {:ok, :new}, do: :pass", [x: {:ok, :new}],
+             :pass, {:ok, :new}},
+            {"with %{v: ^x} <- %{v: :old}, {:ok, x} <- {:ok, :new}, do: :pass, else: (_ -> :failed)",
+             [x: :old], :pass, :failed},
+            {"with :ok <- x, {:ok, x} <- {:ok, :bad}, do: :pass, else: (_ -> :failed)", [x: :ok],
+             :pass, :failed},
+            {"with {:ok, x} <- a, {:ok, x} <- b, do: x, else: (_ -> :failed)",
+             [a: {:ok, 1}, b: {:ok, 2}], 2, 1},
+            {"with n when n > x <- b, x <- a, do: :pass", [x: 1, a: 10, b: 2], :pass, 2},
+            {"with {:ok, x} <- a, ^x <- b, do: :pass", [x: :old, a: {:ok, :new}, b: :old], :old,
+             :pass},
+            {"with {:ok, x} <- a, n when n > x <- b, do: :pass", [x: 1, a: {:ok, 10}, b: 2], 2,
+             :pass}
           ] do
-        assert validate_swap(source) == {:skip, :bound_var_used_before_binding}, source
+        assert_swap(source, inputs, :ok, original, swapped)
       end
+    end
+
+    @tag :validate
+    test "keeps a repeated RHS variable when the swap moves a rebinding before its read" do
+      assert_swap(
+        "with :ok <- x, {:ok, x} <- x, do: :pass",
+        [x: {:ok, :ok}],
+        :ok,
+        {:ok, :ok},
+        :pass
+      )
+    end
+
+    @tag :validate
+    test "keeps lexical introspection even with fresh bindings and a wildcard else" do
+      for {source, inputs, failure} <- [
+            {"with x <- :one, true <- Keyword.has_key?(binding(), :x), do: :pass", [], false},
+            {"with {:ok, x} <- a, true <- Keyword.has_key?(binding(), :x), do: :pass, else: (_ -> :failed)",
+             [a: {:ok, :one}], :failed},
+            {"with x <- :one, true <- Macro.Env.has_var?(__ENV__, {:x, nil}), do: :pass", [],
+             false},
+            {"with x <- :one, true <- Keyword.has_key?(Kernel.binding(), :x), do: :pass", [],
+             false}
+          ] do
+        assert_swap(source, inputs, :ok, :pass, failure)
+      end
+    end
+
+    @tag :validate
+    test "reads in the moved expression exclude lambda parameters, match binders and quoted data" do
+      for {source, swapped} <- [
+            {"with {:ok, x} <- a, :ok <- (fn x -> x end).(:b), do: x", :b},
+            {"with {:ok, x} <- a, :ok <- (x = :b), do: x", :b},
+            {"with {:ok, x} <- a, :ok <- (quote do: x), do: x", {:x, [], Elixir}},
+            {"with {:ok, x} <- a, :ok <- Macro.to_string(quote unquote: false, do: unquote(x)), do: x",
+             "unquote(x)"},
+            {"with {:ok, x} <- a, :ok <- (x = :b; x), do: x", :b}
+          ] do
+        assert_swap(source, [a: :a], :ok, :a, swapped)
+      end
+    end
+
+    @tag :validate
+    test "reads in unquote and on the right side of a match can use a now-later binding" do
+      for {source, original} <- [
+            {"with {:ok, x} <- a, :ok <- (quote do: unquote(x)), do: x", :pass},
+            {"with {:ok, x} <- a, :ok <- (y = x), do: x", :pass},
+            {"with {:ok, _x} <- a, :ok <- hd([_x]), do: :pass", :pass}
+          ] do
+        inputs = [a: {:ok, :pass}]
+        assert_unbound_swap(source, inputs, {:skip, :bound_var_used_before_binding}, original)
+      end
+    end
+
+    @tag :validate
+    test "reads in a binary size can use a preceding segment or an enclosing binding" do
+      for size <- ["n", "^n"] do
+        source = "with {:ok, n} <- a, <<_v::size(#{size})>> <- b, do: :pass"
+        assert_swap(source, [n: 4, a: {:ok, 8}, b: <<1>>], :ok, :pass, <<1>>)
+        assert_unbound_swap(source, [a: {:ok, 8}, b: <<1>>], :ok, :pass)
+      end
+
+      assert_swap(
+        "with n <- count, :ok <- (fn <<n, _v::size(n)>> -> :ok end).(b), do: n",
+        [b: <<8, 42>>, count: 8],
+        {:skip, :insufficient_refutable_patterns},
+        8,
+        8
+      )
+
+      assert_swap(
+        "with <<v::size(n)>> <- b, n <- count, do: {v, n}",
+        [n: 8, b: <<42>>, count: 4],
+        :ok,
+        {42, 4},
+        <<42>>
+      )
+
+      assert_swap(
+        "with <<n, v::size(^n)>> <- b, n <- count, do: {v, n}",
+        [n: 4, b: <<0, 10::4>>, count: 8],
+        :ok,
+        {10, 8},
+        <<0, 10::4>>
+      )
+    end
+
+    @tag :validate
+    test "defers missing pins and guard bindings to the compiler" do
+      for {source, inputs, original} <- [
+            {"with {:ok, key} <- a, %{^key => v} <- b, do: v", [a: {:ok, :k}, b: %{k: :v}], :v},
+            {"with {:ok, x} <- a, ^x <- b, do: :pass", [a: {:ok, :a}, b: :a], :pass},
+            {"with {:ok, x} <- a, n when n > x <- b, do: :pass", [a: {:ok, 1}, b: 2], :pass}
+          ] do
+        assert_unbound_swap(source, inputs, :ok, original)
+      end
+    end
+
+    @tag :validate
+    test "compares matching literals with the production parser's token metadata" do
+      for {left, right, returned} <- [
+            {"%{a: 1}", "%{a: 1}", %{a: 1}},
+            {"%{a: 1, b: %{c: 2}}", "%{b: %{c: 2}, a: 1}", %{a: 1, b: %{c: 2}}},
+            {"({\n  :a,\n  :b, :c\n})", "{:a, :b, :c}", {:a, :b, :c}},
+            {"Foo.Bar", "Foo.Bar", Foo.Bar},
+            {"<<1, 2>>", "<<1, 2>>", <<1, 2>>}
+          ] do
+        assert_swap(
+          "with :left <- #{left}, :right <- #{right}, do: :pass",
+          [],
+          {:skip, :indistinguishable_failures},
+          returned,
+          returned
+        )
+      end
+
+      assert_swap(
+        "with %{a: 1} <- %{a: 1}, :ok <- b, do: :pass",
+        [b: :b],
+        {:skip, :insufficient_refutable_patterns},
+        :b,
+        :b
+      )
     end
 
     @tag :validate
@@ -147,10 +281,41 @@ defmodule MutagenEx.Mutators.WithSwapTest do
     end
   end
 
-  defp validate_swap(source) do
-    source
-    |> Code.string_to_quoted!(columns: true, token_metadata: true)
-    |> WithSwap.mutate()
-    |> WithSwap.validate()
+  defp validate_swap(source), do: source |> parse() |> WithSwap.mutate() |> WithSwap.validate()
+
+  defp parse(source), do: Code.string_to_quoted!(source, columns: true, token_metadata: true)
+
+  defp assert_swap(source, inputs, decision, original, swapped) do
+    ast = parse(source)
+    mutant = WithSwap.mutate(ast)
+    assert {source, WithSwap.validate(mutant)} == {source, decision}
+    assert {source, run(ast, inputs)} == {source, original}
+    assert {source, run(mutant, inputs)} == {source, swapped}
+  end
+
+  defp assert_unbound_swap(source, inputs, decision, original) do
+    ast = parse(source)
+    mutant = WithSwap.mutate(ast)
+    assert {source, WithSwap.validate(mutant)} == {source, decision}
+    assert {source, run(ast, inputs)} == {source, original}
+
+    {result, diagnostics} =
+      Code.with_diagnostics(fn ->
+        try do
+          Code.eval_quoted(mutant, inputs)
+        rescue
+          error in CompileError -> error
+        end
+      end)
+
+    assert %CompileError{} = result
+    assert Enum.any?(diagnostics, &String.contains?(&1.message, "undefined variable")), source
+  end
+
+  defp run(ast, inputs) do
+    {{value, _bindings}, _diagnostics} =
+      Code.with_diagnostics(fn -> Code.eval_quoted(ast, inputs) end)
+
+    value
   end
 end

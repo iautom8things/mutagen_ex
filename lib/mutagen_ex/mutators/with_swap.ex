@@ -7,28 +7,38 @@ defmodule MutagenEx.Mutators.WithSwap do
   The two arrows must lead the `with`. Later clauses and the `do` and
   `else` blocks stay in place.
 
-  Validation looks for a change in which failed match reaches the caller
-  or `else` block. It checks these rules in order:
+  Only independent clauses qualify for the failure-priority filters below.
+  Clauses are dependent if their patterns bind a common name, either clause
+  reads a name bound by the other, or either clause uses lexical introspection
+  such as `binding()` or `__ENV__`.
 
-    * `:bound_var_used_before_binding` if the moved clause's expression,
-      guard or pin references a binding introduced by the clause now after it.
+  The node does not contain the enclosing bindings. To preserve the existing
+  RHS dependency check, a read in the moved-first expression of a name bound
+  by the moved-second pattern returns `{:skip, :bound_var_used_before_binding}`.
+  An outer binding can make that swap valid. Reads in pins, guards and binary
+  sizes can also use outer bindings, so those swaps are kept and the compiler
+  reports a compile error if the binding is missing.
+
+  For independent clauses, validation returns:
+
     * `:insufficient_refutable_patterns` if either arrow always matches
-      by syntax. This covers unguarded variables and wildcards, and literal
-      patterns with a syntactically identical literal expression.
+      by syntax: an unguarded variable or wildcard, or a literal pattern
+      with an identical literal expression.
     * `:indistinguishable_failures` if both expressions are the same
-      quoted literal or the same variable untouched by either pattern.
+      literal or read the same variable.
     * `:else_ignores_failure` if `else` consists of one `_ -> ...` arm.
 
-  Other pairs with two potentially failing matches are kept. Guards and
-  pins can fail. Calls are opaque, even when they have identical syntax.
-  This heuristic can miss changes in side effects, exceptions, or variable
-  rebinding caused by reordering. A kept pair can still return the same
-  failure at runtime or rarely fail both checks on the same input.
+  The reference scan handles anonymous-function parameters, matches in blocks,
+  and quote boundaries. It approximates reads in other nested constructs and
+  does not expand macros, so a macro can hide a read, binding, or side effect.
+  Calls are opaque. The filters can miss swaps that only change side effects
+  or exceptions, and kept swaps can still be equivalent.
   """
 
   @behaviour MutagenEx.Mutators
 
   alias MutagenEx.Mutators
+  alias MutagenEx.Mutators.WithSwap.References
 
   @impl Mutators
   def name, do: :with_swap
@@ -50,18 +60,27 @@ defmodule MutagenEx.Mutators.WithSwap do
   def validate(
         {:with, _, [{:<-, _, [first, first_expr]}, {:<-, _, [second, second_expr]} | rest]}
       ) do
-    {first_bindings, first_refs} = pattern_vars(first)
-    {second_bindings, _second_refs} = pattern_vars(second)
-    first_refs = MapSet.union(first_refs, free_vars(first_expr))
+    {first_bindings, first_pattern_reads} = References.pattern(first)
+    {second_bindings, second_pattern_reads} = References.pattern(second)
+    first_rhs_reads = References.expression(first_expr)
+    second_rhs_reads = References.expression(second_expr)
+    first_reads = MapSet.union(first_pattern_reads, first_rhs_reads)
+    second_reads = MapSet.union(second_pattern_reads, second_rhs_reads)
 
     cond do
-      not MapSet.disjoint?(second_bindings, first_refs) ->
+      not MapSet.disjoint?(second_bindings, first_rhs_reads) ->
         {:skip, :bound_var_used_before_binding}
+
+      not MapSet.disjoint?(first_bindings, second_bindings) or
+        not MapSet.disjoint?(first_bindings, second_reads) or
+        not MapSet.disjoint?(second_bindings, first_reads) or
+        :__ENV__ in first_reads or :__ENV__ in second_reads ->
+        :ok
 
       always_matches?(first, first_expr) or always_matches?(second, second_expr) ->
         {:skip, :insufficient_refutable_patterns}
 
-      same_value?(first_expr, second_expr, MapSet.union(first_bindings, second_bindings)) ->
+      same_value?(first_expr, second_expr) ->
         {:skip, :indistinguishable_failures}
 
       ignores_failure?(List.last(rest)) ->
@@ -74,21 +93,58 @@ defmodule MutagenEx.Mutators.WithSwap do
 
   def validate(_), do: {:skip, :structurally_invalid}
 
-  defp always_matches?({name, _, context}, _expr) when is_atom(name) and is_atom(context) do
-    not reserved_name?(name)
+  defp always_matches?({:_, _, context}, _expr) when is_atom(context), do: true
+
+  defp always_matches?(pattern, expr) do
+    References.variable?(pattern) or same_literal?(pattern, expr)
   end
 
-  defp always_matches?(pattern, expr), do: same_literal?(pattern, expr)
-
-  defp same_value?({name, _, context}, {name, _, context}, bindings)
+  defp same_value?({name, _, context} = left, {name, _, context})
        when is_atom(name) and is_atom(context) do
-    not reserved_name?(name) and not MapSet.member?(bindings, name)
+    References.variable?(left)
   end
 
-  defp same_value?(left, right, _bindings), do: same_literal?(left, right)
+  defp same_value?(left, right), do: same_literal?(left, right)
 
   defp same_literal?(left, right) do
-    Macro.quoted_literal?(left) and Mutators.normalize(left) === Mutators.normalize(right)
+    Macro.quoted_literal?(left) and Macro.quoted_literal?(right) and
+      literal_key(left) === literal_key(right)
+  end
+
+  @literal_locations [
+    :line,
+    :column,
+    :end_line,
+    :end_column,
+    :closing,
+    :last,
+    :end_of_expression,
+    :newlines,
+    :parens
+  ]
+
+  defp literal_key(ast) do
+    Macro.postwalk(ast, fn
+      {:%{}, meta, pairs} ->
+        {:%{}, Keyword.drop(meta, @literal_locations), map_entries(pairs)}
+
+      {form, meta, args} when is_list(meta) ->
+        {form, Keyword.drop(meta, @literal_locations), args}
+
+      value ->
+        value
+    end)
+  end
+
+  defp map_entries(pairs) do
+    if Enum.all?(pairs, fn
+         {key, _} when is_atom(key) or is_number(key) or is_binary(key) -> true
+         _ -> false
+       end) do
+      Map.new(pairs)
+    else
+      pairs
+    end
   end
 
   defp ignores_failure?(options) when is_list(options) do
@@ -96,47 +152,4 @@ defmodule MutagenEx.Mutators.WithSwap do
   end
 
   defp ignores_failure?(_), do: false
-
-  defp pattern_vars({:when, _, [pattern, guard]}) do
-    {bindings, pins} = pattern_vars(pattern)
-    {bindings, MapSet.union(pins, MapSet.difference(free_vars(guard), bindings))}
-  end
-
-  defp pattern_vars(pattern) do
-    {unpinned, pins} =
-      Macro.prewalk(pattern, MapSet.new(), fn
-        {:^, _, [var]}, pins -> {nil, MapSet.union(pins, free_vars(var))}
-        node, pins -> {node, pins}
-      end)
-
-    {free_vars(unpinned), pins}
-  end
-
-  # Approximate references without resolving scopes inside expressions.
-  defp free_vars(expr) do
-    {_ast, vars} =
-      Macro.prewalk(expr, MapSet.new(), fn
-        {name, _meta, ctx} = node, vars when is_atom(name) and is_atom(ctx) ->
-          if name == :_ or reserved_name?(name),
-            do: {node, vars},
-            else: {node, MapSet.put(vars, name)}
-
-        node, vars ->
-          {node, vars}
-      end)
-
-    vars
-  end
-
-  @reserved [
-    :__MODULE__,
-    :__CALLER__,
-    :__ENV__,
-    :__DIR__,
-    :__STACKTRACE__,
-    :__aliases__,
-    :__block__
-  ]
-
-  defp reserved_name?(name), do: name in @reserved
 end
