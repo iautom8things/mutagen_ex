@@ -121,7 +121,8 @@ defmodule MutagenEx.CoverageRunner do
   @typedoc "Successful return."
   @type ok_result :: %{
           covered_lines: %{optional(String.t()) => MapSet.t(pos_integer())},
-          instrumented_modules: [module()]
+          instrumented_modules: [module()],
+          test_modules: [MutagenEx.TestModuleDiscovery.entry()]
         }
 
   @doc """
@@ -186,13 +187,14 @@ defmodule MutagenEx.CoverageRunner do
     with :ok <- ensure_cover_loadable(cfg),
          :ok <- start_cover(cfg),
          {:ok, instrumented} <- cover_compile_modules(cfg),
-         {:ok, stats} <- run_cited_tests(cfg),
+         {:ok, stats, test_modules} <- run_cited_tests(cfg),
          {:ok, covered} <- gather_covered_lines(cfg, instrumented) do
       {:ok,
        %{
          covered_lines: covered,
          instrumented_modules: instrumented,
-         suite_stats: stats
+         suite_stats: stats,
+         test_modules: test_modules
        }}
     end
   end
@@ -370,9 +372,13 @@ defmodule MutagenEx.CoverageRunner do
 
   defp run_cited_tests(cfg) do
     with :ok <- load_test_files(cfg),
-         :ok <- register_test_modules(cfg) do
+         modules when is_list(modules) <- MutagenEx.TestModuleDiscovery.for_tests(cfg),
+         :ok <- register_test_modules(cfg, modules) do
       options = MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
-      MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end)
+
+      with {:ok, stats} <- MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end) do
+        {:ok, stats, modules}
+      end
     end
   end
 
@@ -411,14 +417,8 @@ defmodule MutagenEx.CoverageRunner do
   # with `MutagenEx.Baseline.register_test_modules/1` (mutagen-wrd.37)
   # and `MutagenEx.MutationRunner.MutationLoop.execute_with_timeout/1`
   # per site.
-  defp register_test_modules(cfg) do
+  defp register_test_modules(cfg, modules) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-
-    modules =
-      Map.get_lazy(cfg, :test_modules, fn ->
-        MutagenEx.TestModuleDiscovery.discover(cfg.test_filter.files)
-      end)
-
     MutagenEx.Test.ExUnitServer.register_cited_modules(server, modules)
   end
 

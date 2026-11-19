@@ -868,6 +868,7 @@ defmodule MutagenEx.JsonReporterTest do
       File.write!(tmp_test, """
       defmodule Mutagen.Phase.MutationCaptureTest do
         def __ex_unit__, do: :example
+        def __ex_unit__(:config), do: %{async?: true, group: nil, parameterize: nil}
       end
 
       defmodule Mutagen.Phase.MutationHelper do
@@ -914,6 +915,37 @@ defmodule MutagenEx.JsonReporterTest do
                {Mutagen.Phase.MutationCaptureTest,
                 %{async?: false, group: nil, parameterize: nil}}
              ]
+    end
+
+    @tag spec: "mutagen.mutation_pipeline.r10"
+    test "baseline and mutation reuse the case list from coverage" do
+      registered = [{CoverageRegisteredCase, %{async?: false, group: nil, parameterize: nil}}]
+
+      dispatch =
+        capture_dispatch(
+          scope: &fake_scope/2,
+          tests: &fake_tests/2,
+          ast_cache: &fake_ast_cache/2,
+          coverage: fn input ->
+            {:ok, result} = fake_coverage(input)
+            {:ok, Map.put(result, :test_modules, registered)}
+          end,
+          enumerator: &fake_enumerator/4,
+          baseline: fn input ->
+            assert input.test_modules == registered
+            fake_baseline(input)
+          end,
+          mutation: fn input ->
+            assert input.test_modules == registered
+            fake_mutation(input)
+          end
+        )
+
+      assert :ok =
+               Mix.Tasks.Mutagen.run(
+                 ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"],
+                 dispatch
+               )
     end
 
     @tag spec: "mutagen.json_schema.r14"

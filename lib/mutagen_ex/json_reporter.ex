@@ -759,7 +759,8 @@ defmodule MutagenEx.JsonReporter do
   end
 
   defp aggregate_meta_to_wire(%{timings_ms: timings} = meta) do
-    Map.put(meta_to_wire(meta), "timings_ms", timings)
+    wire_timings = Map.new(timings, fn {phase, ms} -> {to_string(phase), ms} end)
+    Map.put(meta_to_wire(meta), "timings_ms", wire_timings)
   end
 
   defp aggregate_meta_to_wire(meta), do: meta_to_wire(meta)
