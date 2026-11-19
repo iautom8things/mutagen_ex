@@ -54,6 +54,7 @@ decisions:
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.mutation_id_scheme_2
+  - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.details_always_present
   - mutagen.decision.ancora_migration
 ```
@@ -63,7 +64,7 @@ decisions:
 Top-level keys, all present in every variant unless noted:
 
 - `version`: literal string `"2"`.
-- `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme}`.
+- `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme, fail_fast}`.
 - `scope`: array of resolved scope records.
 - `tests`: resolved test filter (the `{include, exclude, files}` triple).
 - `baseline`: `{passed: int, failed: int, failures: [{module, name}]}` or
@@ -92,6 +93,10 @@ Top-level keys, all present in every variant unless noted:
     Every aggregate document and NDJSON start line carries
     `meta.id_scheme: "2"`.
     IDs and reports from earlier versions cannot be compared with version 2.
+    Every aggregate document, error document and NDJSON start and end
+    line also carries a boolean `meta.fail_fast`: the parsed
+    `Config.fail_fast` (mutagen.cli.r17), or `true` when the run stopped
+    before argument parsing succeeded.
 
 - id: mutagen.json_schema.r2
   priority: must
@@ -301,7 +306,8 @@ Top-level keys, all present in every variant unless noted:
         `"end"`.
     The four kinds bracket the run:
       - `"start"` fires once at mutation-phase entry; carries `total`
-        (planned site count) and `meta` (`r2`'s meta block).
+        (planned site count) and `meta` (`r2`'s meta block). That
+        `meta` equals the aggregate document's `meta`.
       - `"result"` fires once per completed site (any of `killed`,
         `survived`, `timeout`, `error`); the line's wire shape MUST be
         byte-equal to the equivalent entry in the aggregate document's
@@ -366,6 +372,10 @@ Top-level keys, all present in every variant unless noted:
     leaves are sanitized through the r10 truncation + r11 redaction
     pipeline before emission. Map values may nest one layer deep
     (e.g. `failures: [...]` from baseline-red details).
+
+    For `baseline_red`, `details.failures` holds the same `{module,
+    name}` objects as `baseline.failures`
+    (mutagen.mutation_pipeline.r1), not inspected Elixir terms.
 
     Decision: mutagen.decision.details_always_present.
 
@@ -436,7 +446,7 @@ Top-level keys, all present in every variant unless noted:
   when:
     - "We decode the iodata with `:json.decode/1`."
   then:
-    - "Decoding succeeds. The decoded map's `:version` key (or `\"version\"`) equals `\"1\"`."
+    - "Decoding succeeds. The decoded map's `:version` key (or `\"version\"`) equals `\"2\"`."
     - "The last byte of the iodata is `\\n`."
 
 - id: mutagen.json_schema.s6

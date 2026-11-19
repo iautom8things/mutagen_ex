@@ -51,8 +51,6 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     def set_outcome(outcome, sleep_ms \\ 0),
       do: Agent.update(@agent, fn s -> %{s | outcome: outcome, sleep_ms: sleep_ms} end)
 
-    def configure(_opts), do: :ok
-
     def run do
       {outcome, sleep_ms} =
         Agent.get(@agent, fn s -> {s.outcome, s.sleep_ms} end)
@@ -64,6 +62,8 @@ defmodule MutagenEx.MutationRunnerParallelTest do
 
   defmodule ExUnitServerStub do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(_mod, _cfg), do: :ok
   end
 
@@ -409,6 +409,29 @@ defmodule MutagenEx.MutationRunnerParallelTest do
       assert_receive {^ref, {:result, %{id: "b", status: :survived}}}, 500
       assert_receive {^ref, {:result, %{id: "c", status: :survived}}}, 500
     end
+  end
+
+  @tag spec: ["mutagen.mutation_pipeline.r17", "mutagen.cli.r13"]
+  test "parallel budget truncation drains workers before sweeping the original BEAM" do
+    task_sup = start_supervised!(Task.Supervisor)
+    RecordingCodeServer.set_task_sup(task_sup)
+    ExUnitFake.set_outcome(%{failures: 1, total: 1}, 30)
+
+    victim = unique_victim_module()
+    {binary, filename} = compile_snapshot(victim)
+    RecordingCodeServer.put_snapshot(victim, binary, filename)
+
+    sites = [build_site("first", 2), build_site("second", 3)]
+    cfg = build_cfg(sites, max_concurrency: 2, task_sup: task_sup, budget_ms: 1)
+    scopes = Enum.map(cfg.scope_records, &%{&1 | module: victim})
+
+    cfg = %{cfg | scope_records: scopes} |> Map.put(:code_server, RecordingCodeServer)
+
+    assert {:ok, %{truncated: true, results: [%{id: "first", status: :killed}]}} =
+             run_mutation_runner(cfg)
+
+    assert [] == Task.Supervisor.children(task_sup)
+    assert %{module: ^victim, live_children: []} = List.last(RecordingCodeServer.load_calls())
   end
 
   describe "experimental parallel-mode warning" do

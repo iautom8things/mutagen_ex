@@ -100,7 +100,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
         # Register the red module and consume it with a nested
         # `ExUnit.run/0`, mirroring how the coverage phase drains
         # `ExUnit.Server` before baseline ever runs.
-        MutagenEx.Test.ExUnit.configure(include: [@fixture_tag], exclude: [:test])
+        ExUnit.configure(include: [@fixture_tag], exclude: [:test])
         MutagenEx.Test.ExUnitServer.add_module(@red_module, @module_cfg)
         drain = MutagenEx.Test.ExUnit.run()
 
@@ -110,8 +110,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
         # `ExUnit.Server` before baseline's own `ExUnit.run/0`. The
         # registry is empty here (Step 1 drained it), so re-registration
         # is the load-bearing step. The TestFilter carries the same
-        # include so baseline's `ExUnit.configure/1` runs the tagged
-        # module.
+        # include so baseline's phase options run the tagged module.
         input = %{
           seed: 0,
           test_filter: %TestFilter{include: [@fixture_tag], exclude: [:test], files: []},

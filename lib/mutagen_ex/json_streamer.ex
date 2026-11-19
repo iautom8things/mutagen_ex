@@ -38,7 +38,7 @@ defmodule MutagenEx.JsonStreamer do
 
   `total` is the total site count the runner will attempt; `meta` is
   the same `meta` block the final document carries (tool version,
-  elixir/otp version, exunit_seed).
+  Elixir/OTP version, ExUnit seed, and fail-fast setting).
   """
   @spec emit_start(sink(), pos_integer() | non_neg_integer(), map()) :: :ok
   def emit_start(sink, total, meta) do

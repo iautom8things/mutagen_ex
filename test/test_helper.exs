@@ -4,6 +4,9 @@
 #   fixture and takes minutes each. Run explicitly via
 #   `mix test --only e2e_slow`.
 #
+# - `:fail_fast_benchmark` adds a deliberately slow trailing test.
+#   Run it with `mix test test/mutagen_ex/fail_fast_test.exs --only fail_fast_benchmark`.
+#
 # - `:spike` covers the C1/C2 integration spikes under
 #   `test/mutagen_ex/integration/`. They execute ~500 cover lifecycles
 #   each `mix test` run and dominate wall-clock time. They are the gating
@@ -79,6 +82,7 @@ ExUnit.start(
   exclude:
     [
       :e2e_slow,
+      :fail_fast_benchmark,
       :spike,
       :downstream_integration,
       :archive_integration,

@@ -69,12 +69,8 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   defmodule ExUnitFake do
     @moduledoc false
-    def configure(opts) do
-      Process.put(:exunit_fake_configure, opts)
-      :ok
-    end
-
     def run do
+      Process.put(:exunit_fake_options, Application.get_all_env(:ex_unit))
       Process.put(:exunit_fake_run_called, (Process.get(:exunit_fake_run_called) || 0) + 1)
       %{failures: 0, total: 0, excluded: 0, skipped: 0}
     end
@@ -82,7 +78,6 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   defmodule ExUnitFakeFailing do
     @moduledoc false
-    def configure(_opts), do: :ok
     def run, do: raise("boom from fake ExUnit.run/0")
   end
 
@@ -139,7 +134,7 @@ defmodule MutagenEx.CoverageRunnerTest do
       assert details.message =~ "MutagenEx.TaskSup"
 
       # Neither configure/0 nor run/0 were called.
-      assert Process.get(:exunit_fake_configure) == nil
+      assert Process.get(:exunit_fake_options) == nil
       assert Process.get(:exunit_fake_run_called) == nil
       # cover.start was NOT called either.
       assert Process.get(:cover_fake_started) == nil
@@ -200,12 +195,12 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   describe "r4: forces ExUnit max_cases: 1 + seed (s4)" do
     @tag spec: ["mutagen.cli.r4", "mutagen.coverage.r4"]
-    test "configure/1 receives max_cases: 1 and the configured seed" do
+    test "run/0 sees max_cases: 1 and the configured seed" do
       cfg = base_cfg_with_fakes(seed: 1234)
 
       assert {:ok, _result} = CoverageRunner.run(cfg)
 
-      opts = Process.get(:exunit_fake_configure)
+      opts = Process.get(:exunit_fake_options)
       assert is_list(opts)
       assert Keyword.get(opts, :max_cases) == 1
       assert Keyword.get(opts, :seed) == 1234
@@ -218,7 +213,7 @@ defmodule MutagenEx.CoverageRunnerTest do
       # do_run/1.
       cfg = base_cfg_with_fakes()
       assert {:ok, _} = CoverageRunner.run(cfg)
-      assert Process.get(:exunit_fake_configure) != nil
+      assert Process.get(:exunit_fake_options) != nil
       assert (Process.get(:exunit_fake_run_called) || 0) == 1
     end
 
@@ -234,7 +229,7 @@ defmodule MutagenEx.CoverageRunnerTest do
 
       assert {:ok, _} = CoverageRunner.run(cfg)
 
-      opts = Process.get(:exunit_fake_configure)
+      opts = Process.get(:exunit_fake_options)
       assert Keyword.get(opts, :include) == [:integration]
       assert Keyword.get(opts, :exclude) == [:test, :slow]
     end
@@ -435,6 +430,8 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   defmodule ExUnitServerFake do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(module, cfg) do
       list = Process.get(:ex_unit_server_fake_calls, [])
       Process.put(:ex_unit_server_fake_calls, [{module, cfg} | list])
@@ -447,6 +444,8 @@ defmodule MutagenEx.CoverageRunnerTest do
     # Records `add_module/2` calls into the shared `:wrd38_order`
     # process-dict list so the ordering test can assert `add_module`
     # ran before `ExUnit.run/0`.
+    def discard_pending_modules, do: :ok
+
     def add_module(module, _cfg) do
       list = Process.get(:wrd38_order, [])
       Process.put(:wrd38_order, [{:add_module, module} | list])
@@ -456,7 +455,6 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   defmodule OrderingExUnit do
     @moduledoc false
-    def configure(_opts), do: :ok
 
     def run do
       list = Process.get(:wrd38_order, [])
