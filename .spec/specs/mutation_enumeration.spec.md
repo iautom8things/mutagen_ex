@@ -174,12 +174,12 @@ decisions:
 - id: mutagen.mutation_enumeration.r10
   priority: must
   statement: |
-    The enumerator offers no mutator a `/` node that is the argument of a
-    capture `&` when its right operand is an integer and its left operand
-    is a bare name or a remote call with no arguments. These are the
-    `&fun/arity` and `&Mod.fun/arity` function references. Such a node
-    yields no site and no `skipped` entry in either dispatch mode. A `/`
-    in a capture body, such as `&(&1 / 2)`, still yields an `arith` site.
+    The enumerator offers no mutator the subtree rooted at the `/` of
+    a named function capture such as `&fun/1`, `&Mod.fun/2` or
+    `&:erlang.fun/2`. Neither the reference nor any of its children,
+    including the arity integer, yields a site or a skipped entry in
+    either dispatch mode. Expressions and literals inside anonymous
+    capture bodies such as `&(&1 / 1)` remain eligible.
 ```
 
 ```spec-scenarios
@@ -278,14 +278,16 @@ decisions:
   given:
     - |
       A covered module with `Enum.map(xs, &double/1)`,
-      `Enum.reduce(xs, &Kernel.max/2)`, `Enum.reduce(xs, &:erlang.max/2)`,
-      `Enum.map(xs, &(&1 / 2))`, `x / 2` and `x * 2`.
+      `Enum.map(xs, &Kernel.abs/1)`, `Enum.map(xs, &:erlang.abs/1)`,
+      `Enum.map(xs, &(&1 / 1))`, `x / 2` and `x * 2`.
   when:
     - The enumerator runs in `:head_atom` and in `:legacy` dispatch mode.
   then:
     - |
-      Both modes emit `arith` sites only for `&1 / 2`, `x / 2` and
-      `x * 2`, and no `arith` entry in `skipped`.
+      Both modes emit no sites or skipped entries for the named
+      captures. Both emit an `arith` site and a `literal` site for
+      the anonymous capture body, and `arith` sites for `x / 2` and
+      `x * 2`.
 ```
 
 ```spec-verification

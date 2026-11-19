@@ -76,9 +76,11 @@ defmodule MutagenEx.MutatorsTest do
   describe "confidence (mutagen.mutators.r10)" do
     @describetag spec: "mutagen.mutators.r10"
 
-    test "with_swap is rated low and the other nine mutators high" do
+    test "with_swap, pipeline and guard_drop rate low and the other seven rate high" do
       assert Map.new(Mutators.names(), &{&1, Mutators.confidence(&1)}) ==
-               Mutators.names() |> Map.new(&{&1, :high}) |> Map.put(:with_swap, :low)
+               Map.new(Mutators.names(), fn name ->
+                 {name, if(name in [:with_swap, :pipeline, :guard_drop], do: :low, else: :high)}
+               end)
 
       assert MutagenEx.Mutators.WithSwap.confidence() == :low
       refute function_exported?(MutagenEx.Mutators.Arith, :confidence, 0)

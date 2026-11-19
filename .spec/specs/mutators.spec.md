@@ -74,6 +74,7 @@ decisions:
   - mutagen.decision.validate_predicates
   - mutagen.decision.with_swap_failure_priority
   - mutagen.decision.mutator_confidence
+  - mutagen.decision.mutator_precision
   - mutagen.decision.ancora_migration
 ```
 
@@ -185,7 +186,9 @@ decisions:
       4. `{:skip, :indistinguishable_failures}` when both right-hand sides
          are the same variable or equal literals.
       5. `{:skip, :else_ignores_failure}` when `else` has exactly one arm
-         and its pattern is the bare `_`.
+         and its pattern is the bare `_` or an unguarded variable unused
+         in the arm body. Treat same-name occurrences and lexical
+         introspection as possible uses.
       6. `:ok` otherwise.
 
     Literal equality ignores the position metadata `line`, `column`,
@@ -195,8 +198,8 @@ decisions:
 - id: mutagen.mutators.r10
   priority: must
   statement: |
-    `MutagenEx.Mutators.confidence/1` returns `:low` for `:with_swap` and
-    `:high` for each of the other nine registered names. A registered
+    `MutagenEx.Mutators.confidence/1` returns `:low` for `:with_swap`,
+    `:pipeline` and `:guard_drop`, and `:high` for the other seven registered names. A registered
     module that exports `confidence/0` supplies its own rating and one that
     does not gets `:high`. A name outside the catalog raises
     `ArgumentError` with the message `unknown mutator: <inspected name>`.
@@ -421,7 +424,7 @@ decisions:
   when:
     - "`Mutators.confidence/1` runs on each."
   then:
-    - "`:with_swap` returns `:low` and the other nine return `:high`."
+    - "`:with_swap`, `:pipeline`, and `:guard_drop` return `:low`. The other seven return `:high`."
     - |
       `:not_in_catalog` raises `ArgumentError` with the message
       `unknown mutator: :not_in_catalog`.

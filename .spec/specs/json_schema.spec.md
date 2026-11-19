@@ -60,6 +60,7 @@ decisions:
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.details_always_present
   - mutagen.decision.mutator_confidence
+  - mutagen.decision.mutator_precision
   - mutagen.decision.ancora_migration
   - mutagen.decision.host_test_setup
 ```
@@ -611,7 +612,7 @@ Top-level keys, all present in every variant unless noted:
   when:
     - "`JsonReporter.emit_report/1` renders the aggregate and `JsonStreamer.emit_result/2` streams each result."
   then:
-    - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap` and `\"high\"` for the other nine mutators, for every status."
+    - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap`, `pipeline`, and `guard_drop` and `\"high\"` for the other seven mutators, for every status."
     - "Each NDJSON result line equals its aggregate entry plus `kind` and `version`."
 
 - id: mutagen.json_schema.s14b

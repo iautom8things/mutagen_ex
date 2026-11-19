@@ -37,6 +37,9 @@ defmodule MutagenEx.Mutators.Pipeline do
   @impl true
   def name, do: :pipeline
 
+  @impl MutagenEx.Mutators
+  def confidence, do: :low
+
   @impl true
   def mutate({:|>, outer_meta, [{:|>, inner_meta, [initial, inner_call]}, outer_call]}) do
     {:|>, outer_meta, [{:|>, inner_meta, [initial, outer_call]}, inner_call]}

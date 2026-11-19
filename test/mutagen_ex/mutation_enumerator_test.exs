@@ -273,6 +273,45 @@ defmodule MutagenEx.MutationEnumeratorTest do
              end)
     end
 
+    @tag spec: "mutagen.mutators.r9"
+    test "with_swap skips only unguarded else catchalls whose bodies ignore the failure" do
+      arms = [
+        "_other -> :fallback",
+        "_invalid -> :fallback",
+        "other -> :fallback",
+        "other -> {:error, other}",
+        "other when is_atom(other) -> :fallback",
+        "other -> binding()",
+        ":error -> :fallback"
+      ]
+
+      for {arm, index} <- Enum.with_index(arms) do
+        source = """
+        defmodule ElseCatchall do
+          def run(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :pass, else: (#{arm}))
+        end
+        """
+
+        file = "lib/else_catchall.ex"
+
+        result =
+          MutationEnumerator.enumerate(
+            ast_cache(file, source),
+            [scope(file, ElseCatchall)],
+            covered_lines(file, [2]),
+            mutators: [MutagenEx.Mutators.WithSwap]
+          )
+
+        if index < 3 do
+          assert result.sites == [], arm
+          assert [%{mutator: :with_swap, reason: :else_ignores_failure}] = result.skipped
+        else
+          assert [%{mutator: :with_swap}] = result.sites
+          assert result.skipped == [], arm
+        end
+      end
+    end
+
     @tag spec: ["mutagen.mutators.r2", "mutagen.mutators.r9"]
     test "with_swap failure-priority rejections are skipped under their site IDs" do
       source = """
@@ -892,13 +931,13 @@ defmodule MutagenEx.MutationEnumeratorTest do
   describe "function capture references" do
     @describetag spec: "mutagen.mutation_enumeration.r10"
 
-    test "the `/` naming a captured function is offered to no mutator" do
+    test "named captures and their children are offered to no mutator" do
       source = """
       defmodule CaptureRefs do
         def local(xs), do: Enum.map(xs, &double/1)
-        def remote(xs), do: Enum.reduce(xs, &Kernel.max/2)
-        def erlang(xs), do: Enum.reduce(xs, &:erlang.max/2)
-        def body(xs), do: Enum.map(xs, &(&1 / 2))
+        def remote(xs), do: Enum.map(xs, &Kernel.abs/1)
+        def erlang(xs), do: Enum.map(xs, &:erlang.abs/1)
+        def body(xs), do: Enum.map(xs, &(&1 / 1))
         def plain(x), do: x / 2
         defp double(x), do: x * 2
       end
@@ -914,12 +953,18 @@ defmodule MutagenEx.MutationEnumeratorTest do
         assert result.sites
                |> Enum.filter(&(&1.mutator == :arith))
                |> Enum.map(&{&1.line, Macro.to_string(&1.mutated_ast)}) == [
-                 {5, "&1 * 2"},
+                 {5, "&1 * 1"},
                  {6, "x * 2"},
                  {7, "x / 2"}
                ]
 
-        refute Enum.any?(result.skipped, &(&1.mutator == :arith))
+        refs_only = covered_lines("lib/capture_refs.ex", [2, 3, 4])
+
+        assert %{sites: [], skipped: []} =
+                 MutationEnumerator.enumerate(cache, scopes, refs_only, dispatch_mode: mode)
+
+        assert Enum.any?(result.sites, &(&1.line == 5 and &1.mutator == :literal))
+        assert [%{mutator: :literal, reason: :structurally_invalid}] = result.skipped
       end
     end
   end
