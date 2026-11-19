@@ -510,7 +510,7 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp maybe_emit_stream_end(%Report{} = report, %Config{stream: true} = config, stdout) do
-    if Process.delete(:mutagen_stream_started) do
+    if Process.delete(:mutagen_stream_open) do
       MutagenEx.JsonStreamer.emit_end(stream_sink(config, stdout), report)
     end
   end
@@ -810,6 +810,10 @@ defmodule Mix.Tasks.Mutagen do
          dispatch,
          %Report{} = report
        ) do
+    # From here on, a streamed run ends with an end line, even when it
+    # aborts before the start line (mutagen.json_schema.r14).
+    if config.stream, do: Process.put(:mutagen_stream_open, true)
+
     mod = Map.fetch!(dispatch, :enumerator)
 
     covered_lines = coverage_result.covered_lines
@@ -903,8 +907,6 @@ defmodule Mix.Tasks.Mutagen do
     site_sink = stream_sink(config, stdout)
 
     if config.stream do
-      Process.put(:mutagen_stream_started, true)
-
       MutagenEx.JsonStreamer.emit_start(
         site_sink,
         length(sites),

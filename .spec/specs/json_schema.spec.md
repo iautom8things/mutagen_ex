@@ -315,7 +315,7 @@ Top-level keys, all present in every variant unless noted:
         emits (`r1`).
       - `"kind"` — one of `"start"`, `"result"`, `"compile_error"`,
         `"end"`.
-    The four kinds bracket the mutation phase:
+    The four kinds bracket the run from the enumeration phase on:
       - `"start"` fires once at mutation-phase entry; carries `total`
         (planned site count, every enumerated site that was not skipped)
         and `meta` (`r2`'s meta block). That `meta` equals the aggregate
@@ -328,22 +328,27 @@ Top-level keys, all present in every variant unless noted:
       - `"compile_error"` fires once per `:compile_error` site; the
         line's wire shape MUST be byte-equal to the equivalent entry
         in `mutation.compile_errors[]`.
-      - `"end"` fires once at pipeline exit (success or abort) when a
-        `"start"` line was written; carries the aggregate counters (`total`, `completed`,
-        `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
+      - `"end"` fires once at pipeline exit (success or abort) for
+        every run that reached the enumeration phase; carries `meta`,
+        the aggregate counters (`total`, `completed`, `killed`,
+        `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted` + `abort_reason`. Its `total` is the aggregate
         `mutation.total` (`r3`), so it is lower than the start line's
         planned `total` when sites fail to compile or a budget truncates
         the run.
-        It carries `meta.id_scheme` even when the run aborted before start.
+        It carries `meta.id_scheme` even when the run aborted in
+        enumeration or baseline, before the start line.
     Per-site lines (`"result"` / `"compile_error"`) are emitted in
     input order — async_stream's `:ordered: true` plus the runner's
     `:on_site_completed` sequential post-fold ensure a consumer
     concatenating the stream into the aggregate would reproduce
     `mutation.results[]` byte-equal to the standalone aggregate
-    document's array. A run that aborts before the mutation phase
-    starts, including every host setup abort (mutagen.cli.r19), writes
-    no stream lines. Only the aggregate document is written.
+    document's array. A run that aborts before the enumeration phase
+    writes no stream lines, only the aggregate document. That covers
+    CLI and report path errors, every host setup abort
+    (mutagen.cli.r19), and scope, test selection, AST cache and coverage
+    aborts. A run that aborts in enumeration or baseline, such as
+    `too_many_sites` or `baseline_red`, writes only the end line.
 
 - id: mutagen.json_schema.r15
   priority: must
@@ -603,6 +608,17 @@ Top-level keys, all present in every variant unless noted:
     - The task emits the abort.
   then:
     - "Stdout holds no NDJSON line. The aggregate document is the only output."
+
+- id: mutagen.json_schema.s14c
+  covers:
+    - mutagen.json_schema.r14
+  given:
+    - "A user runs `mix mutagen --stream` and the enumerator aborts with `too_many_sites`."
+  when:
+    - The task emits the abort.
+  then:
+    - "Stdout holds one NDJSON line, of kind `end`, with `aborted: true`, `abort_reason: \"too_many_sites\"` and `meta.id_scheme: \"2\"`."
+    - "No `start` line is written."
 
 - id: mutagen.json_schema.s18
   covers:
