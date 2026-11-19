@@ -924,6 +924,64 @@ defmodule MutagenEx.JsonReporterTest do
 
       assert {Mutagen.Phase.MutationCaptureTest, %{async?: false, group: nil, parameterize: nil}} in mutation_input.test_modules
     end
+
+    @tag spec: "mutagen.json_schema.r14"
+    test "--stream writes only the end line when enumeration aborts" do
+      dispatch =
+        capture_dispatch(
+          scope: &fake_scope/2,
+          tests: &fake_tests/2,
+          ast_cache: &fake_ast_cache/2,
+          coverage: &fake_coverage/1,
+          enumerator: fn _ast_cache, _scope_records, _covered, _opts ->
+            {:error, :too_many_sites, %{count: 2, max_sites: 1}}
+          end
+        )
+
+      stream =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:aborted, :too_many_sites, _report} =
+                   Mix.Tasks.Mutagen.run(
+                     ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs", "--stream"],
+                     dispatch
+                   )
+        end)
+
+      assert [line] = String.split(stream, "\n", trim: true)
+
+      assert %{
+               "kind" => "end",
+               "aborted" => true,
+               "abort_reason" => "too_many_sites",
+               "meta" => %{"id_scheme" => "2"}
+             } = decode(line)
+
+      assert_received {:io, _aggregate, _code, _config}
+    end
+
+    @tag spec: "mutagen.json_schema.r14"
+    test "--stream writes no line when coverage aborts" do
+      dispatch =
+        capture_dispatch(
+          scope: &fake_scope/2,
+          tests: &fake_tests/2,
+          ast_cache: &fake_ast_cache/2,
+          coverage: fn _input -> {:error, :no_tests_run, %{phase: :coverage}} end
+        )
+
+      stream =
+        ExUnit.CaptureIO.capture_io(fn ->
+          assert {:aborted, :no_tests_run, _report} =
+                   Mix.Tasks.Mutagen.run(
+                     ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs", "--stream"],
+                     dispatch
+                   )
+        end)
+
+      assert stream == ""
+      assert_received {:io, aggregate, _code, _config}
+      assert %{"abort_reason" => "no_tests_run"} = decode(aggregate)
+    end
   end
 
   # ---------------------------------------------------------------------------

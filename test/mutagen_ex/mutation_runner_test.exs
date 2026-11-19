@@ -112,6 +112,8 @@ defmodule MutagenEx.MutationRunnerTest do
     end
 
     defp handle_next({:raise, msg}), do: raise(msg)
+    defp handle_next({:exit, reason}), do: exit(reason)
+    defp handle_next({:throw, reason}), do: throw(reason)
 
     defp handle_next({:sleep_then, ms, r}) do
       Process.sleep(ms)
@@ -549,16 +551,19 @@ defmodule MutagenEx.MutationRunnerTest do
       assert is_binary(entry.message)
     end
 
-    test ":error when ExUnit.run raises uncaught" do
-      clear_stubs()
-      site = build_site(id: "e1")
-      cfg = base_cfg(site)
+    @tag spec: ["mutagen.mutation_pipeline.r5", "mutagen.mutation_pipeline.r21"]
+    test "an ExUnit raise, exit or throw aborts with the site ID" do
+      for {kind, expected} <- [raise: "raised", exit: "caught exit", throw: "caught throw"] do
+        clear_stubs()
+        site = build_site(id: "e1")
+        ExUnitFake.set_results([{kind, "boom"}])
 
-      ExUnitFake.set_results([{:raise, "boom"}])
+        assert {:error, :ex_unit_run_failed, %{site_id: "e1", message: message}} =
+                 MutationRunner.run(base_cfg(site))
 
-      assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
-      assert result.status == :error
-      assert Enum.any?(result.warnings, &(&1 =~ "error"))
+        assert message =~ "ExUnit.run/0 #{expected} during mutation"
+        assert message =~ "boom"
+      end
     end
   end
 

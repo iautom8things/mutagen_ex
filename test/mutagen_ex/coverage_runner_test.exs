@@ -72,7 +72,10 @@ defmodule MutagenEx.CoverageRunnerTest do
     def run do
       Process.put(:exunit_fake_options, Application.get_all_env(:ex_unit))
       Process.put(:exunit_fake_run_called, (Process.get(:exunit_fake_run_called) || 0) + 1)
-      %{failures: 0, total: 0, excluded: 0, skipped: 0}
+
+      Process.get(:coverage_fake_suite, fn ->
+        %{failures: 0, total: 1, excluded: 0, skipped: 0}
+      end).()
     end
   end
 
@@ -146,6 +149,39 @@ defmodule MutagenEx.CoverageRunnerTest do
       Process.unregister(:cover_server)
       Agent.stop(sentinel)
     end
+  end
+
+  @tag spec: "mutagen.coverage.r1"
+  test "the empty cover server started by a helper can be replaced" do
+    tools = Path.wildcard(Path.join([to_string(:code.root_dir()), "lib", "tools-*", "ebin"]))
+    Enum.each(tools, &Code.append_path/1)
+    assert {:ok, pid} = MutagenEx.Test.Cover.start()
+
+    try do
+      assert {:ok, _coverage} = CoverageRunner.run(base_cfg_with_fakes())
+      refute Process.alive?(pid)
+    after
+      MutagenEx.Test.Cover.stop()
+    end
+  end
+
+  @tag spec: "mutagen.coverage.r11"
+  test "coverage catches ExUnit exits and throws and rejects a suite with no tests executed" do
+    cfg = base_cfg_with_fakes()
+
+    for {kind, fun} <- [exit: fn -> exit(:broken) end, throw: fn -> throw(:broken) end] do
+      Process.put(:coverage_fake_suite, fun)
+      assert {:error, :ex_unit_run_failed, %{message: message}} = CoverageRunner.run(cfg)
+      assert message =~ "caught #{kind} during coverage"
+    end
+
+    Process.put(:coverage_fake_suite, fn -> %{total: 3, excluded: 3, skipped: 0, failures: 0} end)
+
+    assert {:error, :no_tests_run, %{phase: :coverage, excluded: 3, include: [], exclude: []}} =
+             CoverageRunner.run(%{
+               cfg
+               | test_filter: %TestFilter{files: [], include: [], exclude: []}
+             })
   end
 
   # ---------------------------------------------------------------------------
@@ -459,7 +495,7 @@ defmodule MutagenEx.CoverageRunnerTest do
     def run do
       list = Process.get(:wrd38_order, [])
       Process.put(:wrd38_order, [:run | list])
-      %{failures: 0, total: 0, excluded: 0, skipped: 0}
+      %{failures: 0, total: 1, excluded: 0, skipped: 0}
     end
   end
 
