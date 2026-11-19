@@ -239,7 +239,9 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["version"] == "2"
       assert decoded["id"] == "lib/foo.ex:bad:case_drop"
       assert decoded["mutator"] == "case_drop"
-      assert decoded["message"] == "bad arity for case_drop"
+      assert decoded["diagnostic"] == "Elixir could not compile the mutated source."
+      assert decoded["confidence"]
+      refute Map.has_key?(decoded, "message")
       assert decoded["line"] == 10
     end
   end

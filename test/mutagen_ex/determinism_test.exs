@@ -37,7 +37,7 @@ defmodule MutagenEx.DeterminismTest do
   ## Targeting
 
   Targets the wrd25 200-site bench fixture at
-  `priv/helper_scripts/bench_fixtures/wrd25_200sites/`. Specifically
+  `scripts/helper_scripts/bench_fixtures/wrd25_200sites/`. Specifically
   scopes to one of the fixture's dense modules
   (`lib/arith_dense.ex`) — that's enough surface area to flush out
   ordering drift in the helper-lift / sorted-wildcard paths without
@@ -60,12 +60,12 @@ defmodule MutagenEx.DeterminismTest do
   @moduletag timeout: 600_000
 
   @lane_project_dir Path.expand(
-                      "../../priv/helper_scripts/bench_fixtures/wrd25_200sites",
+                      "../../scripts/helper_scripts/bench_fixtures/wrd25_200sites",
                       __DIR__
                     )
   @lane_lib_dir Path.join(@lane_project_dir, "lib")
 
-  # The wrd25 fixture is a Mix project (priv/helper_scripts/.../mix.exs);
+  # The wrd25 fixture is a Mix project (scripts/helper_scripts/.../mix.exs);
   # we only need to compile the file we're going to scope to, plus the
   # ones its tests refer to. Keep the list short — the determinism
   # test should be fast.

@@ -56,10 +56,10 @@ defmodule MutagenEx.JsonStreamer do
   Accepts a rendered result or the raw result from the runner.
   """
   @spec emit_result(sink(), map()) :: :ok
-  def emit_result(sink, %{} = result_map) do
+  def emit_result(sink, %{} = result_map, options \\ %Report{}) do
     result_map
-    |> render_result()
-    |> JsonReporter.result_to_wire()
+    |> then(fn result -> if options.source, do: render_result(result), else: result end)
+    |> JsonReporter.result_to_wire(options)
     |> Map.merge(%{"version" => JsonReporter.schema_version(), "kind" => "result"})
     |> then(&write_line(sink, &1))
   end
@@ -68,8 +68,13 @@ defmodule MutagenEx.JsonStreamer do
   Emit a per-site `compile_error` line.
   """
   @spec emit_compile_error(sink(), map()) :: :ok
-  def emit_compile_error(sink, %{} = entry) do
-    write_line(sink, Map.put(compile_error_to_wire(entry), "kind", "compile_error"))
+  def emit_compile_error(sink, %{} = entry, options \\ %Report{}) do
+    wire = JsonReporter.compile_error_to_wire(entry, options)
+
+    write_line(
+      sink,
+      Map.merge(wire, %{"version" => JsonReporter.schema_version(), "kind" => "compile_error"})
+    )
   end
 
   @doc """
@@ -115,18 +120,6 @@ defmodule MutagenEx.JsonStreamer do
   end
 
   defp render_result(%{before: before} = result), do: Map.put(result, :before_source, before)
-
-  defp compile_error_to_wire(%{} = entry) do
-    %{
-      "version" => JsonReporter.schema_version(),
-      "id" => Map.fetch!(entry, :id),
-      "file" => to_string(Map.fetch!(entry, :file)),
-      "line" => Map.fetch!(entry, :line),
-      "column" => Map.fetch!(entry, :column),
-      "mutator" => Atom.to_string(Map.fetch!(entry, :mutator)),
-      "message" => MutagenEx.JsonReporter.Sanitizer.clean(Map.fetch!(entry, :message))
-    }
-  end
 
   # ---------------------------------------------------------------------------
   # I/O

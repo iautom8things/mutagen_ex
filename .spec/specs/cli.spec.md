@@ -27,6 +27,7 @@ kind: module
 status: active
 summary: Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.
 surface:
+  - lib/mutagen_ex/config.ex
   - lib/mix/tasks/mutagen.ex
   - lib/mutagen_ex/cli.ex
   - lib/mutagen_ex/config.ex
@@ -35,6 +36,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.report_text_policy
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.no_pretty_output_v1
@@ -331,8 +333,8 @@ decisions:
     `Mix.Local.archive_ebin/1` contains `mutagen_ex.app`, calls
     `:code.add_pathz/1` on that ebin, and retries a third time. If all
     three attempts fail, the run aborts with
-    `abort_reason: "runtime_load_failed"` and a `details.message` that
-    tells the user to reinstall the archive. The document goes to the
+    `abort_reason: "runtime_load_failed"` and a fixed `details.hint`
+    that tells the user to reinstall the archive. The document goes to the
     destination of r5 and r19, and the task exits non-zero per r6. It
     MUST NOT raise a `MatchError` or put a traceback in the document.
 
@@ -345,14 +347,15 @@ decisions:
     with identical observable behaviour.
 
     `run/1` loads `MutagenEx.JsonReporter`,
-    `MutagenEx.JsonReporter.Sanitizer`, `MutagenEx.JsonPath`, and
+    its dependencies including `MutagenEx.JsonReporter.Sanitizer`,
+    `MutagenEx.JsonStreamer`, `MutagenEx.JsonPath`, and
     `MutagenEx.Pipeline.DefaultIo` from the ebin that holds
     `Mix.Tasks.Mutagen`, before host setup and again after it, so a host
     module with one of those names does not replace the report path. If
     one of those modules cannot load from that ebin, for example because
     its `.beam` file is missing or corrupt, the run aborts with
-    `abort_reason: "runtime_load_failed"`, a `details.message` that
-    names the module and the load error, and `details.module`. A failure
+    `abort_reason: "runtime_load_failed"` and `details.module` with
+    the module name. The opted-in message names the load error. A failure
     before host setup aborts before host setup starts. Neither case
     raises. The document's `meta.tool_version` is the version
     `mutagen_ex` was built with.
@@ -377,7 +380,8 @@ decisions:
     `MIX_ENV=ci`), the run proceeds in that environment. When `MIX_ENV`
     is unset and Mix resolved any other environment, the run aborts with
     `abort_reason: "invalid_mix_env"` before `loadpaths` or `compile`
-    runs. Its `details.message` names the current environment, repeats
+    runs. Its hint tells the user to run with MIX_ENV=test. The opted-in
+    `details.message` names the current environment, repeats
     the original command prefixed with `MIX_ENV=test` (arguments
     shell-quoted when needed), and names the
     `def cli, do: [preferred_envs: [mutagen: :test]]` setting for
@@ -391,7 +395,7 @@ decisions:
     `abort_reason` names the failing step:
 
       * `"umbrella_root"` when the current project is an umbrella root,
-        checked before `loadpaths`. `details.message` tells the user to
+        checked before `loadpaths`. `details.hint` tells the user to
         run from `apps/<app>`.
       * `"host_loadpaths_failed"` when `mix loadpaths` fails.
       * `"host_compile_failed"` when host compilation reports an error.
@@ -409,9 +413,8 @@ decisions:
 
     If the boot process exits during a step, for example because a
     process linked to it exits, the run aborts with that step's reason.
-    For these steps `details.message` holds only the first line of the
-    failure after built-in redaction (mutagen.json_schema.r17), cut to
-    512 bytes with the r10 truncation marker, and the term after
+    For these steps an opted-in `details.message` is redacted and capped
+    at the report boundary. The term after
     `no match of right hand side value:` is replaced with
     `[REDACTED]`. Stderr receives the full diagnostic and stacktrace.
 
@@ -440,16 +443,12 @@ decisions:
     `trace`, to its value before the phase. Formatters the helper
     configures therefore run on every pass.
 
-    Mutagen removes the `ExUnit.after_suite/1` callbacks registered
-    during host setup from ExUnit's configuration before the first pass,
-    so no pass runs them. It then calls each callback exactly once, in
-    the order ExUnit itself would, when the run ends: after the last pass
-    of a completed run with the baseline pass's ExUnit counts, after the
-    abort of an aborted run, and on a host setup failure with zero counts.
-    Every callback runs even when an earlier one fails. On a run that
-    otherwise succeeded, a callback that raises, throws, or exits turns
-    the result into an abort with `abort_reason: "after_suite_failed"`;
-    on a run that already aborted, the original `abort_reason` stays.
+    Mutagen removes the ExUnit.after_suite callbacks from ExUnit's
+    configuration before running the passes. It writes the final report
+    before starting cleanup. Cleanup receives the last completed suite
+    counts or zero counts if none completed. Cleanup errors and timeouts
+    go to stderr and leave the report and exit code unchanged.
+
 
 - id: mutagen.cli.r21
   priority: must
@@ -462,11 +461,10 @@ decisions:
     The deadline starts after host compilation and covers runtime
     configuration, test alias pre-steps, host application start,
     `:mutagen_ex` start, and helper evaluation (r14 step 3). When it
-    passes, Mutagen kills the boot process, runs the after-suite callbacks
-    registered so far (r20), and aborts with
-    `abort_reason: "host_setup_timeout"`. `details.message` names the
-    deadline and `details.step` is the r19 reason of the step that was
-    running, for example `"test_helper_load_failed"` while a helper
+    passes, Mutagen kills the boot process and aborts with
+    `abort_reason: "host_setup_timeout"`. `details.limit` gives the
+    deadline in milliseconds and `details.step` names the step that was
+    running, for example `"test_helper"` while a helper
     evaluates.
 
 - id: mutagen.cli.r22
@@ -479,8 +477,9 @@ decisions:
     `Mix.Task.run/2` with their arguments, and arity-one functions are
     called with `[]`. Application environment they set is in effect when
     the host application starts. Without such an entry no alias entry
-    runs, because nothing separates setup from the suite. An entry that
-    fails, raises, or has another shape aborts the run with
+    runs. A nonempty alias without a test entry adds a report warning.
+    Mutagen ignores the test entry arguments and function return values.
+    An entry that fails, raises, or has another shape aborts the run with
     `abort_reason: "test_alias_failed"`, and later entries do not run.
     `--no-test-alias` sets `Config.test_alias` to `false` and skips every
     entry.
@@ -490,7 +489,8 @@ decisions:
   statement: |
     With `--json <path>`, `MutagenEx.Pipeline.DefaultIo` writes the
     document, preceded by any buffered `--stream` lines, to an
-    exclusively created temporary file in the destination directory and
+    exclusively created temporary file in the destination directory.
+    It sets mode 0600 before writing the report and
     renames it over the destination. The destination therefore holds
     either its previous content or the whole new document. Missing parent
     directories inside the project root are created. Before creating the
@@ -503,6 +503,54 @@ decisions:
     root), nothing is written at the destination. The document goes to
     stdout, stderr receives a warning naming `json_write_failed`, and the
     exit code is unchanged.
+
+- id: mutagen.cli.r24
+  priority: must
+  statement: |
+    CLI accepts --no-source and --include-host-output. Source is included
+    and host text is omitted by default.
+
+- id: mutagen.cli.r25
+  priority: must
+  statement: |
+    An invalid :redact configuration returns invalid_redact_config before
+    alias or helper code runs. A valid configuration compiles once and is
+    reused for the run.
+
+- id: mutagen.cli.r26
+  priority: must
+  statement: |
+    The host default I/O device sends ordinary host process output to stderr
+    during the run. Report aborts use the validated --json destination when
+    one has been selected, including AST-cache errors.
+
+- id: mutagen.cli.r27
+  priority: must
+  statement: |
+    Coverage and baseline each have a deadline of max(boot timeout, ten
+    times the mutation timeout). After-suite callbacks run after the report
+    is written and share a separate boot timeout.
+
+- id: mutagen.cli.r28
+  priority: must
+  statement: |
+    A missing JSON streamer beam makes startup abort with runtime_load_failed.
+    Archive packages omit the repository benchmark and spike scripts.
+
+- id: mutagen.cli.r29
+  priority: must
+  statement: |
+    The CI workflow pins action references by full commit SHA with an exact version comment, disables
+    persisted checkout credentials, and reads the Elixir and OTP versions
+    from .tool-versions in both jobs.
+
+
+- id: mutagen.cli.r30
+  priority: must
+  statement: |
+    The rerouted VM user device sends input and geometry requests to the
+    original device. A report module redefined by a helper produces a
+    runtime_load_failed report before installing the configured patterns.
 ```
 
 ```spec-scenarios
@@ -857,7 +905,7 @@ decisions:
       `MatchError`. The task emits a structured error-JSON document to
       stdout (no `--json` was given) with
       `aborted: true`, `abort_reason: "runtime_load_failed"`, and a
-      `details.message` pointing the user at archive-install
+      `details.hint` pointing the user at archive-install
       troubleshooting (e.g. "reinstall via `mix archive.uninstall mutagen_ex
       && mix archive.install <ez>`"). The task exits with a non-zero code
       per r6.
@@ -896,7 +944,7 @@ decisions:
   when:
     - "`Mix.Tasks.Mutagen.run/1` starts."
   then:
-    - "The document has `abort_reason: \"invalid_mix_env\"`. `details.message` contains `current Mix environment: dev`, `MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`, and `preferred_envs: [mutagen: :test]`."
+    - "The document has `abort_reason: \"invalid_mix_env\"`. With --include-host-output, `details.message` contains `current Mix environment: dev`, `MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs`, and `preferred_envs: [mutagen: :test]`."
     - Neither `mix loadpaths` nor `mix compile` ran.
     - With `MIX_ENV=ci` set, the same command passes the environment check.
 
@@ -908,7 +956,7 @@ decisions:
   when:
     - The preamble requires the helper.
   then:
-    - "`out/report.json` holds a document with `abort_reason: \"test_helper_load_failed\"`, `details.file == \"test/test_helper.exs\"`, and `details.message == \"helper did not start: password: [REDACTED]\"`."
+    - "With --include-host-output, `out/report.json` holds a document with `abort_reason: \"test_helper_load_failed\"`, `details.file == \"test/test_helper.exs\"`, and `details.message == \"helper did not start: password: [REDACTED]\"`."
     - Stdout is empty. Stderr carries the full message and stacktrace. The exit code is non-zero.
 
 - id: mutagen.cli.s19b
@@ -918,7 +966,7 @@ decisions:
   when:
     - The preamble checks the project.
   then:
-    - "The document has `abort_reason: \"umbrella_root\"` and `details.message` contains `apps/<app>`."
+    - "The document has `abort_reason: \"umbrella_root\"` and `details.hint` contains `apps/<app>`."
     - "`mix loadpaths` and `mix compile` did not run."
 
 - id: mutagen.cli.s19c
@@ -928,7 +976,7 @@ decisions:
   when:
     - The preamble compiles the host.
   then:
-    - "The document has `abort_reason: \"host_compile_failed\"`. `details.message` contains `no match of right hand side value: [REDACTED]` and does not contain the token."
+    - "The document has `abort_reason: \"host_compile_failed\"`. With --include-host-output, `details.message` contains `no match of right hand side value: [REDACTED]` and does not contain the token."
 
 - id: mutagen.cli.s20a
   covers: [mutagen.cli.r20]
@@ -939,7 +987,7 @@ decisions:
   then:
     - "Every pass runs with `:integration` excluded, Mutagen's seed, and `max_cases: 1`."
     - The callback ran exactly once, after the last mutation pass, with the baseline pass's counts.
-    - "If the callback raises, the document has `aborted: true`, `abort_reason: \"after_suite_failed\"`, and the completed `mutation` block."
+    - "If the callback raises, stderr carries the failure and the already-written report retains the original verdict."
 
 - id: mutagen.cli.s20b
   covers: [mutagen.cli.r20]
@@ -1027,4 +1075,11 @@ decisions:
     - mutagen.cli.r21
     - mutagen.cli.r22
     - mutagen.cli.r23
+    - mutagen.cli.r24
+    - mutagen.cli.r25
+    - mutagen.cli.r26
+    - mutagen.cli.r27
+    - mutagen.cli.r28
+    - mutagen.cli.r29
+    - mutagen.cli.r30
 ```

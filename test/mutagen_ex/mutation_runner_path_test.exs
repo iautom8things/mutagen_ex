@@ -9,7 +9,7 @@ defmodule MutagenEx.MutationRunnerPathTest do
   test "each fixture site changes exactly its own AST path and yields a distinct mutated file" do
     files =
       Path.wildcard("test/fixtures/**/*.{ex,exs}") ++
-        Path.wildcard("priv/helper_scripts/bench_fixtures/**/*.{ex,exs}")
+        Path.wildcard("scripts/helper_scripts/bench_fixtures/**/*.{ex,exs}")
 
     assert files != []
 

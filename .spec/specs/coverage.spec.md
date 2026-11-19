@@ -208,13 +208,16 @@ decisions:
     `CoverageRunner.run/1` returns `{:error, :no_tests_run, details}`
     instead of coverage data. `details` holds `phase: :coverage`, the
     `excluded` and `skipped` counts, and the effective `include` and
-    `exclude` filters rendered as in the report's `tests` block
-    (mutagen.json_schema.r17). The pipeline aborts with
+    `exclude` filters. The report boundary renders the filters using the
+    same rules as the `tests` block (mutagen.json_schema.r17).
+    The pipeline aborts with
     `abort_reason: "no_tests_run"` before the baseline phase. A raise,
     throw, or exit out of `ExUnit.run/0` returns
     `{:error, :ex_unit_run_failed, %{message: msg}}`, where `msg` names the
-    coverage phase and how the run ended and is sanitized per
-    mutagen.json_schema.r10 and r17.
+    coverage phase and how the run ended. The report includes that text
+    only with --include-host-output and sanitizes it at emission. The
+    exception type and position are reportable when available. Load
+    failures use a verified project stack frame for the exception location.
 ```
 
 ```spec-scenarios

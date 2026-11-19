@@ -23,7 +23,7 @@ defmodule MutagenEx.MemoryTest do
     * Heap size. Per the `.25.7` ticket Out of Scope (intent):
       "Memory test asserts only 'did not crash', NOT specific heap
       sizes. Heap-size assertions are flaky across BEAM versions."
-    * Per-site timing. That belongs in `priv/helper_scripts/
+    * Per-site timing. That belongs in `scripts/helper_scripts/
       bench_ast_perf.exs`, the harness this test's epic-mate
       `mutagen-wrd.25.7` finalises.
     * Mutation kill rate. With 1000 sites against a trivially-pinned

@@ -61,6 +61,8 @@ defmodule MutagenEx.Config do
             budget_ms: nil,
             max_concurrency: nil,
             stream: false,
+            source: true,
+            include_host_output: false,
             progress: :auto
 
   @type t :: %__MODULE__{
@@ -80,6 +82,8 @@ defmodule MutagenEx.Config do
           budget_ms: pos_integer() | nil,
           max_concurrency: pos_integer() | nil,
           stream: boolean(),
+          source: boolean(),
+          include_host_output: boolean(),
           progress: :auto | :on | :off
         }
 end

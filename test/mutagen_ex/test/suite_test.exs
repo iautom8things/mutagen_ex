@@ -10,7 +10,7 @@ defmodule MutagenEx.Test.SuiteTest do
   end
 
   @tag spec: ["mutagen.coverage.r11", "mutagen.mutation_pipeline.r21"]
-  test "a pass that executes no test is rejected with its rendered filters" do
+  test "a pass that executes no test is rejected with its effective filters" do
     filter = %TestFilter{
       files: ["test/a_test.exs"],
       include: [{:location, {"test/a_test.exs", 8}}],
@@ -27,17 +27,17 @@ defmodule MutagenEx.Test.SuiteTest do
               phase: :baseline,
               excluded: 1,
               skipped: 1,
-              include: [%{"kind" => "location", "file" => "test/a_test.exs", "line" => 8}],
-              exclude: ["test", "database:off"]
+              include: [location: {"test/a_test.exs", 8}],
+              exclude: [:test, database: :off]
             }} = Suite.require_tests(ran_none, filter, :baseline)
   end
 
   @tag spec: ["mutagen.coverage.r11", "mutagen.mutation_pipeline.r21"]
-  test "an ExUnit raise becomes a sanitized run failure that names the phase" do
+  test "an ExUnit raise supplies the exception module and original diagnostic" do
     assert {:error, :ex_unit_run_failed, %{message: message}} =
              Suite.run(RaisingExUnit, :coverage)
 
     assert message ==
-             "ExUnit.run/0 raised during coverage: database password: [REDACTED] unavailable"
+             "ExUnit.run/0 raised during coverage: database password: hunter2 unavailable"
   end
 end

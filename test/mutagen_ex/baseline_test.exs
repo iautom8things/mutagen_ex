@@ -112,7 +112,7 @@ defmodule MutagenEx.BaselineTest do
 
     Process.put(:baseline_fake_suite, fn -> %{total: 2, excluded: 1, skipped: 1, failures: 0} end)
 
-    assert {:error, :no_tests_run, %{phase: :baseline, excluded: 1, exclude: ["load"]}} =
+    assert {:error, :no_tests_run, %{phase: :baseline, excluded: 1, exclude: [:load]}} =
              Baseline.run(input)
   end
 
@@ -360,7 +360,7 @@ defmodule MutagenEx.BaselineTest do
       }
 
       assert {:error, :test_file_load_failed, details} = Baseline.run(input)
-      assert details.file == "nope.exs"
+      assert details.file == Path.relative_to_cwd(__ENV__.file)
     end
   end
 end

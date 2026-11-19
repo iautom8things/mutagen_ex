@@ -115,6 +115,11 @@ defmodule MutagenEx.MutationRunnerTest do
     defp handle_next({:exit, reason}), do: exit(reason)
     defp handle_next({:throw, reason}), do: throw(reason)
 
+    defp handle_next({:kill_host_and_wait, pid}) do
+      Process.exit(pid, :kill)
+      Process.sleep(:infinity)
+    end
+
     defp handle_next({:sleep_then, ms, r}) do
       Process.sleep(ms)
       r
@@ -784,6 +789,47 @@ defmodule MutagenEx.MutationRunnerTest do
     end
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r23"
+  test "a host process lost on timeout taints later results and names the loss" do
+    clear_stubs()
+    name = :mutagen_runner_lost_host_fixture
+    pid = spawn(fn -> Process.sleep(:infinity) end)
+    Process.register(pid, name)
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    sites = Enum.map(~w(first second third), &build_site(id: &1, line: 2, column: 13))
+    ExUnitFake.set_results([{:kill_host_and_wait, pid}])
+
+    assert {:ok, %{results: [first, second, third], warnings: warnings}} =
+             MutationRunner.run(base_cfg(sites))
+
+    assert first.status == :timeout
+    refute first.tainted_predecessors
+    notice = {:host_process_died, Atom.to_string(name)}
+    assert notice in warnings
+
+    for later <- [second, third] do
+      assert later.tainted_predecessors
+      assert notice in later.warnings
+    end
+
+    report = %MutagenEx.JsonReporter.Report{
+      warnings: warnings,
+      mutation: %{
+        results: Enum.map([first, second, third], &Mix.Tasks.Mutagen.__render_result__/1)
+      }
+    }
+
+    {json, 0} = MutagenEx.JsonReporter.emit_report(report)
+    report = :json.decode(IO.iodata_to_binary(json))
+    assert "host_process_died: 1 registered process" in report["warnings"]
+
+    assert "host_process_died: 1 registered process" in Enum.at(report["mutation"]["results"], 2)[
+             "warnings"
+           ]
+
+    refute inspect(report) =~ Atom.to_string(name)
+  end
+
   # ---------------------------------------------------------------------------
   # r7 / s6: snapshot-growth taint propagation (WITHOUT timeout)
   # ---------------------------------------------------------------------------
@@ -1071,34 +1117,28 @@ defmodule MutagenEx.MutationRunnerTest do
       ])
 
       assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
-      assert Enum.any?(result.warnings, &(&1 =~ "captured stderr line"))
+      assert {:host_output, "warning: this is a captured stderr line\n"} in result.warnings
     end
 
-    # mutagen.json_schema.r10 — stderr longer than the 4 KiB cap is
-    # truncated by the runner's `compose_warnings/1` before the warning
-    # lands in `results[i].warnings`. The merge gate explicitly calls
-    # for this assertion.
     @tag spec: "mutagen.json_schema.r10"
     test "stderr larger than 4 KiB is truncated with the byte-count marker (r10)" do
       clear_stubs()
       site = build_site(id: "trunc1")
       cfg = base_cfg(site)
 
-      huge = String.duplicate("a", 10_000)
+      huge = String.duplicate("a", 10_400)
 
       defmodule HugeStderrCompiler do
         # Captured via closure won't work for a module attribute, so
         # write a fixed-shape large string here. Sized to exceed 4096
         # by a wide margin so the truncation marker reports a
         # non-trivial byte count.
-        @huge String.duplicate("a", 10_000)
+        @huge String.duplicate("a", 10_400)
         def compile_quoted(_ast, _file) do
           IO.write(:stderr, @huge)
           []
         end
       end
-
-      _ = huge
 
       cfg = %{cfg | compiler: {HugeStderrCompiler, :compile_quoted}}
 
@@ -1108,19 +1148,9 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
 
-      truncated_warning =
-        Enum.find(result.warnings, fn w ->
-          String.contains?(w, " bytes truncated>")
-        end)
-
-      assert truncated_warning != nil,
-             "expected a warning to carry the truncation marker; got: #{inspect(result.warnings)}"
-
-      assert byte_size(truncated_warning) < byte_size(String.duplicate("a", 10_000)),
-             "truncated warning must be smaller than the original stderr payload"
-
-      # Sanity: the marker mentions a positive byte count.
-      assert Regex.match?(~r/<\d+ bytes truncated>$/, truncated_warning)
+      assert {:host_output, huge} in result.warnings
+      assert [warning] = decoded_warnings(result)
+      assert warning == String.duplicate("a", 4096) <> " ... <6304 bytes truncated>"
     end
 
     # mutagen.json_schema.r11 — the `:redact` config knob replaces
@@ -1128,7 +1158,7 @@ defmodule MutagenEx.MutationRunnerTest do
     @tag spec: "mutagen.json_schema.r11"
     test "configured :redact pattern replaces matches with [REDACTED] in warnings (r11)" do
       original_redact = Application.get_env(:mutagen_ex, :redact)
-      Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])
+      Application.put_env(:mutagen_ex, :redact, [~r/CUSTOM_FIXTURE_VALUE=\S+/])
 
       on_exit(fn ->
         case original_redact do
@@ -1143,7 +1173,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
       defmodule SecretStderrCompiler do
         def compile_quoted(_ast, _file) do
-          IO.write(:stderr, "warning: leaked SECRET_TOKEN=hunter2 in source\n")
+          IO.write(:stderr, "warning: leaked CUSTOM_FIXTURE_VALUE=hunter2 in source\n")
           []
         end
       end
@@ -1156,12 +1186,19 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert {:ok, %{results: [result]}} = MutationRunner.run(cfg)
 
-      assert Enum.any?(result.warnings, &String.contains?(&1, "[REDACTED]")),
-             "expected [REDACTED] in warnings; got: #{inspect(result.warnings)}"
-
-      refute Enum.any?(result.warnings, &String.contains?(&1, "hunter2")),
-             "expected secret value to be redacted; got: #{inspect(result.warnings)}"
+      assert ["warning: leaked [REDACTED] in source\n"] = decoded_warnings(result)
     end
+  end
+
+  defp decoded_warnings(result) do
+    report = %MutagenEx.JsonReporter.Report{
+      include_host_output: true,
+      mutation: %{results: [Mix.Tasks.Mutagen.__render_result__(result)]}
+    }
+
+    {json, 0} = MutagenEx.JsonReporter.emit_report(report)
+    [result] = :json.decode(IO.iodata_to_binary(json))["mutation"]["results"]
+    result["warnings"]
   end
 
   # ---------------------------------------------------------------------------
