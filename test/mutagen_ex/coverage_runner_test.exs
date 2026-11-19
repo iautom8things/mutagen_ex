@@ -349,39 +349,6 @@ defmodule MutagenEx.CoverageRunnerTest do
   # assertions are deterministic and would catch a stubbed-path write to
   # `cover/`, `_build/**/*.{beam,app}`, `lib/`, or host config.
   #
-  # ## Why r7's tmp clause is NOT asserted here (mutagen-de1)
-  #
-  # The spec's r7 statement also names tmp scratch under `System.tmp_dir!()`.
-  # That clause is deliberately NOT asserted from this fixture:
-  #
-  #   * The stubbed pass uses fakes (`CoverFakeOk` / `ExUnitFake`) and does
-  #     zero filesystem I/O. `CoverageRunner` has no `File.*` /
-  #     `System.tmp_dir` calls at all (see `lib/mutagen_ex/coverage_runner.ex`),
-  #     so it CANNOT create a tmp entry — any tmp assertion at this level is
-  #     vacuous (it can only ever observe entries some OTHER process made).
-  #
-  #   * The earlier version snapshotted the *shared global* `System.tmp_dir!()`
-  #     and flagged any `mutagen_ex_`-prefixed entry appearing in the
-  #     ~microsecond pre/post window via `mutagen_attributable_tmp/1`'s
-  #     umbrella `mutagen_ex` prefix. Sibling lanes (C1 `:spike`
-  #     `mutagen_ex_c1_*`, archive install `mutagen_ex_archive_*`,
-  #     baseline/beam_cache/memory unit tests) and concurrent processes use
-  #     that same prefix, so ambient churn was misattributed to this run —
-  #     an order/timing-dependent false positive (the mutagen-de1 flake).
-  #     Precise per-run attribution by filename is impossible (the runner
-  #     creates nothing to attribute), so the global-tmp check is inherently
-  #     flaky on shared hardware and provides no real signal.
-  #
-  # The runner's no-tmp-scratch behaviour is instead guaranteed structurally
-  # (the runner has no filesystem calls) and the genuine `:cover` lifecycle
-  # is exercised by the `:cover_integration` real-cover test below and the
-  # C1 spike (coverage verification v4,
-  # `mix test --only spike test/mutagen_ex/integration/c1_test.exs`), which
-  # snapshots byte-identity of its own controlled fixture sources.
-  #
-  # The r11 twin in `mutation_runner_test.exs` (same DiskSnapshot pattern,
-  # same global-tmp flake) is tracked separately as mutagen-0vv.
-
   describe "r7: no disk writes (broader surface, s7)" do
     test "lib/, _build/, cover/, and host config are byte-identical before/after a coverage run" do
       pre = MutagenEx.TestSupport.DiskSnapshot.snapshot()

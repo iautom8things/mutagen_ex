@@ -1390,12 +1390,23 @@ defmodule MutagenEx.MutationRunnerTest do
 
   describe "r11: no disk writes (broader surface)" do
     @tag spec: "mutagen.mutation_pipeline.r11"
-    test "lib/, _build/, cover/, host config, and /tmp are byte-identical before/after a runner pass" do
+    @tag :tmp_dir
+    test "the runner leaves project files and its temporary directory unchanged", %{tmp_dir: dir} do
+      previous_tmpdir = System.get_env("TMPDIR")
+      System.put_env("TMPDIR", dir)
+
+      on_exit(fn ->
+        if previous_tmpdir,
+          do: System.put_env("TMPDIR", previous_tmpdir),
+          else: System.delete_env("TMPDIR")
+      end)
+
+      assert System.tmp_dir!() == dir
       clear_stubs()
       site = build_site(id: "n1")
       cfg = base_cfg(site)
 
-      pre = MutagenEx.TestSupport.DiskSnapshot.snapshot()
+      pre = MutagenEx.TestSupport.DiskSnapshot.snapshot(tmp_dir: dir)
 
       ExUnitFake.set_results([
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
