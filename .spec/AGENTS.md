@@ -42,6 +42,8 @@ Tag an assertion that would fail if the requirement broke. Use a literal
 For multiple requirements on one test, use a list of IDs. Use `@describetag`
 or `@moduletag` when all tests in that group prove the same requirement.
 Ancora traces calls from the tagged tests, their setup, and reachable helpers.
+Source and documentation checks may carry a tag when the requirement
+itself is structural. Keep runtime requirements anchored to production calls.
 
 Tags drive proof. The optional `spec-verification` block supports
 `kind: tagged_tests`. Use exact repo-relative file paths in `surface:`.
@@ -55,15 +57,17 @@ Run the proving tests after editing a contract. Check the branch before merging:
 ```sh
 mix spec.validate --strict
 mix spec.check --base HEAD
-mix spec.check --base <target-ref>
+target=hardening/epic
+mix spec.check --base "$(git merge-base HEAD "$target")"
 make smoke
 mix test.integration
 ```
 
 Ancora reads source and git history. ExUnit runs the assertions. There is no
 state file to update. Read `mix spec.check --verbose` for informational
-findings and use `mix spec.status` to inspect subject bindings. CI passes
-an explicit base. The local default is `origin/main`.
+findings and use `mix spec.status` to inspect subject bindings. An explicit
+`--base` compares directly with the supplied commit. The local default
+target is `origin/main`.
 
 Review drift, growth, and shrink against the requirement or scenario edit
 that explains them. If the change was accidental, restore the original

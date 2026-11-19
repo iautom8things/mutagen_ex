@@ -603,8 +603,6 @@ defmodule MutagenEx.JsonReporterTest do
   # ---------------------------------------------------------------------------
 
   describe "Mix.Tasks.Mutagen — state-machine error paths via dispatch injection" do
-    @describetag spec: "mutagen.cli.r6"
-
     setup do
       Process.put(:capture_target, self())
       :ok
@@ -636,6 +634,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "scope resolution failure (module_not_found) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -650,12 +649,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "module_not_found"
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "test selector failure (no_tests_match) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -671,13 +672,15 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "no_tests_match"
       assert decoded["aborted"] == true
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "ast_cache failure (parse_error) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -694,13 +697,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "parse_error"
     end
 
     @tag :exit_codes
-    @tag spec: "mutagen.coverage.r1"
+    @tag spec: ["mutagen.cli.r6", "mutagen.coverage.r1"]
     test "coverage phase failure (cover_already_running) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -718,13 +722,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "cover_already_running"
     end
 
     @tag :exit_codes
-    @tag spec: "mutagen.mutation_pipeline.r1"
+    @tag spec: ["mutagen.cli.r6", "mutagen.mutation_pipeline.r1"]
     test "baseline-red emits abort JSON with baseline.failures populated (cli.s7)" do
       dispatch =
         capture_dispatch(
@@ -758,6 +763,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "mutation runner failure (unrecoverable_restore_failure) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -779,13 +785,15 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "unrecoverable_restore_failure"
       assert decoded["aborted"] == true
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "happy path: every phase passes → success JSON + exit code 0 (cli.s6)" do
       dispatch =
         capture_dispatch(

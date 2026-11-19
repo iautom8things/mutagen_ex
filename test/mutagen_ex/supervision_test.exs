@@ -135,6 +135,7 @@ defmodule MutagenEx.SupervisionTest do
   # ---------------------------------------------------------------------------
 
   describe "scenario 1 — Application + TaskSup boots (s11 ↔ r13)" do
+    @tag spec: "mutagen.mutation_pipeline.r13"
     test "ensure_all_started/1 returns :ok and named supervisors are alive" do
       assert {:ok, _started} = Application.ensure_all_started(:mutagen_ex)
 

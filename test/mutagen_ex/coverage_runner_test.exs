@@ -397,7 +397,7 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   describe "r3: :code.which/1 is non-:cover_compiled after stop (s3) — real cover" do
     @tag :cover_integration
-    @tag spec: "mutagen.coverage.r3"
+    @tag spec: ["mutagen.coverage.r2", "mutagen.coverage.r3"]
     test "post-run :code.which/1 returns a real .beam path for instrumented modules" do
       # Use our own AstCache module (loaded and present on disk). The
       # runner instruments it via :cover.compile_beam, runs no actual
@@ -421,6 +421,7 @@ defmodule MutagenEx.CoverageRunnerTest do
       post_which = :code.which(MutagenEx.AstCache)
       refute post_which == :cover_compiled
       assert is_list(post_which) or post_which == :preloaded
+      assert {:ok, _server} = MutagenEx.Test.Cover.start()
     end
   end
 

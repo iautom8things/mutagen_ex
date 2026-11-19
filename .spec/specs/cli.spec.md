@@ -30,6 +30,8 @@ surface:
   - lib/mix/tasks/mutagen.ex
   - lib/mutagen_ex/cli.ex
   - lib/mutagen_ex/config.ex
+  - lib/mutagen_ex/json_path.ex
+  - lib/mutagen_ex/pipeline/default_io.ex
   - lib/mutagen_ex/types.ex
 decisions:
   - mutagen.decision.serial_execution_and_seed
@@ -698,6 +700,7 @@ decisions:
     - mutagen.cli.r6
     - mutagen.cli.r7
     - mutagen.cli.r8
+    - mutagen.cli.r9
     - mutagen.cli.r10
     - mutagen.cli.r11
     - mutagen.cli.r12

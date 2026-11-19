@@ -26,6 +26,19 @@ defmodule MutagenEx.MutatorsPropertyTest do
 
   alias MutagenEx.Mutators
 
+  alias MutagenEx.Mutators.{
+    Arith,
+    Boolean,
+    CaseDrop,
+    Compare,
+    ElseRemoval,
+    GuardDrop,
+    Literal,
+    Pipeline,
+    ResultTuple,
+    WithSwap
+  }
+
   # ---------------------------------------------------------------------------
   # mutagen.mutators.r5 — symmetric-swap invariance: mutate(mutate(x)) == x.
   # ---------------------------------------------------------------------------
@@ -64,31 +77,28 @@ defmodule MutagenEx.MutatorsPropertyTest do
   @tag spec: "mutagen.mutators.r5"
   test "Arith: mutate ∘ mutate == identity (r5)" do
     for ast <- @arith_samples do
-      mutator = MutagenEx.Mutators.Arith
-      assert mutator.mutate(mutator.mutate(ast)) == ast
+      assert Arith.mutate(Arith.mutate(ast)) == ast
     end
   end
 
   @tag spec: "mutagen.mutators.r5"
   test "Compare: mutate ∘ mutate == identity (r5)" do
     for ast <- @compare_samples do
-      mutator = MutagenEx.Mutators.Compare
-      assert mutator.mutate(mutator.mutate(ast)) == ast
+      assert Compare.mutate(Compare.mutate(ast)) == ast
     end
   end
 
   @tag spec: "mutagen.mutators.r5"
   test "Boolean (binary): mutate ∘ mutate == identity (r5)" do
     for ast <- @boolean_binary_samples do
-      mutator = MutagenEx.Mutators.Boolean
-      assert mutator.mutate(mutator.mutate(ast)) == ast
+      assert Boolean.mutate(Boolean.mutate(ast)) == ast
     end
   end
 
   @tag spec: "mutagen.mutators.r5"
   test "Literal (booleans): mutate ∘ mutate == identity (r5)" do
     for ast <- [true, false] do
-      assert MutagenEx.Mutators.Literal.mutate(MutagenEx.Mutators.Literal.mutate(ast)) == ast
+      assert Literal.mutate(Literal.mutate(ast)) == ast
     end
   end
 
@@ -105,7 +115,7 @@ defmodule MutagenEx.MutatorsPropertyTest do
 
     for value <- [true, false] do
       ast = {:__block__, meta, [value]}
-      assert MutagenEx.Mutators.Literal.mutate(MutagenEx.Mutators.Literal.mutate(ast)) == ast
+      assert Literal.mutate(Literal.mutate(ast)) == ast
     end
   end
 
@@ -116,7 +126,7 @@ defmodule MutagenEx.MutatorsPropertyTest do
 
     for value <- [0, 1] do
       ast = {:__block__, meta, [value]}
-      assert MutagenEx.Mutators.Literal.mutate(MutagenEx.Mutators.Literal.mutate(ast)) == ast
+      assert Literal.mutate(Literal.mutate(ast)) == ast
     end
   end
 
@@ -128,7 +138,7 @@ defmodule MutagenEx.MutatorsPropertyTest do
     meta = [token: "true", line: 7, column: 5]
     ast = {:__block__, meta, [true]}
 
-    swapped = MutagenEx.Mutators.Literal.mutate(ast)
+    swapped = Literal.mutate(ast)
     assert {:__block__, swapped_meta, [false]} = swapped
     refute Keyword.has_key?(swapped_meta, :token)
     assert Keyword.get(swapped_meta, :line) == 7
@@ -141,16 +151,14 @@ defmodule MutagenEx.MutatorsPropertyTest do
   @tag spec: "mutagen.mutators.r5"
   test "ResultTuple: mutate ∘ mutate == identity (r5)" do
     for ast <- @result_tuple_samples do
-      mutator = MutagenEx.Mutators.ResultTuple
-      assert mutator.mutate(mutator.mutate(ast)) == ast
+      assert ResultTuple.mutate(ResultTuple.mutate(ast)) == ast
     end
   end
 
   @tag spec: "mutagen.mutators.r5"
   test "Pipeline (two-stage): mutate ∘ mutate == identity (r5)" do
     for ast <- @pipeline_samples do
-      mutator = MutagenEx.Mutators.Pipeline
-      assert mutator.mutate(mutator.mutate(ast)) == ast
+      assert Pipeline.mutate(Pipeline.mutate(ast)) == ast
     end
   end
 
@@ -160,42 +168,50 @@ defmodule MutagenEx.MutatorsPropertyTest do
 
   @tag spec: "mutagen.mutators.r6"
   test "Macro.to_string round-trip succeeds for every :ok-validated swap (r6)" do
-    cases =
-      [
-        {MutagenEx.Mutators.Arith, @arith_samples},
-        {MutagenEx.Mutators.Compare, @compare_samples},
-        {MutagenEx.Mutators.Boolean, @boolean_binary_samples},
-        {MutagenEx.Mutators.Pipeline, @pipeline_samples},
-        {MutagenEx.Mutators.ResultTuple, @result_tuple_samples},
-        {MutagenEx.Mutators.Literal, [true, false, 0, 1]},
-        {MutagenEx.Mutators.CaseDrop,
-         [Code.string_to_quoted!("case x do 1 -> :one; 2 -> :two end")]},
-        {MutagenEx.Mutators.ElseRemoval, [Code.string_to_quoted!("if x, do: 1, else: 2")]},
-        {MutagenEx.Mutators.GuardDrop,
-         [Code.string_to_quoted!("(foo(x) when is_binary(x)) when is_integer(x)")]},
-        {MutagenEx.Mutators.WithSwap,
-         [Code.string_to_quoted!("with {:ok, x} <- f(), {:ok, y} <- g(), do: {x, y}")]}
-      ]
+    cases = [
+      {@arith_samples, &Arith.match?/1, &Arith.mutate/1, &Arith.validate/1},
+      {@compare_samples, &Compare.match?/1, &Compare.mutate/1, &Compare.validate/1},
+      {@boolean_binary_samples, &Boolean.match?/1, &Boolean.mutate/1, &Boolean.validate/1},
+      {@pipeline_samples, &Pipeline.match?/1, &Pipeline.mutate/1, &Pipeline.validate/1},
+      {@result_tuple_samples, &ResultTuple.match?/1, &ResultTuple.mutate/1,
+       &ResultTuple.validate/1},
+      {[true, false, 0, 1], &Literal.match?/1, &Literal.mutate/1, &Literal.validate/1},
+      {parsed("case x do 1 -> :one; 2 -> :two end"), &CaseDrop.match?/1, &CaseDrop.mutate/1,
+       &CaseDrop.validate/1},
+      {parsed("if x, do: 1, else: 2"), &ElseRemoval.match?/1, &ElseRemoval.mutate/1,
+       &ElseRemoval.validate/1},
+      {parsed("(foo(x) when is_binary(x)) when is_integer(x)"), &GuardDrop.match?/1,
+       &GuardDrop.mutate/1, &GuardDrop.validate/1},
+      {parsed("with {:ok, x} <- f(), {:ok, y} <- g(), do: {x, y}"), &WithSwap.match?/1,
+       &WithSwap.mutate/1, &WithSwap.validate/1}
+    ]
 
-    assert MapSet.new(Keyword.keys(cases)) == MapSet.new(Mutators.all())
+    assert MapSet.new(cases, fn {_, _, mutate, _} -> elem(Function.info(mutate, :module), 1) end) ==
+             MapSet.new(Mutators.all())
 
-    for {mutator, samples} <- cases do
+    for {samples, matches?, mutate, validate} <- cases do
       validated =
         for ast <- samples,
-            mutator.match?(ast),
-            swapped = mutator.mutate(ast),
-            mutator.validate(swapped) == :ok,
+            matches?.(ast),
+            swapped = mutate.(ast),
+            validate.(swapped) == :ok,
             do: swapped
 
-      assert validated != [], "no valid swap for #{inspect(mutator)}"
+      assert validated != [], "no valid swap for #{inspect(mutate)}"
 
       for swapped <- validated do
         source = Macro.to_string(swapped)
-        assert {:ok, reparsed} = Code.string_to_quoted(source)
-        assert Mutators.normalize(reparsed) == Mutators.normalize(swapped)
+
+        assert {:ok, reparsed} = Code.string_to_quoted(source),
+               "#{inspect(mutate)} emitted invalid source: #{source}"
+
+        assert Mutators.normalize(reparsed) == Mutators.normalize(swapped),
+               "#{inspect(mutate)} changed AST shape on round trip: #{source}"
       end
     end
   end
+
+  defp parsed(source), do: [Code.string_to_quoted!(source)]
 
   # ---------------------------------------------------------------------------
   # Deterministic seeded sampling over a wider Arith domain (r5 in depth).
@@ -211,8 +227,8 @@ defmodule MutagenEx.MutatorsPropertyTest do
       rhs = Enum.random(["c", "d", "0", "1", "2", "y_var", "(c * d)"])
       ast = Code.string_to_quoted!("#{lhs} #{op} #{rhs}")
 
-      if MutagenEx.Mutators.Arith.match?(ast) do
-        assert MutagenEx.Mutators.Arith.mutate(MutagenEx.Mutators.Arith.mutate(ast)) == ast
+      if Arith.match?(ast) do
+        assert Arith.mutate(Arith.mutate(ast)) == ast
       end
     end
   end

@@ -185,8 +185,6 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --json (mutagen.cli.r5)" do
-    @describetag spec: "mutagen.cli.r5"
-
     test "absent flag leaves json_path nil (stdout default)" do
       assert {:ok, %Config{json_path: nil}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -970,6 +968,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "Mix.Tasks.Mutagen.@moduledoc (mutagen.cli.r9)" do
+    @describetag spec: "mutagen.cli.r9"
+
     # `mix help mutagen` renders @moduledoc. Asserting that every required
     # section heading is present in the moduledoc is the unit-test analogue
     # for the help contract.

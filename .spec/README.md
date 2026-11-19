@@ -45,13 +45,15 @@ through `decisions:` in `spec-meta`. For a replacement, add a decision with
 ```sh
 mix spec.validate --strict
 mix spec.check --base HEAD
-mix spec.check --base <target-ref>
+target=hardening/epic
+mix spec.check --base "$(git merge-base HEAD "$target")"
 mix test
 ```
 
-The first command checks the corpus. The two diff checks compare against
-the working tree's latest commit and the target branch's merge base,
-respectively. Run the tests separately. See [the agent guide](AGENTS.md) for
+The first command checks the corpus. An explicit `--base` compares the
+working tree directly with that commit. Use `HEAD` to check uncommitted
+edits and compute the merge base to check a feature against its target
+branch. Run the tests separately. See [the agent guide](AGENTS.md) for
 the pre-merge gate and [the migration decision](decisions/ancora_migration.md)
 for inherited proof gaps.
 

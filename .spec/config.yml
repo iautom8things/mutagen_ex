@@ -4,9 +4,9 @@ test_paths:
 lib_paths:
   - lib
 severities: {}
-# Remove these once the comparison base contains the first tagged suite.
-# See .spec/decisions/ancora_migration.md for the cutover finding review.
 overrides:
+  # 2026-11-19 cutover. Remove these eight growth overrides in the first
+  # commit after this lands on the target branch.
   - subject: mutagen.ast
     code: derived/growth
     severity: info
@@ -39,3 +39,98 @@ overrides:
     code: derived/growth
     severity: info
     reason: Initial tags bind the existing test selector.
+
+  # The gate still reports these two known proof gaps at info level.
+  - subject: mutagen.coverage
+    requirement: mutagen.coverage.r7
+    code: spec/requirement_unverified
+    severity: info
+    reason: Disk snapshots use injected collaborators and omit attributable temp writes. No combined real coverage and AST-cache disk test exists.
+  - subject: mutagen.mutation_pipeline
+    requirement: mutagen.mutation_pipeline.r4
+    code: spec/requirement_unverified
+    severity: info
+    reason: After the deadline a clean reply can still classify as completed. The timeout and taint defect remains open.
+
+  # OTP callbacks, generated declarations and behaviour interfaces have no
+  # statically attributable source call at the declaring file.
+  - file: lib/mutagen_ex/application.ex
+    code: change/uncovered_file
+    severity: info
+    reason: OTP invokes the application start callback. The supervision test checks the real tree after application boot.
+  - file: lib/mutagen_ex/config.ex
+    code: change/uncovered_file
+    severity: info
+    reason: The CLI tests exercise Config defaults through a generated struct constructor. This file has no source-defined functions.
+  - file: lib/mutagen_ex/pipeline/ast_cache_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the AST loader callback. The phase dispatches to an implementation selected at runtime.
+  - file: lib/mutagen_ex/pipeline/baseline_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the baseline runner callback. The phase calls the injected runner.
+  - file: lib/mutagen_ex/pipeline/cli_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the parser callback. Mix selects the CLI implementation from its dispatch table.
+  - file: lib/mutagen_ex/pipeline/coverage_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the coverage callback. Mix calls the selected coverage implementation.
+  - file: lib/mutagen_ex/pipeline/enumerator_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the enumeration callback. Tagged tests reach the concrete enumerator.
+  - file: lib/mutagen_ex/pipeline/io_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the output sink callback. Tagged tests reach the concrete sink.
+  - file: lib/mutagen_ex/pipeline/mutation_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the mutation runner callback. The task chooses a runner when it dispatches the phase.
+  - file: lib/mutagen_ex/pipeline/reporter_error_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the abort reporter callback. The task selects the reporter at runtime.
+  - file: lib/mutagen_ex/pipeline/reporter_ok_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the success reporter callback. The task selects the reporter at runtime.
+  - file: lib/mutagen_ex/pipeline/scope_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the single scope-target resolver callback. Tagged tests reach the concrete resolver.
+  - file: lib/mutagen_ex/pipeline/tests_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the test-target resolver callback. Tagged tests reach the concrete selector.
+  - file: lib/mutagen_ex/test/capture_io_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the stderr capture callback. The tests call the concrete capture wrapper.
+  - file: lib/mutagen_ex/test/code_server_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares bytecode lookup and restore callbacks. The round-trip test uses the real CodeServer wrapper.
+  - file: lib/mutagen_ex/test/compiler_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the compiler callback. The bytecode test calls the concrete compiler wrapper.
+  - file: lib/mutagen_ex/test/cover_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the OTP cover lifecycle callbacks. The coverage runner selects its implementation from config.
+  - file: lib/mutagen_ex/test/ex_unit_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the ExUnit configure and run callbacks. The real baseline test uses the concrete wrapper.
+  - file: lib/mutagen_ex/test/ex_unit_server_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the registration callback. The baseline registration test invokes the concrete wrapper.
+  - file: lib/mutagen_ex/types.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Defines the shared pipeline typespecs. There are no runtime definitions to bind.
