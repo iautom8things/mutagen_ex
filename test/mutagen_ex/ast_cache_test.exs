@@ -31,6 +31,8 @@ defmodule MutagenEx.AstCacheTest do
   """
 
   describe "load/2 — r6: single-load, immutable, AST + verbatim source" do
+    @describetag spec: "mutagen.coverage.r6"
+
     test "returns ast + source byte-identical to the loader's output" do
       reader = fn "synthetic/sample.ex" -> @sample_module end
 
@@ -164,6 +166,7 @@ defmodule MutagenEx.AstCacheTest do
   end
 
   describe "load/2 — r9: categorised input (input-only diagnostic metadata)" do
+    @tag spec: "mutagen.coverage.r9"
     test "s9a: categorised load produces a cache byte-identical to the flat load" do
       reader = fn _ -> @sample_module end
 
@@ -191,6 +194,7 @@ defmodule MutagenEx.AstCacheTest do
       assert with_cat == without_cat
     end
 
+    @tag spec: "mutagen.coverage.r9"
     test "entry shape stays {ast, source} regardless of category presence (r9)" do
       reader = fn _ -> @sample_module end
 
@@ -206,6 +210,7 @@ defmodule MutagenEx.AstCacheTest do
       assert source == @sample_module
     end
 
+    @tag spec: "mutagen.coverage.r9"
     test "reader is still called exactly once per file when :categories is set" do
       counter = :counters.new(1, [])
 

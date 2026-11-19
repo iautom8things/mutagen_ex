@@ -66,6 +66,7 @@ defmodule MutagenEx.Mutators.IdStabilityTest do
     end
   end
 
+  @tag spec: "mutagen.mutators.r4"
   test "ID set is invariant under `mix format`-style reformatting (mutagen.mutators.r4)" do
     original_nodes = arith_nodes(@sample_source)
     reformatted_nodes = arith_nodes(@reformatted_source)
@@ -90,6 +91,7 @@ defmodule MutagenEx.Mutators.IdStabilityTest do
            """
   end
 
+  @tag spec: "mutagen.mutators.r3"
   test "hash is preserved when only :line/:column/:end_line/:end_column differ" do
     a = {:+, [line: 5, column: 17, end_line: 5, end_column: 22], [{:x, [line: 5], nil}, 1]}
     b = {:+, [line: 99, column: 1, end_line: 99, end_column: 6], [{:x, [line: 99], nil}, 1]}

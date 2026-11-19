@@ -2,8 +2,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   @moduledoc """
   Byte-exact golden-file tests for `MutagenEx.JsonReporter`.
 
-  Covers scenario `mutagen.json_schema.s6` and verification stub
-  `mutagen.json_schema.v3` and `mutagen.json_schema.r9`.
+  Covers `mutagen.json_schema.r9` and scenario `mutagen.json_schema.s6`.
 
   Each test builds a `%Report{}` fixture, calls `JsonReporter.emit_report/1`
   or `emit_error/2`, and compares the produced iodata byte-for-byte against
@@ -100,6 +99,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # baseline_red.json — baseline phase failed, aborted: true
   # ---------------------------------------------------------------------------
 
+  @tag spec: ["mutagen.json_schema.r13", "mutagen.json_schema.r9"]
   test "baseline_red.json — aborted with baseline failures populated (r9)" do
     report = %Report{
       meta: meta(),
@@ -131,6 +131,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # coverage_partial_mutation_perfect.json — partial coverage, every site killed
   # ---------------------------------------------------------------------------
 
+  @tag spec: ["mutagen.json_schema.r13", "mutagen.json_schema.r9"]
   test "coverage_partial_mutation_perfect.json — partial coverage, 100% kill rate" do
     report = %Report{
       meta: meta(),
@@ -169,6 +170,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # coverage_full_mutation_partial.json — full coverage, mixed mutation outcomes
   # ---------------------------------------------------------------------------
 
+  @tag spec: "mutagen.json_schema.r9"
   test "coverage_full_mutation_partial.json — mixed outcomes including timeout" do
     report = %Report{
       meta: meta(),
@@ -225,6 +227,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # error_unresolvable_scope.json — `--scope` could not be resolved
   # ---------------------------------------------------------------------------
 
+  @tag spec: "mutagen.json_schema.r9"
   test "error_unresolvable_scope.json — early abort, all sub-blocks null" do
     report = %Report{
       meta: meta(),
@@ -251,6 +254,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # mutation_with_skipped.json — scenario s2: 4 completed + 2 skipped + 1 compile_error
   # ---------------------------------------------------------------------------
 
+  @tag spec: "mutagen.json_schema.r9"
   test "mutation_with_skipped.json — scenario s2 shape" do
     report = %Report{
       meta: meta(),
@@ -312,6 +316,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
   # partial_report_cover_failure.json — coverage phase failed; baseline ran
   # ---------------------------------------------------------------------------
 
+  @tag spec: "mutagen.json_schema.r9"
   test "partial_report_cover_failure.json — partial run, cover phase failed" do
     report = %Report{
       meta: meta(),

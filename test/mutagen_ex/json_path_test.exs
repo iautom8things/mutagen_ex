@@ -22,6 +22,8 @@ defmodule MutagenEx.JsonPathTest do
 
   use ExUnit.Case, async: true
 
+  @moduletag spec: "mutagen.cli.r10"
+
   Code.require_file("../support/path_helpers.exs", __DIR__)
 
   alias MutagenEx.JsonPath

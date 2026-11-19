@@ -20,6 +20,7 @@ defmodule MutagenEx.ProgressTest do
   alias MutagenEx.Progress
 
   describe "enabled?/1" do
+    @tag spec: "mutagen.mutation_pipeline.r15"
     test ":off → false; :on → true" do
       refute Progress.enabled?(:off)
       assert Progress.enabled?(:on)
@@ -35,6 +36,7 @@ defmodule MutagenEx.ProgressTest do
   end
 
   describe "report/2" do
+    @tag spec: "mutagen.mutation_pipeline.r15"
     test "writes [index/total] status file:line :mutator" do
       meta = %{
         index: 3,
@@ -83,6 +85,8 @@ defmodule MutagenEx.ProgressTest do
   end
 
   describe "Mix-task callback wiring (mutagen.mutation_pipeline.r15)" do
+    @describetag spec: "mutagen.mutation_pipeline.r15"
+
     # The progress feed is driven by the runner's `:on_site_completed`
     # callback now, not a telemetry handler. `Mix.Tasks.Mutagen` builds
     # a stateful reporter that projects each per-site callback payload

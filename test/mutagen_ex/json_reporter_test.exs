@@ -14,7 +14,7 @@ defmodule MutagenEx.JsonReporterTest do
     * Mix-task state-machine error-paths via the `:io` dispatch seam —
       the six abort exits the ticket enumerates.
 
-  Covers spec-verification stubs `mutagen.json_schema.v1`, `v2`, `v4`.
+  Covers the aggregate success, abort, and encoding contracts.
 
   Tags used by `mix test --only`:
     * `:contract` — r6, r7, r8 (`v4`)
@@ -78,6 +78,7 @@ defmodule MutagenEx.JsonReporterTest do
   # ---------------------------------------------------------------------------
 
   describe "emit_report/1 — success-shape (mutagen.json_schema.s1, r1, r2)" do
+    @tag spec: "mutagen.json_schema.r1"
     test "version field equals the literal string \"1\"" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
@@ -89,6 +90,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert code == 0
     end
 
+    @tag spec: "mutagen.json_schema.r2"
     test "aborted is false and abort_reason is null on success" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
@@ -96,6 +98,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert decoded["abort_reason"] == :null
     end
 
+    @tag spec: "mutagen.json_schema.r2"
     test "every top-level key is populated and non-null on a clean run (r2)" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
@@ -107,6 +110,7 @@ defmodule MutagenEx.JsonReporterTest do
       end
     end
 
+    @tag spec: "mutagen.json_schema.r3"
     test "scenario s1: 9 killed of 10 sites yields kill_rate 0.9" do
       report = full_report()
       {iodata, _code} = JsonReporter.emit_report(report)
@@ -182,6 +186,7 @@ defmodule MutagenEx.JsonReporterTest do
       {:ok, report: report, sample_result: result}
     end
 
+    @tag spec: "mutagen.json_schema.r3"
     test "mutation has total, completed, kill_rate per r3 / s2", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -192,6 +197,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert m["kill_rate"] == 0.75
     end
 
+    @tag spec: "mutagen.json_schema.r3"
     test "mutation has all eleven r3 subfields", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -203,6 +209,7 @@ defmodule MutagenEx.JsonReporterTest do
       end
     end
 
+    @tag spec: "mutagen.json_schema.r3"
     test "mutation.skipped has 2 entries; mutation.compile_errors has 1 per s2", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -211,6 +218,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert length(decoded["mutation"]["compile_errors"]) == 1
     end
 
+    @tag spec: "mutagen.json_schema.r4"
     test "results entry has every r4 field", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -223,6 +231,7 @@ defmodule MutagenEx.JsonReporterTest do
       end
     end
 
+    @tag spec: "mutagen.json_schema.r4"
     test "results.status is one of the four classifying outcomes", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -231,6 +240,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert r["status"] in ["killed", "survived", "timeout", "error"]
     end
 
+    @tag spec: "mutagen.json_schema.r4"
     test "compile_error outcomes do NOT appear in results (r4)", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -241,6 +251,7 @@ defmodule MutagenEx.JsonReporterTest do
              "compile_error outcomes must live in mutation.compile_errors, not results"
     end
 
+    @tag spec: "mutagen.json_schema.r3"
     test "aborted is at top-level, not nested in mutation (r3)", %{report: report} do
       {iodata, _code} = JsonReporter.emit_report(report)
       decoded = decode(iodata)
@@ -271,7 +282,10 @@ defmodule MutagenEx.JsonReporterTest do
   # ---------------------------------------------------------------------------
 
   describe "emit_error/2 — abort variant (mutagen.json_schema.s3, r5)" do
+    @describetag spec: "mutagen.json_schema.r5"
+
     @tag :error_variants
+    @tag spec: "mutagen.json_schema.r1"
     test "abort document has version: \"1\", aborted: true, abort_reason: \"missing_scope\"" do
       report = %Report{meta: meta_minimum()}
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
@@ -371,6 +385,8 @@ defmodule MutagenEx.JsonReporterTest do
   # ---------------------------------------------------------------------------
 
   describe "details field (mutagen.json_schema.s16, r16)" do
+    @describetag spec: "mutagen.json_schema.r16"
+
     @tag :details_field
     test "success document has an empty details map (s16a)" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
@@ -406,6 +422,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :details_field
+    @tag spec: "mutagen.json_schema.r10"
     test "long details message is truncated through the sanitizer (s16c)" do
       report = %Report{
         meta: meta_minimum(),
@@ -435,6 +452,7 @@ defmodule MutagenEx.JsonReporterTest do
 
   describe "emit_report/1 + emit_error/2 — I/O contract (mutagen.json_schema.s4, r6)" do
     @tag :contract
+    @tag spec: "mutagen.json_schema.r6"
     test "emit_report/1 returns {iodata, exit_code}" do
       {iodata, code} = JsonReporter.emit_report(full_report())
       assert is_integer(code)
@@ -442,6 +460,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :contract
+    @tag spec: "mutagen.json_schema.r6"
     test "emit_error/2 returns {iodata, non_zero_exit_code}" do
       report = %Report{meta: meta_minimum()}
       {iodata, code} = JsonReporter.emit_error(report, :baseline_red)
@@ -495,6 +514,7 @@ defmodule MutagenEx.JsonReporterTest do
 
   describe "emit_report/1 — encoding contract (mutagen.json_schema.s5, r7, r8)" do
     @tag :contract
+    @tag spec: "mutagen.json_schema.r7"
     test "encoded output round-trips through :json.decode" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       str = IO.iodata_to_binary(iodata)
@@ -503,6 +523,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :contract
+    @tag spec: "mutagen.json_schema.r7"
     test "UTF-8 characters in source slices encode correctly" do
       base = full_report()
 
@@ -547,6 +568,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :contract
+    @tag spec: "mutagen.json_schema.r8"
     test "document terminates with exactly one trailing newline (r8)" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       str = IO.iodata_to_binary(iodata)
@@ -556,6 +578,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :contract
+    @tag spec: "mutagen.json_schema.r8"
     test "abort document also terminates with exactly one trailing newline" do
       report = %Report{meta: meta_minimum()}
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
@@ -586,6 +609,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :exit_codes
+    @tag spec: ["mutagen.cli.r1", "mutagen.cli.r6"]
     test "cli parse failure (missing_scope) emits abort JSON via reporter_error + io" do
       dispatch = capture_dispatch()
 
@@ -599,7 +623,18 @@ defmodule MutagenEx.JsonReporterTest do
       assert decoded["aborted"] == true
     end
 
+    @tag spec: ["mutagen.cli.r2", "mutagen.cli.r6"]
+    test "missing --tests emits abort JSON with a non-zero code" do
+      assert {:aborted, :missing_tests, _report} =
+               Mix.Tasks.Mutagen.run(["--scope", "lib/foo.ex"], capture_dispatch())
+
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
+      assert %{"aborted" => true, "abort_reason" => "missing_tests"} = decode(iodata)
+    end
+
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "scope resolution failure (module_not_found) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -614,12 +649,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "module_not_found"
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "test selector failure (no_tests_match) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -635,13 +672,15 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "no_tests_match"
       assert decoded["aborted"] == true
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "ast_cache failure (parse_error) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -658,12 +697,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "parse_error"
     end
 
     @tag :exit_codes
+    @tag spec: ["mutagen.cli.r6", "mutagen.coverage.r1"]
     test "coverage phase failure (cover_already_running) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -681,12 +722,14 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "cover_already_running"
     end
 
     @tag :exit_codes
+    @tag spec: ["mutagen.cli.r6", "mutagen.mutation_pipeline.r1"]
     test "baseline-red emits abort JSON with baseline.failures populated (cli.s7)" do
       dispatch =
         capture_dispatch(
@@ -720,6 +763,7 @@ defmodule MutagenEx.JsonReporterTest do
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "mutation runner failure (unrecoverable_restore_failure) emits abort JSON" do
       dispatch =
         capture_dispatch(
@@ -741,13 +785,15 @@ defmodule MutagenEx.JsonReporterTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, _code, _config}
+      assert_received {:io, iodata, code, _config}
+      assert code != 0
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "unrecoverable_restore_failure"
       assert decoded["aborted"] == true
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r6"
     test "happy path: every phase passes → success JSON + exit code 0 (cli.s6)" do
       dispatch =
         capture_dispatch(
@@ -772,7 +818,42 @@ defmodule MutagenEx.JsonReporterTest do
       assert decoded["version"] == "1"
     end
 
+    @tag spec: ["mutagen.cli.r13", "mutagen.json_schema.r13"]
+    test "a budget-truncated mutation result becomes a successful partial report" do
+      dispatch =
+        capture_dispatch(
+          scope: &fake_scope/2,
+          tests: &fake_tests/2,
+          ast_cache: &fake_ast_cache/2,
+          coverage: &fake_coverage/1,
+          enumerator: &fake_enumerator/4,
+          baseline: &fake_baseline/1,
+          mutation: fn input ->
+            assert input.budget_ms == 20
+            {:ok, output} = fake_mutation(input)
+            {:ok, Map.merge(output, %{truncated: true, warnings: ["budget_exceeded"]})}
+          end
+        )
+
+      assert :ok =
+               Mix.Tasks.Mutagen.run(
+                 ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs", "--budget-ms", "20"],
+                 dispatch
+               )
+
+      assert_received {:io, iodata, 0, _config}
+
+      assert %{
+               "aborted" => false,
+               "abort_reason" => :null,
+               "truncated" => true,
+               "mutation" => %{"completed" => 0},
+               "warnings" => ["budget_exceeded"]
+             } = decode(iodata)
+    end
+
     @tag :exit_codes
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test "mix task hands MutationRunner a populated test_modules derived from test_filter.files (mutagen-wrd.12)" do
       # Regression test for mutagen-wrd.12. Before the fix the mix task
       # passed `test_modules: []` to MutationRunner, so MutationLoop's

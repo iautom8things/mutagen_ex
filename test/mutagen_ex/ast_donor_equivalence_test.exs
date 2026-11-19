@@ -1,7 +1,7 @@
 defmodule MutagenEx.AstDonorEquivalenceTest do
   @moduledoc """
   Donor-equivalence test for `MutagenEx.Ast` per `mutagen.ast.r5`
-  (`mutagen.ast.s9`, verification stub `mutagen.ast.v3`).
+  (`mutagen.ast.r5`, scenario `mutagen.ast.s9`).
 
   The pre-`.25` donor implementations of `alias_to_module/1` and
   `find_module_body/2` are preserved verbatim below as private fixture
@@ -208,6 +208,7 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
   # ---------------------------------------------------------------------------
 
   describe "alias_to_module/1 donor equivalence (mutagen.ast.s9)" do
+    @tag spec: "mutagen.ast.r5"
     test "lifted version matches donor for every corpus entry" do
       for input <- alias_corpus() do
         donor_out = donor_alias_to_module(input)
@@ -225,6 +226,7 @@ defmodule MutagenEx.AstDonorEquivalenceTest do
   end
 
   describe "find_module_body/2 donor equivalence (mutagen.ast.s9)" do
+    @tag spec: "mutagen.ast.r5"
     test "lifted version matches donor for every corpus entry" do
       for entry <- module_body_corpus() do
         {ast, target_atom, expected_kind, donor_expected_kind} =

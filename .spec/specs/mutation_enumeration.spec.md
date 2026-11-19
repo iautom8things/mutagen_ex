@@ -31,10 +31,7 @@ decisions:
   - mutagen.decision.validate_predicates
   - mutagen.decision.static_mutator_dispatch
   - mutagen.decision.adoption_polish_efficacy
-realized_by:
-  api_boundary:
-    - "MutagenEx.MutationEnumerator"
-    - "MutagenEx.Mutators.Dispatch"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -262,45 +259,16 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.mutation_enumeration.v1
-  covers: [mutagen.mutation_enumeration.r1, mutagen.mutation_enumeration.r4, mutagen.mutation_enumeration.r5]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_test.exs
-  execute: true
-
-- id: mutagen.mutation_enumeration.v2
-  covers: [mutagen.mutation_enumeration.r1]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_property_test.exs
-  execute: true
-
-- id: mutagen.mutation_enumeration.v3
-  covers: [mutagen.mutation_enumeration.r2, mutagen.mutation_enumeration.r3]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_test.exs --only filtering
-  execute: true
-
-- id: mutagen.mutation_enumeration.v4
-  covers: [mutagen.mutation_enumeration.r7]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_test.exs
-  execute: true
-
-- id: mutagen.mutation_enumeration.v5
-  covers: [mutagen.mutation_enumeration.r9]
-  kind: command
-  target: mix test test/mutagen_ex/head_atom_dispatch_test.exs
-  execute: true
-
-- id: mutagen.mutation_enumeration.v6
-  covers: [mutagen.mutation_enumeration.r6]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_test.exs
-  execute: true
-
-- id: mutagen.mutation_enumeration.v7
-  covers: [mutagen.mutation_enumeration.r8]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_enumerator_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex
+  covers:
+    - mutagen.mutation_enumeration.r1
+    - mutagen.mutation_enumeration.r2
+    - mutagen.mutation_enumeration.r3
+    - mutagen.mutation_enumeration.r4
+    - mutagen.mutation_enumeration.r5
+    - mutagen.mutation_enumeration.r6
+    - mutagen.mutation_enumeration.r7
+    - mutagen.mutation_enumeration.r8
+    - mutagen.mutation_enumeration.r9
 ```

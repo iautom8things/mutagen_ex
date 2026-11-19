@@ -88,7 +88,7 @@ defmodule MutagenEx.BeamCacheTest do
 
   # Compile a quoted AST while suppressing stderr (silences the
   # "redefining module" warning Elixir emits on a re-define cycle).
-  # Returns the raw `Code.compile_quoted/1` result so callers can
+  # Returns the compiler facade's raw result so callers can
   # pattern-match the `[{module, binary}, ...]` shape.
   defp compile_silently(ast) do
     ref = make_ref()
@@ -96,7 +96,7 @@ defmodule MutagenEx.BeamCacheTest do
 
     _io =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        result = Code.compile_quoted(ast)
+        result = MutagenEx.Test.Compiler.compile_quoted(ast, "beam_cache_fixture.ex")
         send(parent, {ref, result})
       end)
 
@@ -112,6 +112,8 @@ defmodule MutagenEx.BeamCacheTest do
   # ---------------------------------------------------------------------------
 
   describe "snapshot/3 — captures via code_server.get_object_code" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     test "stores {module, filename, binary} in the table", %{table: table} do
       assert :ok = BeamCache.snapshot(table, SomeModule, CodeServerStub)
 
@@ -160,6 +162,8 @@ defmodule MutagenEx.BeamCacheTest do
   # ---------------------------------------------------------------------------
 
   describe "restore/3 — replays via code_server.load_binary" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     test "calls load_binary with the cached {filename, binary}", %{table: table} do
       :ok = BeamCache.snapshot(table, SwapMod, CodeServerStub)
 
@@ -249,6 +253,8 @@ defmodule MutagenEx.BeamCacheTest do
   # the `after` clause still fires.
 
   describe "MutationRunner.run/1 ETS cleanup" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     alias MutagenEx.MutationRunner
     alias MutagenEx.ScopeResolver.Scope
     alias MutagenEx.TestSelector.TestFilter
@@ -303,6 +309,7 @@ defmodule MutagenEx.BeamCacheTest do
 
   describe "integration: real :code module round-trip" do
     @tag :integration
+    @tag spec: "mutagen.mutation_pipeline.r6"
     test "snapshot → load_binary a modified binary → restore → original bytecode is back" do
       # `:code.get_object_code/1` only succeeds for modules whose `.beam`
       # is findable via the code path (`:code.where_is_file/1`). A
@@ -342,7 +349,9 @@ defmodule MutagenEx.BeamCacheTest do
         # lands on our temp file.
         :code.purge(victim)
         :code.delete(victim)
-        {:module, ^victim} = :code.load_file(victim)
+
+        assert {:module, ^victim} =
+                 MutagenEx.Test.CodeServer.load_binary(victim, beam_filename, original_binary)
 
         original_md5 = apply(victim, :module_info, [:md5])
         assert apply(victim, :answer, []) == :original

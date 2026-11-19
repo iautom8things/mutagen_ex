@@ -49,6 +49,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
       assert TestModuleDiscovery.discover([]) == []
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test "single defmodule in one file returns one entry", %{dir: dir} do
       file = Path.join(dir, "a_test.exs")
 
@@ -236,6 +237,7 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     # spike and the mutation_runner_test.exs fakes will catch the
     # regression. This test pins our side of the contract so changes to
     # either side surface as a deliberate decision.
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test "every entry's cfg is exactly %{async?: false, group: nil, parameterize: nil}",
          %{dir: dir} do
       file = Path.join(dir, "shape_test.exs")

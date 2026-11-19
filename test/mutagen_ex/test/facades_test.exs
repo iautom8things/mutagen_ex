@@ -65,6 +65,7 @@ defmodule MutagenEx.Test.FacadesTest do
       assert exports?(MutagenEx.Test.CaptureIo, :with_io, 2)
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r9"
     test "with_io/2 returns {result, captured} shape over real ExUnit.CaptureIO" do
       {result, output} =
         MutagenEx.Test.CaptureIo.with_io(:stderr, fn ->
