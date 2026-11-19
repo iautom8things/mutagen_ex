@@ -29,10 +29,8 @@ status: active
 summary: Resolves --tests targets to ExUnit-shaped filter records via AST walking.
 surface:
   - lib/mutagen_ex/test_selector.ex
-decisions: []
-realized_by:
-  api_boundary:
-    - "MutagenEx.TestSelector"
+decisions:
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -177,34 +175,14 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.test_selection.v1
-  kind: command
-  target: mix test test/mutagen_ex/test_selector_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex/test_selector_test.exs
   covers:
     - mutagen.test_selection.r1
     - mutagen.test_selection.r2
     - mutagen.test_selection.r3
-    - mutagen.test_selection.r6
-
-- id: mutagen.test_selection.v2
-  kind: command
-  target: mix test test/mutagen_ex/test_selector_test.exs
-  execute: true
-  covers:
     - mutagen.test_selection.r4
-
-- id: mutagen.test_selection.v3
-  kind: command
-  target: mix test test/mutagen_ex/test_selector_test.exs --only no_match_cases
-  execute: true
-  covers:
     - mutagen.test_selection.r5
-
-- id: mutagen.test_selection.v4
-  kind: command
-  target: mix test test/mutagen_ex/test_selector_test.exs --only atom_safety
-  execute: true
-  covers:
+    - mutagen.test_selection.r6
     - mutagen.test_selection.r7
 ```

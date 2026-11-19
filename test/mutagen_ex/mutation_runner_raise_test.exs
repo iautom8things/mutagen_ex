@@ -9,9 +9,6 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
   newly-surfaced restore-failure path (F27, per
   `mutagen.mutation_pipeline.r6`).
 
-  Verification stub: `mutagen.mutation_pipeline.v5`
-  (`mix test test/mutagen_ex/mutation_runner_raise_test.exs`).
-
   ## Why this test exists separately
 
   The bulk of `mutation_runner_test.exs` exercises the happy path and
@@ -287,6 +284,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
   # ---------------------------------------------------------------------------
 
   describe "r12: raise inside loaded-mutation window" do
+    @describetag spec: "mutagen.mutation_pipeline.r12"
+
     test "raise: restore fires before exception re-propagates" do
       site = build_site()
       cfg = base_cfg(site)
@@ -370,6 +369,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
   # ---------------------------------------------------------------------------
 
   describe "r12 / r6: :compile_error branch restore-failure surfacing (F27)" do
+    @describetag spec: "mutagen.mutation_pipeline.r12"
+
     test ":compile_error + restore failure returns :unrecoverable_restore_failure" do
       site = build_site()
       cfg = base_cfg(site)

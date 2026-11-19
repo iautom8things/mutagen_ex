@@ -1,6 +1,6 @@
 defmodule MutagenEx.AstTest do
   @moduledoc """
-  Unit tests for `MutagenEx.Ast` per `mutagen.ast.v1`.
+  Unit tests for `MutagenEx.Ast`.
 
   Covers scenarios `mutagen.ast.s1` through `mutagen.ast.s7`:
 
@@ -16,7 +16,17 @@ defmodule MutagenEx.AstTest do
 
   alias MutagenEx.Ast
 
+  test "AST helpers have no private duplicates outside their canonical owner" do
+    assert Ancora.SourceScan.scan(
+             dirs_or_globs: ["lib/mutagen_ex/**/*.ex"],
+             tokens: [~r/\bdefp\s+(alias_to_module|find_module_body)\b/],
+             allowlist: ["lib/mutagen_ex/ast.ex"]
+           ) == []
+  end
+
   describe "alias_to_module/1 (mutagen.ast.r1)" do
+    @describetag spec: "mutagen.ast.r1"
+
     test "s1: alias AST tuple with atom parts → Module.concat" do
       ast = {:__aliases__, [line: 1], [:Foo, :Bar]}
       assert Ast.alias_to_module(ast) == Foo.Bar
@@ -73,6 +83,8 @@ defmodule MutagenEx.AstTest do
   end
 
   describe "find_module_body/2 (mutagen.ast.r2)" do
+    @describetag spec: "mutagen.ast.r2"
+
     test "s4: matches `defmodule Foo` against the target string \"Foo\"" do
       ast = quoted_module_body("Foo", "def bar, do: :ok")
 
@@ -175,6 +187,8 @@ defmodule MutagenEx.AstTest do
   end
 
   describe "node_line/1 (mutagen.ast.r3)" do
+    @describetag spec: "mutagen.ast.r3"
+
     test "s6: 3-tuple with :line meta returns the line integer" do
       assert Ast.node_line({:foo, [line: 42], []}) == 42
     end

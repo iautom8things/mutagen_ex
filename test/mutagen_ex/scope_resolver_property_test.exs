@@ -2,9 +2,6 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
   @moduledoc """
   Property-style tests for `MutagenEx.ScopeResolver.resolve/2`.
 
-  Covers `mutagen.scope_resolution.v3` (the property-test verification stub
-  in `.spec/specs/scope_resolution.spec.md`).
-
   ## The invariant
 
   For any synthesized small Elixir source — a single `defmodule` with N
@@ -43,6 +40,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
   end
 
   describe "invariant: resolver returns error OR a range containing the target" do
+    @tag spec: "mutagen.scope_resolution.r1"
     test "file target — range covers every def's source line" do
       for _ <- 1..@iterations do
         {source, _module_name, defs} = synthesize_module()
@@ -72,6 +70,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r2"
     test "module target — range covers every def's source line" do
       for _ <- 1..@iterations do
         {source, module_name, defs} = synthesize_module()
@@ -94,6 +93,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r3"
     test "MFA target — range contains the targeted clause's source line" do
       for _ <- 1..@iterations do
         {source, module_name, defs} = synthesize_module_with_clauses()
@@ -122,6 +122,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r3"
     test "MFA target with wrong arity never returns ok" do
       for _ <- 1..@iterations do
         {source, module_name, defs} = synthesize_module_with_clauses()
@@ -175,6 +176,7 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r6"
     test "no on-disk side effects across all random inputs" do
       # Snapshot cover state before/after rather than asserting the global
       # :cover_server singleton is absent. This test is async; a concurrent

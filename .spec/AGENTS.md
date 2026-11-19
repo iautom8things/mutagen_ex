@@ -7,15 +7,15 @@ work with the `.spec/` directory.
 
 The source of truth for **behavioral invariants** of `mutagen_ex`. Specs are
 the contract; `lib/` and `test/` are the implementation. If they diverge, the
-spec is wrong, the code is wrong, or both — never silently update one to match
-the other.
+spec is wrong, the code is wrong, or both. Resolve the discrepancy in the same change.
 
 ## Read before writing code
 
 Before implementing a feature or fixing a bug, read the relevant
 `.spec/specs/*.spec.md` file. The `spec-requirements` block names the rules
 your change must satisfy. The `spec-scenarios` block names cases your change
-must handle. The `spec-verification` block names the tests that prove it.
+must handle. ExUnit `spec:` tags identify the tests that prove each
+requirement.
 
 If you discover that the spec is incomplete or wrong: **update the spec first**
 in the same change. Do not write code that violates a current invariant
@@ -35,35 +35,42 @@ would be false. Examples:
 Avoid statements about how the code is structured (those go in decisions or
 emerge from `lib/`). Specs describe observable behavior.
 
-## Verification command
+## Prove the requirement with ExUnit
 
-Run this to verify your changes pass:
+Tag an assertion that would fail if the requirement broke. Use a literal
+`@tag spec: "mutagen.<subject>.r<n>"` and call the production entry point.
+For multiple requirements on one test, use a list of IDs. Use `@describetag`
+or `@moduletag` when all tests in that group prove the same requirement.
+Ancora traces calls from the tagged tests, their setup, and reachable helpers.
 
+Tags drive proof. The optional `spec-verification` block supports
+`kind: tagged_tests`. Use exact repo-relative file paths in `surface:`.
+Keep active specs at `status: active` and use arrays for scenario
+`given:`, `when:`, and `then:` fields.
+
+## Verification commands
+
+Run the proving tests after editing a contract. Check the branch before merging:
+
+```sh
+mix spec.validate --strict
+mix spec.check --base HEAD
+mix spec.check --base <target-ref>
+make smoke
+mix test.integration
 ```
-mix test
-```
 
-Pre-merge stricter check:
+Ancora reads source and git history. ExUnit runs the assertions. There is no
+state file to update. Read `mix spec.check --verbose` for informational
+findings and use `mix spec.status` to inspect subject bindings. CI passes
+an explicit base. The local default is `origin/main`.
 
-```
-mix compile --warnings-as-errors && mix test
-mix spec.check
-```
-
-`spec_led_ex` is now a required `:dev`/`:test` dependency (see
-`.spec/decisions/adopt_specled_tooling.md`). `mix spec.check` is part of the
-local gate — it is no longer optional. The `mix spec.validate` task checks the
-authored corpus against the SpecLedEx schema; `mix spec.check` additionally
-checks `realized_by:` bindings against the code.
-
-Schema notes (SpecLedEx, not the original bespoke shape):
-
-- `spec-scenarios` entries use `given:` / `when:` / `then:` arrays.
-- `spec-verification` entries name a `command:` and a `target:` path (the
-  older `execute:` / `source_file:` stub form is not accepted).
-- Subjects use `status: active` once validated (not `accepted`).
-- Each subject carries a `realized_by.api_boundary:` list of MFAs. Use
-  `mix spec.suggest_binding` to draft one.
+Review drift, growth, and shrink against the requirement or scenario edit
+that explains them. If the change was accidental, restore the original
+behavior or proof. For an uncovered library file, add a test that genuinely
+exercises it. If Ancora cannot see the call, document the reason in an exact
+override in `config.yml`. Squash merges drop commit trailers, so put required
+severity exceptions in config with a reason.
 
 ## Linking
 
@@ -97,4 +104,5 @@ Add a decision file (`.spec/decisions/<short_name>.md`) when:
   exchange for simpler implementation).
 
 Decisions are durable; do not delete them when superseded. Mark `status:
-superseded` and reference the replacement.
+superseded` and set `superseded_by:` to the new decision ID. Keep the
+original body and record the change in the new decision.
