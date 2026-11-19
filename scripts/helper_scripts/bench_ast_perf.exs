@@ -12,21 +12,21 @@
 # Usage:
 #
 #   # Plain run — prints wall-clock + memory + SHA-256, exits.
-#   mix run priv/helper_scripts/bench_ast_perf.exs
+#   mix run scripts/helper_scripts/bench_ast_perf.exs
 #
 #   # Capture run as a baseline (e.g. on the pre-.25 commit).
-#   mix run priv/helper_scripts/bench_ast_perf.exs -- --baseline /tmp/bench_before.json
+#   mix run scripts/helper_scripts/bench_ast_perf.exs -- --baseline /tmp/bench_before.json
 #
 #   # Compare a fresh run against a prior baseline (e.g. on post-.25).
-#   mix run priv/helper_scripts/bench_ast_perf.exs -- --compare /tmp/bench_before.json
+#   mix run scripts/helper_scripts/bench_ast_perf.exs -- --compare /tmp/bench_before.json
 #
 #   # Capture and compare in one go (writes new baseline, prints delta).
-#   mix run priv/helper_scripts/bench_ast_perf.exs -- \
+#   mix run scripts/helper_scripts/bench_ast_perf.exs -- \
 #     --compare /tmp/bench_before.json \
 #     --baseline /tmp/bench_after.json
 #
 #   # Override the per-run repetition count (default: 1):
-#   mix run priv/helper_scripts/bench_ast_perf.exs -- --runs 2
+#   mix run scripts/helper_scripts/bench_ast_perf.exs -- --runs 2
 #
 # Notes:
 #

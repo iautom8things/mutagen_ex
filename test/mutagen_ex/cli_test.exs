@@ -967,7 +967,7 @@ defmodule MutagenEx.CLITest do
                  dispatch
                )
 
-      assert_received {:io, iodata, code, nil}
+      assert_received {:io, iodata, code, %Config{json_path: nil}}
       assert code != 0
 
       decoded =

@@ -65,7 +65,7 @@ defmodule MutagenEx.RuntimeTest do
     in_project(dir, fn ->
       started = System.monotonic_time(:millisecond)
 
-      assert {:error, :host_setup_timeout, %{step: :test_helper_load_failed, note: note}} =
+      assert {:error, :host_setup_timeout, %{step: :test_helper, note: note}} =
                Runtime.boot(host_app: false, boot_timeout_ms: 1_000)
 
       assert note =~ "Do not publish it as a CI artifact"
@@ -163,6 +163,30 @@ defmodule MutagenEx.RuntimeTest do
         assert {:ok, _} = Runtime.boot(host_app: false, test_alias: false)
       end,
       ~s(aliases: [test: [fn [] -> raise "alias failed" end, "test"]])
+    )
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.cli.r22"
+  test "warns on an unrecognized test alias and ignores function return values", %{tmp_dir: dir} do
+    in_project(
+      dir,
+      fn ->
+        assert {:ok, session} = Runtime.boot(host_app: false)
+        assert session.warnings == ["test_alias_skipped: no test entry in the host test alias"]
+        assert :ok = Runtime.finish(session, Runtime.empty_suite())
+      end,
+      ~s|aliases: [test: ["do pre + test"]]|
+    )
+
+    in_project(
+      dir,
+      fn ->
+        assert {:ok, session} = Runtime.boot(host_app: false)
+        assert session.warnings == []
+        assert :ok = Runtime.finish(session, Runtime.empty_suite())
+      end,
+      ~s|aliases: [test: [fn [] -> {:error, :ignored} end, "test --exclude slow"]]|
     )
   end
 

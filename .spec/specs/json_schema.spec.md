@@ -30,6 +30,8 @@ kind: integration
 status: active
 summary: Version 2 JSON output schema for success, partial, and error runs.
 surface:
+  - lib/mutagen_ex/json_reporter/redactor.ex
+  - lib/mutagen_ex/json_reporter/provenance.ex
   - lib/mutagen_ex/json_reporter.ex
   - lib/mutagen_ex/json_streamer.ex
   - test/mutagen_ex/golden/baseline_red.json
@@ -51,6 +53,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.mutation_id_scheme_2
@@ -69,7 +72,7 @@ Top-level keys, all present in every variant unless noted:
 - `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme, fail_fast}`.
 - `scope`: array of resolved scope records.
 - `tests`: resolved test filter (the `{include, exclude, files}` triple).
-- `baseline`: `{passed: int, failed: int, failures: [{module, name}]}` or
+- `baseline`: `{passed: int, failed: int, failures: [{module, count}]}` or
   `null` if baseline never ran.
 - `coverage`: `{covered_lines: %{file => [int]}}` or `null` if coverage never
   ran.
@@ -130,7 +133,7 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r4
   priority: must
   statement: |
-    Each `mutation.results[i]` entry has:
+    Each `mutation.results[i]` entry has the following fields, subject to r18:
     `id` (string of shape `{file}:{hash}:{mutator}` per
     mutagen.decision.mutation_id_scheme_2),
     `function` (string `Mod.fun/arity` for the enclosing definition, or null
@@ -159,7 +162,7 @@ Top-level keys, all present in every variant unless noted:
       falls back to `Macro.to_string/1` of the original AST and
       aliases the same binary as `before`. The fallback is
       observable: on the slice path `before_source` is byte-equal
-      to a hand-cut source slice of the same range and may differ
+      to a hand-cut source slice of the same range before output cleaning and may differ
       from `before` (which is always the `Macro.to_string/1`
       output); on the fallback path `before_source === before`
       (same binary reference, `:erts_debug.same/2` returns true)),
@@ -173,19 +176,11 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r5
   priority: must
   statement: |
-    Every abnormal exit (`aborted: true`) emits a document of the SAME
-    schema. Sub-blocks that never ran are `null` rather than missing. The
-    `abort_reason` field is a string describing why: e.g.
-    `"missing_scope"`, `"invalid_timeout"`, `"colon_syntax_unsupported"`,
-    `"module_not_found"`, `"arity_required"`, `"no_tests_match"`,
-    `"self_mutation_refused"`, `"cover_already_running"`, `"baseline_red"`,
-    `"unrecoverable_restore_failure"`, `"flag_not_supported_in_v1"`,
-    `"unsafe_json_path"`, `"invalid_boot_timeout"`, `"invalid_mix_env"`,
-    `"umbrella_root"`, `"host_loadpaths_failed"`, `"host_compile_failed"`,
-    `"test_alias_failed"`, `"host_app_start_failed"`,
-    `"runtime_load_failed"`, `"test_helper_load_failed"`,
-    `"host_setup_timeout"`, `"no_tests_run"`, `"ex_unit_run_failed"`,
-    `"after_suite_failed"`.
+    Every report abort (`aborted: true`) uses the same schema and returns
+    exit code 2. Sub-blocks that never ran are `null`. The `abort_reason`
+    field is the string form of one of the atoms in
+    `MutagenEx.JsonReporter.abort_reason/0` (r20).
+
 
 - id: mutagen.json_schema.r6
   priority: must
@@ -228,15 +223,15 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r10
   priority: must
   statement: |
-    Every free-form text field that captures user-code-derived bytes —
+    Every emitted free-form text field that captures user-code-derived bytes —
     `mutation.results[].warnings[]`, `mutation.compile_errors[].message`,
-    the abort-detail `message` for `:unrecoverable_restore_failure`,
+    the opted-in abort-detail `message` for `:unrecoverable_restore_failure`,
     `:test_file_load_failed`, `:ex_unit_run_failed`,
     `:file_read_failed`, and `:parse_error` — is truncated at 4096 bytes
     (4 KiB) before emission. When truncation occurs, the emitted string
     ends with the literal marker ` ... <N bytes truncated>` where `N`
     is the byte-count that was dropped (`N == original_byte_size -
-    4096`). The marker bytes themselves are not counted against the
+    4096`, adjusted for the UTF-8 boundary). The marker bytes themselves are not counted against the
     4 KiB cap — they are metadata about the truncation. Truncation
     splits on a codepoint boundary so the emitted string is always
     valid UTF-8.
@@ -375,19 +370,13 @@ Top-level keys, all present in every variant unless noted:
       - On successful (`aborted: false`) runs: `details == %{}` (empty
         map). The successful run carries no failing-phase diagnostic
         context to surface.
-      - On aborted (`aborted: true`) runs: `details` contains the
-        phase-supplied diagnostic context for the abort. Concrete
-        examples from the production phases:
-          * `:test_file_load_failed` → `{file: "test/foo_test.exs",
-             message: "could not load test file ..."}`
-          * `:module_beam_missing` → `{module: "Elixir.Foo", file:
-             "lib/foo.ex", message: "no .beam file located ..."}`
-          * `:cover_already_running` → `{message: "another :cover
-             session is running"}`
-          * `:too_many_targets` → `{flag: "--scope", kind: :scope,
-             cap: 100, count: 101}`
-        Phases own the shape of their own details map; this subject
-        does not enumerate the keys, only the outer envelope.
+      - On aborted (`aborted: true`) runs: `details` includes a fixed
+        hint and stderr note. The default includes available phase facts
+        such as step, file, line, module, reason atom, and counts.
+        For example, a test_file_load_failed abort includes the test file,
+        while a coverage timeout includes the configured deadline.
+        With --include-host-output the report also includes the phase's
+        sanitized diagnostic body if one is available.
 
     Leaf encoding: atom values are stringified (e.g. `kind: :scope` →
     `"kind": "scope"`); integer/boolean values pass through; binary
@@ -395,60 +384,81 @@ Top-level keys, all present in every variant unless noted:
     pipeline before emission. Map values may nest one layer deep
     (e.g. `failures: [...]` from baseline-red details).
 
-    For `baseline_red`, `details.failures` holds the same `{module,
-    name}` objects as `baseline.failures`
+    For `baseline_red`, `details.failures` holds the same objects as
+    `baseline.failures`
     (mutagen.mutation_pipeline.r1), not inspected Elixir terms.
 
     Decision: mutagen.decision.details_always_present.
 
     Counter-example (pre-fix): a downstream user's `mix mutagen` aborts
-    with `abort_reason: "test_file_load_failed"`. The emitted JSON
-    contains only `abort_reason` and no detail context — the user
-    cannot tell which test file failed to load, what the underlying
-    Elixir exception was, or how to fix their input. After this
-    requirement, the same abort emits `details: {file:
-    "test/foo_test.exs", message: "cannot use ExUnit.Case without
-    starting the ExUnit application, ..."}`.
+    with `abort_reason: "test_file_load_failed"`. The default details
+    give the file, exception module when available, and a fixed hint.
+    The underlying diagnostic body is available with
+    `--include-host-output`.
 
 - id: mutagen.json_schema.r17
   priority: must
   statement: |
-    Before any configured `:redact` pattern (r11) and before truncation
-    (r10), `MutagenEx.JsonReporter.Sanitizer.clean/2` applies built-in
-    redactions that replace the secret part with `[REDACTED]`:
+    Before truncation, the report redacts whole URL userinfo, credential
+    query parameters, authorization and cookie headers, recognized token
+    prefixes, JWTs and PEM keys. Secret assignments, tuples, keyword lists
+    and inspected JSON redact the entire credential value, including nested
+    terms. Keys are recognized by case-insensitive segments, including
+    camelCase boundaries. Cleaning an already-cleaned field with the built-in
+    rules leaves it unchanged. These rules apply to opted-in host output and
+    structured strings such as test names and filter values.
 
-      * the password in URL userinfo (`scheme://user:PASSWORD@host`);
-      * the password in inspected `authority:` and `userinfo:` fields
-        of a `%URI{}`;
-      * the value after a secret key (any case, optionally quoted)
-        followed by `=>`, `:`, or `=`, whether the value is a quoted
-        string, a `Bearer` or `Basic` credential, or a bare word. A
-        key is secret when one of its segments, split on `_` or `-`,
-        is `password`, `passwd`, `secret`, `token`, `apikey`, or
-        `authorization`, or when two adjacent segments are `api` and
-        `key` or `private` and `key`. So `DATABASE_PASSWORD`,
-        `db_password`, `api-token`, `secret_key_base`, and
-        `AWS_SECRET_ACCESS_KEY` are secret keys, while `tokens`,
-        `secretary`, and `primary_key` are not. The rule covers
-        keyword, map, environment assignment, and URL query shapes;
-      * whole tokens that start with `ghp_`, `gho_`, `ghu_`, `ghs_`,
-        `ghr_`, `github_pat_`, `xoxb-`, `xoxa-`, `xoxp-`, `xoxr-`,
-        `xoxs-`, `sk_live_`, or `AKIA` followed by at least 12 token
-        characters.
 
-    Cleaning already-cleaned text returns it unchanged. The aggregate
-    document passes every string it carries from host or user code
-    through this sanitizer: top-level `warnings[]`,
-    `mutation.results[].warnings[]`, `mutation.compile_errors[].message`,
-    `baseline.failures[].module` and `.name`, the module names in
-    `mutation.state_drift_warning`, every `details` key and string leaf
-    (r16), and the `tests.include` and `tests.exclude` renderings. A
-    `details` entry or `{key, value}` test filter whose key is a secret
-    key by the rule above renders its value as `[REDACTED]` whatever the
-    value. Other `{key, value}` filters render as `"key:value"`, with
-    atoms, strings, and numbers as text and other terms through
-    `inspect/1`. `JsonStreamer` applies the same sanitizer to
-    `"result"` warnings and `"compile_error"` messages.
+- id: mutagen.json_schema.r18
+  priority: must
+  statement: |
+    Aggregate results and matching NDJSON lines cap source excerpts and remove
+    non-formatting control characters. The source-free mode omits source excerpts, file and function
+    from site entries. Compile errors carry the same mutator confidence as
+    results, and carry the function when source is included.
+
+- id: mutagen.json_schema.r19
+  priority: must
+  statement: |
+    The default report omits runtime-derived text bodies, including captured
+    stderr, exceptions and host compile output. The host-output option includes
+    these bodies after redaction and truncation. The JSON boundary applies those
+    rules once per field in both aggregate and NDJSON output. Abort documents
+    carry a fixed hint and structured facts when available.
+
+- id: mutagen.json_schema.r20
+  priority: must
+  statement: |
+    The abort_reason type in JsonReporter lists the reportable reason atoms.
+    A report abort emits the matching string and returns exit code 2.
+
+- id: mutagen.json_schema.r21
+  priority: must
+  statement: |
+    When a binary operator has a literal left operand and the parser does not
+    record the start of that operand, before_source uses the rendered AST
+    instead of emitting a slice starting at the operator.
+
+- id: mutagen.json_schema.r22
+  priority: must
+  statement: |
+    Default documents and stream lines apply the field provenance table.
+    Host process names, dynamic exception names, test names, and helper
+    filter values are opt-in. Unknown default reason atoms become host_reason.
+    Exception locations come from repository stack frames, relative to the root.
+
+- id: mutagen.json_schema.r23
+  priority: must
+  statement: |
+    Credential redaction examines at most 64 KiB per field before the 4 KiB
+    payload cap. A regex execution error discards the field and replaces it
+    with the fixed redaction-failure marker.
+
+- id: mutagen.json_schema.r24
+  priority: must
+  statement: |
+    Source excerpts omit Unicode format characters, including bidi and
+    zero-width characters.
 ```
 
 ```spec-scenarios
@@ -585,7 +595,7 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r16
     - mutagen.json_schema.r10
   given:
-    - A pipeline run that aborts with a `details.message` of 10_240 bytes (over the 4 KiB r10 cap).
+    - An opted-in pipeline run that aborts with a `details.message` of 10_240 bytes (over the 4 KiB r10 cap).
   when:
     - "`JsonReporter.emit_error/2` renders the error document."
   then:
@@ -673,4 +683,86 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r15
     - mutagen.json_schema.r16
     - mutagen.json_schema.r17
+    - mutagen.json_schema.r18
+    - mutagen.json_schema.r19
+    - mutagen.json_schema.r20
+    - mutagen.json_schema.r21
+    - mutagen.json_schema.r22
+    - mutagen.json_schema.r23
+    - mutagen.json_schema.r24
 ```
+
+## Default string provenance
+
+Static JSON keys are schema constants. The table uses `[]` for an array
+element and `{}` for a dynamic map entry. NDJSON result and compile
+error lines reuse their aggregate fields. The start and end lines reuse
+the envelope fields and add `kind`.
+
+| Field | Origin | Default treatment |
+| --- | --- | --- |
+| `version` | Mutagen schema constant | Keep |
+| `kind` | Mutagen stream discriminator | Keep |
+| `meta.id_scheme` | Mutagen ID scheme constant | Keep |
+| `meta.tool_version` | Mutagen build | Keep |
+| `meta.elixir_version` | Runner toolchain | Keep |
+| `meta.otp_version` | Runner toolchain | Keep |
+| `scope[].file` | Repository or CLI path | Keep |
+| `scope[].module` | Repository module declaration | Keep |
+| `tests.files[]` | Repository or CLI path | Keep |
+| `tests.include[]` | CLI selector or host helper | Keep CLI strings. Keep literal helper tag keys. Use the fixed token `host tag` for other helper keys. Omit helper values. |
+| `tests.exclude[]` | CLI selector or host helper | Same filter policy as include |
+| `tests.include[].kind` | Mutagen location discriminator | Keep |
+| `tests.include[].file` | CLI location | Keep |
+| `tests.exclude[].kind` | Mutagen location discriminator | Keep |
+| `tests.exclude[].file` | CLI location | Keep |
+| `coverage.covered_lines{key}` | Repository path | Keep |
+| `baseline.failures[].module` | Repository test module | Keep with a failure count |
+| `mutation.results[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.results[].file` | Repository path | Keep with source enabled |
+| `mutation.results[].function` | Repository definition | Keep with source enabled |
+| `mutation.results[].before` | Repository AST | Strip controls and Unicode format characters. Cap. Omit with source disabled. |
+| `mutation.results[].before_source` | Repository slice or AST | Same treatment as before |
+| `mutation.results[].after` | AST produced from repository source | Same treatment as before |
+| `mutation.results[].mutator` | Mutagen catalog | Keep |
+| `mutation.results[].confidence` | Mutagen catalog | Keep |
+| `mutation.results[].status` | Mutagen verdict vocabulary | Keep |
+| `mutation.results[].warnings[]` | Mutagen text, repository references, or host diagnostics | Keep tool warnings. Render host-derived names as counts. Omit host bodies. |
+| `mutation.compile_errors[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.compile_errors[].file` | Repository path | Keep with source enabled |
+| `mutation.compile_errors[].function` | Repository definition | Keep with source enabled |
+| `mutation.compile_errors[].mutator` | Mutagen catalog | Keep |
+| `mutation.compile_errors[].confidence` | Mutagen catalog | Keep |
+| `mutation.compile_errors[].diagnostic` | Mutagen constant | Keep with source enabled |
+| `mutation.compile_errors[].exception` | Exception type | Keep OTP, Elixir, dependency, and compiled project names. Compiled project names are repository text. Use `host exception` for other names. |
+| `mutation.skipped[].site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.skipped[].file` | Repository path | Keep |
+| `mutation.skipped[].reason` | Mutagen enumeration vocabulary | Keep |
+| `mutation.skipped[].mutator` | Mutagen catalog | Keep |
+| `mutation.state_drift_warning{key}` | Repository module declaration | Keep |
+| `mutation.state_drift_warning{}[]` | Repository use directive | Keep |
+| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Render host-derived names as counts. Omit host bodies. Deduplicate. |
+| `abort_reason` | Mutagen abort vocabulary | Keep |
+| `details.flag` | CLI flag | Keep |
+| `details.file` | CLI or repository path, or a repository stack frame on raise | Keep repository stack frames relative to root. Omit missing or unverifiable frames. |
+| `details.origin_file` | Repository stack frame | Keep relative to root |
+| `details.module` | CLI argument or repository module | Keep |
+| `details.exception` | Exception type | Same provenance policy as compile error exception |
+| `details.reason` | Mutagen abort vocabulary or host reason | Keep known atoms. Replace other reasons with `host_reason`. |
+| `details.site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `details.phase` | Mutagen phase name | Keep |
+| `details.step` | Mutagen step name | Keep |
+| `details.hint` | Mutagen constant | Keep |
+| `details.note` | Mutagen constant | Keep |
+| `details.failures[].module` | Repository test module | Keep with a failure count |
+| `details.include[]` | CLI selector or host helper | Same filter policy as tests include |
+| `details.include[].kind` | Mutagen location discriminator | Keep |
+| `details.include[].file` | CLI location | Keep |
+| `details.exclude[]` | CLI selector or host helper | Same filter policy as tests exclude |
+| `details.exclude[].kind` | Mutagen location discriminator | Keep |
+| `details.exclude[].file` | CLI location | Keep |
+
+With `--include-host-output`, the report can also carry diagnostic bodies
+in `details.message`, compile errors, and warnings. It can include actual
+test names, helper filters, host warning names, and dynamic reason and
+exception names. Pattern redaction is best-effort.

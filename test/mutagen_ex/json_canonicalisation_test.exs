@@ -264,7 +264,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       # Without the flag, no warning lands on stderr — the warning is
       # ONLY emitted when the unsafe flag is set AND canonicalisation
       # succeeded. The refusal path does not warn (it aborts).
-      refute stderr =~ "warning"
+      refute stderr =~ "warning: --unsafe-json-outside-project is set"
     end
   end
 

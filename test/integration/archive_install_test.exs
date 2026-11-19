@@ -14,7 +14,13 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
   @project_root Path.expand("../..", __DIR__)
 
-  @tag spec: ["mutagen.cli.r5", "mutagen.cli.r16", "mutagen.cli.r19", "mutagen.cli.r21"]
+  @tag spec: [
+         "mutagen.cli.r5",
+         "mutagen.cli.r16",
+         "mutagen.cli.r19",
+         "mutagen.cli.r21",
+         "mutagen.cli.r28"
+       ]
   test "fresh-shell `mix mutagen` succeeds when mutagen_ex is installed as an archive" do
     version = MutagenEx.MixProject.project()[:version]
     archive_filename = "mutagen_ex-#{version}.ez"
@@ -41,6 +47,13 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
     assert File.exists?(archive_path),
            "expected `Mix.Task.run(\"archive.build\")` to create #{archive_path}"
+
+    {:ok, packaged_paths} = :zip.list_dir(String.to_charlist(archive_path))
+
+    refute Enum.any?(packaged_paths, fn
+             {:zip_file, name, _, _, _, _} -> to_string(name) =~ "/helper_scripts/"
+             _ -> false
+           end)
 
     {install_out, install_code} =
       System.cmd("mix", ["archive.install", "--force", archive_path],
@@ -262,7 +275,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
     assert %{
              "abort_reason" => "host_setup_timeout",
-             "details" => %{"step" => "host_app_start_failed"}
+             "details" => %{"step" => "host_app"}
            } =
              :json.decode(timed_out)
   end

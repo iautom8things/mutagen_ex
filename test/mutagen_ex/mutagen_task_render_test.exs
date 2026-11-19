@@ -75,6 +75,27 @@ defmodule Mix.Tasks.MutagenRenderTest do
     end
   end
 
+  @tag spec: "mutagen.json_schema.r21"
+  test "binary operators with literal left operands include both operands" do
+    [result] = sample_results(1)
+
+    for source <- ["5432 + n", "true and enabled", ~s("low" == name), "[1, 2] ++ list"] do
+      ast = Code.string_to_quoted!(source, columns: true, token_metadata: true)
+
+      rendered =
+        result
+        |> Map.merge(%{
+          original_ast: ast,
+          source_text: source,
+          end_line: 1,
+          end_column: String.length(source) + 1
+        })
+        |> Mix.Tasks.Mutagen.__render_result__()
+
+      assert rendered.before_source == source
+    end
+  end
+
   # --------------------------------------------------------------------
   # r12 fallback path: legacy callers (no end_line/end_column/source_text)
   # --------------------------------------------------------------------

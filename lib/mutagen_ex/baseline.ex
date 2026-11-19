@@ -158,15 +158,15 @@ defmodule MutagenEx.Baseline do
         {:cont, :ok}
       rescue
         e ->
-          {:halt,
-           {:error, :test_file_load_failed,
-            %{
-              file: file,
-              message:
-                MutagenEx.JsonReporter.Sanitizer.clean(
-                  "could not load test file #{inspect(file)}: #{Exception.message(e)}"
-                )
-            }}}
+          details =
+            e
+            |> MutagenEx.Runtime.exception_facts(__STACKTRACE__)
+            |> Map.put(
+              :message,
+              "could not load test file #{inspect(file)}: #{Exception.message(e)}"
+            )
+
+          {:halt, {:error, :test_file_load_failed, details}}
       end
     end)
   end
