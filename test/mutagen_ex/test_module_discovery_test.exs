@@ -19,7 +19,11 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     defmodule DiscoverySample do
       def helper, do: :ok
 
-      defmodule Case do
+      defmodule ZCase do
+        def __ex_unit__, do: :sample
+      end
+
+      defmodule ACase do
         def __ex_unit__, do: :sample
       end
     end
@@ -37,11 +41,11 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     Code.compile_file(second)
 
     assert TestModuleDiscovery.discover([]) == []
-    assert TestModuleDiscovery.discover([first]) == [{DiscoverySample.Case, @config}]
+    cases = [{DiscoverySample.ZCase, @config}, {DiscoverySample.ACase, @config}]
+    assert TestModuleDiscovery.discover([first]) == cases
 
     assert TestModuleDiscovery.discover([second, first]) == [
-             {OtherDiscoveryCase, @config},
-             {DiscoverySample.Case, @config}
+             {OtherDiscoveryCase, @config} | cases
            ]
   end
 end
