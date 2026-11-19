@@ -867,11 +867,14 @@ defmodule Mix.Tasks.Mutagen do
 
       {:error, :baseline_red, details} ->
         # r1: baseline failures populate `baseline` on the abort report.
+        # The ExUnit counts feed the after-suite callbacks, not the document.
+        {suite_stats, details} = Map.pop(details, :suite_stats)
+
         partial_baseline = %{
           "passed" => Map.get(details, :passed, 0),
           "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
           "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1),
-          suite_stats: details[:suite_stats]
+          suite_stats: suite_stats
         }
 
         partial = %Report{report | baseline: partial_baseline}
