@@ -42,6 +42,13 @@ file for traceability.
 
 ### Changed
 
+- **Mutation IDs and report schema are now version 2.** IDs include the
+  enclosing definition, normalized expression, and occurrence among
+  identical sites. Whitespace and unrelated line shifts preserve the same
+  site IDs. JSON and NDJSON identify the scheme in `meta.id_scheme` and
+  include the enclosing function on each result. IDs and reports from
+  earlier versions cannot be compared with version 2.
+
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock
   speedup on the project's benchmark fixture — without changing any
