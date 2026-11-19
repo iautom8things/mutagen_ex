@@ -318,13 +318,9 @@ defmodule MutagenEx.Integration.StreamCliTest do
     _ -> :error
   end
 
-  # `mix new`/`mix mutagen` honor MIX_*/ELIXIR_* from the parent. Drop
-  # MIX_ENV (so the tmp project compiles in :dev) and MIX_TARGET (default
-  # target) while preserving everything HOME/PATH-rooted that Hex/rebar3
-  # need. Mirrors DownstreamAdoptionTest.clean_env/0.
   defp clean_env do
     [
-      {"MIX_ENV", nil},
+      {"MIX_ENV", "test"},
       {"MIX_TARGET", nil}
     ]
   end

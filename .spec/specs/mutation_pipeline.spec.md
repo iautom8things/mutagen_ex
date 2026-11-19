@@ -38,6 +38,8 @@ surface:
   - lib/mutagen_ex/test/code_server.ex
   - lib/mutagen_ex/test/code_server_facade.ex
   - lib/mutagen_ex/test/failure_formatter.ex
+  - lib/mutagen_ex/test/run_group.ex
+  - lib/mutagen_ex/test/suite.ex
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
@@ -56,6 +58,7 @@ decisions:
   - mutagen.decision.parallel_experimental_gate
   - mutagen.decision.adoption_polish_efficacy
   - mutagen.decision.ancora_migration
+  - mutagen.decision.host_test_setup
 ```
 
 ```spec-requirements
@@ -135,7 +138,8 @@ decisions:
     `:timeout` (the deadline passed and r4 does not classify the site
     `:killed`),
     `:compile_error` (Code.compile_quoted/1 raised on the swapped AST),
-    `:error` (uncaught exception or unexpected return from the test runner).
+    `:error` (the per-site task exited, or the test runner returned a
+    value the runner cannot classify).
     `:compile_error` outcomes are NOT counted in the kill-rate denominator;
     the others all are. A mutation whose surviving code raises an
     uncaught runtime exception that causes a cited test to fail
@@ -149,7 +153,9 @@ decisions:
     trigger for `:timeout`. Tests or fixtures that need deterministic
     `:timeout` classification (per r4) must induce divergence by other
     means — e.g., `:arith` flipping a recursive descent so the
-    recursion never approaches its base case.
+    recursion never approaches its base case. A raise, throw, or exit out
+    of `ExUnit.run/0` itself is not a per-site outcome: it aborts the run
+    per r21.
 
 - id: mutagen.mutation_pipeline.r6
   priority: must
@@ -316,7 +322,9 @@ decisions:
     follows; the call itself is synchronous only with respect to
     the direct child task. Hand-rolled trap-exit'd descendants
     that swallow `{:EXIT, _, :shutdown}` info messages (a known
-    test anti-pattern) remain leaked; snapshot-delta detection
+    test anti-pattern) survive `terminate_child/2`. The group reap
+    of r22 kills such a descendant when it kept the site's group
+    leader. Otherwise it remains leaked, and snapshot-delta detection
     (mutagen.mutation_pipeline.r7) continues to detect these as
     advisory growth signals.
 
@@ -493,6 +501,47 @@ decisions:
     can change that later site's verdict in either direction. Per
     mutagen.decision.per_mutant_fail_fast this is an accepted caveat,
     and `--no-fail-fast` (mutagen.cli.r17) runs the full suite.
+
+- id: mutagen.mutation_pipeline.r21
+  priority: must
+  statement: |
+    A raise, throw, or exit out of `ExUnit.run/0` is a run failure, not a
+    mutation outcome. In the baseline phase `Baseline.run/1` returns
+    `{:error, :ex_unit_run_failed, %{message: msg}}`. In the mutation
+    phase `MutationRunner.run/1` restores the site's module, dispatches
+    no further sites, and returns
+    `{:error, :ex_unit_run_failed, %{message: msg, site_id: id}}` naming
+    the site whose run failed. `msg` names the phase and how the run
+    ended (`raised`, `caught exit`, or `caught throw`) and is sanitized
+    per mutagen.json_schema.r10 and r17. The pipeline aborts with
+    `abort_reason: "ex_unit_run_failed"`.
+
+    The baseline pass must execute at least one test. When ExUnit's
+    result has a `total` no greater than `excluded + skipped` and no
+    failures, `Baseline.run/1` returns `{:error, :no_tests_run, details}`
+    with `phase: :baseline`, the `excluded` and `skipped` counts, and the
+    effective `include` and `exclude` filters, and the pipeline aborts
+    with `abort_reason: "no_tests_run"` before any mutation runs.
+
+- id: mutagen.mutation_pipeline.r22
+  priority: must
+  statement: |
+    `MutationLoop.run/1` gives each site's test run its own group leader,
+    a process that forwards I/O requests to the caller's group leader.
+    The per-site task and every process spawned under it that keeps the
+    inherited group leader, including ExUnit's monitored (unlinked) module
+    and test workers, belong to that group.
+
+    When the site's run ends any way other than a reply completed by its
+    deadline (r4), that is on a timeout, a task exit, or an ExUnit failure
+    per r21, the runner kills
+    every member with `Process.exit(pid, :kill)` and waits for each
+    `:DOWN`, repeating until no member remains, before `run/1` returns.
+    With the real ExUnit backend and `max_concurrency == 1` it then calls
+    the ExUnit server's `discard_pending_modules/0` (r10), so the next
+    site's run sees only the modules it registers. After a reply completed
+    by its deadline, members still alive get the caller's group leader
+    back and keep running.
 ```
 
 ```spec-scenarios
@@ -748,6 +797,35 @@ decisions:
     - With the cleanup module, two sites that survive with `--no-fail-fast` are `killed` in the default mode, and the leftover state is still set afterwards.
     - With the restore module, a site that `--no-fail-fast` kills survives in the default mode.
     - Both runs report the same site IDs in the same order.
+
+- id: mutagen.mutation_pipeline.s25a
+  covers: [mutagen.mutation_pipeline.r21, mutagen.mutation_pipeline.r5]
+  given:
+    - "The test runner raises a `RuntimeError` from `ExUnit.run/0` while site `e1` is loaded."
+  when:
+    - "`MutationRunner.run/1` processes `e1`."
+  then:
+    - "It returns `{:error, :ex_unit_run_failed, %{site_id: \"e1\", message: msg}}`, where `msg` contains `ExUnit.run/0 raised during mutation`."
+    - "No result for `e1` is classified `:error`."
+
+- id: mutagen.mutation_pipeline.s25b
+  covers: [mutagen.mutation_pipeline.r21]
+  given:
+    - "The cited selection's filters exclude one test and skip the other, so the baseline pass reports `%{total: 2, excluded: 1, skipped: 1, failures: 0}`."
+  when:
+    - "`Baseline.run/1` runs."
+  then:
+    - "It returns `{:error, :no_tests_run, %{phase: :baseline, excluded: 1, skipped: 1, ...}}` and no mutation runs."
+
+- id: mutagen.mutation_pipeline.s26
+  covers: [mutagen.mutation_pipeline.r22]
+  given:
+    - A site's test run spawns an unlinked worker and then blocks past `Config.timeout_ms`.
+  when:
+    - "`MutationLoop.run/1` returns `{:timeout, _}`."
+  then:
+    - The worker is no longer alive when `run/1` returns.
+    - In a run that completes normally, a worker that is still alive afterwards has the caller's group leader.
 ```
 
 ```spec-verification
@@ -774,4 +852,6 @@ decisions:
     - mutagen.mutation_pipeline.r18
     - mutagen.mutation_pipeline.r19
     - mutagen.mutation_pipeline.r20
+    - mutagen.mutation_pipeline.r21
+    - mutagen.mutation_pipeline.r22
 ```

@@ -104,11 +104,9 @@ defmodule MutagenEx.JsonPath do
   @doc """
   Filesystem-level canonicalisation.
 
-  Returns `{:ok, absolute_path}` where `absolute_path` is the fully-resolved
-  path that should be passed to `File.write!/2`. The returned path is
-  absolute and symlink-free for every component that already exists; the
-  final component (the report file) is allowed to be missing — it will be
-  created at write time.
+  Returns `{:ok, absolute_path}` for the resolved destination. Existing
+  symlinks are resolved. The report file or its parent can be missing.
+  The writer rechecks the destination before creating or replacing it.
 
   Rejects `{:error, :unsafe_json_path, details}` when:
 

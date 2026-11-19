@@ -87,6 +87,7 @@ ExUnit.start(
       :downstream_integration,
       :archive_integration,
       :stream_integration,
+      :host_setup_integration,
       :mutagen_baseline_red_guard,
       :self_mutation
     ] ++ cover_exclusions

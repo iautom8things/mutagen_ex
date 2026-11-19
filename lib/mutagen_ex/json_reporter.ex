@@ -7,16 +7,9 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
   r10, r11.
 
-  ## Why
-
-  Stderr, exception messages, and `Macro.to_string/1` output flow
-  verbatim into `warnings`, `compile_errors[].message`, and the abort
-  detail block. Unbounded, they let a single mutated module spray
-  multi-MB of compiler diagnostics — including source slices that may
-  contain secrets — into a JSON report that, when written with the lax
-  `--json <path>` flag, becomes a file-system-resident artifact. The
-  sanitizer is the choke point that bounds these strings before they
-  hit the wire.
+  Compiler diagnostics and exception messages can include credentials or
+  large excerpts from host code. This module redacts and bounds those
+  messages before the reporter serializes them.
 
   ## Truncation (r10)
 
@@ -29,7 +22,8 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
 
   ## Redaction (r11)
 
-  Opt-in via application config:
+  Built-in patterns redact URL userinfo, common credential keys, and
+  token prefixes. Add patterns via application config:
 
       config :mutagen_ex, redact: [~r/AWS_SECRET[A-Z0-9_]+=\\S+/, "BEARER \\S+"]
 
@@ -38,7 +32,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   Redaction runs BEFORE truncation so the replacement does not push
   redacted bytes past the cap and then drop them as truncated text.
 
-  Default `redact:` is `[]` (no redaction).
+  The default extra pattern list is empty.
 
   ## API
 
@@ -54,6 +48,41 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   @default_byte_size_limit 4 * 1024
   @redact_replacement "[REDACTED]"
 
+  # A key is secret when one of its snake, kebab or SCREAMING segments is a
+  # credential word: db_password, api-token, AWS_SECRET_ACCESS_KEY.
+  @secret_words ~w(password passwd secret token apikey api[_-]key authorization private[_-]key)
+  @secret_key_pattern "(?:[a-z0-9]*[_-])*(?:#{Enum.join(@secret_words, "|")})(?:[_-][a-z0-9]*)*"
+  @secret_key Regex.compile!("\\A#{@secret_key_pattern}\\z", "i")
+  @credentials ~r{([a-z][a-z0-9+.-]*://[^/:@\s"'<>]+:)[^@\s"'<>]+(@)}i
+  @uri_fields ~r{((?:authority|userinfo):\s*"[^:"\s]+:)[^@"\s]+}i
+  @secret_pair Regex.compile!(
+                 ~S'''
+                 ((?<![\w-])#{keys}["']?\s*(?>=>|:|=)\s*)(?!\[REDACTED\](?:$|[\s&,}\]]))(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:bearer|basic)\s+[^\s&,}\]]+|[^\s&,}\]]+)
+                 '''
+                 |> String.trim()
+                 |> String.replace(~S(#{keys}), @secret_key_pattern),
+                 "i"
+               )
+  @token_prefix ~r/\b(?:gh[pousr]_|github_pat_|xox[baprs]-|sk_live_|AKIA)[A-Za-z0-9_-]{12,}/
+
+  def secret_key?(key) when is_binary(key), do: Regex.match?(@secret_key, key)
+
+  def summary(message) do
+    message
+    |> redact()
+    |> String.split("\n", parts: 2)
+    |> hd()
+    |> truncate(512)
+  end
+
+  defp redact(message, patterns \\ configured_patterns()) do
+    message = Regex.replace(@credentials, message, "\\1[REDACTED]\\2")
+    message = Regex.replace(@uri_fields, message, "\\1[REDACTED]")
+    message = Regex.replace(@secret_pair, message, "\\1[REDACTED]")
+    message = Regex.replace(@token_prefix, message, @redact_replacement)
+    apply_redactions(message, patterns)
+  end
+
   @doc """
   Default byte-size limit. The cap is fixed at 4 KiB in v1. A future
   version may make it configurable; until then, callers that need a
@@ -64,7 +93,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   def byte_size_limit, do: @default_byte_size_limit
 
   @doc """
-  Redact (per application env `:redact`) then truncate (to 4 KiB).
+  Apply built-in and configured redactions, then truncate to 4 KiB.
   Returns the cleaned binary. Non-binary input is converted via
   `to_string/1` first; `nil` is returned unchanged so callers can chain
   with optional fields.
@@ -92,7 +121,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
 
     value
     |> to_binary()
-    |> apply_redactions(patterns)
+    |> redact(patterns)
     |> truncate(limit)
   end
 
@@ -355,6 +384,18 @@ defmodule MutagenEx.JsonReporter do
           | :too_many_sites
           | :invalid_max_sites
           | :invalid_budget_ms
+          | :invalid_mix_env
+          | :host_loadpaths_failed
+          | :host_compile_failed
+          | :host_app_start_failed
+          | :runtime_load_failed
+          | :test_helper_load_failed
+          | :test_alias_failed
+          | :host_setup_timeout
+          | :invalid_boot_timeout
+          | :umbrella_root
+          | :after_suite_failed
+          | :no_tests_run
 
   @doc """
   Emit the success-shape JSON document.
@@ -416,7 +457,7 @@ defmodule MutagenEx.JsonReporter do
       "baseline" => baseline_to_wire(r.baseline),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation),
-      "warnings" => r.warnings || [],
+      "warnings" => Enum.map(r.warnings || [], &Sanitizer.clean/1),
       "aborted" => r.aborted == true,
       "abort_reason" => r.abort_reason,
       "details" => details_to_wire(r.details),
@@ -434,7 +475,10 @@ defmodule MutagenEx.JsonReporter do
 
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
-      {detail_key_to_wire(key), detail_value_to_wire(value)}
+      key = detail_key_to_wire(key)
+
+      {Sanitizer.clean(key),
+       if(Sanitizer.secret_key?(key), do: "[REDACTED]", else: detail_value_to_wire(value))}
     end)
   end
 
@@ -488,18 +532,35 @@ defmodule MutagenEx.JsonReporter do
 
   defp tests_to_wire(%{include: include, exclude: exclude, files: files}) do
     %{
-      "include" => Enum.map(include, &filter_value_to_wire/1),
-      "exclude" => Enum.map(exclude, &filter_value_to_wire/1),
+      "include" => Enum.map(include, &filter_to_wire/1),
+      "exclude" => Enum.map(exclude, &filter_to_wire/1),
       "files" => Enum.map(files, &to_string/1)
     }
   end
 
-  defp filter_value_to_wire({:location, {path, line}}) do
-    %{"kind" => "location", "file" => to_string(path), "line" => line}
+  def filter_to_wire({:location, {path, line}}) do
+    %{"kind" => "location", "file" => Sanitizer.clean(path), "line" => line}
   end
 
-  defp filter_value_to_wire(value) when is_atom(value), do: Atom.to_string(value)
-  defp filter_value_to_wire(value) when is_binary(value), do: value
+  def filter_to_wire({:location, path}) when is_binary(path) do
+    %{"kind" => "location", "file" => Sanitizer.clean(path)}
+  end
+
+  def filter_to_wire({key, value}) do
+    key = to_string(key)
+
+    rendered =
+      cond do
+        Sanitizer.secret_key?(key) -> "[REDACTED]"
+        is_binary(value) or is_atom(value) or is_number(value) -> to_string(value)
+        true -> inspect(value)
+      end
+
+    Sanitizer.clean("#{key}:#{rendered}")
+  end
+
+  def filter_to_wire(value) when is_atom(value) or is_binary(value),
+    do: value |> to_string() |> Sanitizer.clean()
 
   defp baseline_to_wire(nil), do: nil
 
@@ -514,14 +575,22 @@ defmodule MutagenEx.JsonReporter do
   # The Mix task assembles baseline in already-wire form when building
   # the abort report (see partial_baseline in lib/mix/tasks/mutagen.ex);
   # pass it through unchanged.
-  defp baseline_to_wire(%{"passed" => _, "failed" => _, "failures" => _} = m), do: m
-
-  defp failure_to_wire({module, name}) do
-    %{"module" => inspect(module), "name" => to_string(name)}
+  defp baseline_to_wire(%{"passed" => passed, "failed" => failed, "failures" => failures}) do
+    %{
+      "passed" => passed,
+      "failed" => failed,
+      "failures" => Enum.map(failures, &failure_to_wire/1)
+    }
   end
 
-  defp failure_to_wire(%{module: module, name: name}) do
-    %{"module" => inspect(module), "name" => to_string(name)}
+  defp failure_to_wire({module, name}) do
+    failure_to_wire(%{"module" => inspect(module), "name" => to_string(name)})
+  end
+
+  defp failure_to_wire(%{module: module, name: name}), do: failure_to_wire({module, name})
+
+  defp failure_to_wire(%{"module" => module, "name" => name}) do
+    %{"module" => Sanitizer.clean(module), "name" => Sanitizer.clean(name)}
   end
 
   defp coverage_to_wire(nil), do: nil
@@ -578,7 +647,7 @@ defmodule MutagenEx.JsonReporter do
       "after" => Map.fetch!(result, :after),
       "status" => Atom.to_string(Map.fetch!(result, :status)),
       "tainted_predecessors" => Map.get(result, :tainted_predecessors, false) == true,
-      "warnings" => Map.get(result, :warnings, [])
+      "warnings" => Enum.map(Map.get(result, :warnings, []), &Sanitizer.clean/1)
     }
   end
 
@@ -598,13 +667,13 @@ defmodule MutagenEx.JsonReporter do
       "line" => Map.fetch!(entry, :line),
       "column" => Map.fetch!(entry, :column),
       "mutator" => Atom.to_string(Map.fetch!(entry, :mutator)),
-      "message" => Map.fetch!(entry, :message)
+      "message" => MutagenEx.JsonReporter.Sanitizer.clean(Map.fetch!(entry, :message))
     }
   end
 
   defp state_drift_to_wire(%{} = drift) do
     Enum.into(drift, %{}, fn {module, used_modules} ->
-      {inspect(module), Enum.map(used_modules, &inspect/1)}
+      {Sanitizer.clean(inspect(module)), Enum.map(used_modules, &Sanitizer.clean(inspect(&1)))}
     end)
   end
 
