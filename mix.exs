@@ -23,7 +23,7 @@ defmodule MutagenEx.MixProject do
       test_load_filters: [
         fn path ->
           String.ends_with?(path, "_test.exs") and
-            not String.starts_with?(path, "test/fixtures/lane_project/")
+            not String.starts_with?(path, "test/fixtures/")
         end
       ],
       test_ignore_filters: [
@@ -84,7 +84,7 @@ defmodule MutagenEx.MixProject do
   defp aliases do
     [
       "test.integration":
-        "test --include downstream_integration --include archive_integration --include stream_integration --include self_mutation test/integration"
+        "test --include downstream_integration --include archive_integration --include stream_integration --include host_setup_integration --include self_mutation test/integration"
     ]
   end
 
