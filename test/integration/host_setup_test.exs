@@ -35,27 +35,11 @@ defmodule MutagenEx.Integration.HostSetupTest do
       helper = File.read!(Path.join(host.dir, helper_path))
       trace = Path.join(host.dir, "sandbox.log")
 
+      # Mix can start the inner async case before the enclosing module compiles.
       tests = """
-      defmodule HostSetupFixture.SandboxOrderTest do
-        use HostSetupFixture.DataCase, async: true
-        import Mox
-        alias HostSetupFixture.{Order, Orders, PricingMock, Repo}
-
-        defmodule Inner do
-          use HostSetupFixture.DataCase, async: true
-          @tag :pricing
-          test "inner", tags do
-            HostSetupFixture.SandboxOrderTest.record(:inner, tags.async)
-          end
-        end
-
-        @tag :pricing
-        test "outer", tags do
-          record(:outer, tags.async)
-          expect(PricingMock, :rate, fn -> 4 end)
-          order = Repo.insert!(%Order{quantity: 3})
-          assert Orders.price(order.id) == 14
-        end
+      defmodule HostSetupFixture.SandboxProbe do
+        import ExUnit.Assertions
+        alias HostSetupFixture.Repo
 
         def record(case_name, async) do
           assert %{rows: [[1]]} = Repo.query!("SELECT 1")
@@ -75,6 +59,28 @@ defmodule MutagenEx.Integration.HostSetupTest do
 
           assert_receive {:sandbox_mode, mode}, 1_000
           File.write!("sandbox.log", "\#{case_name} \#{async} \#{mode}\\n", [:append])
+        end
+      end
+
+      defmodule HostSetupFixture.SandboxOrderTest do
+        use HostSetupFixture.DataCase, async: true
+        import Mox
+        alias HostSetupFixture.{Order, Orders, PricingMock, Repo, SandboxProbe}
+
+        defmodule Inner do
+          use HostSetupFixture.DataCase, async: true
+          @tag :pricing
+          test "inner", tags do
+            HostSetupFixture.SandboxProbe.record(:inner, tags.async)
+          end
+        end
+
+        @tag :pricing
+        test "outer", tags do
+          SandboxProbe.record(:outer, tags.async)
+          expect(PricingMock, :rate, fn -> 4 end)
+          order = Repo.insert!(%Order{quantity: 3})
+          assert Orders.price(order.id) == 14
         end
       end
       """
