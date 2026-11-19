@@ -540,7 +540,7 @@ decisions:
 - id: mutagen.cli.r29
   priority: must
   statement: |
-    The CI workflow pins action references by full commit SHA, disables
+    The CI workflow pins action references by full commit SHA with an exact version comment, disables
     persisted checkout credentials, and reads the Elixir and OTP versions
     from .tool-versions in both jobs.
 
