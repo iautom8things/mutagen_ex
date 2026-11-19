@@ -35,6 +35,8 @@ defmodule MutagenEx.MutationEnumerator.Site do
       between the leftmost descendant's `{line, column}` and this
       `{end_line, end_column}` to obtain a byte-faithful
       `before_source` per `mutagen.json_schema.r4`.
+    * `:source_span` — byte offset and length of the expression in the cached
+      source text, when source reporting is enabled and the span is available.
   """
 
   @enforce_keys [:id, :file, :line, :column, :mutator, :original_ast, :mutated_ast, :path]
@@ -49,7 +51,8 @@ defmodule MutagenEx.MutationEnumerator.Site do
     :path,
     function: nil,
     end_line: nil,
-    end_column: nil
+    end_column: nil,
+    source_span: nil
   ]
 
   @type path_step ::
@@ -66,7 +69,8 @@ defmodule MutagenEx.MutationEnumerator.Site do
           path: [path_step()],
           function: String.t() | nil,
           end_line: pos_integer() | nil,
-          end_column: pos_integer() | nil
+          end_column: pos_integer() | nil,
+          source_span: {non_neg_integer(), pos_integer()} | nil
         }
 end
 
@@ -117,6 +121,7 @@ defmodule MutagenEx.MutationEnumerator do
       `MutagenEx.Mutators.all/0`. Exposed so unit tests can drive the
       enumerator against a smaller, deterministic subset (e.g. arith-only)
       without bringing the whole catalog into a fixture.
+    * `:source` — collect byte spans for source excerpts. Defaults to `true`.
 
   ## Determinism contract (r1)
 
@@ -203,6 +208,7 @@ defmodule MutagenEx.MutationEnumerator do
     mutators = Keyword.get(opts, :mutators, Mutators.all())
     max_sites = Keyword.get(opts, :max_sites)
     dispatch_mode = Keyword.get(opts, :dispatch_mode, :head_atom)
+    source? = Keyword.get(opts, :source, true)
 
     unless dispatch_mode in [:head_atom, :legacy] do
       raise ArgumentError,
@@ -243,11 +249,33 @@ defmodule MutagenEx.MutationEnumerator do
 
       true ->
         %{
-          sites: Enum.reverse(final.sites),
+          sites: add_source_spans(Enum.reverse(final.sites), ast_cache, source?),
           skipped: Enum.reverse(final.skipped),
           warnings: Enum.reverse(final.warnings)
         }
     end
+  end
+
+  defp add_source_spans(sites, _ast_cache, false), do: sites
+
+  defp add_source_spans(sites, ast_cache, true) do
+    spans_by_file =
+      for {file, file_sites} <- Enum.group_by(sites, & &1.file),
+          {_, source} when is_binary(source) <- [Map.get(ast_cache, file)],
+          into: %{} do
+        index = MutagenEx.JsonReporter.Source.index(source, file)
+
+        spans =
+          Map.new(file_sites, fn %{path: path} ->
+            {path, MutagenEx.JsonReporter.Source.span(index, path)}
+          end)
+
+        {file, spans}
+      end
+
+    Enum.map(sites, fn site ->
+      %{site | source_span: spans_by_file[site.file][site.path]}
+    end)
   end
 
   # Count occurrences in file order before applying scope or coverage filters.

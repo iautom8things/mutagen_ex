@@ -363,55 +363,73 @@ defmodule MutagenEx.JsonReporter do
   Atom-shaped reason for any non-zero exit. Matches the vocabulary in
   `mutagen.json_schema.r5`.
   """
+  @abort_hints %{
+    "arity_required" => "Use Module.function/arity for a function scope.",
+    "baseline_red" => "Fix the listed failing tests before running mutations.",
+    "baseline_timeout" => "Narrow --tests or increase --boot-timeout-ms or --timeout-ms.",
+    "colon_syntax_unsupported" => "Use Module.function/arity for a function scope.",
+    "cover_already_running" => "Stop existing OTP coverage before running mutagen.",
+    "cover_compile_failed" => "Check that OTP coverage can instrument the selected module.",
+    "cover_module_unavailable" => "Check that the Erlang tools application is installed.",
+    "coverage_timeout" => "Narrow --tests or increase --boot-timeout-ms or --timeout-ms.",
+    "ex_unit_run_failed" => "Check the ExUnit setup and formatters for the named phase.",
+    "file_not_found" => "Check that the selected source or test file exists.",
+    "file_read_failed" => "Check permissions on the reported file.",
+    "flag_not_supported_in_v1" => "Use the JSON report format.",
+    "function_not_found" => "Check the function name and arity against the source.",
+    "host_app_start_failed" => "Check runtime configuration and host application startup.",
+    "host_compile_failed" => "Run mix compile in the host test environment.",
+    "host_loadpaths_failed" => "Run mix loadpaths in the host test environment.",
+    "host_setup_timeout" => "Check the named startup step or increase --boot-timeout-ms.",
+    "invalid_boot_timeout" => "Pass a positive integer to --boot-timeout-ms.",
+    "invalid_budget_ms" => "Pass a positive integer to --budget-ms.",
+    "invalid_input" => "Check the arguments passed to mutagen.",
+    "invalid_line" => "Use a positive test line number.",
+    "invalid_max_concurrency" => "Pass a positive integer to --max-concurrency.",
+    "invalid_max_sites" => "Pass a positive integer to --max-sites.",
+    "invalid_mix_env" => "Run the command with MIX_ENV=test.",
+    "invalid_redact_config" => "Set :mutagen_ex, :redact to a list of valid regular expressions.",
+    "invalid_seed" => "Pass a non-negative integer to --seed.",
+    "invalid_tag_name" => "Check the spelling and format of the test tag.",
+    "invalid_target" => "Use a test file, file:line or tag:name as the test target.",
+    "invalid_timeout" => "Pass a positive integer to --timeout-ms.",
+    "missing_scope" => "Pass --scope with a source file, module or function.",
+    "missing_tests" => "Pass --tests with a test file, location or tag.",
+    "module_beam_missing" => "Compile the selected module in the host test environment.",
+    "module_not_found" => "Check the module name and that its source compiles.",
+    "no_tests_match" => "Choose a test target that resolves to a test file.",
+    "no_tests_run" => "Check the cited tests and the effective ExUnit filters.",
+    "parse_error" => "Fix the syntax at the reported file and line.",
+    "runtime_load_failed" =>
+      "Reinstall the mutagen_ex archive and check for module name collisions.",
+    "self_mutation_refused" => "Choose a scope outside MutagenEx.",
+    "test_alias_failed" => "Run the host test alias and check its setup steps.",
+    "test_file_load_failed" => "Check that the reported test file loads after test_helper.exs.",
+    "test_helper_load_failed" => "Check the test helper at the reported location.",
+    "too_many_sites" => "Narrow --scope or increase --max-sites.",
+    "too_many_targets" => "Reduce the number of scope or test targets.",
+    "umbrella_root" => "Run from the umbrella child that owns the tests.",
+    "unknown_flag" => "Check the supported options with mix help mutagen.",
+    "unrecognised_target" => "Check the format of the scope target.",
+    "unrecoverable_restore_failure" => "Start a fresh VM and check the reported module.",
+    "unsafe_json_path" =>
+      "Choose a path inside the project root or pass --unsafe-json-outside-project.",
+    "unsupported_elixir_version" => "Run Mutagen with Elixir 1.18.0 or later.",
+    "unsupported_otp_version" => "Run Mutagen with Erlang/OTP 27 or later."
+  }
+
   @type abort_reason ::
-          :missing_scope
-          | :missing_tests
-          | :invalid_timeout
-          | :invalid_seed
-          | :colon_syntax_unsupported
-          | :module_not_found
-          | :arity_required
-          | :unrecognised_target
-          | :file_not_found
-          | :file_read_failed
-          | :parse_error
-          | :no_tests_match
-          | :invalid_target
-          | :invalid_line
-          | :function_not_found
-          | :invalid_tag_name
-          | :invalid_max_concurrency
-          | :self_mutation_refused
-          | :cover_already_running
-          | :cover_module_unavailable
-          | :module_beam_missing
-          | :cover_compile_failed
-          | :ex_unit_run_failed
-          | :test_file_load_failed
-          | :baseline_red
-          | :unrecoverable_restore_failure
-          | :flag_not_supported_in_v1
-          | :unknown_flag
-          | :invalid_input
-          | :unsafe_json_path
-          | :too_many_targets
-          | :too_many_sites
-          | :invalid_max_sites
-          | :invalid_budget_ms
-          | :invalid_mix_env
-          | :host_loadpaths_failed
-          | :host_compile_failed
-          | :host_app_start_failed
-          | :runtime_load_failed
-          | :test_helper_load_failed
-          | :test_alias_failed
-          | :host_setup_timeout
-          | :invalid_boot_timeout
-          | :umbrella_root
-          | :coverage_timeout
-          | :baseline_timeout
-          | :invalid_redact_config
-          | :no_tests_run
+          unquote(
+            @abort_hints
+            |> Map.keys()
+            |> Enum.map(&String.to_atom/1)
+            |> Enum.reduce(&{:|, [], [&1, &2]})
+          )
+
+  @doc false
+  def abort_reasons, do: Map.keys(@abort_hints)
+
+  @unsupported_runtime_reasons ~w(unsupported_otp_version unsupported_elixir_version)
 
   @doc """
   Emit the success-shape JSON document.
@@ -441,13 +459,27 @@ defmodule MutagenEx.JsonReporter do
   @impl MutagenEx.Pipeline.ReporterErrorFacade
   @spec emit_error(Report.t(), abort_reason()) :: {iodata(), pos_integer()}
   def emit_error(%Report{} = report, abort_reason) when is_atom(abort_reason) do
-    aborted_report = %Report{
-      report
-      | aborted: true,
-        abort_reason: Atom.to_string(abort_reason)
-    }
+    aborted_report = %Report{report | aborted: true, abort_reason: Atom.to_string(abort_reason)}
 
     {encode(aborted_report), 2}
+  end
+
+  @doc false
+  def abort_reason_to_wire(nil), do: nil
+
+  def abort_reason_to_wire(reason) do
+    assert_known_abort!(reason)
+    reason
+  end
+
+  if Mix.env() == :test do
+    defp assert_known_abort!(reason) do
+      unless Map.has_key?(@abort_hints, reason) do
+        raise ArgumentError, "unknown Mutagen abort reason: #{reason}"
+      end
+    end
+  else
+    defp assert_known_abort!(_reason), do: :ok
   end
 
   # ---------------------------------------------------------------------------
@@ -457,11 +489,49 @@ defmodule MutagenEx.JsonReporter do
   # Build the wire-shape map from the in-memory `%Report{}` and encode.
   # The wire shape uses string keys (the schema is documented in terms of
   # JSON keys; we don't want to leak atom-key idioms into the contract).
+  # Startup errors must work before either runtime's JSON encoder exists.
+  defp encode(%Report{abort_reason: reason} = report)
+       when reason in @unsupported_runtime_reasons do
+    [startup_json(to_wire(report)), ?\n]
+  end
+
   defp encode(%Report{} = report) do
     doc = to_wire(report)
 
     iodata = :json.encode(doc, &encoder/2)
     [iodata, ?\n]
+  end
+
+  defp startup_json(nil), do: "null"
+  defp startup_json(true), do: "true"
+  defp startup_json(false), do: "false"
+  defp startup_json(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp startup_json(value) when is_binary(value) do
+    escaped =
+      for <<point::utf8 <- value>> do
+        case point do
+          ?" -> ~S(\")
+          ?\\ -> ~S(\\)
+          control when control < 32 -> ["\\u00", Base.encode16(<<control>>)]
+          _ -> <<point::utf8>>
+        end
+      end
+
+    [?", escaped, ?"]
+  end
+
+  defp startup_json(list) when is_list(list) do
+    [?[, Enum.map_intersperse(list, ?,, &startup_json/1), ?]]
+  end
+
+  defp startup_json(map) when is_map(map) do
+    entries =
+      Enum.map_intersperse(map, ?,, fn {key, value} ->
+        [startup_json(key), ?:, startup_json(value)]
+      end)
+
+    [?{, entries, ?}]
   end
 
   defp to_wire(%Report{} = r) do
@@ -473,17 +543,39 @@ defmodule MutagenEx.JsonReporter do
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation, r),
-      "warnings" => warnings_to_wire(Enum.uniq(r.warnings || []), r) |> Enum.uniq(),
+      "warnings" => report_warnings(r),
       "aborted" => r.aborted == true,
-      "abort_reason" => r.abort_reason,
+      "abort_reason" => abort_reason_to_wire(r.abort_reason),
       "details" => details_to_wire(r.details, r.abort_reason, r.include_host_output),
       "truncated" => r.truncated == true
     }
   end
 
+  defp report_warnings(report) do
+    warnings = warnings_to_wire(Enum.uniq(report.warnings || []), report)
+
+    warnings =
+      case report.meta do
+        %{max_concurrency: limit} when is_integer(limit) and limit > 1 ->
+          ["Verdicts are unreliable in experimental parallel mode." | warnings]
+
+        _ ->
+          warnings
+      end
+
+    Enum.uniq(warnings)
+  end
+
   @structured_details ~w(file line column origin_file origin_line module exception reason phase step
                           note flag site_id passed failed failures excluded skipped include exclude
                           limit cap count actual max_sites)a
+
+  # The version values come from the runtime. Avoid compiled Regex structs,
+  # which an older Elixir may be unable to read when loading an archive.
+  defp details_to_wire(%{step: :startup, actual: actual}, reason, _include_host_output)
+       when reason in @unsupported_runtime_reasons do
+    put_hint(%{"step" => "startup", "actual" => actual}, reason)
+  end
 
   defp details_to_wire(details, reason, include_host_output) do
     details = details || %{}
@@ -565,156 +657,7 @@ defmodule MutagenEx.JsonReporter do
     )
   end
 
-  defp hint(reason) do
-    case reason do
-      "missing_scope" ->
-        "Pass --scope with a source file, module or function."
-
-      "missing_tests" ->
-        "Pass --tests with a test file, location or tag."
-
-      "invalid_timeout" ->
-        "Pass a positive integer to --timeout-ms."
-
-      "invalid_seed" ->
-        "Pass a non-negative integer to --seed."
-
-      "invalid_boot_timeout" ->
-        "Pass a positive integer to --boot-timeout-ms."
-
-      "invalid_budget_ms" ->
-        "Pass a positive integer to --budget-ms."
-
-      "invalid_max_sites" ->
-        "Pass a positive integer to --max-sites."
-
-      "invalid_max_concurrency" ->
-        "Pass a positive integer to --max-concurrency."
-
-      "invalid_redact_config" ->
-        "Set :mutagen_ex, :redact to a list of valid regular expressions."
-
-      "invalid_mix_env" ->
-        "Run the command with MIX_ENV=test."
-
-      "umbrella_root" ->
-        "Run from the umbrella child that owns the tests."
-
-      "runtime_load_failed" ->
-        "Reinstall the mutagen_ex archive and check for module name collisions."
-
-      "host_loadpaths_failed" ->
-        "Run mix loadpaths in the host test environment."
-
-      "host_compile_failed" ->
-        "Run mix compile in the host test environment."
-
-      "host_app_start_failed" ->
-        "Check runtime configuration and host application startup."
-
-      "test_alias_failed" ->
-        "Run the host test alias and check its setup steps."
-
-      "host_setup_timeout" ->
-        "Check the named startup step or increase --boot-timeout-ms."
-
-      "test_helper_load_failed" ->
-        "Check the test helper at the reported location."
-
-      "coverage_timeout" ->
-        "Narrow --tests or increase --boot-timeout-ms or --timeout-ms."
-
-      "baseline_timeout" ->
-        "Narrow --tests or increase --boot-timeout-ms or --timeout-ms."
-
-      "baseline_red" ->
-        "Fix the listed failing tests before running mutations."
-
-      "no_tests_run" ->
-        "Check the cited tests and the effective ExUnit filters."
-
-      "module_not_found" ->
-        "Check the module name and that its source compiles."
-
-      "function_not_found" ->
-        "Check the function name and arity against the source."
-
-      "arity_required" ->
-        "Use Module.function/arity for a function scope."
-
-      "colon_syntax_unsupported" ->
-        "Use Module.function/arity for a function scope."
-
-      "unrecognised_target" ->
-        "Check the format of the scope target."
-
-      "file_not_found" ->
-        "Check that the selected source or test file exists."
-
-      "file_read_failed" ->
-        "Check permissions on the reported file."
-
-      "parse_error" ->
-        "Fix the syntax at the reported file and line."
-
-      "no_tests_match" ->
-        "Choose a test target that resolves to a test file."
-
-      "invalid_target" ->
-        "Use a test file, file:line or tag:name as the test target."
-
-      "invalid_line" ->
-        "Use a positive test line number."
-
-      "invalid_tag_name" ->
-        "Check the spelling and format of the test tag."
-
-      "self_mutation_refused" ->
-        "Choose a scope outside MutagenEx."
-
-      "cover_already_running" ->
-        "Stop existing OTP coverage before running mutagen."
-
-      "cover_module_unavailable" ->
-        "Check that the Erlang tools application is installed."
-
-      "module_beam_missing" ->
-        "Compile the selected module in the host test environment."
-
-      "cover_compile_failed" ->
-        "Check that OTP coverage can instrument the selected module."
-
-      "ex_unit_run_failed" ->
-        "Check the ExUnit setup and formatters for the named phase."
-
-      "test_file_load_failed" ->
-        "Check that the reported test file loads after test_helper.exs."
-
-      "unrecoverable_restore_failure" ->
-        "Start a fresh VM and check the reported module."
-
-      "flag_not_supported_in_v1" ->
-        "Use the JSON report format."
-
-      "invalid_input" ->
-        "Check the arguments passed to mutagen."
-
-      "unknown_flag" ->
-        "Check the supported options with mix help mutagen."
-
-      "unsafe_json_path" ->
-        "Choose a path inside the project root or pass --unsafe-json-outside-project."
-
-      "too_many_targets" ->
-        "Reduce the number of scope or test targets."
-
-      "too_many_sites" ->
-        "Narrow --scope or increase --max-sites."
-
-      _ ->
-        nil
-    end
-  end
+  defp hint(reason), do: Map.get(@abort_hints, reason)
 
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
@@ -745,7 +688,8 @@ defmodule MutagenEx.JsonReporter do
   # `meta` is always populated even on early errors (r5: "we know our
   # tool/elixir/otp version even on early error").
   @doc false
-  def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme, "fail_fast" => true}
+  def meta_to_wire(nil),
+    do: %{"id_scheme" => @id_scheme, "fail_fast" => true, "max_concurrency" => 1}
 
   def meta_to_wire(meta) when is_map(meta) do
     %{
@@ -754,7 +698,8 @@ defmodule MutagenEx.JsonReporter do
       "elixir_version" => Map.get(meta, :elixir_version),
       "otp_version" => Map.get(meta, :otp_version),
       "exunit_seed" => Map.get(meta, :exunit_seed),
-      "fail_fast" => Map.get(meta, :fail_fast, true)
+      "fail_fast" => Map.get(meta, :fail_fast, true),
+      "max_concurrency" => Map.get(meta, :max_concurrency) || 1
     }
   end
 
@@ -904,7 +849,227 @@ defmodule MutagenEx.JsonReporter do
       "tainted_predecessors" => Map.get(result, :tainted_predecessors, false) == true,
       "warnings" => warnings_to_wire(Map.get(result, :warnings, []), options)
     })
-    |> put_source(result, options)
+    |> put_source(render_result(result, options.source), options)
+  end
+
+  @doc false
+  def render_result(r, source? \\ true)
+  def render_result(r, false), do: r
+
+  def render_result(%{before_source: _} = result, true), do: result
+
+  def render_result(%{before: before} = result, true), do: Map.put(result, :before_source, before)
+
+  def render_result(r, true) do
+    before_binary = Macro.to_string(r.original_ast)
+    before_source = verified_source(r) || before_binary
+
+    Map.merge(r, %{
+      before: before_binary,
+      before_source: before_source,
+      after: Macro.to_string(r.mutated_ast)
+    })
+  end
+
+  defp verified_source(result) do
+    with slice when is_binary(slice) <- source_slice(result),
+         true <- String.valid?(slice),
+         {:ok, ast} <-
+           Code.string_to_quoted(slice, emit_warnings: false, existing_atoms_only: true),
+         true <- without_metadata(ast) == without_metadata(result.original_ast) do
+      slice
+    else
+      _ -> nil
+    end
+  end
+
+  defp without_metadata(ast) do
+    Macro.prewalk(ast, fn
+      {form, meta, args} when is_list(meta) -> {form, [], args}
+      node -> node
+    end)
+  end
+
+  defp source_slice(%{source_span: {start, length}, source_text: source})
+       when is_binary(source) and is_integer(start) and is_integer(length) and
+              start >= 0 and length > 0 and start + length <= byte_size(source) do
+    binary_part(source, start, length)
+  end
+
+  defp source_slice(%{source_span: {_, _}}), do: nil
+
+  # Results from callers without a byte span can still carry AST coordinates.
+  defp source_slice(r) do
+    end_line = Map.get(r, :end_line)
+    end_column = Map.get(r, :end_column)
+    source_text = Map.get(r, :source_text)
+
+    cond do
+      is_nil(end_line) or is_nil(end_column) ->
+        nil
+
+      not is_binary(source_text) ->
+        nil
+
+      true ->
+        case leftmost_descendant_position(r.original_ast) do
+          {start_line, start_column}
+          when is_integer(start_line) and is_integer(start_column) ->
+            case slice_source(source_text, start_line, start_column, end_line, end_column) do
+              {:ok, slice} -> slice
+              :error -> nil
+            end
+
+          _ ->
+            nil
+        end
+    end
+  end
+
+  # Find the leftmost descendant's `{line, column}` of an AST node.
+  # For most nodes the leftmost descendant is in `args`; if no
+  # descendant carries position metadata, fall back to the node's
+  # own meta. Returns `{line, column}` or `nil`.
+  defp leftmost_descendant_position(ast) do
+    case do_leftmost(ast) do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  # A missing literal position makes an infix start unknown. Prefix
+  # expressions can still start at their own opening token.
+  defp do_leftmost({form, meta, [left, _] = args}) when is_atom(form) and is_list(meta) do
+    if Macro.operator?(form, 2) do
+      case do_leftmost(left) do
+        {_, _} = pos -> earlier_position(position(meta), pos)
+        _ -> :missing_start
+      end
+    else
+      leftmost_position(meta, args)
+    end
+  end
+
+  defp do_leftmost({{:., _, [receiver | _]}, meta, args}) do
+    leftmost_position(meta, [receiver | args])
+  end
+
+  defp do_leftmost({_form, meta, args}) when is_list(meta), do: leftmost_position(meta, args)
+  defp do_leftmost(_), do: nil
+
+  defp leftmost_position(meta, args) do
+    own = position(meta)
+
+    case do_leftmost_children(args) do
+      nil -> own
+      :missing_start -> own || :missing_start
+      pos -> earlier_position(own, pos)
+    end
+  end
+
+  defp position(meta) do
+    case {meta[:line], meta[:column]} do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  defp earlier_position(nil, pos), do: pos
+  defp earlier_position(own, pos), do: min(own, pos)
+
+  defp do_leftmost_children(nil), do: nil
+
+  defp do_leftmost_children(args) when is_list(args) do
+    Enum.reduce_while(args, nil, fn child, acc ->
+      case do_leftmost(child) do
+        nil -> {:cont, acc}
+        pos -> {:halt, pos}
+      end
+    end)
+  end
+
+  defp do_leftmost_children(_), do: nil
+
+  # Slice `source_text` between `{start_line, start_column}` (inclusive,
+  # 1-based) and `{end_line, end_column}` (exclusive, 1-based). Returns
+  # `{:ok, slice}` on success, `:error` if the indices are out of range.
+  # Columns count UTF-8 codepoints (matching how Elixir's tokenizer
+  # populates `:column`).
+  defp slice_source(source_text, start_line, start_column, end_line, end_column)
+       when is_binary(source_text) and is_integer(start_line) and is_integer(start_column) and
+              is_integer(end_line) and is_integer(end_column) do
+    lines = String.split(source_text, "\n", trim: false)
+
+    try do
+      cond do
+        start_line < 1 or end_line < 1 ->
+          :error
+
+        start_line > end_line ->
+          :error
+
+        start_line == end_line ->
+          line = Enum.at(lines, start_line - 1)
+
+          if is_binary(line) and end_column > start_column do
+            # Convert from 1-based inclusive `start_column` and 1-based
+            # exclusive `end_column` to byte indices on the line.
+            len = end_column - start_column
+            slice = slice_codepoints(line, start_column - 1, len)
+            {:ok, slice}
+          else
+            :error
+          end
+
+        true ->
+          # Multi-line slice: take suffix of start_line from start_column,
+          # all middle lines in full, prefix of end_line up to end_column.
+          start_line_text = Enum.at(lines, start_line - 1)
+          end_line_text = Enum.at(lines, end_line - 1)
+
+          middle =
+            if end_line - start_line >= 2 do
+              Enum.slice(lines, start_line, end_line - start_line - 1)
+            else
+              []
+            end
+
+          if is_binary(start_line_text) and is_binary(end_line_text) do
+            start_suffix = slice_codepoints_tail(start_line_text, start_column - 1)
+            end_prefix = slice_codepoints(end_line_text, 0, end_column - 1)
+
+            middle_iodata =
+              case middle do
+                [] -> []
+                _ -> [Enum.intersperse(middle, "\n"), "\n"]
+              end
+
+            iodata = [start_suffix, "\n", middle_iodata, end_prefix]
+            {:ok, IO.iodata_to_binary(iodata)}
+          else
+            :error
+          end
+      end
+    rescue
+      _ -> :error
+    end
+  end
+
+  defp slice_source(_, _, _, _, _), do: :error
+
+  # Take `len` codepoints from `string` starting at codepoint index `start`.
+  defp slice_codepoints(string, start, len) do
+    string
+    |> String.graphemes()
+    |> Enum.slice(start, len)
+    |> Enum.join()
+  end
+
+  defp slice_codepoints_tail(string, start) do
+    string
+    |> String.graphemes()
+    |> Enum.drop(start)
+    |> Enum.join()
   end
 
   defp site_to_wire(site, options) do

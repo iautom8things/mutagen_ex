@@ -24,6 +24,8 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     File.write!(first, """
     defmodule DiscoverySample do
       def helper, do: :ok
+      def __ex_unit__, do: :sample
+      def __ex_unit__(:config), do: %{async?: false, group: nil, parameterize: nil}
 
       defmodule ZCase do
         def __ex_unit__, do: :sample
@@ -50,7 +52,14 @@ defmodule MutagenEx.TestModuleDiscoveryTest do
     Code.compile_file(second)
 
     assert TestModuleDiscovery.discover([]) == []
-    cases = [{DiscoverySample.ZCase, @config}, {DiscoverySample.ACase, @config}]
+    async = %{@config | async?: true}
+
+    cases = [
+      {DiscoverySample.ZCase, async},
+      {DiscoverySample.ACase, async},
+      {DiscoverySample, @config}
+    ]
+
     assert TestModuleDiscovery.discover([first]) == cases
 
     assert TestModuleDiscovery.discover([second, first]) == [

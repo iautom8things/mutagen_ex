@@ -227,40 +227,25 @@ defmodule MutagenEx.ReportSafetyTest do
 
   @tag :tmp_dir
   @tag spec: ["mutagen.json_schema.r20", "mutagen.cli.r26"]
-  test "the reason type covers emitted reasons and each abort uses the selected sink", %{
+  test "the docs cover the registered abort reasons and each abort uses the selected sink", %{
     tmp_dir: dir
   } do
-    declared =
-      "lib/mutagen_ex/json_reporter.ex"
-      |> File.read!()
-      |> String.split("@type abort_reason ::", parts: 2)
-      |> List.last()
-      |> String.split("@doc", parts: 2)
-      |> hd()
-      |> reason_names(~r/:([a-z_]+)\b/)
+    declared = JsonReporter.abort_reasons() |> Enum.sort()
 
-    producers =
-      Path.wildcard("lib/**/*.ex")
-      |> Enum.reject(&String.ends_with?(&1, "/json_reporter.ex"))
-      |> Enum.map_join("\n", fn path ->
-        Regex.replace(~r/"""[\s\S]*?"""/, File.read!(path), "")
-      end)
+    for path <- ["README.md", ".spec/specs/json_schema.spec.md"] do
+      [_, section] =
+        path |> File.read!() |> String.split(~r/\n[#]{2,3} Abort reasons\n/, parts: 2)
 
-    emitted =
-      [
-        reason_names(producers, ~r/\{:(?:error|abort),\s*:([a-z_]+)\s*,/),
-        reason_names(producers, ~r/require_nonempty\([^,]*,\s*:([a-z_]+)\s*,/),
-        reason_names(producers, ~r/\{:error,\s*%\{reason:\s*:([a-z_]+)\b/),
-        reason_names(producers, ~r/step_reason\(.*\), do: :([a-z_]+)\b/),
-        reason_names(producers, ~r/\bstep\(:([a-z_]+),/),
-        reason_names(producers, ~r/\b(?:do|else): :(coverage_timeout|baseline_timeout)\b/)
-      ]
-      |> Enum.concat()
-      |> Enum.uniq()
-      |> Kernel.--(~w(after_suite_failed compile_error not_snapshotted restore_failed))
-      |> Enum.sort()
+      table = section |> String.split(~r/\n[#]{2,3} /, parts: 2) |> hd()
 
-    assert declared == emitted
+      rows =
+        Regex.scan(~r/^\| `(?!abort_reason`)([a-z0-9_]+)` \|/m, table, capture: :all_but_first)
+
+      assert rows |> List.flatten() |> Enum.sort() == declared
+    end
+
+    refute Mix.Tasks.Mutagen |> Code.fetch_docs() |> elem(4) |> Map.fetch!("en") =~ ~r/`reason: :/
+
     Process.put(:mutagen_json_path_project_root, dir)
     scope = "test/fixtures/lane_project/lib/lane_fixture/arith.ex"
     cited = "test/fixtures/lane_project/test/lane_fixture/arith_test.exs"
@@ -286,10 +271,44 @@ defmodule MutagenEx.ReportSafetyTest do
     end
   end
 
-  defp reason_names(source, pattern) do
-    for([_, name] <- Regex.scan(pattern, source), do: name)
-    |> Enum.uniq()
-    |> Enum.sort()
+  @tag spec: "mutagen.json_schema.r20"
+  test "a pipeline abort from a variable must use a registered reason" do
+    reason = :unregistered_fixture_reason
+    Process.put(:fixture_abort_reason, reason)
+
+    assert_raise ArgumentError, "unknown Mutagen abort reason: unregistered_fixture_reason", fn ->
+      Mix.Tasks.Mutagen.run(
+        ~w(--scope test/fixtures/lane_project/lib/lane_fixture/arith.ex
+           --tests test/fixtures/lane_project/test/lane_fixture/arith_test.exs),
+        %{coverage: AbortCoverage, io: WriteWithoutHalt}
+      )
+    end
+
+    assert_raise ArgumentError, "unknown Mutagen abort reason: unregistered_fixture_reason", fn ->
+      JsonStreamer.emit_end(fn _ -> flunk("unexpected stream output") end, %Report{
+        aborted: true,
+        abort_reason: Atom.to_string(reason)
+      })
+    end
+  end
+
+  test "published docs use the anonymized set name and describe supervised work" do
+    readme = File.read!("README.md")
+    refute readme =~ ~r/\bmutagen-[a-z0-9]{3}\b/
+    assert readme =~ "a pre-release commit of this series"
+
+    [_, limits] = String.split(readme, "## Known limitations\n", parts: 2)
+    limits = limits |> String.split("\n## ", parts: 2) |> hd()
+    assert limits =~ "Task.Supervisor.async_nolink/2"
+    assert limits =~ "DynamicSupervisor.start_child/2"
+    assert limits =~ "can outlive the timeout"
+
+    [header | rows] =
+      "docs/precision/blind-2026-11.csv" |> File.read!() |> String.split("\n", trim: true)
+
+    assert header == "set,class,mutator,confidence,verdict,basis"
+    assert rows != []
+    assert Enum.all?(rows, &String.starts_with?(&1, "blind-2026-11,"))
   end
 
   defp site(fields) do

@@ -50,7 +50,7 @@ defmodule MutagenEx.RedactionTest do
       tests: %{include: [], exclude: ["api-token": "filter-value"], files: []}
     }
 
-    {data, _code} = JsonReporter.emit_error(report, :boot_failed)
+    {data, _code} = JsonReporter.emit_error(report, :host_app_start_failed)
     decoded = data |> IO.iodata_to_binary() |> :json.decode()
     assert decoded["details"]["database_password"] == "[REDACTED]"
     assert decoded["tests"]["exclude"] == ["api-token:[REDACTED]"]
