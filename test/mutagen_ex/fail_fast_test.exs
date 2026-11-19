@@ -147,8 +147,8 @@ defmodule MutagenEx.FailFastTest do
   @tag scenario: :before_failure
   @tag spec: ["mutagen.mutation_pipeline.r4", "mutagen.mutation_pipeline.r27"]
   test "an async case times out and later sites run in both fail-fast modes" do
-    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "250"])
-    {full, full_traces, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
+    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "1000"])
+    {full, full_traces, _} = run_pipeline(["--timeout-ms", "1000", "--no-fail-fast"])
 
     assert [{_, "timeout"}, {_, "killed"}, {_, "killed"}, {_, "survived"}] = verdicts(capped)
     assert verdicts(full) == verdicts(capped)
@@ -288,7 +288,7 @@ defmodule MutagenEx.FailFastTest do
       ExUnit.configure(fail_fast_formatter_counter: counter)
 
       report =
-        run_fixture(fixture, ["--timeout-ms", "150" | mode], %{mutation: __MODULE__.CountDrains})
+        run_fixture(fixture, ["--timeout-ms", "1000" | mode], %{mutation: __MODULE__.CountDrains})
 
       assert Process.delete(:fail_fast_drains) == 1
       assert Enum.map(verdicts(report), &elem(&1, 1)) == ~w(timeout killed killed)
@@ -444,7 +444,7 @@ defmodule MutagenEx.FailFastTest do
       counter = Keyword.fetch!(opts, :fail_fast_formatter_counter)
 
       :counters.add(counter, 1, 1)
-      if :counters.get(counter, 1) == 3, do: Process.sleep(500)
+      if :counters.get(counter, 1) == 3, do: Process.sleep(:infinity)
 
       {:ok, nil}
     end
