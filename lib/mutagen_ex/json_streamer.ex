@@ -14,7 +14,7 @@ defmodule MutagenEx.JsonStreamer do
   can route on `kind`:
 
       {"version":"2","kind":"start","total":42,"meta":{...}}
-      {"version":"2","kind":"result","id":"...","status":"killed",...}
+      {"version":"2","kind":"result","id":"...","status":"killed","confidence":"high",...}
       {"version":"2","kind":"compile_error","id":"...","message":"..."}
       {"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,
        "kill_rate":0.81,...}

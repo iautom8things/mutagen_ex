@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -53,6 +53,7 @@ defmodule Mix.Tasks.Mutagen do
       directory above the project root pass this flag; everyday use
       should leave it off. When set, a one-shot warning naming the
       resolved target lands on stderr at run start.
+    * `--stream` emits per-site NDJSON lines with `start` and `end` envelopes.
     * `--max-sites <int>` — upper bound on enumerated mutation sites
       for one run. Default `10000`. The enumerator aborts with
       `:too_many_sites` BEFORE the runner starts when the cap is
@@ -111,6 +112,14 @@ defmodule Mix.Tasks.Mutagen do
       emits an error-JSON document to stdout (or `--json <path>`).
 
   ## JSON Schema Pointer
+
+  Each `mutation.results[]` entry and each NDJSON `"result"` line carries a
+  `confidence` field with `"high"` or `"low"`. The rating is a qualitative
+  judgment about the operator. A high-rated survivor can still be equivalent.
+  `with_swap` has low confidence because the order of failed matches can
+  still yield the same result. All other mutators default to high.
+  The field is part of report schema version `"2"`. Both levels count
+  toward the aggregate totals and kill rate.
 
   The version 2 output document is defined by-example via the golden fixtures
   committed at `test/mutagen_ex/golden/*.json`. Read these first:

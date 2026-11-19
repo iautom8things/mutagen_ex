@@ -170,6 +170,16 @@ decisions:
     (`:head_atom` is the production default; `:legacy` is the
     test seam used by the equivalence test). The option is NOT
     a public API and is NOT exposed by the Mix task.
+
+- id: mutagen.mutation_enumeration.r10
+  priority: must
+  statement: |
+    The enumerator offers no mutator a `/` node that is the argument of a
+    capture `&` when its right operand is an integer and its left operand
+    is a bare name or a remote call with no arguments. These are the
+    `&fun/arity` and `&Mod.fun/arity` function references. Such a node
+    yields no site and no `skipped` entry in either dispatch mode. A `/`
+    in a capture body, such as `&(&1 / 2)`, still yields an `arith` site.
 ```
 
 ```spec-scenarios
@@ -262,6 +272,20 @@ decisions:
   then:
     - "The two `%{sites: _, skipped: _, warnings: _}` maps are equal, including site order."
     - Per-node, the set of mutators whose `match?/1` accepts that node is identical under both paths (correctness), AND the order of the candidate list relative to `Mutators.all/0` is the same (byte-identity).
+
+- id: mutagen.mutation_enumeration.s10
+  covers: [mutagen.mutation_enumeration.r10]
+  given:
+    - |
+      A covered module with `Enum.map(xs, &double/1)`,
+      `Enum.reduce(xs, &Kernel.max/2)`, `Enum.reduce(xs, &:erlang.max/2)`,
+      `Enum.map(xs, &(&1 / 2))`, `x / 2` and `x * 2`.
+  when:
+    - The enumerator runs in `:head_atom` and in `:legacy` dispatch mode.
+  then:
+    - |
+      Both modes emit `arith` sites only for `&1 / 2`, `x / 2` and
+      `x * 2`, and no `arith` entry in `skipped`.
 ```
 
 ```spec-verification
@@ -277,4 +301,5 @@ decisions:
     - mutagen.mutation_enumeration.r7
     - mutagen.mutation_enumeration.r8
     - mutagen.mutation_enumeration.r9
+    - mutagen.mutation_enumeration.r10
 ```

@@ -75,3 +75,7 @@ visibility but doesn't pollute the rate.
   gap" — it means "the catalog couldn't tell the difference".
 - The five-outcome classification + parallel arrays add JSON surface area
   (see [mutagen.json_schema](../specs/json_schema.spec.md) r3).
+
+mutagen.decision.with_swap_failure_priority adds three `with_swap` skip
+reasons to this vocabulary: `:insufficient_refutable_patterns`,
+`:indistinguishable_failures` and `:else_ignores_failure`.

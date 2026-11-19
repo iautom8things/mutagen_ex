@@ -16,8 +16,10 @@ defmodule MutagenEx.JsonStreamerTest do
 
   use ExUnit.Case, async: true
 
+  alias MutagenEx.JsonReporter
   alias MutagenEx.JsonReporter.Report
   alias MutagenEx.JsonStreamer
+  alias MutagenEx.Mutators
 
   defp capture_sink(fun) do
     agent = start_supervised!({Agent, fn -> [] end}, id: make_ref())
@@ -76,6 +78,64 @@ defmodule MutagenEx.JsonStreamerTest do
 
   describe "result line" do
     @describetag spec: "mutagen.json_schema.r14"
+
+    @tag spec: ["mutagen.json_schema.r4", "mutagen.mutators.r10"]
+    test "every catalog mutator has the same confidence in aggregate results and NDJSON" do
+      confidences = %{
+        arith: :high,
+        compare: :high,
+        boolean: :high,
+        literal: :high,
+        with_swap: :low,
+        case_drop: :high,
+        pipeline: :high,
+        result_tuple: :high,
+        else_removal: :high,
+        guard_drop: :high
+      }
+
+      assert Enum.sort(Map.keys(confidences)) == Enum.sort(Mutators.names())
+
+      statuses = [:killed, :survived, :timeout, :error]
+
+      results =
+        for {mutator, confidence} <- confidences, {status, index} <- Enum.with_index(statuses) do
+          assert Mutators.confidence(mutator) == confidence
+
+          %{
+            id: "lib/foo.ex:#{index}:#{mutator}",
+            file: "lib/foo.ex",
+            line: 1,
+            column: 1,
+            mutator: mutator,
+            before: ":ok",
+            before_source: ":ok",
+            after: ":error",
+            status: status
+          }
+        end
+
+      {json, 0} = JsonReporter.emit_report(%Report{mutation: %{results: results}})
+      aggregate = :json.decode(IO.iodata_to_binary(json))
+      assert aggregate["version"] == "2"
+
+      output =
+        capture_sink(fn sink ->
+          Enum.each(results, &JsonStreamer.emit_result(sink, &1))
+        end)
+
+      lines = parse_lines(output)
+      entries = aggregate["mutation"]["results"]
+      assert length(lines) == length(results)
+      assert length(entries) == length(results)
+
+      for {result, entry, line} <- Enum.zip([results, entries, lines]) do
+        assert entry["mutator"] == Atom.to_string(result.mutator)
+        assert entry["status"] == Atom.to_string(result.status)
+        assert entry["confidence"] == Atom.to_string(Map.fetch!(confidences, result.mutator))
+        assert line == Map.merge(entry, %{"kind" => "result", "version" => "2"})
+      end
+    end
 
     @tag spec: "mutagen.json_schema.r15"
     test "wire shape matches aggregate document's results[] entry" do

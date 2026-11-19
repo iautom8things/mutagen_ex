@@ -9,10 +9,10 @@ defmodule MutagenEx.Mutators do
       candidate for this mutator.
     * `mutate/1` — produces the swapped AST node. Pure; performs no I/O.
     * `validate/1` — runs after `mutate/1` and before any compile to decide
-      whether the swap is sensible. Returns `:ok` or `{:skip, reason}` where
-      `reason` is one of `:structurally_invalid`, `:no_op_shadowed`, or
-      `:bound_var_used_before_binding` per
-      `mutagen.decision.validate_predicates`.
+      whether the swap is sensible. Returns `:ok` or `{:skip, reason}` with
+      an atom identifying why the mutator rejected the swap.
+    * `confidence/0` (optional) — qualitative rating of the operator as
+      a signal for test gaps. Defaults to `:high` for registered mutators.
 
   ## Catalog
 
@@ -44,10 +44,15 @@ defmodule MutagenEx.Mutators do
   @typedoc "Outcome of `validate/1`. `:ok` keeps the site; `{:skip, reason}` drops it."
   @type validation_result :: :ok | {:skip, atom()}
 
+  @type confidence :: :high | :low
+
   @callback name() :: mutator_name()
   @callback match?(ast_node) :: boolean()
   @callback mutate(ast_node) :: ast_node
   @callback validate(ast_node) :: validation_result
+  @callback confidence() :: confidence()
+
+  @optional_callbacks confidence: 0
 
   @mutators [
     MutagenEx.Mutators.Arith,
@@ -84,6 +89,22 @@ defmodule MutagenEx.Mutators do
   @spec fetch(mutator_name()) :: module() | nil
   def fetch(name) when is_atom(name) do
     Enum.find(@mutators, &(&1.name() == name))
+  end
+
+  @doc """
+  Returns a registered mutator's confidence, defaulting to `:high`.
+
+  Raises `ArgumentError` for an unknown name.
+  """
+  @spec confidence(mutator_name()) :: confidence()
+  def confidence(name) do
+    case fetch(name) do
+      nil ->
+        raise ArgumentError, "unknown mutator: #{inspect(name)}"
+
+      module ->
+        if function_exported?(module, :confidence, 0), do: module.confidence(), else: :high
+    end
   end
 
   @doc "Builds a scheme 2 ID from a project-relative path and a normalized identity."
