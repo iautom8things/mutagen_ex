@@ -168,9 +168,10 @@ defmodule MutagenEx.MutationEnumerator do
           warnings: [warning()]
         }
 
+  @opaque fingerprint_input :: {[Macro.t()], boolean()}
   @type planned_entry :: %{
           required(:group_key) => tuple(),
-          required(:fingerprint) => String.t(),
+          required(:fingerprint) => fingerprint_input() | String.t(),
           required(:runtime?) => boolean(),
           optional(atom()) => term()
         }
@@ -197,7 +198,7 @@ defmodule MutagenEx.MutationEnumerator do
       or `{from, to}` pairs.
       Selects candidates whose spans overlap those ranges and ignores
       `covered_lines`. Sites and skips are plain maps that also carry
-      `:group_key`, `:fingerprint` and `:runtime?`. Planned skips carry
+      `:group_key`, deferred `:fingerprint` inputs, and `:runtime?`. Planned skips carry
       the source span, function and path as well as the usual skip fields.
     * `:max_sites` — positive integer cap on the produced sites list
       (per `mutagen.mutation_enumeration.r7`). When the cap is exceeded
@@ -343,19 +344,30 @@ defmodule MutagenEx.MutationEnumerator do
 
   @doc "Returns the fingerprints of the ID groups in a parsed file."
   @spec group_fingerprints(Macro.t()) :: %{tuple() => String.t()}
-  def group_fingerprints(ast), do: group_fingerprints(ast, :all)
+  def group_fingerprints(ast) do
+    walked = walk_groups(ast, :all)
 
-  defp group_fingerprints(ast, keys) do
-    walked = walk_file(ast, %{by_module: %{}, mutators: []}, keys)
-    Map.new(walked.groups, fn {key, nodes} -> {key, group_fingerprint(key, nodes, walked)} end)
+    Map.new(walked.groups, fn {key, nodes} ->
+      {key, hash_fingerprint({nodes, MapSet.member?(walked.split_groups, key)})}
+    end)
   end
+
+  defp walk_groups(ast, keys), do: walk_file(ast, %{by_module: %{}, mutators: []}, keys)
+
+  @doc "Resolves the fingerprint of a planned site or skip on demand."
+  @spec site_fingerprint(planned_entry()) :: String.t()
+  def site_fingerprint(%{fingerprint: digest}) when is_binary(digest), do: digest
+  def site_fingerprint(%{fingerprint: input}), do: hash_fingerprint(input)
 
   @doc """
   Keeps planned entries whose group differs from the same group in the base.
 
   Pass the base source, including the old path's source for a rename, or
   `:absent` for a new file. Returns `{entries, warnings}`. All entries
-  remain in scope when the base cannot be parsed.
+  remain in scope when the base cannot be parsed. Groups with a
+  counterpart in the base are hashed once per call. Changed groups
+  return their resolved fingerprint. Entries with no counterpart keep
+  deferred fingerprints.
   """
   @spec fingerprint_scope([planned_entry()], binary() | :absent) ::
           {[planned_entry()], [{:base_parse_error, integer() | :invalid_encoding}]}
@@ -364,8 +376,8 @@ defmodule MutagenEx.MutationEnumerator do
   def fingerprint_scope(entries, source) when is_binary(source) do
     case AstCache.parse("nofile", source) do
       {:ok, {ast, _source}} ->
-        base = group_fingerprints(ast, MapSet.new(entries, & &1.group_key))
-        {Enum.reject(entries, &(&1.fingerprint == Map.get(base, &1.group_key))), []}
+        base = walk_groups(ast, MapSet.new(entries, & &1.group_key))
+        {scope_by_group(entries, base), []}
 
       {:error, :parse_error, %{line: line}} ->
         {entries, [{:base_parse_error, line}]}
@@ -373,6 +385,38 @@ defmodule MutagenEx.MutationEnumerator do
   rescue
     UnicodeConversionError -> {entries, [{:base_parse_error, :invalid_encoding}]}
   end
+
+  defp scope_by_group(entries, base) do
+    {scoped, _decisions} =
+      Enum.flat_map_reduce(entries, %{}, fn %{group_key: key} = entry, decisions ->
+        case decisions do
+          %{^key => decision} ->
+            {scoped_entry(entry, decision), decisions}
+
+          %{} ->
+            decision = compare_group(entry, key, base)
+            {scoped_entry(entry, decision), Map.put(decisions, key, decision)}
+        end
+      end)
+
+    scoped
+  end
+
+  defp compare_group(entry, key, %{groups: groups, split_groups: split_groups}) do
+    case groups do
+      %{^key => nodes} ->
+        base_hash = hash_fingerprint({nodes, MapSet.member?(split_groups, key)})
+        current_hash = site_fingerprint(entry)
+        if base_hash == current_hash, do: :unchanged, else: current_hash
+
+      %{} ->
+        :absent
+    end
+  end
+
+  defp scoped_entry(_entry, :unchanged), do: []
+  defp scoped_entry(entry, :absent), do: [entry]
+  defp scoped_entry(entry, digest), do: [%{entry | fingerprint: digest}]
 
   @doc "Converts a planned site into the struct accepted by the mutation runner."
   @spec to_site(planned_entry()) :: Site.t()
@@ -459,7 +503,7 @@ defmodule MutagenEx.MutationEnumerator do
   defp walk_file(ast, env, group_filter) do
     ambient =
       case env do
-        %{filter: {:planned, [_ | _]}} -> {nil, 1, nil}
+        %{filter: {:planned, [_ | _]}} -> {nil, 1, nil, nil}
         _ -> {nil, 1}
       end
 
@@ -490,45 +534,30 @@ defmodule MutagenEx.MutationEnumerator do
   defp finish_file(%{groups: nil} = walked), do: Map.take(walked, [:scopes, :sites, :skipped])
 
   defp finish_file(walked) do
-    {sites, fingerprints} = attach_fingerprints(walked.sites, walked, %{})
-    {skipped, _fingerprints} = attach_fingerprints(walked.skipped, walked, fingerprints)
-
     %{
       scopes: walked.scopes,
-      sites: sites,
-      skipped: skipped
+      sites: attach_fingerprint_inputs(walked.sites, walked),
+      skipped: attach_fingerprint_inputs(walked.skipped, walked)
     }
   end
 
-  defp attach_fingerprints(entries_by_scope, walked, fingerprints) do
-    Enum.reduce(entries_by_scope, {%{}, fingerprints}, fn {rank, entries}, {by_scope, hashes} ->
-      {entries, hashes} =
-        Enum.map_reduce(entries, hashes, fn {entry, group, runtime?}, hashes ->
+  defp attach_fingerprint_inputs(entries_by_scope, walked) do
+    Map.new(entries_by_scope, fn {rank, entries} ->
+      entries =
+        Enum.map(entries, fn {entry, group, runtime?} ->
           entry = if is_struct(entry, Site), do: Map.from_struct(entry), else: entry
+          input = {Map.fetch!(walked.groups, group), MapSet.member?(walked.split_groups, group)}
 
-          {fingerprint, hashes} =
-            case hashes do
-              %{^group => fingerprint} ->
-                {fingerprint, hashes}
-
-              %{} ->
-                fingerprint = group_fingerprint(group, Map.fetch!(walked.groups, group), walked)
-                {fingerprint, Map.put(hashes, group, fingerprint)}
-            end
-
-          planned =
-            Map.merge(entry, %{group_key: group, runtime?: runtime?, fingerprint: fingerprint})
-
-          {planned, hashes}
+          Map.merge(entry, %{group_key: group, runtime?: runtime?, fingerprint: input})
         end)
 
-      {Map.put(by_scope, rank, entries), hashes}
+      {rank, entries}
     end)
   end
 
-  defp group_fingerprint(key, nodes, walked) do
+  defp hash_fingerprint({nodes, split?}) do
     owned =
-      if MapSet.member?(walked.split_groups, key) do
+      if split? do
         Enum.reduce(nodes, [], &[prune_group(&1) | &2])
       else
         Enum.reverse(nodes)
@@ -537,17 +566,22 @@ defmodule MutagenEx.MutationEnumerator do
     Mutators.identity_hash(owned, :ast_list)
   end
 
-  defp prune_group({kind, _, _} = definition) when kind in @definition_kinds,
-    do: prune_call(definition)
+  defp prune_group({kind, _, [head | _]} = definition)
+       when kind in @definition_kinds and not is_nil(head),
+       do: prune_call(definition)
 
   defp prune_group(node), do: prune_nested(node)
 
   defp prune_nested({:quote, _, _} = node), do: node
 
-  defp prune_nested({kind, meta, [name | _]}) when kind in [:defmodule, :defprotocol, :defimpl],
-    do: {kind, meta, [name]}
+  defp prune_nested({kind, meta, [name | options]} = node)
+       when kind in [:defmodule, :defprotocol, :defimpl] do
+    if Enum.any?(options, &(is_list(&1) and List.keymember?(&1, :do, 0))),
+      do: {kind, meta, [name]},
+      else: prune_call(node)
+  end
 
-  defp prune_nested({kind, meta, [_head | _]}) when kind in @definition_kinds,
+  defp prune_nested({kind, meta, [head | _]}) when kind in @definition_kinds and not is_nil(head),
     do: {kind, meta, []}
 
   defp prune_nested({_, _, args} = node) when is_list(args), do: prune_call(node)
@@ -898,16 +932,24 @@ defmodule MutagenEx.MutationEnumerator do
   defp select_span({:planned, []}, _node, _ambient, _line), do: false
   defp select_span({:planned, :whole_file}, _node, _ambient, _line), do: true
 
-  defp select_span({:planned, ranges}, node, {_line, _column, parent}, line) do
-    overlaps_line?(ranges, Ast.node_line(node)) or
-      case source_range(node, nil) do
-        nil ->
-          overlaps_line?(ranges, Ast.node_line(parent)) or
-            overlaps_range?(ranges, source_range(parent, nil) || {line, line})
+  defp select_span({:planned, ranges}, node, {_line, _column, parent, closing_line}, line) do
+    case Ast.node_line(node) do
+      nil ->
+        last = max(line, closing_line || line)
 
-        range ->
-          overlaps_range?(ranges, range)
-      end
+        overlaps_range?(ranges, {line, last}) or
+          overlaps_range?(ranges, positionless_range(node, parent, line, last))
+
+      start ->
+        overlaps_line?(ranges, start) or overlaps_range?(ranges, source_range(node, nil))
+    end
+  end
+
+  defp positionless_range(node, parent, line, last) do
+    case source_range(node, nil) || source_range(parent, nil) do
+      nil -> {line, last}
+      {first, ending} -> {min(first, line), max(ending, last)}
+    end
   end
 
   defp overlaps_line?(_ranges, nil), do: false
@@ -983,10 +1025,7 @@ defmodule MutagenEx.MutationEnumerator do
 
     case validation do
       :ok ->
-        # Per `mutagen.mutation_enumeration.r8`: derive the exclusive
-        # end position of `node` best-effort. Nil when not derivable;
-        # the JSON renderer's `before_source` path treats that as the
-        # signal to fall back to `Macro.to_string/1`.
+        # These coordinates are the fallback when the exact source span is unavailable.
         {end_line, end_column} = compute_end_position(node)
 
         site = %Site{
@@ -1095,12 +1134,14 @@ defmodule MutagenEx.MutationEnumerator do
     {line, column}
   end
 
-  defp update_ambient({_, meta, _} = node, {prior_line, prior_column, prior_node}) do
+  defp update_ambient({_, meta, _} = node, {prior_line, prior_column, prior_node, prior_end}) do
     column = Keyword.get(meta, :column, prior_column)
+    ending = Keyword.get(meta, :end) || Keyword.get(meta, :closing)
+    end_line = (ending && Keyword.get(ending, :line)) || prior_end
 
     case Keyword.fetch(meta, :line) do
       {:ok, line} ->
-        {line, column, node}
+        {line, column, node, end_line}
 
       :error ->
         parent =
@@ -1108,7 +1149,7 @@ defmodule MutagenEx.MutationEnumerator do
             do: node,
             else: prior_node
 
-        {prior_line, column, parent}
+        {prior_line, column, parent, end_line}
     end
   end
 

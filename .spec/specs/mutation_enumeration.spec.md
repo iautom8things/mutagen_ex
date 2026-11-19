@@ -199,11 +199,14 @@ decisions:
     encoding of its list of normalized clauses or statements in file walk
     order. A nested module or definition contributes its boundary to the
     outer group's AST and contributes its own sites to its own group.
+    A definition with a nil head or a module declaration without a do
+    block remains part of the enclosing group's source.
     When the normalized expression used by an outer site's ID includes
     nested syntax, the outer fingerprint includes that syntax too.
-    Planned enumeration hashes only groups that own a planned site or
-    skip. Each planned entry carries the fingerprint of its existing ID
-    group. Formatting, comments, blank lines, and edits outside the group
+    A planned entry carries deferred inputs for its existing ID group's
+    fingerprint. `MutagenEx.MutationEnumerator.site_fingerprint/1` returns
+    the concrete fingerprint on demand. Formatting, comments, blank
+    lines, and edits outside the group
     preserve the fingerprint. For named definitions, matching fingerprints
     preserve the mapping from ID to clause occurrence and path within that
     clause. File-root paths also match when the clauses stay at the same
@@ -215,8 +218,11 @@ decisions:
     Planned enumeration selects sites whose inclusive source range
     overlaps a supplied changed-line range in the same file. The source
     range spans the line, closing, end and end-of-expression metadata in
-    the subtree. A subtree without positions uses its nearest positioned
-    ancestor's range. Changed lines accept positive, ascending inclusive
+    the subtree. When a node has no line of its own, the range also
+    covers the parent's line through the nearest enclosing end or closing
+    position. A subtree without positions falls back to its nearest
+    positioned ancestor when no enclosing end or closing position exists.
+    Changed lines accept positive, ascending inclusive
     ranges or endpoint pairs. Malformed inputs raise `ArgumentError`.
     Planning ignores coverage and retains validator skips with planned
     metadata. `MutagenEx.MutationEnumerator.to_site/1` converts a planned
@@ -235,11 +241,11 @@ decisions:
   statement: |
     `MutagenEx.MutationEnumerator.fingerprint_scope/2` keeps only entries
     whose group is absent from the base source or has a different
-    fingerprint there. It parses the base with `MutagenEx.AstCache.parse/2` and
-    hashes only keys present in the supplied entries. A new file scopes
-    all its planned entries. A base
-    source that fails to parse scopes all the planned entries and returns
-    a warning.
+    fingerprint there. It parses the base with `MutagenEx.AstCache.parse/2`.
+    The first comparison for a shared key resolves its current and base
+    fingerprints once per call. An absent file or group scopes its
+    planned entries without hashing. A base source that fails to parse
+    scopes all the planned entries and returns a warning.
 
 - id: mutagen.mutation_enumeration.r16
   priority: must

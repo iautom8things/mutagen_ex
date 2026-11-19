@@ -66,3 +66,15 @@ include the whole expression or, for a bare literal, its parent. Keep
 that syntax in the outer fingerprint when the ID includes it. Swapping
 two nested bodies under identical outer conditions could otherwise
 transfer an outer ID without changing its fingerprint.
+
+Planning keeps each group's fingerprint inputs and computes the hash
+when a comparison needs it. A new file or a group absent from the base
+can enter scope without hashing. Callers can resolve a planned group's
+fingerprint when they need it for an acceptance check.
+
+If a planned ID is absent from the run output and its effective line
+was covered, A4 records `:not_run`. This includes sites the runner
+dropped after `site_node_not_found` or `ast_cache_miss` warnings.
+Preserve the `+N,0` anchors before deciding whether the diff is empty.
+At the start of a file this selects the first remaining line. At EOF it
+selects the last remaining line. An empty new file has no adjacent span.
