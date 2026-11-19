@@ -524,10 +524,15 @@ defmodule MutagenEx.MutationRunner do
           {:ok, process_site_task(site, idx, total, cfg)}
         end)
       else
+        group_leader = Process.group_leader()
+
         Task.Supervisor.async_stream_nolink(
           parallel_task_sup,
           indexed_sites,
-          fn {site, idx} -> process_site_task(site, idx, total, cfg) end,
+          fn {site, idx} ->
+            Process.group_leader(self(), group_leader)
+            process_site_task(site, idx, total, cfg)
+          end,
           max_concurrency: max_concurrency,
           ordered: true,
           # Per-site timeout is handled INSIDE `MutationLoop.run/1`; the
@@ -744,6 +749,9 @@ defmodule MutagenEx.MutationRunner do
            settle_code_server!(site, cfg, outcome)
            outcome
          end) do
+      {:ok, {:error, {:ex_unit_run_failed, details}, _meta}} ->
+        {:abort, :ex_unit_run_failed, Map.put(details, :site_id, site.id)}
+
       {:ok, outcome} ->
         # `source_text` is threaded through here so the post-fold can
         # add it to the result map for the renderer's verbatim slice

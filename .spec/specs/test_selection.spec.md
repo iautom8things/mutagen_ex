@@ -31,6 +31,7 @@ surface:
   - lib/mutagen_ex/test_selector.ex
 decisions:
   - mutagen.decision.ancora_migration
+  - mutagen.decision.host_test_setup
 ```
 
 ```spec-requirements
@@ -57,10 +58,14 @@ decisions:
   priority: must
   statement: |
     A target of shape `tag:<name>` resolves to `{include: [<name>], exclude:
-    [:test], files: <walk_of_test_dir>}` where `<walk_of_test_dir>` is the
-    list of test files determined by AST-walking `test/**/*_test.exs` and
-    keeping those that contain at least one `@tag :<name>` attribute on a
-    `test` or `describe` block. The `:test` exclude is load-bearing here:
+    [:test], files: <tag_walk>}` where `<tag_walk>` is the sorted,
+    deduplicated list of `*_test.exs` files under every directory in
+    `opts[:test_paths]` (default `["test"]`) that contain at least one
+    `@tag :<name>` attribute on a `test` or `describe` block. Entries of
+    `:test_paths` that are not directories are skipped. The Mix task
+    passes the host project's test paths (mutagen.cli.r14), so a project
+    whose tests live in `checks/` is scanned there. The `:test` exclude
+    is load-bearing here:
     paired with the non-empty `:<name>` include it restricts the run to
     tests carrying the tag.
 
@@ -97,7 +102,7 @@ decisions:
   priority: must
   statement: |
     Tag resolution does NOT materialize a fresh atom for the user-supplied
-    `tag:NAME` name. The resolver walks `test/**/*_test.exs`, comparing the
+    `tag:NAME` name. The resolver walks the test files of r3, comparing the
     string `NAME` against `Atom.to_string/1` of each `@tag :ATOM` literal
     found in the AST; the result's `include` carries the AST-derived atom,
     not a `String.to_atom/1` of the user input. A target whose `NAME` does
@@ -107,6 +112,19 @@ decisions:
     never-registered names. This is the atom-table-DOS bound (mutagen-wrd.20):
     CI loops like `mix mutagen --tests tag:$(uuidgen)` cannot grow the atom
     table.
+
+- id: mutagen.test_selection.r8
+  priority: must
+  statement: |
+    `TestSelector.merge_helper_filters/2` applies the host helpers' ExUnit
+    `:include` and `:exclude` options to a resolved filter. When the
+    filter's `exclude` is `[]` (a selection with a bare-file target, r1
+    and r6), the helpers' includes are appended to `include`. When the
+    filter's `exclude` is not empty, as for `file:line` and `tag:`
+    selections, its `include` stays as resolved, so a helper include
+    cannot widen a line or tag selection. In both cases the helpers'
+    excludes are appended to `exclude`. Duplicates are dropped and order
+    is kept. An empty option list returns the filter unchanged.
 ```
 
 ```spec-scenarios
@@ -172,6 +190,25 @@ decisions:
     - The selector resolves `tag:never_registered_tag_for_mutagen_wrd_20` against a `test_root` containing only files with unrelated tags.
   then:
     - "The call returns `{:error, %{reason: :no_tests_match, target: \"tag:never_registered_tag_for_mutagen_wrd_20\"}}` AND `:erlang.system_info(:atom_count)` is unchanged across the call. Looping the call with N freshly-generated never-registered names (e.g. `tag:#{System.unique_integer()}`) keeps `atom_count` constant — no atom is created from the user-supplied `NAME` segment."
+
+- id: mutagen.test_selection.s8
+  covers: [mutagen.test_selection.r8]
+  given:
+    - "The host helper configured `include: [:focus]` and `exclude: [:slow]`."
+  when:
+    - "The cited target is either `test/a_test.exs` or `test/a_test.exs:8`."
+  then:
+    - "The whole-file filter becomes `include: [:focus]` and `exclude: [:slow]`."
+    - "The line filter keeps `include: [{:location, {\"test/a_test.exs\", 8}}]` and becomes `exclude: [:test, :slow]`."
+
+- id: mutagen.test_selection.s9
+  covers: [mutagen.test_selection.r3]
+  given:
+    - "`opts[:test_paths]` is `[\"first\", \"second\"]` and each directory holds one `*_test.exs` file with `@tag :find_me` on a test."
+  when:
+    - The selector resolves `tag:find_me`.
+  then:
+    - "`files` lists both files, `include` is `[:find_me]`, and `exclude` is `[:test]`."
 ```
 
 ```spec-verification
@@ -185,4 +222,5 @@ decisions:
     - mutagen.test_selection.r5
     - mutagen.test_selection.r6
     - mutagen.test_selection.r7
+    - mutagen.test_selection.r8
 ```

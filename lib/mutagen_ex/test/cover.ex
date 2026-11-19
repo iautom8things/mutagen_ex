@@ -26,6 +26,9 @@ defmodule MutagenEx.Test.Cover do
   @impl MutagenEx.Test.CoverFacade
   def stop, do: apply(:cover, :stop, [])
 
+  def modules, do: apply(:cover, :modules, [])
+  def imported_modules, do: apply(:cover, :imported_modules, [])
+
   @impl MutagenEx.Test.CoverFacade
   def compile_beam(path), do: apply(:cover, :compile_beam, [path])
 

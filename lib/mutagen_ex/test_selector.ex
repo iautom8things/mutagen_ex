@@ -79,11 +79,27 @@ defmodule MutagenEx.TestSelector do
     @enforce_keys [:include, :exclude, :files]
     defstruct include: [], exclude: [], files: []
 
+    @type filter :: atom() | {atom(), Regex.t() | String.Chars.t()} | ExUnit.Filters.location()
+
     @type t :: %__MODULE__{
-            include: [atom() | {:location, {String.t(), pos_integer()}}],
-            exclude: [atom()],
+            include: [filter()],
+            exclude: [filter()],
             files: [String.t()]
           }
+  end
+
+  @doc "Applies helper filters while preserving restrictive tag and line targets."
+  @spec merge_helper_filters(TestFilter.t(), keyword()) :: TestFilter.t()
+  def merge_helper_filters(filter, []), do: filter
+
+  def merge_helper_filters(%TestFilter{} = filter, helper) do
+    helper_includes = if filter.exclude == [], do: List.wrap(helper[:include]), else: []
+
+    %{
+      filter
+      | include: Enum.uniq(filter.include ++ helper_includes),
+        exclude: Enum.uniq(filter.exclude ++ List.wrap(helper[:exclude]))
+    }
   end
 
   @type target :: String.t()
@@ -95,7 +111,7 @@ defmodule MutagenEx.TestSelector do
           | :tag_walk_failed
 
   @typedoc "Options accepted by `resolve/2`."
-  @type option :: {:test_root, String.t()}
+  @type option :: {:test_root, String.t()} | {:test_paths, [String.t()]}
   @type options :: [option()]
 
   @doc """
@@ -121,7 +137,7 @@ defmodule MutagenEx.TestSelector do
   end
 
   def resolve(targets, opts) when is_list(targets) do
-    test_root = Keyword.get(opts, :test_root, "test")
+    test_paths = Keyword.get(opts, :test_paths, [Keyword.get(opts, :test_root, "test")])
 
     # Seed accumulator with exclude: [] — merge/2 widens to whichever
     # contributor's shape best matches the user's intent (see r6 / merge).
@@ -130,7 +146,7 @@ defmodule MutagenEx.TestSelector do
       {:ok, %TestFilter{include: [], exclude: [], files: []}, _seed = true},
       fn
         target, {:ok, acc, seed?} ->
-          case resolve_one(target, test_root) do
+          case resolve_one(target, test_paths) do
             {:ok, %TestFilter{} = filter} -> {:cont, {:ok, merge(acc, filter, seed?), false}}
             {:error, _} = err -> {:halt, err}
           end
@@ -146,10 +162,10 @@ defmodule MutagenEx.TestSelector do
   # Per-target resolution
   # ---------------------------------------------------------------------------
 
-  @spec resolve_one(target(), String.t()) ::
+  @spec resolve_one(target(), [String.t()]) ::
           {:ok, TestFilter.t()} | {:error, %{reason: error_reason(), target: target()}}
-  defp resolve_one("tag:" <> name, test_root) when name != "" do
-    resolve_tag(name, test_root)
+  defp resolve_one("tag:" <> name, test_paths) when name != "" do
+    resolve_tag(name, test_paths)
   end
 
   defp resolve_one(target, _test_root) when is_binary(target) do
@@ -306,10 +322,10 @@ defmodule MutagenEx.TestSelector do
   # return `:no_tests_match` without ever materializing an atom from the
   # user's input — `:erlang.system_info(:atom_count)` stays constant across
   # N invocations with N distinct never-registered names.
-  defp resolve_tag(name, test_root) do
+  defp resolve_tag(name, test_paths) do
     target = "tag:" <> name
 
-    case scan_for_tag(test_root, name) do
+    case scan_for_tag(test_paths, name) do
       {:ok, []} ->
         {:error, %{reason: :no_tests_match, target: target}}
 
@@ -338,17 +354,20 @@ defmodule MutagenEx.TestSelector do
   #                                parse of the test files — NEVER from
   #                                `String.to_atom(name)`.
   #   * `{:error, reason}`       — directory missing, etc.
-  @spec scan_for_tag(String.t(), String.t()) ::
+  @spec scan_for_tag([String.t()], String.t()) ::
           {:ok, []} | {:ok, {atom(), [String.t()]}} | {:error, error_reason()}
-  defp scan_for_tag(test_root, name) do
-    case File.dir?(test_root) do
+  defp scan_for_tag(test_paths, name) do
+    roots = Enum.filter(test_paths, &File.dir?/1)
+
+    case roots != [] do
       false ->
         {:error, :file_not_found}
 
       true ->
         {matched_atom, files} =
-          test_root
-          |> walk_test_files()
+          roots
+          |> Enum.flat_map(&walk_test_files/1)
+          |> Enum.uniq()
           |> Enum.reduce({nil, []}, fn path, {atom_acc, files_acc} ->
             case file_match_for_tag(path, name) do
               :no_match ->

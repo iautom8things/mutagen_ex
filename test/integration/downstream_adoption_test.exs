@@ -253,15 +253,9 @@ defmodule MutagenEx.Integration.DownstreamAdoptionTest do
            "expected at least one mutation to have executed, not just been enumerated"
   end
 
-  # `mix new` and `mix mutagen` both honor MIX_* and ELIXIR_* env vars from
-  # the parent process. Pass a clean env that preserves PATH and HOME (so
-  # `mix`, `elixir`, and `~/.mix` resolve) but drops MIX_ENV (so the tmp
-  # project compiles in :dev) and MIX_TARGET (so it picks the default
-  # target). Anything else inherits — we deliberately do not strip
-  # everything because Hex/rebar3 paths live in HOME-rooted dirs.
   defp clean_env do
     [
-      {"MIX_ENV", nil},
+      {"MIX_ENV", "test"},
       {"MIX_TARGET", nil}
     ]
   end

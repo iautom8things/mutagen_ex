@@ -71,6 +71,12 @@ file for traceability.
   cleans up state for another, skipping it can change later mutants'
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
+- **Breaking:** Select the test environment for `mix mutagen` via
+  `MIX_ENV=test`, an explicit custom test environment, or Mix's preferred
+  environment settings. An implicit non-test environment now aborts.
+- Mutagen runs host test-alias pre-steps before application startup. Use
+  `--no-test-alias` to skip them or `--boot-timeout-ms` to set the startup
+  deadline after compilation.
 
 - **Fewer equivalent `with_swap` mutations.** For independent clauses,
   the mutator skips swaps when one clause always matches by syntax, both
@@ -103,6 +109,21 @@ file for traceability.
 - **Baseline errors name every failing cited test.** Baseline runs
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
+- The CLI loads the host's ExUnit helper once before running cited tests.
+  It honors helper filters, runs after-suite callbacks once, and releases
+  ExUnit processes and their Sandbox owners after a mutant times out.
+- A host compile, application startup, or test helper failure produces the
+  usual error JSON at the selected output path. A helper failure names the
+  helper's own line and, when it came from a file the helper evaluated, that
+  file and line as `origin_file` and `origin_line`. Each of these documents
+  notes in `details.note` that stderr is not redacted and should not be
+  published as a CI artifact.
+- A missing or corrupt report module in the installed tool produces a
+  `runtime_load_failed` document instead of a `MatchError`.
+- JSON reports redact common credential formats by default, including
+  compound keys such as `DATABASE_PASSWORD`, `api-token`, and
+  `AWS_SECRET_ACCESS_KEY`. If a report file cannot be written safely, the
+  task warns and writes to stdout.
 
 - **`guard_drop` mutations now run.** The enumerator validates the
   mutated node, but `guard_drop` rejected any node without its `when`
