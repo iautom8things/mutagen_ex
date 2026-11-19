@@ -17,12 +17,20 @@ defmodule MutagenEx.Mutators.GuardDrop do
 
   ## Drop
 
-  Remove the `:when` wrapper, leaving only the head/pattern.
+  Remove the `:when` wrapper, leaving only the head/pattern. Nested guards
+  (`x when a when b`) parse as one `:when` inside another, so each level
+  is its own site.
+
+  A multi-parameter anonymous function clause keeps every parameter in one
+  node: `fn a, b when a > b -> a end` has `{:when, _, [a, b, guard]}`.
+  Replacing that node cannot drop the guard without dropping parameters,
+  so `mutate/1` returns it unchanged.
 
   ## Validation
 
-  * `:structurally_invalid` — not a `:when` form, or has fewer than 2
-    children (pattern + guard).
+  `validate/1` receives the result of `mutate/1`, like every other
+  mutator. Any head or pattern is `:ok`. A multi-parameter `:when` node
+  is `:structurally_invalid`, because `mutate/1` could not drop its guard.
   """
 
   @behaviour MutagenEx.Mutators
@@ -37,13 +45,9 @@ defmodule MutagenEx.Mutators.GuardDrop do
 
   @impl true
   def mutate({:when, _meta, [head, _guard]}), do: head
-
-  def mutate({:when, _meta, args}) when is_list(args) and length(args) >= 2 do
-    # Multi-guard form: {:when, _, [pattern, g1, g2, ..., gN]}. Drop guards.
-    hd(args)
-  end
+  def mutate({:when, _meta, args} = node) when is_list(args) and length(args) > 2, do: node
 
   @impl true
-  def validate({:when, _meta, args}) when is_list(args) and length(args) >= 2, do: :ok
-  def validate(_), do: {:skip, :structurally_invalid}
+  def validate({:when, _meta, [_, _, _ | _]}), do: {:skip, :structurally_invalid}
+  def validate(_head_or_pattern), do: :ok
 end
