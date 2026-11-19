@@ -88,10 +88,10 @@ defmodule MutagenEx.JsonStreamerTest do
         literal: :high,
         with_swap: :low,
         case_drop: :high,
-        pipeline: :high,
+        pipeline: :low,
         result_tuple: :high,
         else_removal: :high,
-        guard_drop: :high
+        guard_drop: :low
       }
 
       assert Enum.sort(Map.keys(confidences)) == Enum.sort(Mutators.names())

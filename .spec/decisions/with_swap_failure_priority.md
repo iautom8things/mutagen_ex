@@ -66,3 +66,10 @@ reason.
 
 A kept pin, guard or size swap without an outer binding costs one compile
 and appears in `compile_errors`.
+
+## Amendment (2026-11-19)
+
+Keep independent swaps whose `else` arm ignores the failure. Swapping
+authorization and loading can attempt a load that the original order
+never reaches. Report these sites at low confidence alongside the other
+`with_swap` sites. The remaining validation rules still apply.

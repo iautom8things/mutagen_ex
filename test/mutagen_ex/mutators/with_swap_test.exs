@@ -98,9 +98,9 @@ defmodule MutagenEx.Mutators.WithSwapTest do
     end
 
     @tag :validate
-    test "skips a single wildcard else but keeps an else that uses the failure value" do
+    test "keeps sole else arms whether or not they use the failure value" do
       assert validate_swap("with :ok <- f(), :ok <- g(), do: :done, else: (_ -> :error)") ==
-               {:skip, :else_ignores_failure}
+               :ok
 
       assert validate_swap("with :ok <- f(), :ok <- g(), do: :done, else: (error -> error)") ==
                :ok

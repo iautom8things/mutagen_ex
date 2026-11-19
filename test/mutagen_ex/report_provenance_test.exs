@@ -45,6 +45,31 @@ defmodule MutagenEx.ReportProvenanceTest do
              "invalid_input"
   end
 
+  @tag spec: ["mutagen.json_schema.r22", "mutagen.mutation_pipeline.r7"]
+  test "state leak warnings keep deltas and gate names on host output" do
+    names = [
+      processes: %{@canary => 1},
+      ets: %{@canary => 2, :another => 3},
+      persistent_term: %{{:fixture, @canary} => 1}
+    ]
+
+    warning = {:host_names, :state_leak, [{"site-id", names}]}
+    report = %Report{warnings: [warning, warning]}
+
+    assert [summary] = abort(report)["warnings"]
+    assert summary =~ "state_leak after site site-id"
+    assert summary =~ "processes: names=1, +1"
+    assert summary =~ "ets: names=2, +5"
+    assert summary =~ "persistent_term: names=1, +1"
+    refute summary =~ @canary
+    refute summary =~ "another"
+
+    assert [details] = abort(%{report | include_host_output: true})["warnings"]
+    assert details =~ "ets: :another +3"
+    assert details =~ ~s("#{@canary}" +2)
+    assert details =~ ~s({:fixture, "#{@canary}"} +1)
+  end
+
   @tag spec: "mutagen.json_schema.r22"
   test "exception modules and locations require provenance" do
     module = Module.concat(Fixture, @canary)
@@ -167,7 +192,12 @@ defmodule MutagenEx.ReportProvenanceTest do
     failures = [{ExampleTest, "test generated #{@canary}"}]
 
     report = %Report{
-      meta: %{tool_version: "test", elixir_version: "test", otp_version: "test"},
+      meta: %{
+        tool_version: "test",
+        elixir_version: "test",
+        otp_version: "test",
+        timings_ms: %{boot: 1, coverage: 2, baseline: 3, mutation: 4, total: 10}
+      },
       scope: [%{file: file, line_range: 1..2, module: Example}],
       tests: %{include: [:cli, location], exclude: [:cli, location], files: [file]},
       coverage: %{covered_lines: %{file => [1]}},
@@ -232,6 +262,12 @@ defmodule MutagenEx.ReportProvenanceTest do
 
   defp paths(value, path) when is_binary(value), do: [path]
   defp paths(list, path) when is_list(list), do: Enum.flat_map(list, &paths(&1, path <> "[]"))
+
+  defp paths(map, "meta.timings_ms") when is_map(map) do
+    assert Map.keys(map) |> Enum.sort() == ~w(baseline boot coverage mutation total)
+    assert Enum.all?(Map.values(map), &is_integer/1)
+    ["meta.timings_ms"]
+  end
 
   defp paths(map, path)
        when is_map(map) and path in ["coverage.covered_lines", "mutation.state_drift_warning"] do

@@ -60,6 +60,7 @@ decisions:
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.details_always_present
   - mutagen.decision.mutator_confidence
+  - mutagen.decision.mutator_precision
   - mutagen.decision.ancora_migration
   - mutagen.decision.host_test_setup
 ```
@@ -70,6 +71,7 @@ Top-level keys, all present in every variant unless noted:
 
 - `version`: literal string `"2"`.
 - `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme, fail_fast}`.
+  CLI aggregates also carry `timings_ms` (r25).
 - `scope`: array of resolved scope records.
 - `tests`: resolved test filter (the `{include, exclude, files}` triple).
 - `baseline`: `{passed: int, failed: int, failures: [{module, count}]}` or
@@ -305,7 +307,7 @@ Top-level keys, all present in every variant unless noted:
     the same sink the aggregate document goes to (stdout when `--json`
     is absent, the configured file when `--json <path>` is set).
     Every line terminates with exactly one `\n` and is independently
-    parseable by `:json.decode/1`. Every line carries:
+    parseable by `:json.decode/1`. Every stream envelope or per-site line carries:
       - `"version"` — the same literal `"2"` the aggregate document
         emits (`r1`).
       - `"kind"` — one of `"start"`, `"result"`, `"compile_error"`,
@@ -314,7 +316,7 @@ Top-level keys, all present in every variant unless noted:
       - `"start"` fires once at mutation-phase entry; carries `total`
         (planned site count, every enumerated site that was not skipped)
         and `meta` (`r2`'s meta block). That `meta` equals the aggregate
-        document's `meta`.
+        document's `meta` with `timings_ms` omitted.
       - `"result"` fires once per completed site (any of `killed`,
         `survived`, `timeout`, `error`); the line's wire shape MUST be
         byte-equal to the equivalent entry in the aggregate document's
@@ -324,7 +326,8 @@ Top-level keys, all present in every variant unless noted:
         line's wire shape MUST be byte-equal to the equivalent entry
         in `mutation.compile_errors[]`.
       - `"end"` fires once at pipeline exit (success or abort) for
-        every run that reached the enumeration phase; carries `meta`,
+        every run that reached the enumeration phase; carries the same
+        `meta` fields as `"start"`, plus
         the aggregate counters (`total`, `completed`, `killed`,
         `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted` + `abort_reason`. Its `total` is the aggregate
@@ -343,7 +346,9 @@ Top-level keys, all present in every variant unless noted:
     CLI and report path errors, every host setup abort
     (mutagen.cli.r19), and scope, test selection, AST cache and coverage
     aborts. A run that aborts in enumeration or baseline, such as
-    `too_many_sites` or `baseline_red`, writes only the end line.
+    `too_many_sites` or `baseline_red`, writes the end line before the
+    aggregate. The final line on the sink is always the aggregate
+    document and has no `kind` field.
 
 - id: mutagen.json_schema.r15
   priority: must
@@ -443,8 +448,9 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     Default documents and stream lines apply the field provenance table.
-    Host process names, dynamic exception names, test names, and helper
-    filter values are opt-in. Unknown default reason atoms become host_reason.
+    Host process names, ETS table names, persistent term keys,
+    dynamic exception names, test names, and helper filter values are
+    opt-in. Unknown default reason atoms become host_reason.
     Exception locations come from repository stack frames, relative to the root.
 
 - id: mutagen.json_schema.r23
@@ -459,6 +465,20 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     Source excerpts omit Unicode format characters, including bidi and
     zero-width characters.
+
+- id: mutagen.json_schema.r25
+  priority: must
+  statement: |
+    Every CLI aggregate document carries `meta.timings_ms` with
+    non-negative integer milliseconds for `boot`, `coverage`,
+    `baseline`, `mutation` and `total`. A phase that did not run is zero.
+    A phase that returns an error reports the elapsed time up to the
+    error. The total measures pipeline entry through report assembly,
+    before encoding and output, and includes work between phases such as
+    enumeration. Stream envelopes and per-site lines omit `timings_ms`.
+    `meta.timings_ms` is the only field whose values Mutagen itself makes
+    non-deterministic. Captured host output may contain timestamps,
+    process identifiers or references.
 ```
 
 ```spec-scenarios
@@ -611,7 +631,7 @@ Top-level keys, all present in every variant unless noted:
   when:
     - "`JsonReporter.emit_report/1` renders the aggregate and `JsonStreamer.emit_result/2` streams each result."
   then:
-    - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap` and `\"high\"` for the other nine mutators, for every status."
+    - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap`, `pipeline`, and `guard_drop` and `\"high\"` for the other seven mutators, for every status."
     - "Each NDJSON result line equals its aggregate entry plus `kind` and `version`."
 
 - id: mutagen.json_schema.s14b
@@ -690,6 +710,7 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r22
     - mutagen.json_schema.r23
     - mutagen.json_schema.r24
+    - mutagen.json_schema.r25
 ```
 
 ## Default string provenance
@@ -707,6 +728,7 @@ the envelope fields and add `kind`.
 | `meta.tool_version` | Mutagen build | Keep |
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
+| `meta.timings_ms` | Mutagen monotonic clock | Keep the five integer durations in the aggregate |
 | `scope[].file` | Repository or CLI path | Keep |
 | `scope[].module` | Repository module declaration | Keep |
 | `tests.files[]` | Repository or CLI path | Keep |
@@ -741,7 +763,7 @@ the envelope fields and add `kind`.
 | `mutation.skipped[].mutator` | Mutagen catalog | Keep |
 | `mutation.state_drift_warning{key}` | Repository module declaration | Keep |
 | `mutation.state_drift_warning{}[]` | Repository use directive | Keep |
-| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Render host-derived names as counts. Omit host bodies. Deduplicate. |
+| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Report growth and counts for host state. Omit host names and bodies. Deduplicate. |
 | `abort_reason` | Mutagen abort vocabulary | Keep |
 | `details.flag` | CLI flag | Keep |
 | `details.file` | CLI or repository path, or a repository stack frame on raise | Keep repository stack frames relative to root. Omit missing or unverifiable frames. |

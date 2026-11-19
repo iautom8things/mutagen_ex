@@ -38,8 +38,11 @@ file for traceability.
 - **Mutator confidence.** Each aggregate mutation result and streaming
   result line carries `"confidence": "high"` or `"confidence": "low"`.
   CI gates can filter survivors by confidence. The field is part of report
-  schema version `"2"`. `with_swap` is rated low and all other mutators
-  default to high.
+  schema version `"2"`. `with_swap`, `pipeline`, and `guard_drop` are
+  rated low. The other mutators rate high.
+
+- **Phase timings.** The aggregate document reports elapsed milliseconds in
+  `meta.timings_ms` for boot, coverage, baseline, mutation, and the full run.
 
 - **Parallel mutation dispatch (`--max-concurrency`).** The mutation phase
   can now run per-site work in parallel. The default stays `1` (fully
@@ -53,7 +56,8 @@ file for traceability.
   document. Each line carries a `"kind"` discriminator
   (`start` / `result` / `compile_error` / `end`) and is byte-equal to the
   matching entry in the final document. Per-site lines arrive in input
-  order even under parallel dispatch.
+  order even under parallel dispatch. The final line is the aggregate
+  document without a `kind` field.
 
 - **Per-site progress feed.** When stderr is a TTY, a one-line-per-site
   progress feed is printed (e.g. `[12/345] killed lib/foo.ex:42 :arith`).
@@ -100,10 +104,11 @@ file for traceability.
   `--no-test-alias` to skip them or `--boot-timeout-ms` to set the startup
   deadline after compilation.
 
-- **Fewer equivalent `with_swap` mutations.** For independent clauses,
-  the mutator skips swaps when one clause always matches by syntax, both
-  failures have the same value by construction, or a single wildcard
-  `else` arm ignores the failure. The report records each skip reason.
+- **`with_swap` validation.** For independent clauses, the mutator skips
+  swaps when one match always succeeds by syntax or the two right-hand
+  sides have the same value by construction. A catchall `else` can still
+  allow the swap to change which calls run. Those sites stay in the
+  report at low confidence.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock
@@ -126,8 +131,24 @@ file for traceability.
   `mix mutagen` (a Mix archive cannot carry dependencies). External
   telemetry handlers, if any, no longer receive events.
 
+- The `mix new` placeholder module and its test were deleted.
+
 ### Fixed
 
+- **Late replies count as timeouts.** When fail-fast
+  has already recorded a failure by the deadline, the mutant still counts
+  as killed.
+- **State-leak warning details.** The runner reports positive deltas
+  for process registrations, ETS tables and persistent term keys.
+  The default report gives counts and deltas. Names require
+  `--include-host-output`. Same-name replacements, automatic Logger
+  caches, and compiler bookkeeping do not taint later results.
+- **ExUnit case registration.** Mutagen registers only ExUnit cases
+  from cited files. It preserves their parameterization and reuses the
+  case list across phases.
+- **Timeout cleanup.** Timed-out sites drain pending serial ExUnit
+  registrations once.
+- **Progress help.** `mix help mutagen` documents `--no-progress`.
 - **Baseline errors name every failing cited test.** Baseline runs
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
@@ -154,10 +175,9 @@ file for traceability.
   produce killed, survived or timeout results. A multi-parameter `fn`
   clause guard stays skipped, because no single-node edit can drop it.
 
-- **Function captures are no longer mutated as division.** The `/` in
-  `&fun/1` and `&Mod.fun/2` names a function, but `arith` swapped it for
-  `*`, which could never compile. Division inside a capture body, such as
-  `&(&1 / 2)`, still mutates.
+- **Named function captures stay intact.** Mutators leave the slash and
+  arity in `&fun/1`, `&Mod.fun/2`, and `&:erlang.fun/2` alone.
+  Arithmetic and literal edits inside anonymous capture bodies still run.
 
 - **Archive-installed CLI no longer crashes on a cold start.** When
   `mix mutagen` was installed globally via `mix archive.install` (no
@@ -182,8 +202,9 @@ file for traceability.
   `... <N bytes truncated>` marker — so a runaway diagnostic can't bloat
   the report. A new opt-in `:redact` application config takes a list of
   regexes; every match in a reported field is replaced with `[REDACTED]`.
-  Redaction runs before truncation. Default is no custom patterns. Pair it with
-  `--json <path>` when archiving reports off the run host.
+  Redaction runs before truncation. Built-in credential patterns apply by
+  default. The `:redact` setting starts with an empty list of extra patterns.
+  Use `--json <path>` when archiving reports off the run host.
 
 - **`--json <path>` is path-safe.** The output path is canonicalised
   before any mutation runs: `..` segments and NUL bytes are refused at
@@ -200,11 +221,6 @@ file for traceability.
   loops like `mix mutagen --tests tag:$(uuidgen)` can no longer exhaust the
   atom table. A `tag:` charset gate rejects malformed names up front
   (`abort_reason: "invalid_tag_name"`).
-
-### Removed
-
-- The `mix new` placeholder module and its test were deleted; the
-  `MutagenEx` namespace is owned entirely by its submodules.
 
 ## [0.1.0] — 2026-05-13
 

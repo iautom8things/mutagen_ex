@@ -273,6 +273,62 @@ defmodule MutagenEx.MutationEnumeratorTest do
              end)
     end
 
+    @tag spec: "mutagen.mutators.r9"
+    test "a low-confidence with swap can load data before authorization despite a catchall" do
+      for pattern <- ["_", "_other"] do
+        source = """
+        defmodule AuthorizationOrdering do
+          def run(user) do
+            with {:ok, account} <- authorize(user), {:ok, data} <- load(user) do
+              {account, data}
+            else
+              #{pattern} -> :denied
+            end
+          end
+
+          defp authorize(:admin), do: {:ok, :admin}
+          defp authorize(_), do: :error
+          defp load(:admin), do: {:ok, :data}
+          defp load(:guest), do: raise(ArgumentError, "load ran for unauthorized :guest")
+        end
+        """
+
+        file = "lib/authorization_ordering.ex"
+        cache = ast_cache(file, source)
+
+        assert %{sites: [site], skipped: []} =
+                 MutationEnumerator.enumerate(
+                   cache,
+                   [scope(file, AuthorizationOrdering)],
+                   covered_lines(file, [3]),
+                   mutators: [MutagenEx.Mutators.WithSwap]
+                 )
+
+        assert MutagenEx.Mutators.confidence(site.mutator) == :low
+        ast = Code.string_to_quoted!(source, token_metadata: true, columns: true)
+
+        mutated =
+          Macro.prewalk(ast, fn
+            {:with, _, _} -> site.mutated_ast
+            {:defmodule, meta, [_name, body]} -> {:defmodule, meta, [SwappedAuthorization, body]}
+            node -> node
+          end)
+
+        Code.compile_quoted(ast)
+        Code.compile_quoted(mutated)
+        assert apply(AuthorizationOrdering, :run, [:guest]) == :denied
+
+        assert_raise ArgumentError, "load ran for unauthorized :guest", fn ->
+          apply(SwappedAuthorization, :run, [:guest])
+        end
+
+        for module <- [AuthorizationOrdering, SwappedAuthorization] do
+          :code.delete(module)
+          :code.purge(module)
+        end
+      end
+    end
+
     @tag spec: ["mutagen.mutators.r2", "mutagen.mutators.r9"]
     test "with_swap failure-priority rejections are skipped under their site IDs" do
       source = """
@@ -293,12 +349,11 @@ defmodule MutagenEx.MutationEnumeratorTest do
           mutators: [MutagenEx.Mutators.WithSwap]
         )
 
-      assert [%{line: 5, function: "Noisy.kept/2"}] = result.sites
+      assert [%{function: "Noisy.ignored/2"}, %{function: "Noisy.kept/2"}] = result.sites
 
       assert Enum.map(result.skipped, & &1.reason) == [
                :insufficient_refutable_patterns,
-               :indistinguishable_failures,
-               :else_ignores_failure
+               :indistinguishable_failures
              ]
 
       for skipped <- result.skipped do
@@ -892,15 +947,16 @@ defmodule MutagenEx.MutationEnumeratorTest do
   describe "function capture references" do
     @describetag spec: "mutagen.mutation_enumeration.r10"
 
-    test "the `/` naming a captured function is offered to no mutator" do
+    test "named captures and their children are offered to no mutator" do
       source = """
       defmodule CaptureRefs do
         def local(xs), do: Enum.map(xs, &double/1)
-        def remote(xs), do: Enum.reduce(xs, &Kernel.max/2)
-        def erlang(xs), do: Enum.reduce(xs, &:erlang.max/2)
-        def body(xs), do: Enum.map(xs, &(&1 / 2))
+        def remote(xs), do: Enum.map(xs, &Kernel.abs/1)
+        def erlang(xs), do: Enum.map(xs, &:erlang.abs/1)
+        def body(xs), do: Enum.map(xs, &(&1 / 1))
         def plain(x), do: x / 2
         defp double(x), do: x * 2
+        defmacro quoted(fun), do: quote(do: &unquote(fun)/1)
       end
       """
 
@@ -914,12 +970,18 @@ defmodule MutagenEx.MutationEnumeratorTest do
         assert result.sites
                |> Enum.filter(&(&1.mutator == :arith))
                |> Enum.map(&{&1.line, Macro.to_string(&1.mutated_ast)}) == [
-                 {5, "&1 * 2"},
+                 {5, "&1 * 1"},
                  {6, "x * 2"},
                  {7, "x / 2"}
                ]
 
-        refute Enum.any?(result.skipped, &(&1.mutator == :arith))
+        refs_only = covered_lines("lib/capture_refs.ex", [2, 3, 4, 8])
+
+        assert %{sites: [], skipped: []} =
+                 MutationEnumerator.enumerate(cache, scopes, refs_only, dispatch_mode: mode)
+
+        assert Enum.any?(result.sites, &(&1.line == 5 and &1.mutator == :literal))
+        assert [%{mutator: :literal, reason: :structurally_invalid}] = result.skipped
       end
     end
   end

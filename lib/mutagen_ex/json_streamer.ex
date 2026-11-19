@@ -24,7 +24,8 @@ defmodule MutagenEx.JsonStreamer do
   runner streams them through `:on_site_completed` AS the
   per-input-index task completes (via the `async_stream`'s ordered
   collection guarantee), which means the byte-identical-output gate
-  holds for the concatenated NDJSON stream too.
+  holds for the concatenated stream lines too. The Mix task writes
+  the aggregate document after the stream and it carries no `kind`.
   """
 
   alias MutagenEx.JsonReporter
@@ -38,7 +39,7 @@ defmodule MutagenEx.JsonStreamer do
 
   `total` is the total site count the runner will attempt; `meta` is
   the same `meta` block the final document carries (tool version,
-  Elixir/OTP version, ExUnit seed, and fail-fast setting).
+  Elixir/OTP version, ExUnit seed, and fail-fast setting), without timings.
   """
   @spec emit_start(sink(), pos_integer() | non_neg_integer(), map()) :: :ok
   def emit_start(sink, total, meta) do

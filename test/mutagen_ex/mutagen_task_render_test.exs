@@ -96,6 +96,57 @@ defmodule Mix.Tasks.MutagenRenderTest do
     end
   end
 
+  @tag spec: ["mutagen.json_schema.r4", "mutagen.json_schema.r21"]
+  test "with, case, if, pipe and infix results keep exact source bytes" do
+    expressions = [
+      """
+      with {:ok, value} <- fetch() do
+          # Keep the comment and indentation.
+          value
+      end
+      """,
+      """
+      case 5432 + n do
+          0 -> :zero
+          other -> other
+      end
+      """,
+      """
+      if true and enabled do
+          :yes
+      else
+          :no
+      end
+      """,
+      "format(5432 + n)  |> render()",
+      "amount  +  extra",
+      "5432 + n"
+    ]
+
+    [result] = sample_results(1)
+    prefix = "  value = "
+
+    for expression <- expressions do
+      expected = String.trim_trailing(expression, "\n")
+      source = prefix <> expected <> " # outside the slice\n"
+      {:=, _, [_, ast]} = Code.string_to_quoted!(source, columns: true, token_metadata: true)
+      lines = String.split(expected, "\n")
+      column_offset = if length(lines) == 1, do: String.length(prefix), else: 0
+
+      rendered =
+        result
+        |> Map.merge(%{
+          original_ast: ast,
+          source_text: source,
+          end_line: length(lines),
+          end_column: String.length(List.last(lines)) + column_offset + 1
+        })
+        |> Mix.Tasks.Mutagen.__render_result__()
+
+      assert rendered.before_source == expected
+    end
+  end
+
   # --------------------------------------------------------------------
   # r12 fallback path: legacy callers (no end_line/end_column/source_text)
   # --------------------------------------------------------------------

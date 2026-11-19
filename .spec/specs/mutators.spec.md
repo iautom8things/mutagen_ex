@@ -74,6 +74,7 @@ decisions:
   - mutagen.decision.validate_predicates
   - mutagen.decision.with_swap_failure_priority
   - mutagen.decision.mutator_confidence
+  - mutagen.decision.mutator_precision
   - mutagen.decision.ancora_migration
 ```
 
@@ -92,10 +93,10 @@ decisions:
   priority: must
   statement: |
     Every `validate/1` result is `:ok` or `{:skip, reason}` with one of
-    six reasons: `:structurally_invalid`, `:no_op_shadowed`,
+    five reasons: `:structurally_invalid`, `:no_op_shadowed`,
     `:bound_var_used_before_binding`, or the `with_swap` reasons
-    `:insufficient_refutable_patterns`, `:indistinguishable_failures` and
-    `:else_ignores_failure`. Each rejected site lands in
+    `:insufficient_refutable_patterns` and `:indistinguishable_failures`.
+    Each rejected site lands in
     `mutation.skipped[]` with `{site_id, reason}` and is not executed. Per
     mutagen.decision.validate_predicates, the rejection happens before any
     compile so `:compile_error` is reserved for genuine compile failures
@@ -184,9 +185,9 @@ decisions:
          right-hand side.
       4. `{:skip, :indistinguishable_failures}` when both right-hand sides
          are the same variable or equal literals.
-      5. `{:skip, :else_ignores_failure}` when `else` has exactly one arm
-         and its pattern is the bare `_`.
-      6. `:ok` otherwise.
+      5. `:ok` otherwise. The `else` arms do not affect validation.
+         Swapping the clauses can change effects or exceptions even
+         when the `else` arm ignores a failed match.
 
     Literal equality ignores the position metadata `line`, `column`,
     `end_line`, `end_column`, `closing`, `last`, `end_of_expression`,
@@ -195,8 +196,8 @@ decisions:
 - id: mutagen.mutators.r10
   priority: must
   statement: |
-    `MutagenEx.Mutators.confidence/1` returns `:low` for `:with_swap` and
-    `:high` for each of the other nine registered names. A registered
+    `MutagenEx.Mutators.confidence/1` returns `:low` for `:with_swap`,
+    `:pipeline` and `:guard_drop`, and `:high` for the other seven registered names. A registered
     module that exports `confidence/0` supplies its own rating and one that
     does not gets `:high`. A name outside the catalog raises
     `ArgumentError` with the message `unknown mutator: <inspected name>`.
@@ -384,8 +385,8 @@ decisions:
     - "`with_swap` swaps each and `validate/1` runs on the swap."
   then:
     - |
-      The sole wildcard arm returns `{:skip, :else_ignores_failure}` and
-      the `error -> error` arm returns `:ok`.
+      Both the sole wildcard arm and the `error -> error` arm return
+      `:ok`. A sole unused variable arm also returns `:ok`.
     - |
       The rebinding pair returns `:ok` despite its wildcard arm. The
       original returns `2` and the swap returns `1`.
@@ -421,7 +422,7 @@ decisions:
   when:
     - "`Mutators.confidence/1` runs on each."
   then:
-    - "`:with_swap` returns `:low` and the other nine return `:high`."
+    - "`:with_swap`, `:pipeline`, and `:guard_drop` return `:low`. The other seven return `:high`."
     - |
       `:not_in_catalog` raises `ArgumentError` with the message
       `unknown mutator: :not_in_catalog`.
