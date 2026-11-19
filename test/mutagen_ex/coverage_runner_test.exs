@@ -117,6 +117,7 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r1: refuses if :cover_server already registered (s1)" do
+    @tag spec: "mutagen.coverage.r1"
     test "returns :cover_already_running and does NOT call configure/run/compile" do
       # Register a placeholder under :cover_server so the runner sees a
       # live registration. The runner must NOT touch it.
@@ -157,6 +158,8 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r2: :cover.stop/0 called on every exit (s2 — idempotent)" do
+    @describetag spec: "mutagen.coverage.r2"
+
     test "successful run calls cover.stop at least once" do
       cfg = base_cfg_with_fakes()
 
@@ -196,6 +199,7 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r4: forces ExUnit max_cases: 1 + seed (s4)" do
+    @tag spec: ["mutagen.cli.r4", "mutagen.coverage.r4"]
     test "configure/1 receives max_cases: 1 and the configured seed" do
       cfg = base_cfg_with_fakes(seed: 1234)
 
@@ -241,6 +245,8 @@ defmodule MutagenEx.CoverageRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r5: covered_lines is filtered to in-scope files (s5)" do
+    @describetag spec: "mutagen.coverage.r5"
+
     @tag :scope_filter
     test "out-of-scope coverage entries are dropped" do
       # Pretend the user scoped to `lib/foo.ex` (one module: Foo).
@@ -391,6 +397,7 @@ defmodule MutagenEx.CoverageRunnerTest do
 
   describe "r3: :code.which/1 is non-:cover_compiled after stop (s3) — real cover" do
     @tag :cover_integration
+    @tag spec: ["mutagen.coverage.r2", "mutagen.coverage.r3"]
     test "post-run :code.which/1 returns a real .beam path for instrumented modules" do
       # Use our own AstCache module (loaded and present on disk). The
       # runner instruments it via :cover.compile_beam, runs no actual
@@ -414,6 +421,7 @@ defmodule MutagenEx.CoverageRunnerTest do
       post_which = :code.which(MutagenEx.AstCache)
       refute post_which == :cover_compiled
       assert is_list(post_which) or post_which == :preloaded
+      assert {:ok, _server} = MutagenEx.Test.Cover.start()
     end
   end
 
@@ -458,12 +466,15 @@ defmodule MutagenEx.CoverageRunnerTest do
   end
 
   describe "mutagen-wrd.38: re-registers cited test modules before ExUnit.run/0" do
+    @describetag spec: "mutagen.coverage.r10"
+
     setup do
       Process.delete(:ex_unit_server_fake_calls)
       Process.delete(:wrd38_order)
       :ok
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test ":test_modules entries are passed to :ex_unit_server.add_module/2 in order" do
       mod_cfg = %{async?: false, group: nil, parameterize: nil}
 
@@ -486,6 +497,7 @@ defmodule MutagenEx.CoverageRunnerTest do
              ]
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test "add_module/2 happens BEFORE ExUnit.run/0" do
       mod_cfg = %{async?: false, group: nil, parameterize: nil}
 
@@ -506,6 +518,7 @@ defmodule MutagenEx.CoverageRunnerTest do
              ]
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r10"
     test "default for :test_modules is [] — no add_module calls when payload absent" do
       cfg =
         base_cfg_with_fakes(ex_unit_server: ExUnitServerFake)

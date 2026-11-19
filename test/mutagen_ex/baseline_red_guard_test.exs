@@ -92,6 +92,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
     :ok
   end
 
+  @tag spec: ["mutagen.mutation_pipeline.r1", "mutagen.mutation_pipeline.r10"]
   test "baseline_red fires against the real ExUnit.Server after a prior run drained it" do
     {{drain_result, baseline_result}, _io} =
       ExUnit.CaptureIO.with_io(fn ->
@@ -99,9 +100,9 @@ defmodule MutagenEx.BaselineRedGuardTest do
         # Register the red module and consume it with a nested
         # `ExUnit.run/0`, mirroring how the coverage phase drains
         # `ExUnit.Server` before baseline ever runs.
-        ExUnit.configure(include: [@fixture_tag], exclude: [:test])
-        ExUnit.Server.add_module(@red_module, @module_cfg)
-        drain = ExUnit.run()
+        MutagenEx.Test.ExUnit.configure(include: [@fixture_tag], exclude: [:test])
+        MutagenEx.Test.ExUnitServer.add_module(@red_module, @module_cfg)
+        drain = MutagenEx.Test.ExUnit.run()
 
         # ---- Step 2: production baseline ---------------------------------
         # `Baseline.run/1` with the production default seams. The
@@ -133,6 +134,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
     assert details.failed >= 1
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r10"
   test "baseline stays green when the cited module passes (re-registration is not a false-positive)" do
     {{drain_result, baseline_result}, _io} =
       ExUnit.CaptureIO.with_io(fn ->

@@ -35,6 +35,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   end
 
   describe "phase_json_path — symlink escape (s10c)" do
+    @tag spec: ["mutagen.cli.r10", "mutagen.cli.r15"]
     test "symlink whose target escapes the project root aborts before any mutation phase" do
       tmp = isolated_project_root()
       escape = Path.join(tmp, "escape.json")
@@ -57,7 +58,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, code, _config}
+      assert_received {:io, iodata, code, %Config{json_path: nil}}
       assert code != 0
 
       decoded =
@@ -73,6 +74,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       refute_received {:scope_invoked, _}
     end
 
+    @tag spec: ["mutagen.cli.r10", "mutagen.cli.r15"]
     test "intermediate symlinked parent that escapes the root also aborts" do
       tmp = isolated_project_root()
       escape_parent = Path.join(tmp, "data")
@@ -94,7 +96,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
                  dispatch
                )
 
-      assert_received {:io, iodata, code, _config}
+      assert_received {:io, iodata, code, %Config{json_path: nil}}
       assert code != 0
 
       decoded =
@@ -107,6 +109,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   end
 
   describe "phase_json_path — symlink stays inside root (s10d)" do
+    @describetag spec: "mutagen.cli.r10"
+
     test "symlink resolution succeeds; canonical path lands on Config" do
       tmp = isolated_project_root()
       File.mkdir_p!(Path.join(tmp, "out"))
@@ -161,6 +165,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   end
 
   describe "phase_json_path — outside-root default refusal" do
+    @describetag spec: "mutagen.cli.r10"
+
     test "absolute path outside project root aborts" do
       tmp = isolated_project_root()
       Process.put(:mutagen_json_path_project_root, tmp)
@@ -192,6 +198,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   end
 
   describe "phase_json_path — --unsafe-json-outside-project escape hatch (s10e)" do
+    @describetag spec: "mutagen.cli.r10"
+
     test "outside-root absolute path succeeds with the flag set" do
       tmp = isolated_project_root()
       Process.put(:mutagen_json_path_project_root, tmp)

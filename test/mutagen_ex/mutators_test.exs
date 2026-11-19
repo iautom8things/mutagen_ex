@@ -4,6 +4,8 @@ defmodule MutagenEx.MutatorsTest do
   alias MutagenEx.Mutators
 
   describe "catalog (mutagen.mutators.r7)" do
+    @describetag spec: "mutagen.mutators.r7"
+
     test "all/0 returns exactly the ten v1 mutators in the spec's canonical order" do
       expected = [
         MutagenEx.Mutators.Arith,
@@ -44,6 +46,8 @@ defmodule MutagenEx.MutatorsTest do
   end
 
   describe "behaviour callbacks (mutagen.mutators.r1)" do
+    @describetag spec: "mutagen.mutators.r1"
+
     test "every catalog module exports match?/1, mutate/1, validate/1, name/0" do
       for module <- Mutators.all() do
         Code.ensure_loaded!(module)
@@ -70,6 +74,7 @@ defmodule MutagenEx.MutatorsTest do
   end
 
   describe "scenario mutagen.mutators.s1 — arith + content-addressed ID" do
+    @tag spec: "mutagen.mutators.r1"
     test "match?/mutate/validate compose for `x + 1` and the site ID matches the spec format" do
       {:ok, ast} = Code.string_to_quoted("x + 1")
 
@@ -87,6 +92,7 @@ defmodule MutagenEx.MutatorsTest do
   end
 
   describe "scenario mutagen.mutators.s2 — with_swap detects bound_var_used_before_binding" do
+    @tag spec: "mutagen.mutators.r2"
     test "swapping with-clauses that bind+reference a variable yields {:skip, :bound_var_used_before_binding}" do
       {:ok, ast} =
         Code.string_to_quoted("with {:ok, a} <- f(), {:ok, b} <- g(a), do: a + b")
@@ -128,6 +134,8 @@ defmodule MutagenEx.MutatorsTest do
   end
 
   describe "site_id format (mutagen.mutators.r3)" do
+    @describetag spec: "mutagen.mutators.r3"
+
     test "produces `relative_file:hash:mutator_name`" do
       {:ok, ast} = Code.string_to_quoted("a + b")
       id = Mutators.site_id("lib/example.ex", ast, :arith)
@@ -173,6 +181,7 @@ defmodule MutagenEx.MutatorsTest do
   end
 
   describe "validate skip reasons (mutagen.mutators.r2)" do
+    @tag spec: "mutagen.mutators.r2"
     test "the v1 skip vocabulary covers the three reasons named in the spec" do
       # We don't require every mutator to surface every reason — only that the
       # vocabulary is honoured. WithSwap surfaces :bound_var_used_before_binding;

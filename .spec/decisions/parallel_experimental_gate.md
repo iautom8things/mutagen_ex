@@ -104,3 +104,6 @@ gap and records the posture both halves implement.
   tweak would have been — but in-VM isolation is not achievable against
   the singleton Code.Server / `:cover` services, so the larger build is
   the real cost of correctness here, not avoidable complexity.
+
+The branch guard described above was part of SpecLedEx at the time. See
+[the Ancora migration decision](ancora_migration.md) for the current checks.

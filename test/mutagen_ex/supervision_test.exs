@@ -135,10 +135,14 @@ defmodule MutagenEx.SupervisionTest do
   # ---------------------------------------------------------------------------
 
   describe "scenario 1 — Application + TaskSup boots (s11 ↔ r13)" do
+    @tag spec: "mutagen.mutation_pipeline.r13"
     test "ensure_all_started/1 returns :ok and named supervisors are alive" do
       assert {:ok, _started} = Application.ensure_all_started(:mutagen_ex)
-      assert is_pid(Process.whereis(MutagenEx.TaskSup))
-      assert is_pid(Process.whereis(MutagenEx.Supervisor))
+
+      assert [{_, task_sup, :supervisor, [Task.Supervisor]}] =
+               Supervisor.which_children(MutagenEx.Supervisor)
+
+      assert task_sup == Process.whereis(MutagenEx.TaskSup)
     end
   end
 
@@ -224,6 +228,7 @@ defmodule MutagenEx.SupervisionTest do
     # already there — under `mix test --cover` that would evict the
     # harness's cover server. Excluded in --cover mode via test_helper.exs.
     @describetag :cover_lifecycle
+    @tag spec: ["mutagen.coverage.r1", "mutagen.coverage.r8"]
     test "cover_already_running message names MutagenEx.TaskSup as singleton owner" do
       # Register a sentinel pid as :cover_server to simulate an in-flight
       # MutagenEx mutation cycle (or any other competing cover session).
@@ -290,9 +295,12 @@ defmodule MutagenEx.SupervisionTest do
     to remain zero.
     """
 
+    import ExUnit.Assertions
+
     def configure(_opts), do: :ok
 
     def run do
+      assert self() in Task.Supervisor.children(MutagenEx.TaskSup)
       name = :persistent_term.get({MutagenEx.SupervisionTest, :sleepy_helper_name})
       {:ok, _pid} = MutagenEx.SupervisionTest.Helper.start_link(name)
       Process.sleep(:infinity)
@@ -305,6 +313,7 @@ defmodule MutagenEx.SupervisionTest do
   end
 
   describe "scenario 5 — snapshot delta zero on recursive-shutdown (s13 ↔ r14/r7)" do
+    @tag spec: ["mutagen.mutation_pipeline.r13", "mutagen.mutation_pipeline.r14"]
     test "MutationLoop.run timeout with linked named GenServer leaves delta empty" do
       helper_name = :"supervision_test_helper_s5_#{System.unique_integer([:positive])}"
 

@@ -2,21 +2,7 @@ defmodule MutagenEx.TestSelectorTest do
   @moduledoc """
   Tests for `MutagenEx.TestSelector.resolve/2`.
 
-  Covers scenarios `mutagen.test_selection.s1`-`s5` and spec-verification
-  stubs `mutagen.test_selection.v1`, `.v2`, `.v3`. See
-  `.spec/specs/test_selection.spec.md` for the contract.
-
-  ## Provenance check (mutagen.test_selection.v2)
-
-  Requirement `r4` insists that tag resolution does NOT load test modules —
-  it must AST-walk via `Code.string_to_quoted/2`. The "tag resolution does
-  not load any test module" assertion below traces the implementation
-  source to prove this requirement is structurally guaranteed, not just
-  observed at runtime: the file must not reference `Code.require_file`,
-  `Code.eval_file`, `Code.eval_string`, or `Code.compile_*`, and must
-  reference `Code.string_to_quoted`. Together those two checks make it
-  structurally impossible for the selector to load a test module without
-  the source diff being audit-visible.
+  See `.spec/specs/test_selection.spec.md` for the contract.
   """
 
   use ExUnit.Case, async: true
@@ -65,6 +51,7 @@ defmodule MutagenEx.TestSelectorTest do
   # ---------------------------------------------------------------------------
 
   describe "resolve/2 — file target (mutagen.test_selection.s1, r1)" do
+    @tag spec: "mutagen.test_selection.r1"
     test "file-only target returns include=[], exclude=[], files=[path]" do
       # mutagen-wrd.11 regression guard: exclude must be `[]` for bare-file
       # targets. ExUnit's filter eval, given include=[] and exclude=[:test],
@@ -78,6 +65,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert filter.files == ["test/foo_test.exs"]
     end
 
+    @tag spec: "mutagen.test_selection.r1"
     test "non-standard nested path still resolves" do
       assert {:ok, %TestFilter{files: ["test/nested/dir/foo_test.exs"], exclude: []}} =
                TestSelector.resolve("test/nested/dir/foo_test.exs")
@@ -115,6 +103,7 @@ defmodule MutagenEx.TestSelectorTest do
       {:ok, path: path}
     end
 
+    @tag spec: "mutagen.test_selection.r2"
     test "file:line returns include=[{:location, {path, line}}]", %{path: path} do
       target = "#{path}:5"
 
@@ -130,6 +119,7 @@ defmodule MutagenEx.TestSelectorTest do
                TestSelector.resolve("test/foo_test.exs:abc")
     end
 
+    @tag spec: "mutagen.test_selection.r5"
     test "line pointing outside every test block returns :no_tests_match", %{path: path} do
       target = "#{path}:99"
       assert {:error, %{reason: :no_tests_match, target: ^target}} = TestSelector.resolve(target)
@@ -141,6 +131,7 @@ defmodule MutagenEx.TestSelectorTest do
   # ---------------------------------------------------------------------------
 
   describe "resolve/2 — tag target (mutagen.test_selection.s3, r3, r4)" do
+    @tag spec: "mutagen.test_selection.r3"
     test "tag resolves to files containing @tag :NAME on a test/describe block",
          %{fixture_dir: dir} do
       a = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :slow", "A"))
@@ -154,6 +145,7 @@ defmodule MutagenEx.TestSelectorTest do
       refute Enum.any?(files, &String.ends_with?(&1, "b_test.exs"))
     end
 
+    @tag spec: "mutagen.test_selection.r3"
     test "tag walk recurses into subdirectories", %{fixture_dir: dir} do
       nested =
         write_test_file(dir, "nested/deep_test.exs", tagged_test_module("@tag :integration", "D"))
@@ -164,6 +156,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert nested in files
     end
 
+    @tag spec: "mutagen.test_selection.r3"
     test "tag walk recognises keyword-form @tag attribute", %{fixture_dir: dir} do
       keyword_form = """
       defmodule KwTest do
@@ -184,6 +177,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert path in files
     end
 
+    @tag spec: "mutagen.test_selection.r3"
     test "tag walk ignores files that cannot be parsed", %{fixture_dir: dir} do
       _broken = write_test_file(dir, "broken_test.exs", "this is not valid elixir [[[")
       tagged = write_test_file(dir, "good_test.exs", tagged_test_module("@tag :ok", "G"))
@@ -195,10 +189,20 @@ defmodule MutagenEx.TestSelectorTest do
       refute Enum.any?(files, &String.ends_with?(&1, "broken_test.exs"))
     end
 
-    test "tag resolution does not load any test module (structural check via source)" do
-      # This is the v2 stub: trace the implementation source to confirm it
-      # only AST-walks. Loading the test module would interfere with the
-      # mutation pipeline's state hygiene contract (r4).
+    @tag spec: "mutagen.test_selection.r4"
+    test "tag resolution reads the AST without evaluating the test file", %{fixture_dir: dir} do
+      source = """
+      raise "tag selection evaluated the file"
+      #{tagged_test_module("@tag :selector_ast_only", "SelectorAstOnly")}
+      """
+
+      path = write_test_file(dir, "ast_only_test.exs", source)
+
+      assert {:ok, %TestFilter{files: [^path]}} =
+               TestSelector.resolve("tag:selector_ast_only", test_root: dir)
+    end
+
+    test "tag resolution uses the parser and has no direct evaluator calls" do
       source = File.read!("lib/mutagen_ex/test_selector.ex")
 
       refute source =~ "Code.require_file",
@@ -234,6 +238,7 @@ defmodule MutagenEx.TestSelectorTest do
   describe "resolve/2 — no matching tests (mutagen.test_selection.s4, r5)" do
     @describetag :no_match_cases
 
+    @tag spec: "mutagen.test_selection.r5"
     test "tag with zero matches returns structured error", %{fixture_dir: dir} do
       _ = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :other", "A"))
 
@@ -241,6 +246,7 @@ defmodule MutagenEx.TestSelectorTest do
                TestSelector.resolve("tag:unused_tag", test_root: dir)
     end
 
+    @tag spec: "mutagen.test_selection.r5"
     test "tag with empty test_root returns structured error", %{fixture_dir: dir} do
       empty = Path.join(dir, "empty_subdir")
       File.mkdir_p!(empty)
@@ -249,11 +255,13 @@ defmodule MutagenEx.TestSelectorTest do
                TestSelector.resolve("tag:nothing", test_root: empty)
     end
 
+    @tag spec: "mutagen.test_selection.r5"
     test "tag against missing test_root returns structured error" do
       assert {:error, %{reason: :file_not_found, target: "tag:any"}} =
                TestSelector.resolve("tag:any", test_root: "/nonexistent/path/should/not/exist")
     end
 
+    @tag spec: "mutagen.test_selection.r5"
     test "file:line pointing outside any test block returns :no_tests_match",
          %{fixture_dir: dir} do
       # Test block spans lines 4-6.
@@ -278,6 +286,7 @@ defmodule MutagenEx.TestSelectorTest do
   # ---------------------------------------------------------------------------
 
   describe "resolve/2 — composing multiple targets (mutagen.test_selection.s5, r6)" do
+    @tag spec: "mutagen.test_selection.r6"
     test "file + file targets union into files list with exclude=[]" do
       assert {:ok, %TestFilter{files: files, include: [], exclude: []}} =
                TestSelector.resolve(["test/a_test.exs", "test/b_test.exs"])
@@ -285,6 +294,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert Enum.sort(files) == ["test/a_test.exs", "test/b_test.exs"]
     end
 
+    @tag spec: "mutagen.test_selection.r6"
     test "duplicate file targets deduplicate" do
       assert {:ok, %TestFilter{files: files, exclude: []}} =
                TestSelector.resolve(["test/a_test.exs", "test/a_test.exs"])
@@ -292,6 +302,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert files == ["test/a_test.exs"]
     end
 
+    @tag spec: "mutagen.test_selection.r6"
     test "file + tag targets compose, deduplicating shared files",
          %{fixture_dir: dir} do
       a = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :slow", "A"))
@@ -309,6 +320,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert exclude == []
     end
 
+    @tag spec: "mutagen.test_selection.r6"
     test "tag + tag targets keep restrictive exclude=[:test]",
          %{fixture_dir: dir} do
       _a = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :slow", "A"))
@@ -360,6 +372,7 @@ defmodule MutagenEx.TestSelectorTest do
       end
     end
 
+    @tag spec: "mutagen.test_selection.r7"
     test "tag with no matching @tag in test corpus does not register the atom",
          %{fixture_dir: dir} do
       _ = write_test_file(dir, "a_test.exs", tagged_test_module("@tag :unrelated", "A"))
@@ -386,6 +399,7 @@ defmodule MutagenEx.TestSelectorTest do
       refute_atom_registered(probe_name)
     end
 
+    @tag spec: "mutagen.test_selection.r7"
     test "looping N distinct never-registered tag names registers zero of them",
          %{fixture_dir: dir} do
       # The DOS-attack shape (mutagen-wrd.20): CI loop running
@@ -416,6 +430,7 @@ defmodule MutagenEx.TestSelectorTest do
       end
     end
 
+    @tag spec: "mutagen.test_selection.r7"
     test "matching tag returns the AST-derived atom (not a freshly minted one)",
          %{fixture_dir: dir} do
       # The atom that lands in `include` must be the one parsed from the
@@ -464,6 +479,7 @@ defmodule MutagenEx.TestSelectorTest do
   end
 
   describe "exclude convention" do
+    @tag spec: "mutagen.test_selection.r1"
     test "bare-file target sets exclude=[] (mutagen-wrd.11)" do
       # The original bug: file-cited targets emitted exclude=[:test],
       # which excluded every test from baseline / coverage / mutation.
@@ -471,6 +487,7 @@ defmodule MutagenEx.TestSelectorTest do
                TestSelector.resolve("test/foo_test.exs")
     end
 
+    @tag spec: "mutagen.test_selection.r2"
     test "file:line target sets exclude=[:test]", %{fixture_dir: dir} do
       # file:line is paired with a non-empty :location include, so the
       # include side admits the cited line while [:test] excludes the
@@ -489,6 +506,7 @@ defmodule MutagenEx.TestSelectorTest do
       assert {:ok, %TestFilter{exclude: [:test]}} = TestSelector.resolve("#{path}:5")
     end
 
+    @tag spec: "mutagen.test_selection.r3"
     test "tag target sets exclude=[:test]", %{fixture_dir: dir} do
       _tagged = write_test_file(dir, "x_test.exs", tagged_test_module("@tag :foo", "X"))
 

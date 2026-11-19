@@ -1,6 +1,7 @@
 ---
 id: mutagen.decision.adopt_specled_tooling
-status: accepted
+status: superseded
+superseded_by: mutagen.decision.ancora_migration
 date: 2026-06-22
 affects:
   - mutagen.ast

@@ -38,6 +38,9 @@ defmodule MutagenEx.JsonStreamerTest do
   end
 
   describe "start envelope" do
+    @describetag spec: "mutagen.json_schema.r14"
+
+    @tag spec: "mutagen.json_schema.r15"
     test "emits version, kind=start, total, meta" do
       out =
         capture_sink(fn sink ->
@@ -71,6 +74,9 @@ defmodule MutagenEx.JsonStreamerTest do
   end
 
   describe "result line" do
+    @describetag spec: "mutagen.json_schema.r14"
+
+    @tag spec: "mutagen.json_schema.r15"
     test "wire shape matches aggregate document's results[] entry" do
       result = %{
         id: "lib/foo.ex:abc:arith",
@@ -124,6 +130,9 @@ defmodule MutagenEx.JsonStreamerTest do
   end
 
   describe "compile_error line" do
+    @describetag spec: "mutagen.json_schema.r14"
+
+    @tag spec: "mutagen.json_schema.r15"
     test "names id, file, line, column, mutator, message" do
       entry = %{
         id: "lib/foo.ex:bad:case_drop",
@@ -147,6 +156,9 @@ defmodule MutagenEx.JsonStreamerTest do
   end
 
   describe "end envelope" do
+    @describetag spec: "mutagen.json_schema.r14"
+
+    @tag spec: "mutagen.json_schema.r15"
     test "summarises killed/survived/timeout/compile_error/kill_rate from report.mutation" do
       report = %Report{
         meta: %{},
@@ -194,6 +206,8 @@ defmodule MutagenEx.JsonStreamerTest do
   end
 
   describe "full stream is line-delimited JSON" do
+    @describetag spec: "mutagen.json_schema.r14"
+
     test "concatenating start + result + result + end produces 4 valid JSON lines" do
       out =
         capture_sink(fn sink ->

@@ -1,63 +1,136 @@
-# SpecLedEx workspace config for mutagen_ex.
-#
-# Adopted via /spec-led-bootstrap (full-adopt + migrate path). This file
-# overturns the prior "tooling-optional" stance documented in the original
-# .spec/AGENTS.md — see .spec/decisions/adopt_specled_tooling.md.
-#
-# Severities are intentionally SOFT during adoption: the corpus is mid-
-# migration and not yet bound to code, so branch_guard findings are
-# warnings, not errors. Graduate to `error` in a follow-on phase6 epic once
-# the triangle is green. See docs/adoption.md in the spec_led_ex repo.
+default_base: origin/main
+test_paths:
+  - test
+lib_paths:
+  - lib
+severities: {}
+overrides:
+  # 2026-11-19 cutover. Remove these eight growth overrides in the first
+  # commit after this lands on the target branch.
+  - subject: mutagen.ast
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing AST alias, module-body, and line helpers.
+  - subject: mutagen.cli
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing CLI parser, task dispatch, and runtime preamble.
+  - subject: mutagen.coverage
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing coverage runner and AST cache.
+  - subject: mutagen.mutation_enumeration
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing enumerator and head-atom dispatch.
+  - subject: mutagen.mutation_pipeline
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing baseline, bytecode cache, runner, loop, and task dispatch.
+  - subject: mutagen.mutators
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing mutator catalog, validators, and site ID helpers.
+  - subject: mutagen.scope_resolution
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing scope resolver and source-file ordering helper.
+  - subject: mutagen.test_selection
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing test selector.
 
-# Phase3 (test-tag scanner) is out of scope for this bootstrap. Leave the
-# scanner disabled until a follow-on epic wires @tag spec: into the suite.
-test_tags:
-  enabled: false
-  paths:
-    - test
-  enforcement: warning
+  # The gate still reports these two known proof gaps at info level.
+  - subject: mutagen.coverage
+    requirement: mutagen.coverage.r7
+    code: spec/requirement_unverified
+    severity: info
+    reason: Disk snapshots use injected collaborators and omit attributable temp writes. No combined real coverage and AST-cache disk test exists.
+  - subject: mutagen.mutation_pipeline
+    requirement: mutagen.mutation_pipeline.r4
+    code: spec/requirement_unverified
+    severity: info
+    reason: After the deadline a clean reply can still classify as completed. The timeout and taint defect remains open.
 
-# Append-only / overlap governance on the authored corpus. Safe to keep at
-# error from day one — they guard against accidental requirement deletion
-# and duplicate coverage, neither of which the migration should introduce.
-guardrails:
-  severities:
-    append_only/requirement_deleted: error
-    append_only/scenario_regression: warning
-    # Facet-decomposed coverage is this corpus's intended style: a broad
-    # requirement (e.g. mutagen.cli.r10's multi-layer --json path-safety
-    # contract) is deliberately covered by several distinct-facet scenarios
-    # (s10a traversal, s10b NUL byte, s10c symlink-escape, s10d symlink-inside,
-    # s10e opt-out). The overlap/duplicate_covers guard assumes
-    # one-scenario-per-requirement, so it flags that intentional decomposition
-    # as "redundant". Set to `off` (not warning/info): mix spec.check raises on
-    # ANY branch finding regardless of severity, so only `off` — which drops
-    # the finding entirely — lets spec.check pass while keeping the facet
-    # bindings intact. Consolidating to single-owner instead would orphan the
-    # facet scenarios (covers: []) and weaken coverage fidelity, so we disable
-    # the incompatible check rather than mangle the corpus. requirement_deleted
-    # (error, above) still guards the case that actually matters. See
-    # mutagen-tcl (2026-06-24 review).
-    overlap/duplicate_covers: off
-
-# realized_by binding drift. Soft during adoption — phase2 only authors the
-# api_boundary tier; the deeper tiers (implementation, coverage) are not yet
-# opted in, so their detectors will report detector_unavailable, which is
-# expected and silent.
-branch_guard:
-  severities:
-    branch_guard_dangling_binding: warning
-    branch_guard_realization_drift: warning
-    # README.md is a docs/policy file with no runtime subject home: the CLI
-    # reference table there mirrors `Mix.Tasks.Mutagen` @moduledoc and is
-    # already governed by mutagen.cli + mutagen.mutation_pipeline r19. A
-    # docs-only edit accompanying covered code changes (e.g. the 30_000 ms
-    # timeout default) should not block the triangle. `warning` still blocks
-    # because mix spec.check raises on ANY branch finding regardless of
-    # severity, so — matching the documented overlap/duplicate_covers
-    # precedent above — only `off` drops the finding while keeping the
-    # corpus intact. The graduate-to-error phase6 epic (see header) can
-    # reintroduce this once docs files get an explicit policy mapping.
-    branch_guard_unmapped_change: off
-    branch_guard_untested_realization: warning
-    branch_guard_underspecified_realization: warning
+  # OTP callbacks, generated declarations and behaviour interfaces have no
+  # statically attributable source call at the declaring file.
+  - file: lib/mutagen_ex/application.ex
+    code: change/uncovered_file
+    severity: info
+    reason: OTP invokes the application start callback. The supervision test checks the real tree after application boot.
+  - file: lib/mutagen_ex/config.ex
+    code: change/uncovered_file
+    severity: info
+    reason: The CLI tests exercise Config defaults through a generated struct constructor. This file has no source-defined functions.
+  - file: lib/mutagen_ex/pipeline/ast_cache_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the AST loader callback. The phase dispatches to an implementation selected at runtime.
+  - file: lib/mutagen_ex/pipeline/baseline_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the baseline runner callback. The phase calls the injected runner.
+  - file: lib/mutagen_ex/pipeline/cli_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the parser callback. Mix selects the CLI implementation from its dispatch table.
+  - file: lib/mutagen_ex/pipeline/coverage_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the coverage callback. Mix calls the selected coverage implementation.
+  - file: lib/mutagen_ex/pipeline/enumerator_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the enumeration callback. Tagged tests reach the concrete enumerator.
+  - file: lib/mutagen_ex/pipeline/io_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the output sink callback. Tagged tests reach the concrete sink.
+  - file: lib/mutagen_ex/pipeline/mutation_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the mutation runner callback. The task chooses a runner when it dispatches the phase.
+  - file: lib/mutagen_ex/pipeline/reporter_error_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the abort reporter callback. The task selects the reporter at runtime.
+  - file: lib/mutagen_ex/pipeline/reporter_ok_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the success reporter callback. The task selects the reporter at runtime.
+  - file: lib/mutagen_ex/pipeline/scope_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the single scope-target resolver callback. Tagged tests reach the concrete resolver.
+  - file: lib/mutagen_ex/pipeline/tests_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the test-target resolver callback. Tagged tests reach the concrete selector.
+  - file: lib/mutagen_ex/test/capture_io_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the stderr capture callback. The tests call the concrete capture wrapper.
+  - file: lib/mutagen_ex/test/code_server_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares bytecode lookup and restore callbacks. The round-trip test uses the real CodeServer wrapper.
+  - file: lib/mutagen_ex/test/compiler_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the compiler callback. The bytecode test calls the concrete compiler wrapper.
+  - file: lib/mutagen_ex/test/cover_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the OTP cover lifecycle callbacks. The coverage runner selects its implementation from config.
+  - file: lib/mutagen_ex/test/ex_unit_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the ExUnit configure and run callbacks. The real baseline test uses the concrete wrapper.
+  - file: lib/mutagen_ex/test/ex_unit_server_facade.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Declares the registration callback. The baseline registration test invokes the concrete wrapper.
+  - file: lib/mutagen_ex/types.ex
+    code: change/uncovered_file
+    severity: info
+    reason: Defines the shared pipeline typespecs. There are no runtime definitions to bind.

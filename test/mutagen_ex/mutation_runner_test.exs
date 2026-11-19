@@ -421,6 +421,9 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r3: self-mutation refusal (s2)" do
+    @describetag spec: "mutagen.mutation_pipeline.r3"
+
+    @tag spec: ["mutagen.cli.r8", "mutagen.mutation_pipeline.r3"]
     test "aborts before any compile if a scope record names a MutagenEx.* module" do
       clear_stubs()
       site = build_site()
@@ -444,6 +447,7 @@ defmodule MutagenEx.MutationRunnerTest do
       assert (Process.get(:compiler_stub_calls) || []) == []
     end
 
+    @tag spec: ["mutagen.cli.r8", "mutagen.mutation_pipeline.r3"]
     test "aborts on Mix.Tasks.Mutagen" do
       clear_stubs()
       site = build_site()
@@ -472,7 +476,17 @@ defmodule MutagenEx.MutationRunnerTest do
   # r5 / s4: five outcomes; :compile_error excluded from results array
   # ---------------------------------------------------------------------------
 
+  @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
+  test "configures the mutation phase with one test case at a time and the given seed" do
+    cfg = %{base_cfg(build_site()) | seed: 42}
+
+    assert {:ok, %{results: [_]}} = MutationRunner.run(cfg)
+    assert [max_cases: 1, seed: 42, include: [], exclude: [:test]] = ExUnitFake.get_configure()
+  end
+
   describe "r5: five outcomes" do
+    @describetag spec: "mutagen.mutation_pipeline.r5"
+
     test ":killed when ExUnit reports failures > 0" do
       clear_stubs()
       site = build_site(id: "k1")
@@ -535,6 +549,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r4 + r7: timeout and taint (s3, s6)" do
+    @tag spec: ["mutagen.mutation_pipeline.r5", "mutagen.mutation_pipeline.r7"]
     test ":timeout site classifies as :timeout and subsequent result has tainted_predecessors: true" do
       clear_stubs()
       site1 = build_site(id: "t1", line: 2, column: 13)
@@ -762,6 +777,8 @@ defmodule MutagenEx.MutationRunnerTest do
   # that case.
 
   describe "r7: snapshot-growth without timeout (s6)" do
+    @describetag spec: "mutagen.mutation_pipeline.r7"
+
     test "site that leaks a named process (no timeout) taints the NEXT site and emits a snapshot warning" do
       clear_stubs()
       site1 = build_site(id: "leak1", line: 2, column: 13)
@@ -881,6 +898,8 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r6: restore (s5)" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     test "after each site, runner calls code_server.load_binary for the scoped module" do
       clear_stubs()
       site = build_site(id: "r1")
@@ -946,6 +965,8 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r8: state_drift_warning for `use` (s7)" do
+    @describetag spec: "mutagen.mutation_pipeline.r8"
+
     test "module whose AST contains `use GenServer` is listed in state_drift_warning" do
       clear_stubs()
       site = build_site(id: "d1", line: 5, column: 13)
@@ -1006,6 +1027,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r9: stderr captured into results[i].warnings (s8)" do
+    @tag spec: "mutagen.mutation_pipeline.r9"
     test "compiler-warning stderr lands in the site's warnings field" do
       clear_stubs()
       site = build_site(id: "w1")
@@ -1033,6 +1055,7 @@ defmodule MutagenEx.MutationRunnerTest do
     # truncated by the runner's `compose_warnings/1` before the warning
     # lands in `results[i].warnings`. The merge gate explicitly calls
     # for this assertion.
+    @tag spec: "mutagen.json_schema.r10"
     test "stderr larger than 4 KiB is truncated with the byte-count marker (r10)" do
       clear_stubs()
       site = build_site(id: "trunc1")
@@ -1079,6 +1102,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
     # mutagen.json_schema.r11 — the `:redact` config knob replaces
     # matched patterns with `[REDACTED]` in warnings.
+    @tag spec: "mutagen.json_schema.r11"
     test "configured :redact pattern replaces matches with [REDACTED] in warnings (r11)" do
       original_redact = Application.get_env(:mutagen_ex, :redact)
       Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])
@@ -1151,6 +1175,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # not `MutationRunner`.
 
   describe "r11: no disk writes (broader surface)" do
+    @tag spec: "mutagen.mutation_pipeline.r11"
     test "lib/, _build/, cover/, host config, and /tmp are byte-identical before/after a runner pass" do
       clear_stubs()
       site = build_site(id: "n1")
@@ -1355,6 +1380,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # per-site `timeout_ms` continues to bound the in-flight site (we do
   # NOT cancel mid-site — overshoot is at most one `timeout_ms`).
   describe "r12: --budget-ms aggregate wall-clock (bw mutagen-wrd.22)" do
+    @tag spec: "mutagen.cli.r13"
     test "elapsed budget halts the loop before the next site and sets truncated: true" do
       clear_stubs()
       site1 = build_site(id: "b1")
@@ -1388,6 +1414,7 @@ defmodule MutagenEx.MutationRunnerTest do
       assert Enum.any?(output.warnings, &String.contains?(&1, "budget_exceeded"))
     end
 
+    @tag spec: "mutagen.cli.r13"
     test "budget_ms == nil (default) leaves truncated == false" do
       clear_stubs()
       site = build_site(id: "nb1")
@@ -1403,6 +1430,7 @@ defmodule MutagenEx.MutationRunnerTest do
       refute Enum.any?(output.warnings, &String.contains?(&1, "budget_exceeded"))
     end
 
+    @tag spec: "mutagen.cli.r13"
     test "budget that exceeds total runtime never triggers truncation" do
       # Falsifies a regression where the budget check is checked AFTER
       # the loop finishes, marking a fast clean run as truncated.

@@ -45,6 +45,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s1 — determinism (mutagen.mutation_enumeration.r1)" do
+    @describetag spec: "mutagen.mutation_enumeration.r1"
+
     @tag :determinism
     test "the same inputs produce byte-identical site lists across two runs" do
       source = """
@@ -95,6 +97,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s2 — covered_lines filtering (mutagen.mutation_enumeration.r2)" do
+    @describetag spec: "mutagen.mutation_enumeration.r2"
+
     @tag :filtering
     test "nodes whose line is outside covered_lines are filtered before validate/1" do
       # Three arith ops on three different source lines. The arith mutator
@@ -196,7 +200,10 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s3 — skip tracking (mutagen.mutation_enumeration.r3)" do
+    @describetag spec: "mutagen.mutation_enumeration.r3"
+
     @tag :filtering
+    @tag spec: "mutagen.mutators.r2"
     test "a with_swap site that validate/1 rejects appears in `skipped`, NOT in `sites`" do
       # The classic bound-var-used-before-binding shape from
       # mutagen.mutators.s2: g(a) references `a` before the swap would
@@ -230,6 +237,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert skipped.site_id =~ ~r/^lib\/withy\.ex:\d+:with_swap$/
     end
 
+    @tag spec: "mutagen.mutators.r2"
     test "skipped entries do NOT contribute to the sites list" do
       # The test above also asserts result.sites == []; this test makes
       # the contract crisper by mixing a site that validates with one
@@ -267,6 +275,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s4 — multi-module file (mutagen.mutation_enumeration.r4)" do
+    @describetag spec: "mutagen.mutation_enumeration.r4"
+
     test "enumeration walks only the in-scope module's defmodule subtree" do
       source = """
       defmodule Mod.A do
@@ -360,6 +370,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s5 — behaviour-only module yields a warning (mutagen.mutation_enumeration.r5)" do
+    @describetag spec: "mutagen.mutation_enumeration.r5"
+
     test "scoped module with only @callback declarations returns no sites and warns" do
       source = """
       defmodule Contract do
@@ -402,6 +414,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "scenario s6 — no source-file reads (mutagen.mutation_enumeration.r6)" do
+    @describetag spec: "mutagen.mutation_enumeration.r6"
+
     test "enumeration does not call File.read or Code.require_file" do
       # We can't directly observe "no I/O" without a tracer, but the
       # contract is enforceable structurally: the AST cache passed in is
@@ -462,6 +476,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       end
     end
 
+    @tag spec: "mutagen.mutation_enumeration.r1"
     test "ordering: scope records are walked in input order" do
       # Two scopes pointing at the same file but different modules.
       source = """
@@ -622,6 +637,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert {:__block__, _meta, [1]} = literal_site.mutated_ast
     end
 
+    @tag spec: "mutagen.mutation_enumeration.r2"
     test "uncovered __block__-wrapped literal is filtered (r2 ordering still holds)" do
       file = "lib/blockfilt.ex"
       cache = inject_block_literal_ast(file, :BlockFilt, 9, 1)
@@ -709,6 +725,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert site.mutated_ast == 0
     end
 
+    @tag spec: "mutagen.mutation_enumeration.r2"
     test "bare literal whose ambient line is UNCOVERED produces no site (r2 still wins)" do
       # The literal's only available line is its parent's line. If the
       # parent's line isn't in `covered_lines`, the inherited line must
@@ -774,6 +791,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert lines == [4, 5]
     end
 
+    @tag spec: "mutagen.mutation_enumeration.r1"
     test "determinism: two consecutive runs with bare literals produce identical site lists" do
       # r1 still holds with the new walker. The hand-rolled recursion
       # must mirror `Macro.prewalk`'s left-to-right depth-first order.
@@ -879,6 +897,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "r7 — --max-sites cap (mutagen.mutation_enumeration.r7)" do
+    @describetag spec: "mutagen.mutation_enumeration.r7"
+
     # The cap is structural: when sites exceed `:max_sites` the enumerator
     # returns `{:error, :too_many_sites, details}` instead of materialising
     # more sites. Falsifies "cap is documentation only".
@@ -938,6 +958,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
   end
 
   describe "r8 / s8 — end position derivation for verbatim source slice" do
+    @describetag spec: "mutagen.mutation_enumeration.r8"
+
     test "3-tuple arith site carries `end_line`/`end_column` (exclusive end of expression)" do
       # Mirrors `mutagen.mutation_enumeration.s8`. Source:
       # "defmodule F do\n  def add(a, b), do: a + b\nend\n"

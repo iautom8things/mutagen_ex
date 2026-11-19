@@ -32,15 +32,29 @@ summary: Stable v1 JSON output schema for success, partial, and error runs.
 surface:
   - lib/mutagen_ex/json_reporter.ex
   - lib/mutagen_ex/json_streamer.ex
-  - test/mutagen_ex/golden/
+  - test/mutagen_ex/golden/baseline_red.json
+  - test/mutagen_ex/golden/coverage_full_mutation_partial.json
+  - test/mutagen_ex/golden/coverage_partial_mutation_perfect.json
+  - test/mutagen_ex/golden/end_to_end_scenario_1_arith.json
+  - test/mutagen_ex/golden/end_to_end_scenario_2_decisions.json
+  - test/mutagen_ex/golden/end_to_end_scenario_3_result_tuples.json
+  - test/mutagen_ex/golden/end_to_end_scenario_3a_pipelined.json
+  - test/mutagen_ex/golden/end_to_end_scenario_3b_guarded.json
+  - test/mutagen_ex/golden/end_to_end_scenario_3c_withblock_with_swap.json
+  - test/mutagen_ex/golden/end_to_end_scenario_3d_withblock_else_removal.json
+  - test/mutagen_ex/golden/end_to_end_scenario_4_infinite_looper.json
+  - test/mutagen_ex/golden/end_to_end_scenario_5_baseline_red.json
+  - test/mutagen_ex/golden/end_to_end_scenario_6_zero_coverage.json
+  - test/mutagen_ex/golden/end_to_end_scenario_7_ecto_user.json
+  - test/mutagen_ex/golden/end_to_end_scenario_8_macro_holder.json
+  - test/mutagen_ex/golden/error_unresolvable_scope.json
+  - test/mutagen_ex/golden/mutation_with_skipped.json
+  - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.content_addressed_ids
   - mutagen.decision.details_always_present
-realized_by:
-  api_boundary:
-    - "MutagenEx.JsonReporter"
-    - "MutagenEx.JsonStreamer"
+  - mutagen.decision.ancora_migration
 ```
 
 ## Schema (v1)
@@ -508,74 +522,23 @@ Top-level keys, all present in every variant unless noted:
 ```
 
 ```spec-verification
-- id: mutagen.json_schema.v1
+- kind: tagged_tests
+  target: test/mutagen_ex
   covers:
     - mutagen.json_schema.r1
     - mutagen.json_schema.r2
     - mutagen.json_schema.r3
     - mutagen.json_schema.r4
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v2
-  covers: [mutagen.json_schema.r5]
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_test.exs --only error_variants
-  execute: true
-
-- id: mutagen.json_schema.v3
-  covers: [mutagen.json_schema.r9]
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v4
-  covers:
+    - mutagen.json_schema.r5
     - mutagen.json_schema.r6
     - mutagen.json_schema.r7
     - mutagen.json_schema.r8
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_test.exs --only contract
-  execute: true
-
-- id: mutagen.json_schema.v5
-  covers:
+    - mutagen.json_schema.r9
     - mutagen.json_schema.r10
     - mutagen.json_schema.r11
-  kind: command
-  target: mix test test/mutagen_ex/sanitizer_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v6
-  covers: [mutagen.json_schema.r12]
-  kind: command
-  target: mix test test/mutagen_ex/mutagen_task_render_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v7
-  covers:
+    - mutagen.json_schema.r12
+    - mutagen.json_schema.r13
     - mutagen.json_schema.r14
     - mutagen.json_schema.r15
-  kind: command
-  target: mix test test/mutagen_ex/json_streamer_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v8
-  covers: [mutagen.json_schema.r16]
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_test.exs --only details_field
-  execute: true
-
-- id: mutagen.json_schema.v9
-  covers: [mutagen.json_schema.r16]
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
-  execute: true
-
-- id: mutagen.json_schema.v10
-  covers: [mutagen.json_schema.r13]
-  kind: command
-  target: mix test test/mutagen_ex/json_reporter_golden_test.exs
-  execute: true
+    - mutagen.json_schema.r16
 ```
