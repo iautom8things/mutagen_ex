@@ -423,6 +423,8 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     The reporter maintains the abort reason vocabulary and a fixed hint for
     every reason. The README and schema tables match the reporter's list.
+    The list includes the reserved CI gate reasons diff_unavailable and
+    invalid_since_ref before the CLI wiring emits them.
     Test builds reject unregistered abort reasons, including values passed
     through variables. A registered abort emits its string and exit code 2.
 
@@ -810,6 +812,7 @@ exception names. Pattern redaction is best-effort.
 | `cover_compile_failed` |
 | `cover_module_unavailable` |
 | `coverage_timeout` |
+| `diff_unavailable` |
 | `ex_unit_run_failed` |
 | `file_not_found` |
 | `file_read_failed` |
@@ -828,6 +831,7 @@ exception names. Pattern redaction is best-effort.
 | `invalid_mix_env` |
 | `invalid_redact_config` |
 | `invalid_seed` |
+| `invalid_since_ref` |
 | `invalid_tag_name` |
 | `invalid_target` |
 | `invalid_timeout` |

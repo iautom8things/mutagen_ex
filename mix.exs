@@ -79,7 +79,7 @@ defmodule MutagenEx.MixProject do
     [
       "archive.build": &build_archive/1,
       "test.integration":
-        "test --include downstream_integration --include archive_integration --include stream_integration --include host_setup_integration --include self_mutation test/integration"
+        "test --include downstream_integration --include archive_integration --include stream_integration --include host_setup_integration --include self_mutation --include git_diff_integration test/integration"
     ]
   end
 
