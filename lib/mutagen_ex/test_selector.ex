@@ -79,9 +79,11 @@ defmodule MutagenEx.TestSelector do
     @enforce_keys [:include, :exclude, :files]
     defstruct include: [], exclude: [], files: []
 
+    @type filter :: atom() | {atom(), Regex.t() | String.Chars.t()} | ExUnit.Filters.location()
+
     @type t :: %__MODULE__{
-            include: [atom() | {:location, {String.t(), pos_integer()}}],
-            exclude: [atom()],
+            include: [filter()],
+            exclude: [filter()],
             files: [String.t()]
           }
   end

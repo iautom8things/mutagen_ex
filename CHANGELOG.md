@@ -71,6 +71,8 @@ file for traceability.
   cleans up state for another, skipping it can change later mutants'
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
+- `mix mutagen` requires `MIX_ENV=test` for both dependency and archive
+  installs so Mix loads test configuration and compiles test support.
 
 - **Fewer equivalent `with_swap` mutations.** For independent clauses,
   the mutator skips swaps when one clause always matches by syntax, both
@@ -103,6 +105,11 @@ file for traceability.
 - **Baseline errors name every failing cited test.** Baseline runs
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
+- The CLI loads the host's ExUnit helper once before running cited tests.
+  Ecto Sandbox ownership, Mox expectations, and helper filters work across
+  coverage, baseline, and repeated mutant runs.
+- A host compile, application startup, or test helper failure produces the
+  usual error JSON at the selected output path.
 
 - **`guard_drop` mutations now run.** The enumerator validates the
   mutated node, but `guard_drop` rejected any node without its `when`

@@ -196,8 +196,12 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     # `Task.Supervisor.async_nolink/2` accepts both.
     task_sup = Map.get(input, :task_sup, MutagenEx.TaskSup)
 
+    group_leader = Process.group_leader()
+
     task =
       Task.Supervisor.async_nolink(task_sup, fn ->
+        Process.group_leader(self(), group_leader)
+
         Enum.each(test_modules, fn {mod, cfg} -> server.add_module(mod, cfg) end)
         result = run_exunit(ex_unit)
         {System.monotonic_time(), result}

@@ -162,8 +162,7 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
     #    `mix mutagen` directly via System.cmd.
     File.write!(Path.join(shadow_dir, "mix.exs"), mix_exs(app_name, project_root))
 
-    # 4. A test_helper so the shadow project's own `mix test` (used by the
-    #    mutation runner's preamble to load test modules) starts ExUnit.
+    # 4. The host helper starts ExUnit for both test and mutation runs.
     File.write!(Path.join(shadow_dir, "test/test_helper.exs"), "ExUnit.start()\n")
 
     File.write!(
@@ -346,11 +345,8 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
     _ -> false
   end
 
-  # Same clean-env contract as downstream_adoption_test: preserve PATH/HOME so
-  # mix/elixir/~/.mix resolve, drop MIX_ENV (shadow compiles in :dev) and
-  # MIX_TARGET.
   defp clean_env do
-    [{"MIX_ENV", nil}, {"MIX_TARGET", nil}]
+    [{"MIX_ENV", "test"}, {"MIX_TARGET", nil}]
   end
 
   defp default_project_root do
