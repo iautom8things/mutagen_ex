@@ -26,6 +26,77 @@ defmodule MutagenEx.Integration.HostSetupTest do
     test "runs the host helper and sandbox tests across mutation cycles", %{dependency: host} do
       assert_host_run(host)
     end
+
+    @tag spec: ["mutagen.mutation_pipeline.r25", "mutagen.mutation_pipeline.r27"]
+    test "matches mix test Sandbox ownership and nested case order on every pass", %{
+      dependency: host
+    } do
+      helper_path = "checks/test_helper.exs"
+      helper = File.read!(Path.join(host.dir, helper_path))
+      trace = Path.join(host.dir, "sandbox.log")
+
+      tests = """
+      defmodule HostSetupFixture.SandboxOrderTest do
+        use HostSetupFixture.DataCase, async: true
+        import Mox
+        alias HostSetupFixture.{Order, Orders, PricingMock, Repo}
+
+        defmodule Inner do
+          use HostSetupFixture.DataCase, async: true
+          @tag :pricing
+          test "inner", tags do
+            HostSetupFixture.SandboxOrderTest.record(:inner, tags.async)
+          end
+        end
+
+        @tag :pricing
+        test "outer", tags do
+          record(:outer, tags.async)
+          expect(PricingMock, :rate, fn -> 4 end)
+          order = Repo.insert!(%Order{quantity: 3})
+          assert Orders.price(order.id) == 14
+        end
+
+        def record(case_name, async) do
+          assert %{rows: [[1]]} = Repo.query!("SELECT 1")
+
+          caller = self()
+          spawn(fn ->
+            mode =
+              try do
+                Repo.query!("SELECT 1")
+                :shared
+              rescue
+                DBConnection.OwnershipError -> :isolated
+              end
+
+            send(caller, {:sandbox_mode, mode})
+          end)
+
+          assert_receive {:sandbox_mode, mode}, 1_000
+          File.write!("sandbox.log", "\#{case_name} \#{async} \#{mode}\\n", [:append])
+        end
+      end
+      """
+
+      with_file(host, @tests, tests, fn ->
+        File.write!(trace, "")
+
+        with_file(host, helper_path, String.split(helper, "\n", parts: 2) |> List.last(), fn ->
+          mix!(host, ["test", @tests, "--max-cases", "1", "--seed", "0"])
+        end)
+
+        mix_test = File.read!(trace)
+        assert mix_test == "inner true isolated\nouter true isolated\n"
+        File.write!(trace, "")
+
+        {stdout, 0} = mutate(host, [])
+        report = decode_report(stdout)
+        assert %{"baseline" => %{"passed" => 2}, "mutation" => %{"total" => total}} = report
+        assert total > 0
+        assert File.read!(trace) == String.duplicate(mix_test, 2 + total)
+      end)
+    end
   end
 
   describe "installed archive" do

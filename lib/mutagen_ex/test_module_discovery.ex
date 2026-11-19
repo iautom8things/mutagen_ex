@@ -8,7 +8,7 @@ defmodule MutagenEx.TestModuleDiscovery do
   """
 
   @typedoc "ExUnit case configuration with serial execution."
-  @type module_cfg :: %{async?: false, group: term(), parameterize: [map()] | nil}
+  @type module_cfg :: %{async?: boolean(), group: term(), parameterize: [map()] | nil}
 
   @typedoc "A case and its registration options."
   @type entry :: {module(), module_cfg()}
@@ -16,7 +16,7 @@ defmodule MutagenEx.TestModuleDiscovery do
   @doc """
   Return loaded modules whose compile source is a cited path and that
   export `__ex_unit__/0`. Call after requiring the files. Entries follow
-  the caller's file order, then declaration order within each file.
+  the caller's file order, then compilation order within each file.
   Cases without a source declaration follow in module name order.
   A cited symlink to a case compiled under a different path returns
   `{:error, :test_file_load_failed, details}`.
@@ -59,8 +59,8 @@ defmodule MutagenEx.TestModuleDiscovery do
 
         modules ->
           entries =
-            for module <- in_declaration_order(modules, file) do
-              {module, Map.put(module.__ex_unit__(:config), :async?, false)}
+            for module <- in_compilation_order(modules, file) do
+              {module, module.__ex_unit__(:config)}
             end
 
           {:cont, [entries | groups]}
@@ -106,13 +106,20 @@ defmodule MutagenEx.TestModuleDiscovery do
     end
   end
 
-  defp in_declaration_order([_, _ | _] = modules, file) do
+  defp in_compilation_order([_, _ | _] = modules, file) do
     with {:ok, source} <- File.read(file),
-         {:ok, ast} <- Code.string_to_quoted(source) do
-      declared =
-        for {module, _, _} <- MutagenEx.Ast.module_blocks(ast), module in modules, uniq: true do
-          module
-        end
+         {:ok, ast} <- Code.string_to_quoted(source, columns: true) do
+      index = MutagenEx.Ast.module_index(ast)
+
+      {_, declared} =
+        Macro.postwalk(ast, [], fn node, acc ->
+          case index do
+            %{^node => {names, _, _}} -> {node, Enum.reverse(names, acc)}
+            _ -> {node, acc}
+          end
+        end)
+
+      declared = declared |> Enum.reverse() |> Enum.filter(&(&1 in modules)) |> Enum.uniq()
 
       declared ++ Enum.sort(modules -- declared)
     else
@@ -120,5 +127,5 @@ defmodule MutagenEx.TestModuleDiscovery do
     end
   end
 
-  defp in_declaration_order(modules, _file), do: modules
+  defp in_compilation_order(modules, _file), do: modules
 end

@@ -546,9 +546,10 @@ decisions:
     When the site's run ends any way other than a reply completed by its
     deadline (r4), that is on a timeout, a task exit, or an ExUnit failure
     per r21, the runner kills
-    only new members descended from the site runner with
+    only new processes descended from the site runner, including those
+    whose group leader changed, with
     `Process.exit(pid, :kill)` and waits for each
-    `:DOWN`, repeating until no member remains, before `run/1` returns.
+    `:DOWN`, repeating until no live descendant remains, before `run/1` returns.
     With `max_concurrency == 1` it then calls the ExUnit server's
     `discard_pending_modules/0` once (r10), so the next
     site's run sees only the modules it registers. After a reply completed
@@ -578,14 +579,27 @@ decisions:
     Automatic case discovery for coverage, baseline and mutation selects
     loaded modules from the cited test files whose bytecode exports
     `__ex_unit__/0`. Ordinary helper modules in those files are never
-    registered as cases. Cases declared in source retain their declaration
-    order within each cited file. Loaded cases without a matching
+    registered as cases. Cases declared in source register in compilation order within each cited
+    file. A nested case registers before its enclosing case. Loaded cases without a matching
     declaration follow in module name order. If the source for a loaded
     case cannot be read or parsed, order the cases by module name.
     Registration preserves the ExUnit case's configuration, including
-    parameterization, while forcing `async?: false`. If a cited symlink
+    parameterization and the declared `async?` value. If a cited symlink
     does not match any loaded case's compiled source path, report
     `test_file_load_failed` with the cited path and explain the mismatch.
+
+- id: mutagen.mutation_pipeline.r26
+  priority: must
+  statement: |
+    Stopping a site group a second time after it exits returns `:ok`.
+
+- id: mutagen.mutation_pipeline.r27
+  priority: must
+  statement: |
+    Coverage, baseline and every mutant pass the declared `async` value to
+    ExUnit setup and tests. The `max_cases: 1` runner retains ExUnit's async
+    and sync ordering. A timeout in an async case leaves the next site
+    able to register and run the same cases in either fail-fast mode.
 ```
 
 ```spec-scenarios
@@ -901,4 +915,6 @@ decisions:
     - mutagen.mutation_pipeline.r23
     - mutagen.mutation_pipeline.r24
     - mutagen.mutation_pipeline.r25
+    - mutagen.mutation_pipeline.r26
+    - mutagen.mutation_pipeline.r27
 ```

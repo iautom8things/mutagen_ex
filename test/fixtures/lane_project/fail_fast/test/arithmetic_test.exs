@@ -4,10 +4,15 @@ defmodule FailFastFixture.EarlyTest do
   alias FailFastFixture.Arithmetic
   alias MutagenEx.FailFastTest.Probe
 
-  test "exact arithmetic" do
+  test "exact arithmetic", %{async: async} do
     scenario = Probe.record_test(:first)
     if scenario == :red, do: flunk("first baseline failure")
-    if scenario == :before_failure and Arithmetic.first(2, 3) != 5, do: Process.sleep(800)
+
+    if scenario == :before_failure do
+      Probe.record({:async, async})
+      if Arithmetic.first(2, 3) != 5, do: Process.sleep(800)
+    end
+
     if scenario == :budget and Arithmetic.first(2, 3) != 5, do: Process.sleep(50)
     assert_original_arithmetic()
   end
