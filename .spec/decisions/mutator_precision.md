@@ -34,3 +34,8 @@ existing `with_swap` failure-priority filter for independent clauses.
 Consumers that gate on high-confidence survivors exclude the two operators
 while retaining their results for inspection. Ratings apply to whole
 operators and are provisional until more survivors have been judged.
+
+## Amendment (2026-11-19)
+
+The amendment to mutagen.decision.with_swap_failure_priority removes
+the filter for an `else` arm that ignores the failure.

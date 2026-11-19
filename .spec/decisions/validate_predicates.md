@@ -79,3 +79,8 @@ visibility but doesn't pollute the rate.
 mutagen.decision.with_swap_failure_priority adds three `with_swap` skip
 reasons to this vocabulary: `:insufficient_refutable_patterns`,
 `:indistinguishable_failures` and `:else_ignores_failure`.
+
+## Amendment (2026-11-19)
+
+The amendment to mutagen.decision.with_swap_failure_priority removes
+the filter for an `else` arm that ignores the failure.

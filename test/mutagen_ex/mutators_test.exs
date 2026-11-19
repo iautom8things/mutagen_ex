@@ -206,10 +206,10 @@ defmodule MutagenEx.MutatorsTest do
 
   describe "validate skip reasons (mutagen.mutators.r2)" do
     @tag spec: "mutagen.mutators.r2"
-    test "every validate result is :ok or a skip with one of the six named reasons" do
+    test "every validate result is :ok or a skip with one of the five named reasons" do
       # We don't require every mutator to surface every reason — only that the
       # vocabulary is honoured. WithSwap surfaces :bound_var_used_before_binding
-      # and its three failure-priority reasons; Pipeline surfaces
+      # and its two failure-priority reasons; Pipeline surfaces
       # :no_op_shadowed; structural errors surface :structurally_invalid
       # uniformly.
       vocab = [
@@ -217,15 +217,13 @@ defmodule MutagenEx.MutatorsTest do
         :no_op_shadowed,
         :bound_var_used_before_binding,
         :insufficient_refutable_patterns,
-        :indistinguishable_failures,
-        :else_ignores_failure
+        :indistinguishable_failures
       ]
 
       with_swap_skips =
         for source <- [
               "with a <- f(), :ok <- g(), do: a",
-              "with :ok <- x, :error <- x, do: :done",
-              "with :ok <- f(), :ok <- g(), do: :done, else: (_ -> :error)"
+              "with :ok <- x, :error <- x, do: :done"
             ] do
           source
           |> Code.string_to_quoted!()
@@ -235,8 +233,7 @@ defmodule MutagenEx.MutatorsTest do
 
       assert with_swap_skips == [
                {:skip, :insufficient_refutable_patterns},
-               {:skip, :indistinguishable_failures},
-               {:skip, :else_ignores_failure}
+               {:skip, :indistinguishable_failures}
              ]
 
       # Sanity: each mutator's validate/1 either returns :ok or {:skip, atom in vocab}
