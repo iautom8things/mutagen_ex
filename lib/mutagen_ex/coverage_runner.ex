@@ -87,11 +87,11 @@ defmodule MutagenEx.CoverageRunner do
   The fix mirrors `MutagenEx.Baseline` (mutagen-wrd.37) and
   `MutagenEx.MutationRunner.MutationLoop` (per site): explicitly call
   `ExUnit.Server.add_module/2` for each cited test module before
-  invoking `ExUnit.run/0`. The orchestrator hands
-  `CoverageRunner.run/1` a `:test_modules` list derived from
-  `MutagenEx.TestModuleDiscovery.discover/1`; the `:ex_unit_server`
-  seam defaults to `MutagenEx.Test.ExUnitServer` (delegates to
-  `ExUnit.Server`) and lets tests record the calls.
+  invoking `ExUnit.run/0`. After loading the cited files, coverage
+  discovers cases through `MutagenEx.TestModuleDiscovery.discover/1`
+  unless the caller provided `:test_modules`. The `:ex_unit_server`
+  seam defaults to `MutagenEx.Test.ExUnitServer` and lets tests record
+  the calls.
 
   ## S2 spike findings carried forward
 
@@ -413,7 +413,13 @@ defmodule MutagenEx.CoverageRunner do
   # per site.
   defp register_test_modules(cfg) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-    MutagenEx.Test.ExUnitServer.register_cited_modules(server, Map.get(cfg, :test_modules, []))
+
+    modules =
+      Map.get_lazy(cfg, :test_modules, fn ->
+        MutagenEx.TestModuleDiscovery.discover(cfg.test_filter.files)
+      end)
+
+    MutagenEx.Test.ExUnitServer.register_cited_modules(server, modules)
   end
 
   defp run_exunit(cfg) do

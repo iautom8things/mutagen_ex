@@ -6,11 +6,11 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      MIX_ENV=test mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
+      MIX_ENV=test mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
 
   Run mutation testing against one or more scope targets, judged by a chosen
-  set of tests. Emits a single JSON document to stdout (or `--json <path>`)
-  describing every mutation, its outcome, and the surrounding run metadata.
+  set of tests. The final JSON document goes to stdout or `--json <path>`.
+  It lists every mutation and its outcome together with run metadata.
 
   ## Host test setup
 
@@ -88,7 +88,11 @@ defmodule Mix.Tasks.Mutagen do
       directory above the project root pass this flag; everyday use
       should leave it off. When set, a one-shot warning naming the
       resolved target lands on stderr at run start.
-    * `--stream` emits per-site NDJSON lines with `start` and `end` envelopes.
+    * `--stream` emits per-site NDJSON lines with `start` and `end` envelopes
+      on the JSON sink. The last line is the aggregate document without a
+      `kind` field.
+    * `--no-progress` suppresses the human-readable progress feed on stderr.
+      By default, the feed appears when stderr is a TTY.
     * `--max-sites <int>` — upper bound on enumerated mutation sites
       for one run. Default `10000`. The enumerator aborts with
       `:too_many_sites` BEFORE the runner starts when the cap is
@@ -149,28 +153,17 @@ defmodule Mix.Tasks.Mutagen do
 
   ## JSON Schema Pointer
 
-  Each `mutation.results[]` entry and each NDJSON `"result"` line carries a
-  `confidence` field with `"high"` or `"low"`. The rating is a qualitative
-  judgment about the operator. A high-rated survivor can still be equivalent.
-  `with_swap` has low confidence because the order of failed matches can
-  still yield the same result. All other mutators default to high.
-  The field is part of report schema version `"2"`. Both levels count
-  toward the aggregate totals and kill rate.
+  Each aggregate result and NDJSON `"result"` line carries `confidence`.
+  The rating applies to the whole mutator. `with_swap`, `pipeline` and
+  `guard_drop` rate low. The rest rate high. Both levels count toward
+  aggregate totals and the kill rate.
 
-  The version 2 output document is defined by-example via the golden fixtures
-  committed at `test/mutagen_ex/golden/*.json`. Read these first:
+  The aggregate's `meta.timings_ms` records elapsed time for boot, coverage,
+  baseline, mutation and the full run. When comparing otherwise identical
+  reports, exclude this field.
 
-    * `end_to_end_scenario_1_arith.json` — canonical successful run with
-      a populated `mutation.results` array.
-    * `end_to_end_scenario_5_baseline_red.json` — `aborted: true` with a
-      populated `baseline.failures` block.
-    * `end_to_end_scenario_6_zero_coverage.json` — successful run with
-      zero coverage and an empty `mutation.results`.
-    * `error_unresolvable_scope.json` — abort path where the pipeline
-      never reaches the mutation phase.
-
-  The behavioural contract for the shape itself lives in
-  `.spec/specs/json_schema.spec.md`.
+  See the README for examples from the CLI and
+  `.spec/specs/json_schema.spec.md` for the schema contract.
 
   ## Known Caveats
 
@@ -195,7 +188,7 @@ defmodule Mix.Tasks.Mutagen do
       deferred to v1.1 (see `mutagen.decision.no_pretty_output_v1`); use
       `jq` for now.
     * **`--seed` controls ExUnit ordering only.** It does not seed mutation
-      enumeration; that order is content-addressed and stable across runs.
+      enumeration. Given the same source, enumeration order is stable.
     * **`--scope` colon syntax is unsupported.** `file.ex:Module` is rejected
       with `reason: :colon_syntax_unsupported` (see
       `mutagen.decision.scope_syntax_simplified`).
@@ -431,11 +424,13 @@ defmodule Mix.Tasks.Mutagen do
   # `{:error, phase, reason, details, partial_report}` (emit abort, halt).
   #
   defp run_pipeline(argv, dispatch, mode \\ :prepared) do
+    started_at = System.monotonic_time()
     output = %{stdout: Process.group_leader(), progress: build_progress_reporter(argv)}
 
     pipeline = fn ->
       argv
       |> prepare_pipeline(dispatch, output, mode)
+      |> put_total_timing(started_at)
       |> emit_result(dispatch, output.stdout)
     end
 
@@ -596,6 +591,8 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp run_configured_pipeline({:host, :ok}, config, report, dispatch, output, argv) do
+    started_at = System.monotonic_time()
+
     boot =
       Runtime.boot(
         host_app: config.host_app,
@@ -606,7 +603,10 @@ defmodule Mix.Tasks.Mutagen do
         command: Enum.join(["MIX_ENV=test mix mutagen" | Enum.map(argv, &shell_arg/1)], " ")
       )
 
-    case {preload_report_modules(), boot} do
+    preloaded = preload_report_modules()
+    report = put_timing(report, :boot, started_at)
+
+    case {preloaded, boot} do
       {:ok, {:ok, state}} ->
         install_redact_patterns(state)
         report = add_warnings(report, state.warnings)
@@ -670,29 +670,35 @@ defmodule Mix.Tasks.Mutagen do
          report3 = %Report{report2 | tests: test_filter_to_wire(test_filter)},
          {:ok, ast_cache} <-
            phase_ast_cache(config, scope_records, test_filter, dispatch, report3),
-         {:ok, coverage_result} <-
-           phase_coverage(config, scope_records, test_filter, dispatch, report3, state),
+         {:ok, coverage_result, %Report{} = report3} <-
+           time_phase(:coverage, report3, fn ->
+             phase_coverage(config, scope_records, test_filter, dispatch, report3, state)
+           end),
          report4 = %Report{report3 | coverage: coverage_to_report(coverage_result)},
          {:ok, enum_result} <-
            phase_enumerator(config, ast_cache, scope_records, coverage_result, dispatch, report4),
-         {:ok, baseline_result} <-
-           phase_baseline(config, test_filter, dispatch, report4, state),
+         {:ok, baseline_result, %Report{} = report4} <-
+           time_phase(:baseline, report4, fn ->
+             phase_baseline(config, test_filter, dispatch, report4, state)
+           end),
          report5 = %Report{
            report4
            | baseline: baseline_to_report(baseline_result),
              warnings: report4.warnings ++ baseline_result.warnings
          },
-         {:ok, mutation_result} <-
-           phase_mutation(
-             config,
-             test_filter,
-             ast_cache,
-             enum_result.sites,
-             scope_records,
-             dispatch,
-             report5,
-             output
-           ) do
+         {:ok, mutation_result, %Report{} = report5} <-
+           time_phase(:mutation, report5, fn ->
+             phase_mutation(
+               config,
+               test_filter,
+               ast_cache,
+               enum_result.sites,
+               scope_records,
+               dispatch,
+               report5,
+               output
+             )
+           end) do
       report = %Report{
         report5
         | mutation: mutation_to_report(mutation_result, enum_result, config.source),
@@ -707,6 +713,30 @@ defmodule Mix.Tasks.Mutagen do
     else
       {:abort, _report, _config, _reason, _details} = abort -> abort
     end
+  end
+
+  defp time_phase(phase, report, run) do
+    started_at = System.monotonic_time()
+
+    case run.() do
+      {:ok, result} ->
+        {:ok, result, put_timing(report, phase, started_at)}
+
+      {:abort, partial, config, reason, details} ->
+        {:abort, put_timing(partial, phase, started_at), config, reason, details}
+    end
+  end
+
+  defp put_total_timing({:cleanup, result, state}, started_at),
+    do: {:cleanup, put_total_timing(result, started_at), state}
+
+  defp put_total_timing(result, started_at),
+    do: put_elem(result, 1, put_timing(elem(result, 1), :total, started_at))
+
+  defp put_timing(%Report{meta: meta} = report, phase, started_at) do
+    elapsed = System.monotonic_time() - started_at
+    elapsed_ms = System.convert_time_unit(elapsed, :native, :millisecond)
+    %{report | meta: put_in(meta.timings_ms[phase], elapsed_ms)}
   end
 
   # ---------------------------------------------------------------------------
@@ -862,22 +892,7 @@ defmodule Mix.Tasks.Mutagen do
       |> Enum.map(&{&1.module, &1.file})
       |> Enum.uniq()
 
-    # `CoverageRunner.run/1` re-registers each cited test module with
-    # `ExUnit.Server` before its own `ExUnit.run/0`, so a second
-    # `mix mutagen` invocation in the same BEAM that cites a
-    # previously-cited test file still sees the cited modules in the
-    # server's registry (the prior `ExUnit.run/0` drained them and
-    # `Code.require_file/1` is one-shot per path). Without this
-    # payload, coverage would silently record zero covered lines on
-    # the second invocation and downstream enumeration would emit
-    # zero sites (mutagen-wrd.38). See
-    # `mutagen.mutation_pipeline.r10`.
-    input = %{
-      seed: seed,
-      in_scope_modules: in_scope_modules,
-      test_filter: test_filter,
-      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
-    }
+    input = %{seed: seed, in_scope_modules: in_scope_modules, test_filter: test_filter}
 
     case run_suite_phase(state, config, :coverage, fn -> mod.run(input) end) do
       {:ok, result} ->
@@ -928,18 +943,7 @@ defmodule Mix.Tasks.Mutagen do
        ) do
     mod = Map.fetch!(dispatch, :baseline)
 
-    # `Baseline.run/1` re-registers each cited test module with
-    # `ExUnit.Server` before its own `ExUnit.run/0`, because the
-    # coverage phase that ran just before it consumed the registered
-    # modules and `Code.require_file/1` is one-shot per path. Without
-    # this payload, baseline would silently run zero tests and miss
-    # every red baseline (mutagen-wrd.37). See
-    # `mutagen.mutation_pipeline.r1`.
-    input = %{
-      seed: seed,
-      test_filter: test_filter,
-      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
-    }
+    input = %{seed: seed, test_filter: test_filter}
 
     case run_suite_phase(state, config, :baseline, fn -> mod.run(input) end) do
       {:ok, result} ->
@@ -1136,7 +1140,8 @@ defmodule Mix.Tasks.Mutagen do
         tool_version: Runtime.tool_version(),
         elixir_version: System.version(),
         otp_version: otp_version(),
-        exunit_seed: seed || 0
+        exunit_seed: seed || 0,
+        timings_ms: %{boot: 0, coverage: 0, baseline: 0, mutation: 0, total: 0}
       },
       scope: [],
       warnings: []
