@@ -32,9 +32,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # Each per-mutation cycle needs to re-invoke `ExUnit.run/0` against the
   # same test modules that baseline ran. ExUnit consumes the registered
   # module list each time `run/0` returns, so the loop re-adds the cited
-  # modules via `ExUnit.Server.add_module/2` before each run, using the
-  # exact `%{async?: false, group: nil, parameterize: nil}` shape the S2
-  # spike validated against Elixir 1.19.5 / OTP 28.
+  # cases before each run with their discovered registration options.
 
   # Default grace window the cooperative-shutdown phase waits for the
   # task to exit cleanly before escalating to brutal_kill. Small enough

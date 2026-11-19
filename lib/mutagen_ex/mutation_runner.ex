@@ -208,7 +208,7 @@ defmodule MutagenEx.MutationRunner do
           results: [site_result()],
           compile_errors: [compile_error_entry()],
           state_drift_warning: %{optional(module()) => [atom()]},
-          warnings: [String.t()]
+          warnings: [String.t() | {atom(), term()} | {:host_names, atom(), [term()]}]
         }
 
   @doc """
@@ -1259,23 +1259,13 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp snapshot_warning(%Site{} = site, delta) do
-    pieces =
-      for {kind, entries} <- [
-            processes: delta.processes,
-            ets: delta.ets,
-            persistent_term: delta.persistent_terms
-          ],
-          map_size(entries) > 0 do
-        growth =
-          Enum.map_join(Enum.sort(entries), ", ", fn {name, count} ->
-            "#{inspect(name)} +#{count}"
-          end)
+    groups = [
+      processes: delta.processes,
+      ets: delta.ets,
+      persistent_term: delta.persistent_terms
+    ]
 
-        "#{kind}: #{growth}"
-      end
-
-    "state_leak after site #{site.id}: #{Enum.join(pieces, ", ")}. " <>
-      "Subsequent results carry tainted_predecessors: true"
+    {:host_names, :state_leak, [{site.id, groups}]}
   end
 
   # ---------------------------------------------------------------------------

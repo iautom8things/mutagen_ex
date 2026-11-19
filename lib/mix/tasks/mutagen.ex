@@ -1318,30 +1318,41 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  # The parser gives a binary operator its own column but may omit
-  # the left operand's position when it is a literal.
-  defp do_leftmost({form, meta, [left, _] = args})
-       when is_atom(form) and is_list(meta) and (not is_tuple(left) or tuple_size(left) != 3) do
-    if Macro.operator?(form, 2), do: :missing_start, else: leftmost_position(meta, args)
+  # A missing literal position makes an infix start unknown. Prefix
+  # expressions can still start at their own opening token.
+  defp do_leftmost({form, meta, [left, _] = args}) when is_atom(form) and is_list(meta) do
+    if Macro.operator?(form, 2) do
+      case do_leftmost(left) do
+        {_, _} = pos -> earlier_position(position(meta), pos)
+        _ -> :missing_start
+      end
+    else
+      leftmost_position(meta, args)
+    end
   end
 
   defp do_leftmost({_form, meta, args}) when is_list(meta), do: leftmost_position(meta, args)
   defp do_leftmost(_), do: nil
 
   defp leftmost_position(meta, args) do
-    own =
-      case {meta[:line], meta[:column]} do
-        {line, column} when is_integer(line) and is_integer(column) -> {line, column}
-        _ -> nil
-      end
+    own = position(meta)
 
     case do_leftmost_children(args) do
       nil -> own
-      :missing_start -> :missing_start
-      pos when is_nil(own) -> pos
-      pos -> min(pos, own)
+      :missing_start -> own || :missing_start
+      pos -> earlier_position(own, pos)
     end
   end
+
+  defp position(meta) do
+    case {meta[:line], meta[:column]} do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  defp earlier_position(nil, pos), do: pos
+  defp earlier_position(own, pos), do: min(own, pos)
 
   defp do_leftmost_children(nil), do: nil
 

@@ -192,8 +192,10 @@ decisions:
     tables count under the name returned by `:ets.info(table, :name)`.
     Ignore the new key `:elixir_erl_compiler` and a new
     `{:logger_config, module}` key only when Logger has no explicit level
-    for that module. A `state_leak` warning identifies the site and lists
-    each new name or key with its positive count delta. Every subsequent
+    for that module. A `state_leak` warning identifies the site and reports
+    the number of changed identities and positive growth for each kind
+    of state. With `--include-host-output` it lists each name or key with
+    its positive count delta. It never reports persistent term values. Every subsequent
     mutation result carries `tainted_predecessors: true` until the run ends.
     In serial runs the next site reuses the previous tested site's
     after-snapshot. In parallel, each site takes both snapshots.
@@ -649,7 +651,7 @@ decisions:
   when:
     - The runner snapshots after that mutation.
   then:
-    - A warning is emitted naming the new registered process or ETS table.
+    - The warning gives the count and positive delta. Opted-in output also gives the registered process or ETS name.
     - "Every mutation result subsequent to this one in `mutation.results[]` has `tainted_predecessors: true`."
 
 - id: mutagen.mutation_pipeline.s7
