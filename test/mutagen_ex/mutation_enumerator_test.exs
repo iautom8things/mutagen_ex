@@ -272,6 +272,40 @@ defmodule MutagenEx.MutationEnumeratorTest do
                s.mutator == :arith and s.file == "lib/mixed.ex"
              end)
     end
+
+    @tag spec: ["mutagen.mutators.r2", "mutagen.mutators.r9"]
+    test "with_swap failure-priority rejections are skipped under their site IDs" do
+      source = """
+      defmodule Noisy do
+        def unconditional(f, g), do: with(a <- f.(), :ok <- g.(), do: a)
+        def same_failure(x), do: with(:ok <- x, :error <- x, do: :done)
+        def ignored(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :done, else: (_ -> :error))
+        def kept(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :done)
+      end
+      """
+
+      cache = ast_cache("lib/noisy.ex", source)
+      scopes = [scope("lib/noisy.ex", Noisy)]
+      covered = covered_lines("lib/noisy.ex", Enum.to_list(1..7))
+
+      result =
+        MutationEnumerator.enumerate(cache, scopes, covered,
+          mutators: [MutagenEx.Mutators.WithSwap]
+        )
+
+      assert [%{line: 5, function: "Noisy.kept/2"}] = result.sites
+
+      assert Enum.map(result.skipped, & &1.reason) == [
+               :insufficient_refutable_patterns,
+               :indistinguishable_failures,
+               :else_ignores_failure
+             ]
+
+      for skipped <- result.skipped do
+        assert skipped.site_id =~ ~r/^lib\/noisy\.ex:[0-9a-f]{32}:with_swap$/
+        refute skipped.site_id in Enum.map(result.sites, & &1.id)
+      end
+    end
   end
 
   describe "scenario s4 — multi-module file (mutagen.mutation_enumeration.r4)" do
@@ -852,6 +886,41 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert Enum.any?(result.sites, fn site ->
                site.mutator == :literal and site.original_ast == 1 and site.mutated_ast == 0
              end)
+    end
+  end
+
+  describe "function capture references" do
+    @describetag spec: "mutagen.mutation_enumeration.r10"
+
+    test "the `/` naming a captured function is offered to no mutator" do
+      source = """
+      defmodule CaptureRefs do
+        def local(xs), do: Enum.map(xs, &double/1)
+        def remote(xs), do: Enum.reduce(xs, &Kernel.max/2)
+        def erlang(xs), do: Enum.reduce(xs, &:erlang.max/2)
+        def body(xs), do: Enum.map(xs, &(&1 / 2))
+        def plain(x), do: x / 2
+        defp double(x), do: x * 2
+      end
+      """
+
+      cache = ast_cache("lib/capture_refs.ex", source)
+      scopes = [scope("lib/capture_refs.ex", CaptureRefs)]
+      covered = covered_lines("lib/capture_refs.ex", Enum.to_list(1..8))
+
+      for mode <- [:head_atom, :legacy] do
+        result = MutationEnumerator.enumerate(cache, scopes, covered, dispatch_mode: mode)
+
+        assert result.sites
+               |> Enum.filter(&(&1.mutator == :arith))
+               |> Enum.map(&{&1.line, Macro.to_string(&1.mutated_ast)}) == [
+                 {5, "&1 * 2"},
+                 {6, "x * 2"},
+                 {7, "x / 2"}
+               ]
+
+        refute Enum.any?(result.skipped, &(&1.mutator == :arith))
+      end
     end
   end
 

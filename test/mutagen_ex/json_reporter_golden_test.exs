@@ -149,8 +149,8 @@ defmodule MutagenEx.JsonReporterGoldenTest do
         kill_rate: 1.0,
         results: [
           fixture_result("lib/foo.ex:111:arith", :arith, 5, 7, "1 + 2", "1 - 2", :killed),
-          fixture_result("lib/foo.ex:222:bool", :bool, 8, 5, "true", "false", :killed),
-          fixture_result("lib/foo.ex:333:comp", :comp, 12, 4, "a == b", "a != b", :killed)
+          fixture_result("lib/foo.ex:222:literal", :literal, 8, 5, "true", "false", :killed),
+          fixture_result("lib/foo.ex:333:compare", :compare, 12, 4, "a == b", "a != b", :killed)
         ],
         skipped: [],
         compile_errors: [],
@@ -189,7 +189,15 @@ defmodule MutagenEx.JsonReporterGoldenTest do
         results: [
           fixture_result("lib/foo.ex:101:arith", :arith, 2, 5, "a + b", "a - b", :killed),
           fixture_result("lib/foo.ex:102:arith", :arith, 3, 5, "a * b", "a / b", :killed),
-          fixture_result("lib/foo.ex:103:bool", :bool, 7, 8, "x and y", "x or y", :survived),
+          fixture_result(
+            "lib/foo.ex:103:boolean",
+            :boolean,
+            7,
+            8,
+            "x and y",
+            "x or y",
+            :survived
+          ),
           fixture_result(
             "lib/foo.ex:104:case_drop",
             :case_drop,
@@ -273,7 +281,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
         results: [
           fixture_result("lib/foo.ex:k1:arith", :arith, 2, 5, "a + b", "a - b", :killed),
           fixture_result("lib/foo.ex:k2:arith", :arith, 3, 5, "x * y", "x / y", :killed),
-          fixture_result("lib/foo.ex:k3:bool", :bool, 5, 7, "true", "false", :killed),
+          fixture_result("lib/foo.ex:k3:literal", :literal, 5, 7, "true", "false", :killed),
           fixture_result("lib/foo.ex:s1:arith", :arith, 6, 5, "p + q", "p - q", :survived)
         ],
         skipped: [

@@ -96,6 +96,10 @@ defmodule MutagenEx.Integration.StreamCliTest do
       @moduledoc false
 
       def add(a, b), do: a + b + 0
+
+      def check(x) do
+        with :ok <- x, {:ok, x} <- x, do: {:passed, x}
+      end
     end
     """)
 
@@ -112,6 +116,10 @@ defmodule MutagenEx.Integration.StreamCliTest do
 
       test "add/2 is commutative for integers" do
         assert #{calc_module}.add(2, 3) == #{calc_module}.add(3, 2)
+      end
+
+      test "check/1 returns the failed first match" do
+        assert #{calc_module}.check({:ok, :ok}) == {:ok, :ok}
       end
     end
     """)
@@ -202,12 +210,36 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert Enum.all?(ndjson, &(&1["version"] == "2")),
            "every NDJSON line must carry version \"2\": #{inspect(ndjson)}"
 
+    results = Enum.filter(ndjson, &(&1["kind"] == "result"))
+    assert [_ | _] = arith_results = Enum.filter(results, &(&1["mutator"] == "arith"))
+    assert Enum.all?(arith_results, &(&1["confidence"] == "high"))
+
+    assert [%{"confidence" => "low", "status" => "killed"} = swap] =
+             Enum.filter(results, &(&1["mutator"] == "with_swap"))
+
+    aggregate_results =
+      mutagen_out
+      |> String.split("\n", trim: true)
+      |> Enum.find_value(fn line ->
+        case safe_decode(line) do
+          {:ok, %{"mutation" => %{"results" => results}}} -> results
+          _ -> nil
+        end
+      end)
+
+    assert [%{"confidence" => "low", "status" => "killed"}] =
+             Enum.filter(aggregate_results, &(&1["id"] == swap["id"]))
+
     start_line = List.first(ndjson)
     assert start_line["meta"]["id_scheme"] == "2"
 
+    assert swap["function"] == "#{calc_module}.check/1"
+
     for %{"kind" => "result"} = result <- ndjson do
-      assert result["function"] == "#{calc_module}.add/2"
+      assert result["function"] in ["#{calc_module}.add/2", "#{calc_module}.check/1"]
     end
+
+    assert Enum.all?(arith_results, &(&1["function"] == "#{calc_module}.add/2"))
 
     assert is_integer(start_line["total"]) and start_line["total"] > 0,
            "start envelope must carry a positive total: #{inspect(start_line)}"

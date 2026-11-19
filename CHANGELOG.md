@@ -13,6 +13,12 @@ file for traceability.
 
 ### Added
 
+- **Mutator confidence.** Each aggregate mutation result and streaming
+  result line carries `"confidence": "high"` or `"confidence": "low"`.
+  CI gates can filter survivors by confidence. The field is part of report
+  schema version `"2"`. `with_swap` is rated low and all other mutators
+  default to high.
+
 - **Parallel mutation dispatch (`--max-concurrency`).** The mutation phase
   can now run per-site work in parallel. The default stays `1` (fully
   serial, identical to v0.1.0) because the in-process pipeline shares
@@ -66,6 +72,11 @@ file for traceability.
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
 
+- **Fewer equivalent `with_swap` mutations.** For independent clauses,
+  the mutator skips swaps when one clause always matches by syntax, both
+  failures have the same value by construction, or a single wildcard
+  `else` arm ignores the failure. The report records each skip reason.
+
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock
   speedup on the project's benchmark fixture — without changing any
@@ -92,6 +103,18 @@ file for traceability.
 - **Baseline errors name every failing cited test.** Baseline runs
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
+
+- **`guard_drop` mutations now run.** The enumerator validates the
+  mutated node, but `guard_drop` rejected any node without its `when`
+  wrapper, so every guard site landed in `mutation.skipped` as
+  `structurally_invalid`. Guarded function, `case` and `fn` clauses now
+  produce killed, survived or timeout results. A multi-parameter `fn`
+  clause guard stays skipped, because no single-node edit can drop it.
+
+- **Function captures are no longer mutated as division.** The `/` in
+  `&fun/1` and `&Mod.fun/2` names a function, but `arith` swapped it for
+  `*`, which could never compile. Division inside a capture body, such as
+  `&(&1 / 2)`, still mutates.
 
 - **Archive-installed CLI no longer crashes on a cold start.** When
   `mix mutagen` was installed globally via `mix archive.install` (no
