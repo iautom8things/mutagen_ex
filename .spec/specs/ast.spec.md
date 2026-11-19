@@ -4,7 +4,7 @@ Owns the canonical helpers that operate over Elixir AST shapes shared by
 scope resolution, mutation enumeration, and mutation runner restore. Lifts
 duplicated `alias_to_module/1` and `find_module_body/2` into one module so
 all three pipeline stages observe identical semantics. Caller-specific
-helpers (e.g. `compute_end_position/1`, `walk_bare/N`) stay in their donor
+helpers (e.g. `compute_end_position/1`) stay in their donor
 modules — this subject does not aspire to be a general AST utility library.
 
 ## Intent
@@ -26,10 +26,9 @@ performance) so long as the contract holds.
 
 ## Out of scope for this subject
 
-- The full enumerator walk (`walk_tree/6`) — stays in `mutation_enumerator.ex`
+- The full enumerator walk (`walk_tree/5`) — stays in `mutation_enumerator.ex`
   because only enumeration uses ambient-position threading.
-- Per-site path computation and bare-literal walking — stays in
-  `mutation_runner.ex` because only the runner needs them.
+- The enumerator records mutation paths, and the runner applies them.
 - The `MutagenEx.AstCache` source-text + AST store — that's a separate
   subject; see [mutagen.coverage](coverage.spec.md).
 
@@ -43,6 +42,7 @@ surface:
   - test/mutagen_ex/ast_test.exs
   - test/mutagen_ex/ast_donor_equivalence_test.exs
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.adoption_polish_efficacy
   - mutagen.decision.ancora_migration
 ```
@@ -64,10 +64,13 @@ decisions:
     `MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name
     string `target_mod_str` and returns `{:ok, body_ast}` if a node
     `{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose
-    lexical module name (including enclosing `defmodule` parents for nested
-    definitions) equals `target_mod_str`, comparing both `Elixir.*` and
+    lexical module name equals `target_mod_str`, comparing both `Elixir.*` and
     prefix-stripped forms. Otherwise it returns `:not_found`. The function
-    is total: it never raises, throws, or exits.
+    is total: it never raises, throws, or exits. A nested alias is qualified
+    under its parent. A literal atom or an alias starting with `Elixir.`
+    names an absolute module. A prefix of `__MODULE__.` uses the parent.
+    Static protocol and implementation declarations are also module bodies.
+    A quoted module declaration does not introduce a module.
 
 - id: mutagen.ast.r3
   priority: must
@@ -80,9 +83,8 @@ decisions:
   priority: must
   statement: |
     The donor modules `MutagenEx.ScopeResolver`, `MutagenEx.MutationEnumerator`,
-    and `MutagenEx.MutationRunner` consume `MutagenEx.Ast.alias_to_module/1`
-    and `MutagenEx.Ast.find_module_body/2` exclusively after `.25.01` lands.
-    Each module's previous private duplicate is deleted. A grep for
+    and `MutagenEx.MutationRunner` use the shared qualification and module
+    lookup rules in `MutagenEx.Ast`. A grep for
     `defp alias_to_module` over `lib/mutagen_ex/` returns at most one hit
     (in `lib/mutagen_ex/ast.ex` if defined privately there; ideally zero
     because the canonical function is public).

@@ -234,7 +234,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert skipped.reason == :bound_var_used_before_binding
       assert skipped.mutator == :with_swap
       assert skipped.file == "lib/withy.ex"
-      assert skipped.site_id =~ ~r/^lib\/withy\.ex:\d+:with_swap$/
+      assert skipped.site_id =~ ~r/^lib\/withy\.ex:[0-9a-f]{32}:with_swap$/
     end
 
     @tag spec: "mutagen.mutators.r2"
@@ -296,43 +296,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
       result = MutationEnumerator.enumerate(cache, scopes, covered)
 
-      # Every site's hash must come from a node inside Mod.A's body.
-      # Mod.B has a `*` arith node we want to verify is NOT in the
-      # output. We expect exactly one arith site (`x + 1` from Mod.A).
-      arith_sites = Enum.filter(result.sites, &(&1.mutator == :arith))
-      assert length(arith_sites) == 1
-
-      # The one site's line corresponds to Mod.A's `def f` (line 2),
-      # not Mod.B's `def g` (line 6).
-      [site] = arith_sites
-      assert site.line == 2
-
-      # Belt and suspenders: compute the hash of Mod.B's `*` node and
-      # confirm it never appears in the output's IDs.
-      {:ok, mod_b_ast} =
-        Code.string_to_quoted("defmodule Mod.B do\n  def g(x), do: x * 2\nend",
-          columns: true,
-          line: 1
-        )
-
-      {_, mod_b_arith_nodes} =
-        Macro.prewalk(mod_b_ast, [], fn
-          {op, _, [_, _]} = node, acc when op in [:+, :-, :*, :/] ->
-            {node, [node | acc]}
-
-          node, acc ->
-            {node, acc}
-        end)
-
-      mod_b_hashes = Enum.map(mod_b_arith_nodes, &MutagenEx.Mutators.ast_hash/1)
-
-      site_hashes =
-        Enum.map(arith_sites, fn s ->
-          [_file, hash, _name] = String.split(s.id, ":")
-          String.to_integer(hash)
-        end)
-
-      assert Enum.all?(mod_b_hashes, &(&1 not in site_hashes))
+      assert [%{line: 2, function: "Mod.A.f/1"}] =
+               Enum.filter(result.sites, &(&1.mutator == :arith))
     end
 
     test "enumeration finds a nested in-scope module by its qualified module name" do
@@ -467,7 +432,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
       for site <- result.sites do
         assert is_binary(site.id)
-        assert site.id =~ ~r/^lib\/shape\.ex:\d+:[a-z_]+$/
+        assert site.id =~ ~r/^lib\/shape\.ex:[0-9a-f]{32}:[a-z_]+$/
         assert site.file == "lib/shape.ex"
         assert is_integer(site.line) and site.line >= 1
         assert is_integer(site.column) and site.column >= 1
@@ -600,14 +565,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
       assert literal_site.file == file
       assert literal_site.mutator == :literal
 
-      # Site ID is content-addressed over the normalized AST. Normalization
-      # strips :line/:column/:end_line/:end_column but PRESERVES :token
-      # because that key is part of the AST's content (it tells
-      # `Macro.to_string/1` which token to render); see
-      # `mutagen.decision.content_addressed_ids`.
-      injected_value = literal_site.original_ast
-      expected_hash = Mutators.ast_hash(injected_value)
-      assert literal_site.id == "#{file}:#{expected_hash}:literal"
+      identity = {{BlockBool, :f, 0}, {:__block__, [], [true]}, 0}
+      assert literal_site.id == Mutators.site_id(file, identity, :literal)
 
       # Mutated AST preserves the wrapper and the positional meta so the
       # runner can restore the original byte-for-byte; `:token` is

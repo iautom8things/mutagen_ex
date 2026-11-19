@@ -28,6 +28,8 @@ surface:
   - lib/mutagen_ex/mutation_enumerator.ex
   - lib/mutagen_ex/mutators/dispatch.ex
 decisions:
+  - mutagen.decision.mutation_site_paths
+  - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.validate_predicates
   - mutagen.decision.static_mutator_dispatch
   - mutagen.decision.adoption_polish_efficacy
@@ -62,11 +64,15 @@ decisions:
 - id: mutagen.mutation_enumeration.r4
   priority: must
   statement: |
-    For multi-`defmodule` files, enumeration only walks the in-scope module's
-    AST sub-tree. Sibling modules' nodes never appear as candidate sites.
-    If a `defmodule` is nested inside another `defmodule`, the nested
-    module is matched by its fully qualified module name
-    (`Outer.Inner`), not by the unqualified inner alias (`Inner`).
+    Enumeration emits only sites in a selected module and scope line range.
+    An MFA scope emits only sites for that definition, even when its clauses
+    span other definitions. Overlapping scopes emit each site once.
+    The site records an AST path from the original file root and carries the
+    nearest named definition's module, name, and declared arity. Protocols
+    and static implementations contribute their own module identities.
+    Guard definitions are named definitions. Quoted definitions do not
+    replace the enclosing function. Dynamic names report no function.
+    Ordinals count candidates before scope and coverage filters.
 
 - id: mutagen.mutation_enumeration.r5
   priority: must
