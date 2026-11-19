@@ -624,6 +624,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `cover_compile_failed` | OTP coverage could not instrument a selected module. |
 | `cover_module_unavailable` | The OTP coverage module failed to load. |
 | `coverage_timeout` | The coverage phase exceeded its deadline. |
+| `diff_unavailable` | Reserved for the CI gate when Git cannot provide a usable diff. |
 | `ex_unit_run_failed` | ExUnit raised, threw, or exited while running a suite. |
 | `file_not_found` | A selected source or test file does not exist. |
 | `file_read_failed` | Mutagen could not read a required file. |
@@ -642,6 +643,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `invalid_mix_env` | The command selected an unsupported Mix environment. |
 | `invalid_redact_config` | The configured report redaction patterns are invalid. |
 | `invalid_seed` | The ExUnit seed is invalid. |
+| `invalid_since_ref` | Reserved for the CI gate when `--since` has an invalid Git ref. |
 | `invalid_tag_name` | The test tag contains unsupported characters or has an invalid length. |
 | `invalid_target` | The test selector has an unsupported format. |
 | `invalid_timeout` | The per-site timeout is invalid. |
