@@ -43,6 +43,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.in_process_pipeline
@@ -67,12 +68,13 @@ decisions:
   statement: |
     `Baseline.run/1` executes the cited tests against unmutated code. If
     any test fails, the pipeline aborts with an error-shaped JSON whose
-    `abort_reason` is `:baseline_red`. `baseline.failures[]` names, as
-    `{module, name}` objects, every test ExUnit counted as failed: a
-    failed test, each test invalidated by a failed `setup_all`, and each
-    test of a module whose `setup_all` teardown failed. Each test appears
-    once, so the list length equals `baseline.failed`. The error
-    document's `details.failures` holds the same objects.
+    `abort_reason` is `:baseline_red`. The default `baseline.failures`
+    and `details.failures` list the test modules and their failure counts.
+    The counts include each test ExUnit invalidates through a setup or
+    teardown failure.
+    With --include-host-output each entry includes the module and test
+    name. No mutation runs when baseline is red.
+
 
 - id: mutagen.mutation_pipeline.r2
   priority: must
@@ -202,10 +204,11 @@ decisions:
 - id: mutagen.mutation_pipeline.r9
   priority: must
   statement: |
-    Stderr written during per-mutation runs (e.g. compiler warnings) is
-    captured via `ExUnit.CaptureIO.with_io(:stderr, ...)` and attached
-    to that mutation's `results[i].warnings` field. Stderr never leaks to
-    the user's terminal during the run.
+    Mutagen captures compiler and test stderr per mutant. It writes these
+    diagnostics to stderr and adds them to the site's report warnings only
+    with --include-host-output. The default console Logger handler bypasses
+    that capture. Mutagen's recompilation suppresses its module conflict
+    warning.
 
 - id: mutagen.mutation_pipeline.r10
   priority: must
@@ -512,8 +515,7 @@ decisions:
     no further sites, and returns
     `{:error, :ex_unit_run_failed, %{message: msg, site_id: id}}` naming
     the site whose run failed. `msg` names the phase and how the run
-    ended (`raised`, `caught exit`, or `caught throw`) and is sanitized
-    per mutagen.json_schema.r10 and r17. The pipeline aborts with
+    ended (`raised`, `caught exit`, or `caught throw`) and is available as opted-in host output per mutagen.json_schema.r19. The pipeline aborts with
     `abort_reason: "ex_unit_run_failed"`.
 
     The baseline pass must execute at least one test. When ExUnit's
@@ -530,18 +532,37 @@ decisions:
     a process that forwards I/O requests to the caller's group leader.
     The per-site task and every process spawned under it that keeps the
     inherited group leader, including ExUnit's monitored (unlinked) module
-    and test workers, belong to that group.
+    and test workers, belong to that group. Pre-existing members that
+    joined the group regain the leader recorded before the site.
 
     When the site's run ends any way other than a reply completed by its
     deadline (r4), that is on a timeout, a task exit, or an ExUnit failure
     per r21, the runner kills
-    every member with `Process.exit(pid, :kill)` and waits for each
+    only new members descended from the site runner with
+    `Process.exit(pid, :kill)` and waits for each
     `:DOWN`, repeating until no member remains, before `run/1` returns.
     With the real ExUnit backend and `max_concurrency == 1` it then calls
     the ExUnit server's `discard_pending_modules/0` (r10), so the next
     site's run sees only the modules it registers. After a reply completed
     by its deadline, members still alive get the caller's group leader
     back and keep running.
+
+- id: mutagen.mutation_pipeline.r23
+  priority: must
+  statement: |
+    After a timeout or runner failure the report checks the prior registered
+    names and application roots. Any missing registration or changed root
+    emits a warning and leaves later site verdicts tainted. The default
+    report gives a count for lost names. Opted-in output includes names.
+
+- id: mutagen.mutation_pipeline.r24
+  priority: must
+  statement: |
+    On cancellation Mutagen reaps only new processes descended from its
+    site task. Other group members regain a live previous leader or the
+    pipeline leader. After a failed site, an existing name re-registered
+    to a live process does not taint later verdicts. Identical report
+    warnings appear once at the top level.
 ```
 
 ```spec-scenarios
@@ -553,7 +574,7 @@ decisions:
     - "`Baseline.run/1` executes."
   then:
     - The pipeline halts.
-    - "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains an entry naming the failing test."
+    - "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains the failing module and its failure count."
     - No mutation phase runs.
 
 - id: mutagen.mutation_pipeline.s2
@@ -854,4 +875,6 @@ decisions:
     - mutagen.mutation_pipeline.r20
     - mutagen.mutation_pipeline.r21
     - mutagen.mutation_pipeline.r22
+    - mutagen.mutation_pipeline.r23
+    - mutagen.mutation_pipeline.r24
 ```

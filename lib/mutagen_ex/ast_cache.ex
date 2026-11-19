@@ -146,10 +146,8 @@ defmodule MutagenEx.AstCache do
         {:error, :file_read_failed,
          %{
            file: file,
-           message:
-             MutagenEx.JsonReporter.Sanitizer.clean(
-               "could not read source file #{inspect(file)}: #{Exception.message(e)}"
-             )
+           exception: inspect(e.__struct__),
+           message: "could not read source file #{inspect(file)}: #{Exception.message(e)}"
          }}
     end
   end
@@ -171,10 +169,8 @@ defmodule MutagenEx.AstCache do
            file: file,
            line: line,
            message:
-             MutagenEx.JsonReporter.Sanitizer.clean(
-               "could not parse #{inspect(file)} at line #{line}: " <>
-                 IO.iodata_to_binary(format_parse_error(description, token))
-             )
+             "could not parse #{inspect(file)} at line #{line}: " <>
+               IO.iodata_to_binary(format_parse_error(description, token))
          }}
     end
   end

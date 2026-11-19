@@ -41,10 +41,11 @@ defmodule MutagenEx.RedactionTest do
       end
     end
 
-    assert Sanitizer.clean("tokens: 3, secretary: ann, primary_key: 7") ==
-             "tokens: 3, secretary: ann, primary_key: 7"
+    assert Sanitizer.clean("tokenizer: 3, secretary: ann, primary_key: 7") ==
+             "tokenizer: 3, secretary: ann, primary_key: 7"
 
     report = %Report{
+      include_host_output: true,
       details: %{database_password: "detail-value"},
       tests: %{include: [], exclude: ["api-token": "filter-value"], files: []}
     }
@@ -57,13 +58,14 @@ defmodule MutagenEx.RedactionTest do
 
   @tag spec: ["mutagen.json_schema.r11", "mutagen.json_schema.r17"]
   test "built-in redaction precedes configured patterns and truncation" do
-    assert Sanitizer.clean("password=hunter2 custom example",
+    assert Sanitizer.clean(~s(password="hunter2", custom example),
              patterns: ["custom"],
              byte_size_limit: 40
            ) ==
-             "password=[REDACTED] [REDACTED] example"
+             "password=[REDACTED], [REDACTED] example"
 
-    assert Sanitizer.summary("token=password123\nraw diagnostics") == "token=[REDACTED]"
+    assert Sanitizer.clean("token=password123\nraw diagnostics") ==
+             "token=[REDACTED]\nraw diagnostics"
   end
 
   @tag spec: "mutagen.json_schema.r17"
@@ -87,6 +89,7 @@ defmodule MutagenEx.RedactionTest do
     compile_error = Map.put(result, :message, warning)
 
     report = %Report{
+      include_host_output: true,
       warnings: [warning],
       details: %{password: secret, nested: [%{message: warning}]},
       tests: %{include: [], exclude: [foo: [:a], token: secret], files: []},
@@ -107,8 +110,8 @@ defmodule MutagenEx.RedactionTest do
     assert decoded["baseline"]["failures"] |> hd() |> Map.fetch!("name") =~ "[REDACTED]"
 
     sink = fn iodata -> send(self(), {:line, IO.iodata_to_binary(iodata)}) end
-    JsonStreamer.emit_result(sink, result)
-    JsonStreamer.emit_compile_error(sink, compile_error)
+    JsonStreamer.emit_result(sink, result, report)
+    JsonStreamer.emit_compile_error(sink, compile_error, report)
     assert_received {:line, result_line}
     assert_received {:line, error_line}
     refute result_line =~ secret

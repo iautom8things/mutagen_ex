@@ -756,7 +756,7 @@ defmodule MutagenEx.EndToEndTest do
       assert json["baseline"]["failures"] == [
                %{
                  "module" => "LaneFixture.RedBaselineTest",
-                 "name" => "test this test always fails — baseline-red trigger"
+                 "count" => 1
                }
              ]
 

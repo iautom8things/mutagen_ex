@@ -4,11 +4,14 @@ defmodule MutagenEx.Pipeline.DefaultIo do
   @behaviour MutagenEx.Pipeline.IoFacade
 
   alias MutagenEx.{Config, JsonPath}
-  alias MutagenEx.JsonReporter.Sanitizer
 
   @impl MutagenEx.Pipeline.IoFacade
-  def emit(iodata, exit_code, config) do
+  def emit(iodata, exit_code, config), do: emit(iodata, exit_code, config, fn -> :ok end)
+
+  @doc false
+  def emit(iodata, exit_code, config, cleanup) do
     write(iodata, config)
+    cleanup.()
     System.halt(exit_code)
   end
 
@@ -27,16 +30,109 @@ defmodule MutagenEx.Pipeline.DefaultIo do
       error ->
         IO.puts(
           :stderr,
-          Sanitizer.clean(
-            "warning: json_write_failed (#{inspect(error)}); writing report to stdout"
-          )
+          "warning: json_write_failed (#{inspect(error)}); writing report to stdout"
         )
 
-        IO.write(document)
+        write_stdout(document)
     end
   end
 
-  def write(iodata, _config), do: IO.write(iodata)
+  def write(iodata, _config), do: write_stdout(iodata)
+
+  defp write_stdout(iodata) do
+    IO.write(Process.get(:mutagen_report_device, Process.group_leader()), iodata)
+  end
+
+  @doc false
+  def with_report_device(fun) do
+    stdout = Process.group_leader()
+    user = Process.whereis(:user)
+    stderr = Process.whereis(:standard_error)
+    proxy = route_device(user, stderr)
+    Process.unregister(:user)
+    Process.register(proxy, :user)
+    Process.put(:mutagen_report_device, stdout)
+
+    move_group(user, proxy)
+    Process.group_leader(self(), proxy)
+
+    try do
+      fun.()
+    after
+      Process.delete(:mutagen_report_device)
+      Process.unregister(:user)
+      Process.register(user, :user)
+      move_group(proxy, user)
+      Process.group_leader(self(), stdout)
+      send(proxy, :stop)
+    end
+  end
+
+  @doc false
+  def route_device(user, stderr) do
+    spawn_link(fn -> forward_requests(user, stderr) end)
+  end
+
+  defp forward_requests(user, stderr) do
+    receive do
+      {:io_request, from, reply, {:requests, requests}} ->
+        proxy = self()
+
+        spawn(fn ->
+          result =
+            Enum.reduce_while(requests, :ok, fn request, _ ->
+              case :io.request(proxy, request) do
+                {:error, _} = error -> {:halt, error}
+                value -> {:cont, value}
+              end
+            end)
+
+          send(from, {:io_reply, reply, result})
+        end)
+
+        forward_requests(user, stderr)
+
+      {:io_request, from, reply, request} ->
+        {device, request} = route_request(request, user, stderr)
+        send(device, {:io_request, from, reply, request})
+        forward_requests(user, stderr)
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp route_request(request, user, stderr) when is_tuple(request) do
+    case Tuple.to_list(request) do
+      [operation, encoding, prompt | args]
+      when operation in [:get_line, :get_chars, :get_until] ->
+        IO.write(stderr, prompt)
+        {user, List.to_tuple([operation, encoding, "" | args])}
+
+      [operation | _] when operation in [:get_password, :get_geometry, :setopts] ->
+        {user, request}
+
+      _ ->
+        {stderr, request}
+    end
+  end
+
+  defp route_request(request, user, _) when request in [:getopts, :get_password],
+    do: {user, request}
+
+  defp route_request(request, _, stderr), do: {stderr, request}
+
+  defp move_group(from, to) do
+    for pid <- Process.list(),
+        pid != to,
+        Process.info(pid, :group_leader) == {:group_leader, from} do
+      try do
+        Process.group_leader(pid, to)
+      rescue
+        ArgumentError -> :ok
+      end
+    end
+  end
 
   defp write_report(path, requested, root, opts, document) do
     parent = Path.dirname(path)
@@ -50,10 +146,11 @@ defmodule MutagenEx.Pipeline.DefaultIo do
           ".mutagen-#{Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)}.tmp"
         )
 
-      case File.write(temp, document, [:exclusive]) do
-        :ok ->
+      case File.open(temp, [:write, :binary, :exclusive]) do
+        {:ok, io} ->
           try do
-            with :ok <- unchanged_path(path, requested, opts) do
+            with :ok <- write_private(io, temp, document),
+                 :ok <- unchanged_path(path, requested, opts) do
               File.rename(temp, path)
             end
           after
@@ -64,6 +161,16 @@ defmodule MutagenEx.Pipeline.DefaultIo do
           error
       end
     end
+  end
+
+  defp write_private(io, temp, document) do
+    result =
+      with :ok <- File.chmod(temp, 0o600) do
+        IO.binwrite(io, document)
+      end
+
+    close_result = File.close(io)
+    with :ok <- result, do: close_result
   end
 
   defp unchanged_path(path, requested, opts) do

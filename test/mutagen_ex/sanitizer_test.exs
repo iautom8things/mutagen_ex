@@ -166,17 +166,17 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
     test "redaction happens BEFORE truncation so replacements are not lost (r11)" do
       # Pattern requires a terminating `=END` marker: anchored on both
       # ends. This is the falsifier lever — if any bytes between the
-      # `SESSION_BLOB=` opener and the `=END` closer are dropped, the
+      # `OPAQUE_BLOB=` opener and the `=END` closer are dropped, the
       # pattern stops matching and no `[REDACTED]` appears in the
       # output.
       # The opener is not a built-in secret key (r17), so only this
       # configured pattern can redact the body.
-      Application.put_env(:mutagen_ex, :redact, [~r/SESSION_BLOB=[^=]+=END/])
+      Application.put_env(:mutagen_ex, :redact, [~r/OPAQUE_BLOB=[^=]+=END/])
 
       # Layout (byte positions are inclusive lower bound, exclusive upper):
       #
       #   0      ..  3000   filler "a"
-      #   3000   ..  3013   "SESSION_BLOB="   (13 bytes — opener)
+      #   3000   ..  3013   "OPAQUE_BLOB="   (13 bytes — opener)
       #   3013   ..  5000   "hunter2..." secret body (1987 bytes)
       #   5000   ..  5004   "=END"            (closer)
       #   5004   .. 10_000  filler "z"
@@ -193,13 +193,13 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
       #
       # * truncate-first ordering: truncate cuts at 4096, dropping the
       #   `=END` closer. The remaining prefix contains
-      #   `SESSION_BLOB=hunter2...` without the closer. The
+      #   `OPAQUE_BLOB=hunter2...` without the closer. The
       #   regex requires `=END`, so it does NOT match, no replacement
       #   happens, and `[REDACTED]` is absent. The same assertion
       #   would fail under that ordering — which is what makes this
       #   test a load-bearing falsifier for r11's "redact BEFORE
       #   truncate" clause.
-      opener = "SESSION_BLOB="
+      opener = "OPAQUE_BLOB="
       closer = "=END"
       secret_body_len = 5000 - 3000 - byte_size(opener)
       secret_body = String.duplicate("h", secret_body_len)
@@ -249,11 +249,8 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
       assert out == "42"
     end
 
-    test "malformed :redact env (non-list) is treated as no patterns" do
-      Application.put_env(:mutagen_ex, :redact, :not_a_list)
-
-      out = Sanitizer.clean("untouched payload")
-      assert out == "untouched payload"
+    test "malformed patterns are rejected rather than ignored" do
+      assert_raise ArgumentError, fn -> Sanitizer.clean("fixture", patterns: :bad) end
     end
   end
 end
