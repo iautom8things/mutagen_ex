@@ -188,6 +188,7 @@ defmodule MutagenEx.MutationRunner do
           warnings: [String.t() | {atom(), String.t()}],
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil,
+          source_span: {non_neg_integer(), pos_integer()} | nil,
           source_text: String.t() | nil
         }
 
@@ -832,6 +833,7 @@ defmodule MutagenEx.MutationRunner do
       # `{end_line, end_column}`.
       end_line: site.end_line,
       end_column: site.end_column,
+      source_span: site.source_span,
       source_text: source_text
     }
 

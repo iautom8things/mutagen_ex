@@ -103,9 +103,10 @@ decisions:
     even if every mutation survived). Non-zero exits are reserved for "bad
     input" cases: unparseable flags, unresolvable scope, no tests match, a
     host setup failure (r18, r19, r21, r22), a cited selection that runs
-    no tests, red baseline, a failing after-suite callback (r20), or
-    unrecoverable pipeline errors. Every non-zero exit also emits an
-    error-JSON document.
+    no tests, red baseline, or unrecoverable pipeline errors. Mutagen
+    writes an error document for its own non-zero exits. A host callback
+    that calls System.halt/1 controls the VM exit code and can leave a
+    completed report when it halts during after-suite cleanup.
 
 - id: mutagen.cli.r7
   priority: must
@@ -447,8 +448,10 @@ decisions:
     Mutagen removes the ExUnit.after_suite callbacks from ExUnit's
     configuration before running the passes. It writes the final report
     before starting cleanup. Cleanup receives the last completed suite
-    counts or zero counts if none completed. Cleanup errors and timeouts
-    go to stderr and leave the report and exit code unchanged.
+    counts or zero counts if none completed. Each callback gets the full
+    cleanup deadline, even if the preceding callback timed out. Cleanup
+    errors and timeouts go to stderr. A host callback that calls
+    System.halt/1 controls the VM exit code after the report is written.
 
 
 - id: mutagen.cli.r21
@@ -552,6 +555,13 @@ decisions:
     The rerouted VM user device sends input and geometry requests to the
     original device. A report module redefined by a helper produces a
     runtime_load_failed report before installing the configured patterns.
+
+- id: mutagen.cli.r31
+  priority: must
+  statement: |
+    On OTP releases older than 27, the CLI stops before host setup and
+    writes one startup error document with
+    `abort_reason: "unsupported_otp_version"` to the selected destination.
 ```
 
 ```spec-scenarios
@@ -1083,4 +1093,5 @@ decisions:
     - mutagen.cli.r28
     - mutagen.cli.r29
     - mutagen.cli.r30
+    - mutagen.cli.r31
 ```

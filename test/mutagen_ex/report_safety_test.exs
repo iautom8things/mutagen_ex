@@ -237,7 +237,7 @@ defmodule MutagenEx.ReportSafetyTest do
       |> List.last()
       |> String.split("@doc", parts: 2)
       |> hd()
-      |> reason_names(~r/:([a-z_]+)\b/)
+      |> reason_names(~r/:([a-z0-9_]+)\b/)
 
     producers =
       Path.wildcard("lib/**/*.ex")
@@ -248,11 +248,12 @@ defmodule MutagenEx.ReportSafetyTest do
 
     emitted =
       [
-        reason_names(producers, ~r/\{:(?:error|abort),\s*:([a-z_]+)\s*,/),
-        reason_names(producers, ~r/require_nonempty\([^,]*,\s*:([a-z_]+)\s*,/),
-        reason_names(producers, ~r/\{:error,\s*%\{reason:\s*:([a-z_]+)\b/),
-        reason_names(producers, ~r/step_reason\(.*\), do: :([a-z_]+)\b/),
-        reason_names(producers, ~r/\bstep\(:([a-z_]+),/),
+        reason_names(producers, ~r/\{:abort, report, config, :([a-z0-9_]+),/),
+        reason_names(producers, ~r/\{:(?:error|abort),\s*:([a-z0-9_]+)\s*,/),
+        reason_names(producers, ~r/require_nonempty\([^,]*,\s*:([a-z0-9_]+)\s*,/),
+        reason_names(producers, ~r/\{:error,\s*%\{reason:\s*:([a-z0-9_]+)\b/),
+        reason_names(producers, ~r/step_reason\(.*\), do: :([a-z0-9_]+)\b/),
+        reason_names(producers, ~r/\bstep\(:([a-z0-9_]+),/),
         reason_names(producers, ~r/\b(?:do|else): :(coverage_timeout|baseline_timeout)\b/)
       ]
       |> Enum.concat()
@@ -261,6 +262,21 @@ defmodule MutagenEx.ReportSafetyTest do
       |> Enum.sort()
 
     assert declared == emitted
+
+    for path <- ["README.md", ".spec/specs/json_schema.spec.md"] do
+      [_, section] =
+        path |> File.read!() |> String.split(~r/\n[#]{2,3} Abort reasons\n/, parts: 2)
+
+      table = section |> String.split(~r/\n[#]{2,3} /, parts: 2) |> hd()
+
+      rows =
+        Regex.scan(~r/^\| `(?!abort_reason`)([a-z0-9_]+)` \|/m, table, capture: :all_but_first)
+
+      assert rows |> List.flatten() |> Enum.sort() == declared
+    end
+
+    refute Mix.Tasks.Mutagen |> Code.fetch_docs() |> elem(4) |> Map.fetch!("en") =~ ~r/`reason: :/
+
     Process.put(:mutagen_json_path_project_root, dir)
     scope = "test/fixtures/lane_project/lib/lane_fixture/arith.ex"
     cited = "test/fixtures/lane_project/test/lane_fixture/arith_test.exs"

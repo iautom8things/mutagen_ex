@@ -182,7 +182,15 @@ defmodule MutagenEx.FailFastTest do
              output |> String.split("\n", trim: true) |> Enum.map(&:json.decode/1)
 
     assert %{"kind" => "start", "total" => 4, "meta" => %{"fail_fast" => true}} = start
-    assert %{"kind" => "end", "aborted" => false, "completed" => 1, "killed" => 1} = finish
+
+    assert %{
+             "kind" => "end",
+             "aborted" => false,
+             "completed" => 1,
+             "killed" => 1,
+             "truncated" => true
+           } = finish
+
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
     assert Map.delete(aggregate["meta"], "timings_ms") == start["meta"]
     assert start["meta"] == finish["meta"]

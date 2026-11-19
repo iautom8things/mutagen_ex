@@ -182,7 +182,8 @@ from a fresh shell. Run it with `mix test --include self_mutation`.
 
 ## Install
 
-`mutagen_ex` is a development-time Mix task. Add it to your `mix.exs`:
+`mutagen_ex` is a development-time Mix task. It requires Erlang/OTP 27 or
+later. To install it as a dependency, add it to your `mix.exs`.
 
 ```elixir
 def deps do
@@ -261,14 +262,16 @@ owns the tests in an umbrella project. `--no-host-app` or
 config and the helper.
 
 Coverage, baseline, and every mutant use the helper's ExUnit options.
+Cases retain their declared `async` value. With `max_cases: 1`, ExUnit
+runs cases serially in its usual async-then-sync order.
 Whole-file targets honor helper includes and excludes. An explicit tag or
 line target takes precedence when narrowing the test set. A coverage or
 baseline pass that executes no tests aborts with `no_tests_run`. Helper
 formatters run on every pass. A formatter that writes a file may overwrite
 it after each mutant. Mutagen writes the final report before running
-ExUnit `after_suite` callbacks. Cleanup has its own `--boot-timeout-ms`
-deadline. Cleanup errors and timeouts go to stderr and leave the
-report and exit code unchanged.
+ExUnit `after_suite` callbacks. Each callback gets its own
+`--boot-timeout-ms` deadline. Cleanup errors and timeouts go to stderr.
+A callback that calls `System.halt/1` decides the VM exit code.
 
 `--boot-timeout-ms` bounds runtime configuration, alias pre-steps,
 application startup, and helper evaluation after compilation. Coverage
@@ -420,10 +423,9 @@ ExUnit's global server, the Code.Server's per-module load locks, and
 `:cover` instrumentation across all per-site tasks (see "Known
 limitations" below). On real ExUnit/:cover backends, parallel dispatch
 may produce incorrect kill/survive classification and corrupted
-coverage, so resolving `--max-concurrency > 1` emits a one-shot stderr
-warning. The safe path is the default, `--max-concurrency 1`; set
-`--max-concurrency N` explicitly only when your scope and test corpus
-are arranged for collision-free parallel execution.
+coverage. Every report records `meta.max_concurrency`. Values above 1
+emit a stderr warning and add "Verdicts are unreliable in experimental
+parallel mode." to the report's top-level `warnings`. The default is 1.
 
 Mutagen has **no runtime dependencies** — it installs cleanly as a
 dependency-free Mix archive (`mix archive.install`). Per-site
@@ -443,7 +445,7 @@ shape is byte-equal to the equivalent entry in the aggregate
 {"version":"2","kind":"start","total":42,"meta":{"id_scheme":"2",...}}
 {"version":"2","kind":"result","id":"...","function":"MyApp.Counter.add/2","status":"killed","mutator":"arith","confidence":"high",...}
 {"version":"2","kind":"compile_error","id":"...","message":"..."}
-{"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,"kill_rate":0.81,...}
+{"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,"truncated":false,"kill_rate":0.81,...}
 ```
 
 Per-site lines (`"result"` / `"compile_error"`) arrive in **input
@@ -451,7 +453,7 @@ order** even under `--max-concurrency > 1`, because the runner
 collects via `async_stream`'s `:ordered: true` default and the
 streaming callback fires from a sequential post-fold. The final line
 on the sink is the aggregate document without a `kind` field. Timings
-appear only in that document.
+appear only in that document. The `end` line includes `truncated`.
 
 ### Progress feedback
 
@@ -558,8 +560,63 @@ bytes dropped by the input and output caps.
 | `0` | Pipeline ran to completion. This includes a run where every mutation survived — kill rate of 0.0 is a valid result, not a failure. |
 | `2` | Mutagen aborted and wrote an error document to the selected destination. The string field `abort_reason` names the failure, for example `"missing_scope"` or `"baseline_red"`. |
 
-`aborted: true` in the emitted JSON always co-occurs with a non-zero exit;
-`aborted: false` always co-occurs with exit 0.
+A host callback that calls `System.halt/1` decides the VM exit code.
+An `after_suite` callback can therefore leave a completed report with
+`aborted: false` and a non-zero exit.
+
+### Abort reasons
+
+| `abort_reason` | Meaning |
+|---|---|
+| `arity_required` | The function scope omits its arity. |
+| `baseline_red` | One or more tests failed against the original code. |
+| `baseline_timeout` | The baseline phase exceeded its deadline. |
+| `colon_syntax_unsupported` | A function scope uses colon syntax. |
+| `cover_already_running` | An existing OTP coverage session owns modules. |
+| `cover_compile_failed` | OTP coverage could not instrument a selected module. |
+| `cover_module_unavailable` | The OTP coverage module failed to load. |
+| `coverage_timeout` | The coverage phase exceeded its deadline. |
+| `ex_unit_run_failed` | ExUnit raised, threw, or exited while running a suite. |
+| `file_not_found` | A selected source or test file does not exist. |
+| `file_read_failed` | Mutagen could not read a required file. |
+| `flag_not_supported_in_v1` | An option requests an unsupported output format. |
+| `function_not_found` | The scoped function and arity could not be found. |
+| `host_app_start_failed` | The host application failed to start. |
+| `host_compile_failed` | Mix failed to compile the host project. |
+| `host_loadpaths_failed` | Mix failed to load the host project dependencies. |
+| `host_setup_timeout` | Host setup exceeded its deadline. |
+| `invalid_boot_timeout` | The host setup and cleanup timeout is invalid. |
+| `invalid_budget_ms` | The mutation phase time budget is invalid. |
+| `invalid_input` | An argument or runner input is malformed. |
+| `invalid_line` | The test location has an invalid line number. |
+| `invalid_max_concurrency` | The mutation dispatch limit is invalid. |
+| `invalid_max_sites` | The mutation site cap is invalid. |
+| `invalid_mix_env` | The command selected an unsupported Mix environment. |
+| `invalid_redact_config` | The configured report redaction patterns are invalid. |
+| `invalid_seed` | The ExUnit seed is invalid. |
+| `invalid_tag_name` | The test tag contains unsupported characters or has an invalid length. |
+| `invalid_target` | The test selector has an unsupported format. |
+| `invalid_timeout` | The per-site timeout is invalid. |
+| `missing_scope` | No mutation scope was supplied. |
+| `missing_tests` | No test selection was supplied. |
+| `module_beam_missing` | The compiled module could not be located. |
+| `module_not_found` | The scope module could not be resolved. |
+| `no_tests_match` | A test selector matched no files. |
+| `no_tests_run` | ExUnit executed no tests in coverage or baseline. |
+| `parse_error` | Mutagen could not parse a source or test file. |
+| `runtime_load_failed` | The MutagenEx runtime or a report module could not load. |
+| `self_mutation_refused` | The scope targets MutagenEx code in the active VM. |
+| `test_alias_failed` | A host test alias setup step failed. |
+| `test_file_load_failed` | A cited test file could not be loaded or matched to its compiled path. |
+| `test_helper_load_failed` | A required test helper could not load. |
+| `too_many_sites` | The scope yielded more sites than the configured cap. |
+| `too_many_targets` | The command exceeds the scope or test target limit. |
+| `umbrella_root` | The command ran from an umbrella root. |
+| `unknown_flag` | The command contains an unrecognised option. |
+| `unrecognised_target` | The scope target has an unsupported format. |
+| `unrecoverable_restore_failure` | Mutagen could not restore the original module. |
+| `unsafe_json_path` | The report path failed validation. |
+| `unsupported_otp_version` | The Erlang/OTP release is below 27. |
 
 ## JSON output
 
@@ -609,6 +666,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
     "exunit_seed": 0,
     "fail_fast": true,
     "id_scheme": "2",
+    "max_concurrency": 1,
     "otp_version": "28",
     "timings_ms": {
       "baseline": 2,
@@ -767,7 +825,7 @@ When the run cannot proceed — for example, `--scope` names a module that
 does not exist, `aborted` is `true` and the phase blocks that never ran are
 `null`. The default `details` contains a fixed hint and any available
 structured facts. The exit code is non-zero. The reason strings are
-enumerated in the [Exit codes](#exit-codes) section.
+listed in the [abort reason table](#abort-reasons).
 
 ```json
 {
@@ -786,6 +844,7 @@ enumerated in the [Exit codes](#exit-codes) section.
     "exunit_seed": 0,
     "fail_fast": true,
     "id_scheme": "2",
+    "max_concurrency": 1,
     "otp_version": "28",
     "timings_ms": {
       "baseline": 0,
@@ -887,7 +946,8 @@ mix compile --warnings-as-errors
 mix test
 ```
 
-No third-party dependencies. Elixir `~> 1.19`, stdlib only.
+No third-party dependencies. Requires Elixir `~> 1.19` and Erlang/OTP 27
+or later for `:json` and trace sessions.
 
 ### Test suite gates
 

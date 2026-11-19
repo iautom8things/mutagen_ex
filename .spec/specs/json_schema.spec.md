@@ -148,26 +148,12 @@ Top-level keys, all present in every variant unless noted:
     `MutagenEx.Mutators.confidence/1` returns for `mutator`, whatever the
     `status`),
     `before` (string — `Macro.to_string/1` of original AST),
-    `before_source` (string — verbatim source slice taken from
-      the `source_text` the AST was parsed from (the `source_text`
-      half of an `MutagenEx.AstCache` entry) when end positions
-      are available. The slice range is
-      `{start_line, start_column}` (the leftmost descendant of the
-      site's `original_ast`, derived at render time) through
-      `{end_line, end_column}` (carried on
-      `%MutagenEx.MutationEnumerator.Site{}` per
-      `mutagen.mutation_enumeration.r8`), end-exclusive. When the
-      enumerator could not derive `{end_line, end_column}` for the
-      site (e.g. bare-literal sites attributed to a parent
-      operator's metadata, or macro-expanded forms whose AST
-      metadata lacks a reliable end position), `before_source`
-      falls back to `Macro.to_string/1` of the original AST and
-      aliases the same binary as `before`. The fallback is
-      observable: on the slice path `before_source` is byte-equal
-      to a hand-cut source slice of the same range before output cleaning and may differ
-      from `before` (which is always the `Macro.to_string/1`
-      output); on the fallback path `before_source === before`
-      (same binary reference, `:erts_debug.same/2` returns true)),
+    `before_source` (string, the verbatim slice of the cached source text
+      at the site's byte span from mutagen.mutation_enumeration.r11).
+      Results without that span can use the AST start and the exclusive
+      `end_line` and `end_column` from mutagen.mutation_enumeration.r8.
+      If source or coordinates are unavailable, `before_source` reuses
+      the same binary as `before` (same reference under `:erts_debug.same/2`).
     `after` (string — `Macro.to_string/1` of swapped AST),
     `status` (one of: `"killed"`, `"survived"`, `"timeout"`, `"error"`),
     `tainted_predecessors` (bool),
@@ -330,7 +316,7 @@ Top-level keys, all present in every variant unless noted:
         `meta` fields as `"start"`, plus
         the aggregate counters (`total`, `completed`, `killed`,
         `survived`, `timeout`, `compile_error`, `kill_rate`)
-        AND `aborted` + `abort_reason`. Its `total` is the aggregate
+        AND `aborted`, `abort_reason` and `truncated`. Its `total` is the aggregate
         `mutation.total` (`r3`), so it is lower than the start line's
         planned `total` when sites fail to compile or a budget truncates
         the run.
@@ -435,6 +421,7 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     The abort_reason type in JsonReporter lists the reportable reason atoms.
+    The abort reason tables in this spec and README match that vocabulary.
     A report abort emits the matching string and returns exit code 2.
 
 - id: mutagen.json_schema.r21
@@ -479,6 +466,20 @@ Top-level keys, all present in every variant unless noted:
     `meta.timings_ms` is the only field whose values Mutagen itself makes
     non-deterministic. Captured host output may contain timestamps,
     process identifiers or references.
+
+- id: mutagen.json_schema.r26
+  priority: must
+  statement: |
+    Every document records the effective mutation dispatch limit as
+    `meta.max_concurrency`. Above 1, the document carries a fixed top-level
+    warning that verdicts are unreliable in experimental parallel mode.
+
+- id: mutagen.json_schema.r27
+  priority: must
+  statement: |
+    For sites enumerated from source, `before_source` is the original text
+    of the expression, including receivers of remote calls, anonymous calls
+    and field access. The aggregate and stream use the same renderer.
 ```
 
 ```spec-scenarios
@@ -711,6 +712,8 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r23
     - mutagen.json_schema.r24
     - mutagen.json_schema.r25
+    - mutagen.json_schema.r26
+    - mutagen.json_schema.r27
 ```
 
 ## Default string provenance
@@ -788,3 +791,57 @@ With `--include-host-output`, the report can also carry diagnostic bodies
 in `details.message`, compile errors, and warnings. It can include actual
 test names, helper filters, host warning names, and dynamic reason and
 exception names. Pattern redaction is best-effort.
+
+## Abort reasons
+
+| `abort_reason` |
+| --- |
+| `arity_required` |
+| `baseline_red` |
+| `baseline_timeout` |
+| `colon_syntax_unsupported` |
+| `cover_already_running` |
+| `cover_compile_failed` |
+| `cover_module_unavailable` |
+| `coverage_timeout` |
+| `ex_unit_run_failed` |
+| `file_not_found` |
+| `file_read_failed` |
+| `flag_not_supported_in_v1` |
+| `function_not_found` |
+| `host_app_start_failed` |
+| `host_compile_failed` |
+| `host_loadpaths_failed` |
+| `host_setup_timeout` |
+| `invalid_boot_timeout` |
+| `invalid_budget_ms` |
+| `invalid_input` |
+| `invalid_line` |
+| `invalid_max_concurrency` |
+| `invalid_max_sites` |
+| `invalid_mix_env` |
+| `invalid_redact_config` |
+| `invalid_seed` |
+| `invalid_tag_name` |
+| `invalid_target` |
+| `invalid_timeout` |
+| `missing_scope` |
+| `missing_tests` |
+| `module_beam_missing` |
+| `module_not_found` |
+| `no_tests_match` |
+| `no_tests_run` |
+| `parse_error` |
+| `runtime_load_failed` |
+| `self_mutation_refused` |
+| `test_alias_failed` |
+| `test_file_load_failed` |
+| `test_helper_load_failed` |
+| `too_many_sites` |
+| `too_many_targets` |
+| `umbrella_root` |
+| `unknown_flag` |
+| `unrecognised_target` |
+| `unrecoverable_restore_failure` |
+| `unsafe_json_path` |
+| `unsupported_otp_version` |

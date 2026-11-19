@@ -723,6 +723,22 @@ defmodule MutagenEx.Integration.HostSetupTest do
     end)
   end
 
+  @tag spec: ["mutagen.cli.r6", "mutagen.cli.r20"]
+  test "a host after-suite halt uses its own exit code after writing the report", %{archive: host} do
+    helper = "checks/test_helper.exs"
+    original = File.read!(Path.join(host.dir, helper))
+    halt = "ExUnit.after_suite(fn _ -> System.halt(7) end)\n"
+
+    with_file(host, helper, halt <> original, fn ->
+      assert {"", 7} = mutate(host, ["--json", "halt.json"])
+
+      assert %{"aborted" => false, "mutation" => %{"total" => total}} =
+               host.dir |> Path.join("halt.json") |> File.read!() |> decode_report()
+
+      assert total > 0
+    end)
+  end
+
   defp read_stream_report(host, path, canary) do
     data = File.read!(Path.join(host.dir, path))
     refute data =~ canary
