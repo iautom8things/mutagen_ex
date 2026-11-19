@@ -284,8 +284,9 @@ defmodule MutagenEx.Integration.HostSetupTest do
       original_tests = File.read!(Path.join(host.dir, @tests))
 
       tests =
-        String.replace(
-          original_tests,
+        original_tests
+        |> String.replace("DataCase, async: true", "DataCase, async: false")
+        |> String.replace(
           "actual = Orders.price",
           "assert Orders.settle(order.id) == :settled\n    actual = Orders.price"
         )
