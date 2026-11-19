@@ -6,6 +6,53 @@ defmodule MutagenEx.GitDiffIntegrationTest do
   @moduletag :git_diff_integration
 
   @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r9"
+  test "preserves deletion anchors at BOF, EOF and an emptied file", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/bof.ex", "remove\nkeep\n")
+    write!(repo, "lib/eof.ex", "keep\nremove\n")
+    write!(repo, "lib/empty.ex", "remove\n")
+    write!(repo, "checks/before_test.exs", "# unchanged content\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+
+    write!(repo, "lib/bof.ex", "keep\n")
+    write!(repo, "lib/eof.ex", "keep")
+    write!(repo, "lib/empty.ex", "")
+    git!(repo, ~w(mv checks/before_test.exs checks/after_test.exs))
+
+    assert {:ok, %{deletion_anchors: anchors, warnings: []}} =
+             GitDiff.changed_lines(base, cd: repo, deletion_anchors: true)
+
+    assert anchors == %{"lib/bof.ex" => [0], "lib/empty.ex" => [0]}
+
+    write!(repo, "lib/eof.ex", "keep\n")
+
+    assert {:ok, %{deletion_anchors: anchors, files: %{}, warnings: []}} =
+             GitDiff.changed_lines(base, cd: repo, deletion_anchors: true)
+
+    assert anchors == %{"lib/bof.ex" => [0], "lib/empty.ex" => [0], "lib/eof.ex" => [1]}
+
+    assert {:ok, %{files: %{"checks/after_test.exs" => []}, warnings: []}} =
+             GitDiff.changed_lines(base, cd: repo, roots: ["checks"], file_kind: :test)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r9"
+  test "a configured but absent root contributes no diff", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/elsewhere.ex", "old\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+    write!(repo, "lib/elsewhere.ex", "new\n")
+
+    for roots <- [["absent/source"], []] do
+      assert {:ok, %{files: %{}, skipped: [], warnings: [:empty_diff]}} =
+               GitDiff.changed_lines(base, cd: repo, roots: roots, allow_missing_roots: true)
+    end
+  end
+
+  @tag :tmp_dir
   @tag spec: [
          "mutagen.git_diff.r1",
          "mutagen.git_diff.r2",

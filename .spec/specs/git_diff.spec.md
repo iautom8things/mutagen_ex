@@ -1,14 +1,13 @@
 # mutagen.git_diff
 
 This library reads changed source lines and their merge-base versions for the
-CI gate. `invalid_since_ref` and `diff_unavailable` are reserved CLI abort
-reasons for a later slice. The CLI does not emit them in this slice.
+CI gate. The CLI uses its fixed failure causes in Git abort reports.
 
 ```spec-meta
 id: mutagen.git_diff
 kind: module
 status: active
-summary: Reads changed lines and base blobs from Git for a later CI gate.
+summary: Reads changed lines and base blobs from Git for changed-code runs.
 surface:
   - lib/mutagen_ex/git_diff.ex
 decisions:
@@ -135,6 +134,17 @@ decisions:
     the displayed path differs from the original.
     Git diagnostics are captured and are absent from the tool's stderr and
     returned error details.
+- id: mutagen.git_diff.r9
+  priority: must
+  statement: |
+    With deletion_anchors enabled, changed_lines/2 returns the old-side
+    deletion hunks' new-side anchors separately and checks them against the
+    working file's line count. Anchor-only files suppress empty_diff.
+    The :file_kind option selects either .ex source or *_test.exs files
+    under the same Git read safeguards. With allow_missing_roots, a missing
+    root is snapshotted as absent and a root that appears during the read
+    fails the snapshot recheck. An empty roots list selects no paths.
+
 ```
 
 ```spec-verification
