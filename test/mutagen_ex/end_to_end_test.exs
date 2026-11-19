@@ -742,18 +742,14 @@ defmodule MutagenEx.EndToEndTest do
       # Sub-blocks that never ran are `null`.
       assert json["mutation"] == nil
 
-      # r1: the baseline phase recorded at least one failure. The
-      # `failed` integer is produced by ExUnit's own counter and is
-      # the load-bearing gauge that the orchestrator routes off
-      # (`failures > 0` → `:baseline_red`). The `failures` *detail*
-      # list is populated by a separately-wired `:failure_collector`
-      # seam (defaults to a no-op `[]` per `lib/mutagen_ex/baseline.ex`
-      # line 151) — its emptiness in the default wiring is correct
-      # behaviour, not a regression.
-      assert is_map(json["baseline"])
-      assert is_integer(json["baseline"]["failed"])
-      assert json["baseline"]["failed"] >= 1
-      assert is_list(json["baseline"]["failures"])
+      assert json["baseline"]["failed"] == 1
+
+      assert json["baseline"]["failures"] == [
+               %{
+                 "module" => "LaneFixture.RedBaselineTest",
+                 "name" => "test this test always fails — baseline-red trigger"
+               }
+             ]
 
       assert_e2e_golden!("scenario_5_baseline_red", json)
     end

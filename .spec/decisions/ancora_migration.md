@@ -166,3 +166,7 @@ unexcepted uncovered files and 20 informational exceptions.
 The first post-merge commit removes the eight import-only growth overrides.
 The tagged suite is now present on the target branch. New primary bindings
 use Ancora's default warning.
+
+[Per-mutant fail-fast](per_mutant_fail_fast.md) closes the
+`mutagen.mutation_pipeline.r4` gap described above. The requirement has
+tagged proof and no override.

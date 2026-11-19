@@ -35,6 +35,7 @@ surface:
   - lib/mutagen_ex/types.ex
 decisions:
   - mutagen.decision.serial_execution_and_seed
+  - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.no_pretty_output_v1
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.self_mutation_refused
@@ -202,7 +203,10 @@ decisions:
     The final JSON document on stdout (or `--json <path>`) carries
     `truncated: true` at the top level and the `mutation` block
     reflects only the completed sites. `aborted` stays `false` —
-    truncation is a graceful early exit, not an abort.
+    truncation is a graceful early exit, not an abort. The site whose
+    completion crossed the budget is included in `mutation.results`.
+    Under `--stream`, its `result` line comes before the `end` line,
+    and the streamed result lines match the aggregate `mutation.results`.
 
     The runner does NOT interrupt an in-flight site; the worst-case
     overshoot is one `timeout_ms`. Non-positive or non-integer
@@ -316,6 +320,17 @@ decisions:
     enter the repair branch. This refines r14: the preamble's contract
     covers both adoption shapes — dep-style and archive-installed —
     with identical observable behaviour.
+
+- id: mutagen.cli.r17
+  priority: must
+  statement: |
+    `Config.fail_fast` is `true` unless the arguments include
+    `--no-fail-fast`, which sets it to `false`. `mix mutagen` passes the
+    value to the mutation phase as `fail_fast`
+    (mutagen.mutation_pipeline.r20) and reports it as `meta.fail_fast` in
+    every document it emits after parsing. A document emitted because
+    parsing failed reports `meta.fail_fast: true`. Baseline and coverage
+    run the same way in both modes.
 ```
 
 ```spec-scenarios
@@ -686,6 +701,17 @@ decisions:
       The path is refused with `abort_reason: "unsafe_json_path"` per
       r10. The error-JSON document lands on stdout. No file is created
       at `/tmp/foo.json`. The exit code is non-zero per r6.
+
+- id: mutagen.cli.s16
+  covers: [mutagen.cli.r17]
+  given:
+    - A cited suite with three tests in which each of the first three mutants fails the first test.
+  when:
+    - "A user runs `mix mutagen` once with `--no-fail-fast` and once without it, and once with the unknown flag `--bogus`."
+  then:
+    - "The `--no-fail-fast` report has `meta.fail_fast: false` and each killed mutant ran all three tests."
+    - "The default report has `meta.fail_fast: true` and each killed mutant ran only the first test."
+    - "The `--bogus` error document has `meta.fail_fast: true` and a non-zero exit code."
 ```
 
 ```spec-verification
@@ -708,4 +734,5 @@ decisions:
     - mutagen.cli.r14
     - mutagen.cli.r15
     - mutagen.cli.r16
+    - mutagen.cli.r17
 ```
