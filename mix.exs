@@ -5,7 +5,7 @@ defmodule MutagenEx.MixProject do
     [
       app: :mutagen_ex,
       version: "0.1.0",
-      elixir: "~> 1.19",
+      elixir: ">= 1.18.0",
       description:
         "Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.",
       start_permanent: Mix.env() == :prod,
@@ -77,9 +77,37 @@ defmodule MutagenEx.MixProject do
   # the existing `:e2e_slow`-tagged suites under `test/mutagen_ex/`.
   defp aliases do
     [
+      "archive.build": &build_archive/1,
       "test.integration":
         "test --include downstream_integration --include archive_integration --include stream_integration --include host_setup_integration --include self_mutation test/integration"
     ]
+  end
+
+  defp build_archive(args) do
+    {options, _, _} = OptionParser.parse(args, switches: [input: :string], aliases: [i: :input])
+
+    args =
+      if options[:input] do
+        args
+      else
+        # Older Mix can fail during boot while checking the archive's version marker.
+        app_path = Mix.Project.app_path()
+
+        case File.rm(Path.join(app_path, ".elixir")) do
+          :ok ->
+            :ok
+
+          {:error, :enoent} ->
+            :ok
+
+          {:error, reason} ->
+            Mix.raise("Could not remove stale archive version marker: #{reason}")
+        end
+
+        ["--input", app_path | args]
+      end
+
+    Mix.Task.run("archive.build", args)
   end
 
   # ex_doc config. `main: "readme"` renders README.md as the landing page

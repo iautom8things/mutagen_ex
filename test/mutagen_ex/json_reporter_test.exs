@@ -912,8 +912,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert_received {:mutation_input, mutation_input}
 
       assert mutation_input.test_modules == [
-               {Mutagen.Phase.MutationCaptureTest,
-                %{async?: false, group: nil, parameterize: nil}}
+               {Mutagen.Phase.MutationCaptureTest, %{async?: true, group: nil, parameterize: nil}}
              ]
     end
 

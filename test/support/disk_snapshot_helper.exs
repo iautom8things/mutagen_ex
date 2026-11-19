@@ -14,10 +14,8 @@ defmodule MutagenEx.TestSupport.DiskSnapshot do
     * `cover/**` — `:cover` writes coverage reports here if the user
       invoked `:cover.analyze/0` with on-disk output. The MutagenEx
       pipeline must not produce this directory.
-    * `/tmp` — `System.tmp_dir!()` is a common stash. We can't hash all
-      of `/tmp` (huge, shared, racy), so we enumerate the *names* of
-      top-level entries and assert no new ones with a MutagenEx-attributable
-      prefix appear.
+    * A test-owned temporary directory, when the caller supplies one.
+      The snapshot records the names of its top-level entries.
     * Host project config (`mix.exs`, `mix.lock`, `.formatter.exs`) —
       these are the files a "while I'm here" mutation could most
       damagingly rewrite.
@@ -34,12 +32,6 @@ defmodule MutagenEx.TestSupport.DiskSnapshot do
       can be traced to the runner (e.g. mutated module's .beam).
       Helper: `diff_build/2` returns the path list; the caller decides
       what to flag.
-
-    * Files under `System.tmp_dir!()` whose names do not match the
-      MutagenEx prefix. Tmp entries created by other processes during
-      the test run are noise; we only assert that no entry whose name
-      starts with `mutagen_ex_` or contains the runner's PID survives
-      the test.
 
   This helper does NOT enforce policy — it returns structured diffs.
   Each test decides which categories are PASS / FAIL for its
@@ -84,8 +76,7 @@ defmodule MutagenEx.TestSupport.DiskSnapshot do
     * Every file matching `default_globs/0`, by SHA-256.
     * Every host-config file (`host_config_files/0`) that exists, by
       SHA-256.
-    * Top-level entries under `System.tmp_dir!()` (names only — listing,
-      not hashing).
+    * Names of top-level entries in the optional `:tmp_dir` directory.
 
   Returns a map suitable for diffing with `diff/2`. Missing files
   (e.g. no `cover/` directory) are simply absent from the snapshot —
@@ -94,7 +85,7 @@ defmodule MutagenEx.TestSupport.DiskSnapshot do
   def snapshot(opts \\ []) do
     globs = Keyword.get(opts, :globs, @default_globs)
     configs = Keyword.get(opts, :host_configs, @host_config_files)
-    tmp_dir = Keyword.get(opts, :tmp_dir, safe_tmp_dir())
+    tmp_dir = Keyword.get(opts, :tmp_dir)
 
     %{
       files: hash_globs(globs) |> Map.merge(hash_host_configs(configs)),
@@ -180,18 +171,12 @@ defmodule MutagenEx.TestSupport.DiskSnapshot do
     end)
   end
 
+  defp list_tmp_entries(nil), do: []
+
   defp list_tmp_entries(tmp_dir) do
     case File.ls(tmp_dir) do
       {:ok, entries} -> entries
       {:error, _} -> []
-    end
-  end
-
-  defp safe_tmp_dir do
-    try do
-      System.tmp_dir!()
-    rescue
-      _ -> "/tmp"
     end
   end
 end

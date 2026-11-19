@@ -22,7 +22,7 @@ defmodule Mix.Tasks.Mutagen do
 
   Coverage, baseline, and each mutant use the helper's ExUnit options.
   Formatters run on each pass. The report is written before after-suite
-  callbacks run. Cleanup has its own boot timeout, and cleanup errors
+  callbacks run. Each callback gets its own boot timeout. Cleanup errors
   and timeouts go to stderr. A call to `System.halt/1` in the helper
   prevents reporting.
 
@@ -44,7 +44,7 @@ defmodule Mix.Tasks.Mutagen do
       mutations. One of: a test file path, a `file:line` reference, or
       `tag:<name>`. Repeat the flag to add more targets.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
-      compilation and the separate cleanup deadline after reporting. Each
+      compilation and the deadline for each cleanup callback. Each
       coverage and baseline pass gets the greater of this timeout and
       ten times `--timeout-ms`. Default `300000`.
     * `--no-source` omits site source excerpts, file and function from
@@ -95,7 +95,7 @@ defmodule Mix.Tasks.Mutagen do
       By default, the feed appears when stderr is a TTY.
     * `--max-sites <int>` — upper bound on enumerated mutation sites
       for one run. Default `10000`. The enumerator aborts with
-      `:too_many_sites` BEFORE the runner starts when the cap is
+      `abort_reason: "too_many_sites"` before the runner starts when the cap is
       exceeded; narrow `--scope` (or raise the cap) to proceed.
     * `--budget-ms <int>` — aggregate wall-clock budget for the
       mutation phase, in milliseconds. Optional (default: unbounded;
@@ -104,9 +104,10 @@ defmodule Mix.Tasks.Mutagen do
       `truncated: true` partial report.
     * `--max-concurrency <int>` — per-site mutation dispatch cap. Default
       `1` (fully serial, v1.0-equivalent). Values greater than `1` are
-      EXPERIMENTAL and emit a one-shot stderr warning because real
+      experimental and add warnings to the report and stderr because real
       ExUnit/:cover backends can produce incorrect kill/survive
-      classification and corrupted coverage under parallel dispatch.
+      classification and corrupted coverage under parallel dispatch. The
+      report records the limit as `meta.max_concurrency`.
     * `--no-host-app` — skip starting the host OTP application in the
       runtime preamble. Reserved for self-test sandboxes and libraries
       that intentionally need a minimal boot; the default is to start
@@ -117,7 +118,7 @@ defmodule Mix.Tasks.Mutagen do
   ## Caps
 
     * `--scope` and `--tests` each accept at most 100 occurrences. Excess
-      is refused at parse time with `reason: :too_many_targets`.
+      is refused at parse time with `abort_reason: "too_many_targets"`.
     * `--max-sites` caps enumerated mutation sites (default 10_000).
     * `--budget-ms` (optional) caps aggregate wall-clock for the
       mutation phase. The per-site `--timeout-ms` still applies.
@@ -145,11 +146,17 @@ defmodule Mix.Tasks.Mutagen do
     * `mutagen_ex` runs **in-process** (same BEAM as your suite); see
       Caveats for the consequences (state drift, no self-mutation).
 
+  Requires Elixir 1.18.0 or later and Erlang/OTP 27 or later.
+
   ## Exit Codes
 
     * `0` — pipeline ran to completion, even if every mutation survived.
-    * non-zero — bad input or unrecoverable error. Every non-zero exit also
-      emits an error-JSON document to stdout (or `--json <path>`).
+    * `2` means Mutagen aborted and wrote an error document to stdout or
+      `--json <path>`. The string field `abort_reason` identifies the error.
+
+  A host callback calling `System.halt/1` decides the exit code. During
+  after-suite cleanup it can leave a completed report with `aborted: false`
+  and a non-zero exit.
 
   ## JSON Schema Pointer
 
@@ -164,6 +171,9 @@ defmodule Mix.Tasks.Mutagen do
 
   See the README for examples from the CLI and
   `.spec/specs/json_schema.spec.md` for the schema contract.
+
+  A survivor means “the tests you selected miss it”. First rerun with a
+  wider `--tests` selection before writing a test.
 
   ## Known Caveats
 
@@ -190,14 +200,14 @@ defmodule Mix.Tasks.Mutagen do
     * **`--seed` controls ExUnit ordering only.** It does not seed mutation
       enumeration. Given the same source, enumeration order is stable.
     * **`--scope` colon syntax is unsupported.** `file.ex:Module` is rejected
-      with `reason: :colon_syntax_unsupported` (see
+      with `abort_reason: "colon_syntax_unsupported"` (see
       `mutagen.decision.scope_syntax_simplified`).
     * **Self-mutation is refused.** `--scope MutagenEx.*` or `Mix.Tasks.Mutagen`
-      exits with `reason: :self_mutation_refused` (see
+      exits with `abort_reason: "self_mutation_refused"` (see
       `mutagen.decision.self_mutation_refused`).
     * **`--json` paths are canonicalised inside the project root.** Paths
       with `..` segments or NUL bytes exit with
-      `reason: :unsafe_json_path` at parse time. Symlinks whose target
+      `abort_reason: "unsafe_json_path"` at parse time. Symlinks whose target
       escapes the project root exit the same way at canonicalisation
       time, before any mutation runs. CI workflows writing artifacts
       outside the project root must pass `--unsafe-json-outside-project`
@@ -211,14 +221,14 @@ defmodule Mix.Tasks.Mutagen do
     * **`tag:NAME` charset is bounded.** `--tests tag:NAME` must match
       `~r/\\A[a-z][a-z_0-9]{0,63}\\z/` — lowercase ASCII, digits, or `_`,
       up to 64 chars, with a lowercase first character. Targets outside
-      this charset are refused with `reason: :invalid_tag_name` before any
+      this charset are refused with `abort_reason: "invalid_tag_name"` before any
       test resolution runs. This is the atom-table-DOS bound (see
-      `mutagen.cli.r11`, mutagen-wrd.20): CI loops like
+      `mutagen.cli.r11`): CI loops like
       `mix mutagen --tests tag:$(uuidgen)` cannot grow the BEAM atom table.
     * **Caps on input and output volume.** `--scope` and `--tests` each
-      accept at most 100 occurrences (`reason: :too_many_targets`).
+      accept at most 100 occurrences (`abort_reason: "too_many_targets"`).
       `--max-sites` caps enumerated mutation sites (default 10_000;
-      `reason: :too_many_sites`). `--budget-ms` (optional) caps the
+      `abort_reason: "too_many_sites"`). `--budget-ms` (optional) caps the
       aggregate mutation wall-clock and yields a `truncated: true`
       partial report when exhausted.
   """
@@ -287,6 +297,8 @@ defmodule Mix.Tasks.Mutagen do
   """
   @type dispatch :: %{
           optional(:cli) => module(),
+          optional(:otp_release) => String.t(),
+          optional(:elixir_version) => String.t(),
           optional(:scope) => module(),
           optional(:tests) => module(),
           optional(:ast_cache) => module(),
@@ -559,7 +571,35 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_emit_stream_end(_, _, _), do: :ok
 
+  @minimum_elixir "1.18.0"
+
   defp prepare_pipeline(argv, dispatch, output, mode) do
+    otp = dispatch[:otp_release] || otp_version()
+    elixir = dispatch[:elixir_version] || System.version()
+
+    case runtime_version_error(otp, elixir) do
+      nil ->
+        prepare_supported_pipeline(argv, dispatch, output, mode)
+
+      {reason, actual} ->
+        {report, config} = abort_report_options(argv)
+        report = update_in(report.meta, &%{&1 | otp_version: otp, elixir_version: elixir})
+        {:abort, report, config, reason, %{step: :startup, actual: actual}}
+    end
+  end
+
+  defp runtime_version_error(otp, elixir) do
+    case Integer.parse(otp) do
+      {release, ""} when release >= 27 ->
+        if Version.compare(elixir, @minimum_elixir) == :lt,
+          do: {:unsupported_elixir_version, elixir}
+
+      _ ->
+        {:unsupported_otp_version, otp}
+    end
+  end
+
+  defp prepare_supported_pipeline(argv, dispatch, output, mode) do
     case phase_cli(argv, dispatch) do
       {:ok, config} ->
         report = with_meta(base_report(nil), config)
@@ -569,16 +609,18 @@ defmodule Mix.Tasks.Mutagen do
         end
 
       {:error, reason, details} ->
-        config = CLI.report_options(argv)
-        report = with_meta(base_report(nil), config)
-
-        config =
-          case phase_json_path(config, report) do
-            {:ok, config} -> config
-            {:abort, _, config, _, _} -> config
-          end
-
+        {report, config} = abort_report_options(argv)
         {:abort, report, config, reason, Map.put(details, :step, :cli)}
+    end
+  end
+
+  defp abort_report_options(argv) do
+    config = CLI.report_options(argv)
+    report = with_meta(base_report(nil), config)
+
+    case phase_json_path(config, report) do
+      {:ok, config} -> {report, config}
+      {:abort, _, config, _, _} -> {report, config}
     end
   end
 
@@ -702,7 +744,7 @@ defmodule Mix.Tasks.Mutagen do
            end) do
       report = %Report{
         report5
-        | mutation: mutation_to_report(mutation_result, enum_result, config.source),
+        | mutation: mutation_to_report(mutation_result, enum_result),
           warnings:
             report5.warnings ++ enumerator_warnings(enum_result) ++ mutation_result.warnings,
           aborted: false,
@@ -926,7 +968,10 @@ defmodule Mix.Tasks.Mutagen do
 
     covered_lines = coverage_result.covered_lines
 
-    case mod.enumerate(ast_cache, scope_records, covered_lines, max_sites: max_sites) do
+    case mod.enumerate(ast_cache, scope_records, covered_lines,
+           max_sites: max_sites,
+           source: config.source
+         ) do
       %{sites: _, skipped: _, warnings: _} = enum_result ->
         {:ok, enum_result}
 
@@ -1050,7 +1095,7 @@ defmodule Mix.Tasks.Mutagen do
           {:result, result_map} ->
             MutagenEx.JsonStreamer.emit_result(
               site_sink,
-              render_result(result_map, config.source),
+              result_map,
               config
             )
 
@@ -1153,7 +1198,12 @@ defmodule Mix.Tasks.Mutagen do
   defp with_meta(%Report{} = r, %Config{} = config) do
     %Report{
       r
-      | meta: Map.merge(r.meta, %{exunit_seed: config.seed, fail_fast: config.fail_fast}),
+      | meta:
+          Map.merge(r.meta, %{
+            exunit_seed: config.seed,
+            fail_fast: config.fail_fast,
+            max_concurrency: config.max_concurrency || 1
+          }),
         source: config.source,
         include_host_output: config.include_host_output
     }
@@ -1189,7 +1239,7 @@ defmodule Mix.Tasks.Mutagen do
   #
   # In v1 we model `total` as the count of non-skipped, non-compile-error
   # sites the runner attempted — exactly the four classifying outcomes.
-  defp mutation_to_report(mutation_result, enum_result, source?) do
+  defp mutation_to_report(mutation_result, enum_result) do
     results = mutation_result.results
     compile_errors = mutation_result.compile_errors
 
@@ -1213,8 +1263,6 @@ defmodule Mix.Tasks.Mutagen do
         true -> killed / total
       end
 
-    rendered_results = Enum.map(results, &render_result(&1, source?))
-
     %{
       total: total,
       completed: completed,
@@ -1223,230 +1271,11 @@ defmodule Mix.Tasks.Mutagen do
       timeout: timeout,
       compile_error: compile_error_count,
       kill_rate: kill_rate,
-      results: rendered_results,
+      results: results,
       skipped: enum_result.skipped,
       compile_errors: compile_errors,
       state_drift_warning: mutation_result.state_drift_warning
     }
-  end
-
-  @doc false
-  # Internal seam exposed so tests can directly assert on the render
-  # path's `Macro.to_string/1` call count per `mutagen.json_schema.r12`.
-  # The function is `@doc false` and prefixed with `__` to signal it is
-  # not part of the public Mix task API; calling it from outside the
-  # test suite is unsupported.
-  def __render_result__(r), do: render_result(r)
-
-  defp render_result(r, source? \\ true)
-  defp render_result(r, false), do: r
-
-  defp render_result(r, true) do
-    # Per `mutagen.json_schema.r4` + r12: `before` is always the
-    # `Macro.to_string(original_ast)` output (computed exactly once).
-    # `before_source` is a verbatim slice of `source_text` when the
-    # enumerator provided `end_line`/`end_column` AND a `source_text`
-    # was threaded through by the runner; otherwise it aliases the
-    # same binary as `before` (the legacy / fallback path).
-    #
-    # The slice path uses byte indexing — no additional
-    # `Macro.to_string/1` call — so the `2 * R` cap from r12 holds
-    # regardless of which path each site takes.
-    before_binary = Macro.to_string(r.original_ast)
-    before_source = render_before_source(r, before_binary)
-
-    %{
-      id: r.id,
-      function: Map.get(r, :function),
-      file: r.file,
-      line: r.line,
-      column: r.column,
-      mutator: r.mutator,
-      before: before_binary,
-      before_source: before_source,
-      after: Macro.to_string(r.mutated_ast),
-      status: r.status,
-      tainted_predecessors: Map.get(r, :tainted_predecessors, false),
-      warnings: Map.get(r, :warnings, [])
-    }
-  end
-
-  # `before_source` resolution:
-  #   1. If the result lacks `end_line` / `end_column` (legacy callers,
-  #      bare-literal sites, macro-expanded forms): alias `before`.
-  #   2. If no `source_text` was threaded through: alias `before`.
-  #   3. If we can derive a slice-start position from `original_ast`
-  #      (the leftmost descendant's `{line, column}`): slice
-  #      `source_text` between `{start_line, start_column}` and
-  #      `{end_line, end_column}` (end-exclusive).
-  #   4. Otherwise: alias `before`.
-  defp render_before_source(r, before_binary) do
-    end_line = Map.get(r, :end_line)
-    end_column = Map.get(r, :end_column)
-    source_text = Map.get(r, :source_text)
-
-    cond do
-      is_nil(end_line) or is_nil(end_column) ->
-        before_binary
-
-      not is_binary(source_text) ->
-        before_binary
-
-      true ->
-        case leftmost_descendant_position(r.original_ast) do
-          {start_line, start_column}
-          when is_integer(start_line) and is_integer(start_column) ->
-            case slice_source(source_text, start_line, start_column, end_line, end_column) do
-              {:ok, slice} -> slice
-              :error -> before_binary
-            end
-
-          _ ->
-            before_binary
-        end
-    end
-  end
-
-  # Find the leftmost descendant's `{line, column}` of an AST node.
-  # For most nodes the leftmost descendant is in `args`; if no
-  # descendant carries position metadata, fall back to the node's
-  # own meta. Returns `{line, column}` or `nil`.
-  defp leftmost_descendant_position(ast) do
-    case do_leftmost(ast) do
-      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
-      _ -> nil
-    end
-  end
-
-  # A missing literal position makes an infix start unknown. Prefix
-  # expressions can still start at their own opening token.
-  defp do_leftmost({form, meta, [left, _] = args}) when is_atom(form) and is_list(meta) do
-    if Macro.operator?(form, 2) do
-      case do_leftmost(left) do
-        {_, _} = pos -> earlier_position(position(meta), pos)
-        _ -> :missing_start
-      end
-    else
-      leftmost_position(meta, args)
-    end
-  end
-
-  defp do_leftmost({_form, meta, args}) when is_list(meta), do: leftmost_position(meta, args)
-  defp do_leftmost(_), do: nil
-
-  defp leftmost_position(meta, args) do
-    own = position(meta)
-
-    case do_leftmost_children(args) do
-      nil -> own
-      :missing_start -> own || :missing_start
-      pos -> earlier_position(own, pos)
-    end
-  end
-
-  defp position(meta) do
-    case {meta[:line], meta[:column]} do
-      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
-      _ -> nil
-    end
-  end
-
-  defp earlier_position(nil, pos), do: pos
-  defp earlier_position(own, pos), do: min(own, pos)
-
-  defp do_leftmost_children(nil), do: nil
-
-  defp do_leftmost_children(args) when is_list(args) do
-    Enum.reduce_while(args, nil, fn child, acc ->
-      case do_leftmost(child) do
-        nil -> {:cont, acc}
-        pos -> {:halt, pos}
-      end
-    end)
-  end
-
-  defp do_leftmost_children(_), do: nil
-
-  # Slice `source_text` between `{start_line, start_column}` (inclusive,
-  # 1-based) and `{end_line, end_column}` (exclusive, 1-based). Returns
-  # `{:ok, slice}` on success, `:error` if the indices are out of range.
-  # Columns count UTF-8 codepoints (matching how Elixir's tokenizer
-  # populates `:column`).
-  defp slice_source(source_text, start_line, start_column, end_line, end_column)
-       when is_binary(source_text) and is_integer(start_line) and is_integer(start_column) and
-              is_integer(end_line) and is_integer(end_column) do
-    lines = String.split(source_text, "\n", trim: false)
-
-    try do
-      cond do
-        start_line < 1 or end_line < 1 ->
-          :error
-
-        start_line > end_line ->
-          :error
-
-        start_line == end_line ->
-          line = Enum.at(lines, start_line - 1)
-
-          if is_binary(line) and end_column > start_column do
-            # Convert from 1-based inclusive `start_column` and 1-based
-            # exclusive `end_column` to byte indices on the line.
-            len = end_column - start_column
-            slice = slice_codepoints(line, start_column - 1, len)
-            {:ok, slice}
-          else
-            :error
-          end
-
-        true ->
-          # Multi-line slice: take suffix of start_line from start_column,
-          # all middle lines in full, prefix of end_line up to end_column.
-          start_line_text = Enum.at(lines, start_line - 1)
-          end_line_text = Enum.at(lines, end_line - 1)
-
-          middle =
-            if end_line - start_line >= 2 do
-              Enum.slice(lines, start_line, end_line - start_line - 1)
-            else
-              []
-            end
-
-          if is_binary(start_line_text) and is_binary(end_line_text) do
-            start_suffix = slice_codepoints_tail(start_line_text, start_column - 1)
-            end_prefix = slice_codepoints(end_line_text, 0, end_column - 1)
-
-            middle_iodata =
-              case middle do
-                [] -> []
-                _ -> [Enum.intersperse(middle, "\n"), "\n"]
-              end
-
-            iodata = [start_suffix, "\n", middle_iodata, end_prefix]
-            {:ok, IO.iodata_to_binary(iodata)}
-          else
-            :error
-          end
-      end
-    rescue
-      _ -> :error
-    end
-  end
-
-  defp slice_source(_, _, _, _, _), do: :error
-
-  # Take `len` codepoints from `string` starting at codepoint index `start`.
-  defp slice_codepoints(string, start, len) do
-    string
-    |> String.graphemes()
-    |> Enum.slice(start, len)
-    |> Enum.join()
-  end
-
-  defp slice_codepoints_tail(string, start) do
-    string
-    |> String.graphemes()
-    |> Enum.drop(start)
-    |> Enum.join()
   end
 
   defp enumerator_warnings(%{warnings: ws}) when is_list(ws) do

@@ -177,11 +177,19 @@ defmodule MutagenEx.CLI do
         tests: [],
         json_path: path,
         source: Keyword.get(parsed, :source, true),
+        max_concurrency: report_max_concurrency(parsed),
         include_host_output: Keyword.get(parsed, :include_host_output, false),
         unsafe_json_outside_project: pick_unsafe_outside_project(parsed)
       }
     else
       _ -> %Config{scopes: [], tests: []}
+    end
+  end
+
+  defp report_max_concurrency(parsed) do
+    case pick_max_concurrency(parsed) do
+      {:ok, limit} -> limit
+      _ -> 1
     end
   end
 

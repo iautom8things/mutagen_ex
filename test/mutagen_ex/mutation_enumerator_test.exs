@@ -391,7 +391,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
     test "enumeration finds a nested in-scope module by its qualified module name" do
       source = """
-      defmodule AppA.KB.SchemaRegistry do
+      defmodule Sample.Registry do
         def outer(x), do: x + 1
 
         defmodule KindEntry do
@@ -404,9 +404,9 @@ defmodule MutagenEx.MutationEnumeratorTest do
       end
       """
 
-      cache = ast_cache("lib/app_a/kb/schema_registry.ex", source)
-      scopes = [scope("lib/app_a/kb/schema_registry.ex", AppA.KB.SchemaRegistry.KindEntry)]
-      covered = covered_lines("lib/app_a/kb/schema_registry.ex", Enum.to_list(1..20))
+      cache = ast_cache("lib/sample/registry.ex", source)
+      scopes = [scope("lib/sample/registry.ex", Sample.Registry.KindEntry)]
+      covered = covered_lines("lib/sample/registry.ex", Enum.to_list(1..20))
 
       result = MutationEnumerator.enumerate(cache, scopes, covered)
 
@@ -414,7 +414,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
 
       equality_sites =
         Enum.filter(result.sites, fn site ->
-          site.mutator == :compare and site.file == "lib/app_a/kb/schema_registry.ex"
+          site.mutator == :compare and site.file == "lib/sample/registry.ex"
         end)
 
       assert length(equality_sites) == 1

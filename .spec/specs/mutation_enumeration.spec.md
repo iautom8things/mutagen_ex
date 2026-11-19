@@ -26,6 +26,7 @@ status: active
 summary: Deterministic mutation-site enumeration with validate-aware skip tracking.
 surface:
   - lib/mutagen_ex/mutation_enumerator.ex
+  - lib/mutagen_ex/json_reporter/source.ex
   - lib/mutagen_ex/mutators/dispatch.ex
 decisions:
   - mutagen.decision.mutation_site_paths
@@ -128,9 +129,8 @@ decisions:
         printed form's byte size; otherwise recurse).
 
     When derivation fails, BOTH `end_line` and `end_column` are
-    `nil` and the consumer (the JSON renderer's `before_source`
-    path, see `mutagen.json_schema.r4`) falls back to
-    `Macro.to_string/1`.
+    `nil`. The report uses the exact source span from r11 when available.
+    Otherwise it uses the legacy coordinates or the rendered AST.
 
 - id: mutagen.mutation_enumeration.r9
   priority: must
@@ -180,6 +180,15 @@ decisions:
     including the arity integer, yields a site or a skipped entry in
     either dispatch mode. Expressions and literals inside anonymous
     capture bodies such as `&(&1 / 1)` remain eligible.
+
+- id: mutagen.mutation_enumeration.r11
+  priority: must
+  statement: |
+    A site enumerated from cached source text carries the byte offset and
+    length of its original expression. Parsing that slice produces the
+    same AST after dropping metadata, including for bare literals,
+    receivers and parenthesized operands. Disabling source reporting
+    skips span collection without changing mutation IDs or order.
 ```
 
 ```spec-scenarios
@@ -304,4 +313,5 @@ decisions:
     - mutagen.mutation_enumeration.r8
     - mutagen.mutation_enumeration.r9
     - mutagen.mutation_enumeration.r10
+    - mutagen.mutation_enumeration.r11
 ```
