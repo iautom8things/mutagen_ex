@@ -19,11 +19,18 @@ defmodule MutagenEx.Test.RunGroupTest do
     end
   end
 
+  defmodule NoopServer do
+    @moduledoc false
+    # Keeps the timeout path away from the ExUnit.Server queues of this mix test run.
+    def add_module(_module, _config), do: :ok
+    def discard_pending_modules, do: :ok
+  end
+
   setup do
     on_exit(fn -> :persistent_term.erase({__MODULE__, :site}) end)
   end
 
-  describe "per-site process group (mutagen.mutation_pipeline.s21)" do
+  describe "per-site process group (mutagen.mutation_pipeline.s26)" do
     @describetag spec: "mutagen.mutation_pipeline.r22"
 
     test "a timed-out site's unlinked workers are dead when MutationLoop.run/1 returns" do
@@ -67,6 +74,12 @@ defmodule MutagenEx.Test.RunGroupTest do
   end
 
   defp site_input do
-    %{test_modules: [], timeout_ms: 300, cancel_grace_ms: 0, ex_unit: SpawningExUnit}
+    %{
+      test_modules: [],
+      timeout_ms: 300,
+      cancel_grace_ms: 0,
+      ex_unit: SpawningExUnit,
+      ex_unit_server: NoopServer
+    }
   end
 end
