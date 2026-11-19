@@ -17,7 +17,8 @@ config :host_setup_fixture,
            System.get_env("HOST_SETUP_DB_NAME", "mutagen_host_setup") <>
              to_string(System.get_env("MIX_TEST_PARTITION")),
          pool: Ecto.Adapters.SQL.Sandbox,
-         pool_size: 2
+         pool_size: 2,
+         queue_interval: 1_000
        ] ++ address
 
 config :logger, :default_handler, config: [type: :standard_error]

@@ -355,6 +355,12 @@ defmodule MutagenEx.JsonReporter do
           | :too_many_sites
           | :invalid_max_sites
           | :invalid_budget_ms
+          | :invalid_mix_env
+          | :host_loadpaths_failed
+          | :host_compile_failed
+          | :host_app_start_failed
+          | :runtime_load_failed
+          | :test_helper_load_failed
 
   @doc """
   Emit the success-shape JSON document.
@@ -496,6 +502,15 @@ defmodule MutagenEx.JsonReporter do
 
   defp filter_value_to_wire({:location, {path, line}}) do
     %{"kind" => "location", "file" => to_string(path), "line" => line}
+  end
+
+  defp filter_value_to_wire({:location, path}) when is_binary(path) do
+    %{"kind" => "location", "file" => to_string(path)}
+  end
+
+  defp filter_value_to_wire({key, value}) do
+    rendered = if String.Chars.impl_for(value), do: to_string(value), else: inspect(value)
+    "#{key}:#{rendered}"
   end
 
   defp filter_value_to_wire(value) when is_atom(value), do: Atom.to_string(value)

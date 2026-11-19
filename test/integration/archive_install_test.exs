@@ -212,7 +212,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
   defp clean_env(scratch_dir) do
     [
-      {"MIX_ENV", nil},
+      {"MIX_ENV", "test"},
       {"MIX_TARGET", nil},
       {"MIX_ARCHIVES", scratch_dir}
     ]

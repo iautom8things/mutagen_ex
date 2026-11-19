@@ -12,6 +12,25 @@ defmodule Mix.Tasks.Mutagen do
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
   describing every mutation, its outcome, and the surrounding run metadata.
 
+  ## Host test setup
+
+  Run with `MIX_ENV=test` whether the task comes from an archive or a
+  dependency. Mix selects the environment before loading the host config
+  or finding tasks in dependencies. If Mix finds this task in another
+  environment, it emits an `invalid_mix_env` error report.
+
+  The task compiles test support, starts the host OTP application, then
+  requires `test_helper.exs` once from each configured `:test_paths` entry
+  (default `test`). The helper can set up the Ecto Sandbox and Mox mocks.
+  Coverage, baseline, and each mutation run use the helper's ExUnit options.
+  Explicit tag and line selections can narrow the test set. Mutagen sets
+  the seed, runs one test case at a time, and disables ExUnit autorun.
+
+  Preamble failures are reported as JSON, including at `--json PATH`.
+  The reason identifies the failed step. The underlying error is in
+  `details.message`. A missing or raising helper gives
+  `test_helper_load_failed`.
+
   ## Flags
 
     * `--scope <target>` (required, repeatable) — what to mutate. One of:
@@ -72,7 +91,8 @@ defmodule Mix.Tasks.Mutagen do
       runtime preamble. Reserved for self-test sandboxes and libraries
       that intentionally need a minimal boot; the default is to start
       the host app so Repo/Sandbox, PubSub, Mox, and supervised test
-      support are available.
+      support are available. The test helper still runs when the app is
+      skipped.
 
   ## Caps
 
@@ -85,14 +105,14 @@ defmodule Mix.Tasks.Mutagen do
   ## Examples
 
       # Single file scope, single test file
-      mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
+      MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
 
       # Multiple scopes, tag-based tests, custom timeout
-      mix mutagen --scope MyApp.Foo --scope lib/bar.ex \\
+      MIX_ENV=test mix mutagen --scope MyApp.Foo --scope lib/bar.ex \\
                   --tests tag:fast --timeout-ms 10000
 
       # Module-and-function scope, deterministic seed, redirected output
-      mix mutagen --scope MyApp.Foo.bar/1 --tests test/foo_test.exs \\
+      MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 --tests test/foo_test.exs \\
                   --seed 42 --json out/mutagen.json
 
   ## Constraints
@@ -275,32 +295,71 @@ defmodule Mix.Tasks.Mutagen do
   def run(argv) do
     {runtime_opts, argv} = runtime_opts_from_argv(argv)
 
-    ensure_runtime(runtime_opts)
-    run(argv, default_dispatch())
+    run_pipeline(argv, default_dispatch(), runtime_opts)
   end
 
   @doc false
-  @spec __ensure_runtime__(module(), keyword()) ::
-          :ok | {:aborted, :runtime_load_failed, Report.t()}
-  def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo, opts \\ []),
-    do: ensure_runtime(io_mod, opts)
-
-  defp ensure_runtime(opts) do
-    ensure_runtime(MutagenEx.Pipeline.DefaultIo, opts)
-  end
-
-  defp ensure_runtime(io_mod, opts) do
-    run_runtime_mix_task("loadpaths")
-    run_runtime_mix_task("compile")
-    maybe_start_host_app(opts)
-
-    case ensure_mutagen_started() do
-      {:ok, _apps} ->
-        ExUnit.start(autorun: false)
+  @spec __ensure_runtime__(module(), keyword()) :: :ok | {:aborted, atom(), Report.t()}
+  def __ensure_runtime__(io_mod \\ MutagenEx.Pipeline.DefaultIo, opts \\ []) do
+    case ensure_runtime(opts) do
+      :ok ->
         :ok
 
-      {:error, _reason} = error ->
-        handle_runtime_load_failure(error, io_mod)
+      {:error, reason, details} ->
+        config = %Config{scopes: [], tests: []}
+        emit_abort(base_report(nil), config, reason, details, %{default_dispatch() | io: io_mod})
+    end
+  end
+
+  defp ensure_runtime(opts) do
+    with :ok <- ensure_test_env(Mix.env()),
+         :ok <- runtime_step(:host_loadpaths_failed, fn -> run_runtime_mix_task("loadpaths") end),
+         :ok <- runtime_step(:host_compile_failed, &compile_host/0),
+         :ok <- runtime_step(:host_app_start_failed, fn -> maybe_start_host_app(opts) end),
+         :ok <- runtime_step(:runtime_load_failed, &start_mutagen/0) do
+      runtime_step(:test_helper_load_failed, &load_test_helpers/0)
+    end
+  end
+
+  defp ensure_test_env(:test), do: :ok
+
+  defp ensure_test_env(env) do
+    {:error, :invalid_mix_env,
+     %{message: "mix mutagen requires MIX_ENV=test (current Mix environment: #{env})"}}
+  end
+
+  defp runtime_step(reason, step) do
+    case step.() do
+      :ok -> :ok
+      {:error, message} -> {:error, reason, %{message: message}}
+    end
+  rescue
+    error -> {:error, reason, %{message: Exception.message(error)}}
+  catch
+    kind, value ->
+      {:error, reason, %{message: Exception.format_banner(kind, value, __STACKTRACE__)}}
+  end
+
+  defp compile_host do
+    with :ok <- Application.ensure_loaded(:ex_unit) do
+      run_runtime_mix_task("compile", ["--return-errors"])
+    else
+      {:error, reason} -> {:error, Application.format_error(reason)}
+    end
+  end
+
+  defp load_test_helpers do
+    # Like mix test, disable autorun before the helper calls ExUnit.start/1.
+    ExUnit.start(autorun: false)
+    shell = Mix.shell()
+
+    try do
+      Enum.each(Mix.Project.config()[:test_paths] || ["test"], fn path ->
+        Code.require_file(Path.join(path, "test_helper.exs"))
+      end)
+    after
+      Mix.shell(shell)
+      ExUnit.configure(autorun: false)
     end
   end
 
@@ -317,28 +376,58 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_start_host_app(opts) do
     if host_app_enabled?(opts) do
-      run_runtime_mix_task("app.start")
-      record_runtime_event(:append_archives_after_app_start)
-      Mix.Local.append_archives()
+      with :ok <- run_runtime_mix_task("app.start", ["--temporary"]) do
+        record_runtime_event(:append_archives_after_app_start)
+        Mix.Local.append_archives()
+        :ok
+      end
     else
       record_runtime_event(:app_start_skipped)
     end
   end
 
-  defp run_runtime_mix_task(task) do
-    Mix.Task.run(task)
-    record_runtime_event({:mix_task_run, task})
+  defp run_runtime_mix_task(task, args \\ []) do
+    case Mix.Task.run(task, args) do
+      {:error, diagnostics} when is_list(diagnostics) ->
+        messages = for %{severity: :error, message: message} <- diagnostics, do: message
+        {:error, Enum.join(["mix #{task} failed" | messages], "\n")}
+
+      {:error, reason} ->
+        {:error, "mix #{task} failed: #{inspect(reason)}"}
+
+      :error ->
+        {:error, "mix #{task} failed"}
+
+      _ ->
+        record_runtime_event({:mix_task_run, task})
+    end
   end
 
   defp record_runtime_event(event) do
     if target = Process.get(:mutagen_runtime_event_target) do
       send(target, {:mutagen_runtime_event, event})
     end
+
+    :ok
   end
 
   defp host_app_enabled?(opts) do
     Keyword.get(opts, :host_app, true) and
       System.get_env("MUTAGEN_NO_HOST_APP") not in ["1", "true", "TRUE", "yes", "YES"]
+  end
+
+  defp start_mutagen do
+    case ensure_mutagen_started() do
+      {:ok, _apps} ->
+        :ok
+
+      {:error, _reason} = error ->
+        {:error,
+         "mutagen_ex could not start from the installed archive after repairing code paths. " <>
+           "Reinstall it with `mix archive.uninstall mutagen_ex && mix archive.install <ez>` " <>
+           "or add `{:mutagen_ex, ...}` as a dependency, then retry. Last error: " <>
+           inspect(error)}
+    end
   end
 
   defp ensure_mutagen_started do
@@ -415,25 +504,6 @@ defmodule Mix.Tasks.Mutagen do
     end)
   end
 
-  defp handle_runtime_load_failure(error, io_mod) do
-    report = %Report{
-      base_report(nil)
-      | details: %{
-          message:
-            "mutagen_ex could not start from the installed archive after repairing code paths. " <>
-              "Reinstall it with `mix archive.uninstall mutagen_ex && mix archive.install <ez>` " <>
-              "or add `{:mutagen_ex, ...}` as a dependency, then retry. Last error: " <>
-              inspect(error)
-        }
-    }
-
-    {iodata, code} = MutagenEx.JsonReporter.emit_error(report, :runtime_load_failed)
-    io_mod.emit(iodata, code, %Config{scopes: [], tests: [], json_path: nil})
-
-    {:aborted, :runtime_load_failed,
-     %Report{report | aborted: true, abort_reason: "runtime_load_failed"}}
-  end
-
   @doc """
   Test seam: run the task with a custom dispatch table.
 
@@ -506,16 +576,7 @@ defmodule Mix.Tasks.Mutagen do
   # either returns `{:ok, update}` (continue) or
   # `{:error, phase, reason, details, partial_report}` (emit abort, halt).
   #
-  # The six error-exits the ticket enumerates:
-  #   1. CLI parse failure                  — missing_scope, invalid_timeout, etc.
-  #   2. Scope resolution failure           — module_not_found, etc.
-  #   3. Test selector failure              — no_tests_match, etc.
-  #   4. AstCache failure                   — file_read_failed, parse_error
-  #   5. Coverage phase failure             — cover_already_running, etc.
-  #   6. Baseline-red OR mutation runner    — baseline_red,
-  #                                           unrecoverable_restore_failure,
-  #                                           self_mutation_refused
-  defp run_pipeline(argv, dispatch) do
+  defp run_pipeline(argv, dispatch, runtime_opts \\ nil) do
     # The per-site progress reporter (when enabled) rides the runner's
     # `:on_site_completed` callback — see `phase_mutation/7`. We decide
     # enablement once at entry (before phase_cli parses) so the same
@@ -524,7 +585,17 @@ defmodule Mix.Tasks.Mutagen do
     # `MutagenEx.Progress.enabled?/1`.
     progress_reporter = build_progress_reporter(argv)
 
-    case do_pipeline(argv, dispatch, progress_reporter) do
+    result =
+      case runtime_opts do
+        nil ->
+          do_pipeline(argv, dispatch, progress_reporter, nil)
+
+        opts ->
+          dispatch = Map.put(dispatch, :stream_stdout, Process.group_leader())
+          with_stderr(fn -> do_pipeline(argv, dispatch, progress_reporter, opts) end)
+      end
+
+    case result do
       {:ok, report, config} ->
         maybe_emit_stream_end(report, config)
         emit_success(report, config, dispatch)
@@ -536,6 +607,18 @@ defmodule Mix.Tasks.Mutagen do
         )
 
         emit_abort(report, config, reason, details, dispatch)
+    end
+  end
+
+  defp with_stderr(fun) do
+    # Keep Mix, helper and test output off the report stream.
+    stdout = Process.group_leader()
+    Process.group_leader(self(), Process.whereis(:standard_error))
+
+    try do
+      fun.()
+    after
+      Process.group_leader(self(), stdout)
     end
   end
 
@@ -620,15 +703,16 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_emit_stream_end(_, _), do: :ok
 
-  defp do_pipeline(argv, dispatch, progress_reporter) do
-    report0 = base_report(nil)
-
+  defp do_pipeline(argv, dispatch, progress_reporter, runtime_opts) do
     with {:ok, config} <- phase_cli(argv, dispatch),
-         report1 = with_meta(report0, config),
-         {:ok, config} <- phase_json_path(config, report1),
+         report0 = with_meta(base_report(nil), config),
+         {:ok, config} <- phase_json_path(config, report0),
+         :ok <- phase_runtime(runtime_opts, config, report0),
+         report1 = with_meta(base_report(nil), config),
          {:ok, scope_records} <- phase_scope(config, dispatch, report1),
          report2 = %Report{report1 | scope: scope_records},
          {:ok, test_filter} <- phase_tests(config, dispatch, report2),
+         test_filter = merge_helper_filters(test_filter, runtime_opts),
          report3 = %Report{report2 | tests: test_filter_to_wire(test_filter)},
          {:ok, ast_cache} <- phase_ast_cache(scope_records, test_filter, dispatch, report3),
          {:ok, coverage_result} <-
@@ -731,6 +815,36 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
+  defp phase_runtime(nil, _config, _report), do: :ok
+
+  defp phase_runtime(opts, %Config{} = config, report) do
+    case ensure_runtime(opts) do
+      :ok ->
+        :ok
+
+      {:error, reason, details} ->
+        # Compile can prune archives before the reporter has been loaded.
+        Mix.Local.append_archives()
+        {:abort, report, %Config{config | stream: false}, reason, details}
+    end
+  end
+
+  defp merge_helper_filters(filter, nil), do: filter
+
+  defp merge_helper_filters(filter, _runtime_opts) do
+    helper = ExUnit.configuration()
+    exclude = Enum.uniq(filter.exclude ++ List.wrap(helper[:exclude]))
+
+    # An explicit tag or line selection narrows the run to those tests.
+    include =
+      case filter.exclude do
+        [] -> Enum.uniq(filter.include ++ List.wrap(helper[:include]))
+        _ -> filter.include
+      end
+
+    %{filter | include: include, exclude: exclude}
+  end
+
   # Per-target scope resolution. The accumulator holds **reversed** chunks
   # of records so the per-target merge is O(records_per_target) rather
   # than O(total_records_so_far) — the `acc ++ records` shape this
@@ -819,21 +933,18 @@ defmodule Mix.Tasks.Mutagen do
       |> Enum.map(&{&1.module, &1.file})
       |> Enum.uniq()
 
-    # `CoverageRunner.run/1` re-registers each cited test module with
-    # `ExUnit.Server` before its own `ExUnit.run/0`, so a second
-    # `mix mutagen` invocation in the same BEAM that cites a
-    # previously-cited test file still sees the cited modules in the
-    # server's registry (the prior `ExUnit.run/0` drained them and
-    # `Code.require_file/1` is one-shot per path). Without this
-    # payload, coverage would silently record zero covered lines on
-    # the second invocation and downstream enumeration would emit
-    # zero sites (mutagen-wrd.38). See
-    # `mutagen.mutation_pipeline.r10`.
+    # New test files register during require. Previously required files need
+    # explicit registration because ExUnit consumes the list on each run.
+    required = MapSet.new(Code.required_files())
+
+    previously_required =
+      Enum.filter(test_filter.files, &MapSet.member?(required, Path.expand(&1)))
+
     input = %{
       seed: seed,
       in_scope_modules: in_scope_modules,
       test_filter: test_filter,
-      test_modules: MutagenEx.TestModuleDiscovery.discover(test_filter.files)
+      test_modules: MutagenEx.TestModuleDiscovery.discover(previously_required)
     }
 
     case mod.run(input) do
@@ -1027,7 +1138,8 @@ defmodule Mix.Tasks.Mutagen do
   # by one aggregate doc. The dispatch's `:io` key is the production
   # default's sink for the aggregate; the streamer writes incrementally
   # so we keep an open append handle for file outputs.
-  defp stream_sink(%Config{json_path: nil}, _dispatch), do: :standard_io
+  defp stream_sink(%Config{json_path: nil}, dispatch),
+    do: Map.get(dispatch, :stream_stdout, :standard_io)
 
   defp stream_sink(%Config{json_path: path}, _dispatch) when is_binary(path) do
     # Use a process-local accumulator the IO step flushes at end-of-run.
