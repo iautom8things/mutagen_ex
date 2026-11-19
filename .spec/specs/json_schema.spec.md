@@ -448,8 +448,9 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     Default documents and stream lines apply the field provenance table.
-    Host process names, dynamic exception names, test names, and helper
-    filter values are opt-in. Unknown default reason atoms become host_reason.
+    Host process names, ETS table names, persistent term keys,
+    dynamic exception names, test names, and helper filter values are
+    opt-in. Unknown default reason atoms become host_reason.
     Exception locations come from repository stack frames, relative to the root.
 
 - id: mutagen.json_schema.r23
@@ -727,6 +728,7 @@ the envelope fields and add `kind`.
 | `meta.tool_version` | Mutagen build | Keep |
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
+| `meta.timings_ms` | Mutagen monotonic clock | Keep the five integer durations in the aggregate |
 | `scope[].file` | Repository or CLI path | Keep |
 | `scope[].module` | Repository module declaration | Keep |
 | `tests.files[]` | Repository or CLI path | Keep |
@@ -761,7 +763,7 @@ the envelope fields and add `kind`.
 | `mutation.skipped[].mutator` | Mutagen catalog | Keep |
 | `mutation.state_drift_warning{key}` | Repository module declaration | Keep |
 | `mutation.state_drift_warning{}[]` | Repository use directive | Keep |
-| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Render host-derived names as counts. Omit host bodies. Deduplicate. |
+| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Report growth and counts for host state. Omit host names and bodies. Deduplicate. |
 | `abort_reason` | Mutagen abort vocabulary | Keep |
 | `details.flag` | CLI flag | Keep |
 | `details.file` | CLI or repository path, or a repository stack frame on raise | Keep repository stack frames relative to root. Omit missing or unverifiable frames. |

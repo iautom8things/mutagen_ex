@@ -904,10 +904,9 @@ defmodule MutagenEx.MutationRunnerTest do
       # process-growth kind. If `grew?` were dropped from the warning
       # gate too, this also fails. The warning shape is enforced by
       # snapshot_warning/2 in mutation_runner.ex.
-      assert Enum.any?(warnings, &(&1 =~ "state_leak after site " <> site1.id)),
-             "expected a state_leak warning naming site #{site1.id}; got: #{inspect(warnings)}"
-
-      assert Enum.any?(warnings, &(&1 =~ "processes: #{inspect(leaked_name)} +1"))
+      assert [warning] = leak_warnings(warnings)
+      assert warning =~ "state_leak after site " <> site1.id
+      assert warning =~ "processes: #{inspect(leaked_name)} +1"
 
       # Sanity: the leak actually happened (registered name survived
       # into the assertion phase). Without this, a future change to
@@ -949,6 +948,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert :logger.get_module_level(module) == [{module, :none}]
       assert next.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
       assert warning =~ "persistent_term: #{inspect(key)} +1"
       refute warning =~ ":none"
     end
@@ -975,6 +975,7 @@ defmodule MutagenEx.MutationRunnerTest do
       sites = for id <- ~w(leaker second third), do: build_site(id: id)
       assert {:ok, %{results: results, warnings: [warning]}} = MutationRunner.run(base_cfg(sites))
       assert Enum.map(results, & &1.tainted_predecessors) == [false, true, true]
+      assert [warning] = leak_warnings([warning])
       assert warning =~ "persistent_term: #{inspect(new_key)} +1"
       refute warning =~ "value_not_for_the_report"
     end
@@ -1020,6 +1021,7 @@ defmodule MutagenEx.MutationRunnerTest do
                MutationRunner.run(base_cfg(sites))
 
       assert next.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
       assert warning =~ "ets: :mutagen_pool +1"
       assert length(Agent.get(owner, & &1)) == 2
     end
@@ -1061,6 +1063,7 @@ defmodule MutagenEx.MutationRunnerTest do
       refute first.tainted_predecessors
       refute second.tainted_predecessors
       assert third.tainted_predecessors
+      assert [warning] = leak_warnings([warning])
       assert warning =~ "state_leak after site second:"
       assert warning =~ "persistent_term: #{inspect(key)} +1"
     end
@@ -1086,8 +1089,14 @@ defmodule MutagenEx.MutationRunnerTest do
       assert r1.status == :survived
       assert r1.tainted_predecessors == false
       assert r2.tainted_predecessors == false
-      refute Enum.any?(warnings, &(&1 =~ "state_leak"))
+      assert leak_warnings(warnings) == []
     end
+  end
+
+  defp leak_warnings(warnings) do
+    for {:host_names, :state_leak, sites} <- warnings,
+        warning <- MutagenEx.JsonReporter.render_host_names(:state_leak, sites, true),
+        do: warning
   end
 
   defp assert_bookkeeping_key_ignored(key, put) do
@@ -1105,7 +1114,7 @@ defmodule MutagenEx.MutationRunnerTest do
     assert {:ok, %{results: [_, next], warnings: warnings}} = MutationRunner.run(base_cfg(sites))
     assert :persistent_term.get(key, :missing) != :missing
     refute next.tainted_predecessors
-    refute Enum.any?(warnings, &(&1 =~ "state_leak"))
+    assert leak_warnings(warnings) == []
   end
 
   # ---------------------------------------------------------------------------

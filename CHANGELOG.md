@@ -139,9 +139,10 @@ file for traceability.
   has already recorded a failure by the deadline, the mutant still counts
   as killed.
 - **State-leak warning details.** The runner reports positive deltas
-  for process registrations, ETS table names and persistent term keys.
-  Same-name replacements, automatic Logger caches, and compiler
-  bookkeeping do not taint later results.
+  for process registrations, ETS tables and persistent term keys.
+  The default report gives counts and deltas. Names require
+  `--include-host-output`. Same-name replacements, automatic Logger
+  caches, and compiler bookkeeping do not taint later results.
 - **ExUnit case registration.** Mutagen registers only ExUnit cases
   from cited files. It preserves their parameterization and reuses the
   case list across phases.

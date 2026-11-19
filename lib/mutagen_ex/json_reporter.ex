@@ -969,6 +969,20 @@ defmodule MutagenEx.JsonReporter do
   """
   def render_host_names(_kind, [], _include_host_output), do: []
 
+  def render_host_names(:state_leak, sites, include_host_output?) do
+    for {site_id, groups} <- sites do
+      pieces =
+        for {kind, deltas} <- groups, map_size(deltas) > 0 do
+          "#{kind}: #{render_growth(deltas, include_host_output?)}"
+        end
+
+      Sanitizer.clean(
+        "state_leak after site #{site_id}: #{Enum.join(pieces, ", ")}. " <>
+          "Subsequent results carry tainted_predecessors: true"
+      )
+    end
+  end
+
   def render_host_names(kind, names, true) do
     for name <- Enum.uniq(names) do
       text = if is_binary(name) or is_atom(name), do: to_string(name), else: inspect(name)
@@ -983,6 +997,16 @@ defmodule MutagenEx.JsonReporter do
   end
 
   def render_host_names(kind, names, false), do: ["#{kind}: #{length(Enum.uniq(names))}"]
+
+  defp render_growth(deltas, true) do
+    Enum.map_join(Enum.sort(deltas), ", ", fn {name, growth} ->
+      "#{inspect(name)} +#{growth}"
+    end)
+  end
+
+  defp render_growth(deltas, false) do
+    "names=#{map_size(deltas)}, +#{Enum.sum(Map.values(deltas))}"
+  end
 
   defp skipped_to_wire(%{} = entry) do
     %{
