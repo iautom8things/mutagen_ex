@@ -541,11 +541,11 @@ defmodule MutagenEx.JsonReporterTest do
             kill_rate: 1.0,
             results: [
               %{
-                id: "lib/foo.ex:abc:string",
+                id: "lib/foo.ex:abc:literal",
                 file: "lib/foo.ex",
                 line: 1,
                 column: 1,
-                mutator: :string,
+                mutator: :literal,
                 before: "\"héllo\"",
                 before_source: "\"héllo\"",
                 after: "\"world\"",

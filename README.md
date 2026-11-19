@@ -128,40 +128,43 @@ treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
 ### Mutator confidence
 
 Every aggregate `mutation.results[]` entry and every NDJSON `"result"` line
-has a `"confidence"` field. It is a rating for the mutator, independent of
-the outcome of any one mutation. A CI gate can filter for
+has a `"confidence"` field. The ratings are qualitative judgments about
+each operator. Even a high-rated survivor can be equivalent to the original
+code. A CI gate can filter for
 `status == "survived" and confidence == "high"`. The field is part of
 report schema version `"2"`. The summary counts results of both confidence
 levels.
 
 | Mutator | Confidence | Reason |
 |---|---|---|
-| `arith` | high | The swapped operator computes a different result for typical operands. |
-| `compare` | high | Each swap negates the original comparison. |
-| `boolean` | high | The mutation changes the truth table or removes a negation. |
-| `literal` | high | The mutation changes a concrete value in an expression or a pattern. |
+| `arith` | high | The swapped operator can change a numeric result. |
+| `compare` | high | Negating the comparison can change which branch runs. |
+| `boolean` | high | Swapping a connector or removing negation can change the value or short-circuit behavior. |
+| `literal` | high | A caller can observe the changed value or pattern. |
 | `with_swap` | low | Two checks can still return the same failure in practice, or their failures may never occur together. |
 | `case_drop` | high | Inputs handled by the removed final arm can now raise a clause error. |
-| `pipeline` | high | Swapping distinct stages changes which transform receives the original input. Some stages commute. |
+| `pipeline` | high | A different stage receives the original input. Some stages commute. |
 | `result_tuple` | high | The tag swap changes which consumers treat a result as success or failure. |
 | `else_removal` | high | Removing the branch changes how a false condition or failed match is handled. |
 | `guard_drop` | high | Dropping the guard can let a clause accept values it used to reject. |
 
-`with_swap` looks for a possible change in which of the first two failures
-gets returned or handled by `else`. It records the following reasons in
-`mutation.skipped`.
+`with_swap` applies its failure-priority filters only when the two clauses
+are independent. It checks for shared bindings, reads of the other pattern's
+bindings in either direction, and lexical introspection such as `binding()`
+and `__ENV__`. It records skip reasons in `mutation.skipped`.
 
 | Reason | When it applies |
 |---|---|
-| `bound_var_used_before_binding` | The clause moved first refers to a now-later binding in its expression, guard or pin. |
-| `insufficient_refutable_patterns` | Either match uses an unguarded variable, a wildcard, or a literal pattern with an identical literal expression. |
-| `indistinguishable_failures` | Both expressions are the same quoted literal or read the same variable that neither pattern binds. |
-| `else_ignores_failure` | There is a single `else` arm with an unguarded wildcard. |
+| `bound_var_used_before_binding` | The expression moved first reads a name bound by the now-later pattern. This check can also reject a swap that could use an outer binding. |
+| `insufficient_refutable_patterns` | In an independent pair, either match uses an unguarded variable, a wildcard, or a literal pattern with an equal literal expression. |
+| `indistinguishable_failures` | In an independent pair, both expressions are the same literal or read the same variable. |
+| `else_ignores_failure` | An independent pair has a single `else` arm with an unguarded wildcard. |
 
-Guards and pins can fail. The check treats calls as opaque and leaves later
-clauses in place. Filtering can miss bugs that depend on evaluation order,
-such as writes that run before a short circuit, which exception is raised,
-or which clause supplies the final value of a rebound variable.
+Guards, pins, and binary sizes can read outer bindings. The compiler decides
+whether such a binding exists after a swap. The reference check works on
+unexpanded AST, so macros can hide reads and bindings. Calls are opaque.
+The filters can miss evaluation-order bugs such as writes that run before
+a short circuit or a change in which exception is raised.
 
 ## Self-mutation
 
@@ -531,7 +534,7 @@ output is plain JSON with no comments.)
 
   // The heart of the report: every mutation that was applied and judged.
   "mutation": {
-    "total": 6,        // mutation sites enumerated
+    "total": 6,        // completed results
     "completed": 6,    // sites actually run
     "killed": 5,       // a cited test caught the mutation (good)
     "survived": 1,     // no test caught it — a possible coverage gap

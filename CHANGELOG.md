@@ -72,10 +72,10 @@ file for traceability.
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
 
-- **Fewer `with_swap` survivors with equivalent behavior.** The swap now
-  requires two potentially failing leading matches. It skips pairs with
-  the same failure value by construction and pairs whose only `else` arm
-  ignores the failure with a wildcard. The report records each skip reason.
+- **Fewer equivalent `with_swap` mutations.** For independent clauses,
+  the mutator skips swaps when one clause always matches by syntax, both
+  failures have the same value by construction, or a single wildcard
+  `else` arm ignores the failure. The report records each skip reason.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock

@@ -113,9 +113,9 @@ defmodule Mix.Tasks.Mutagen do
 
   ## JSON Schema Pointer
 
-  Each `mutation.results[]` entry and each NDJSON `"result"` line carries
-  a mutator confidence of `"high"` or `"low"`. A CI gate can select
-  high-confidence survivors using both `status` and `confidence`.
+  Each `mutation.results[]` entry and each NDJSON `"result"` line carries a
+  `confidence` field with `"high"` or `"low"`. The rating is a qualitative
+  judgment about the operator. A high-rated survivor can still be equivalent.
   `with_swap` has low confidence because the order of failed matches can
   still yield the same result. All other mutators default to high.
   The field is part of report schema version `"2"`. Both levels count

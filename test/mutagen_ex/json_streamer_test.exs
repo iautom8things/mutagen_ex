@@ -95,12 +95,14 @@ defmodule MutagenEx.JsonStreamerTest do
 
       assert Enum.sort(Map.keys(confidences)) == Enum.sort(Mutators.names())
 
+      statuses = [:killed, :survived, :timeout, :error]
+
       results =
-        for {mutator, confidence} <- confidences do
+        for {mutator, confidence} <- confidences, {status, index} <- Enum.with_index(statuses) do
           assert Mutators.confidence(mutator) == confidence
 
           %{
-            id: "lib/foo.ex:1:#{mutator}",
+            id: "lib/foo.ex:#{index}:#{mutator}",
             file: "lib/foo.ex",
             line: 1,
             column: 1,
@@ -108,7 +110,7 @@ defmodule MutagenEx.JsonStreamerTest do
             before: ":ok",
             before_source: ":ok",
             after: ":error",
-            status: :survived
+            status: status
           }
         end
 
@@ -123,11 +125,12 @@ defmodule MutagenEx.JsonStreamerTest do
 
       lines = parse_lines(output)
       entries = aggregate["mutation"]["results"]
-      assert length(lines) == map_size(confidences)
-      assert length(entries) == map_size(confidences)
+      assert length(lines) == length(results)
+      assert length(entries) == length(results)
 
       for {result, entry, line} <- Enum.zip([results, entries, lines]) do
         assert entry["mutator"] == Atom.to_string(result.mutator)
+        assert entry["status"] == Atom.to_string(result.status)
         assert entry["confidence"] == Atom.to_string(Map.fetch!(confidences, result.mutator))
         assert line == Map.merge(entry, %{"kind" => "result", "version" => "2"})
       end
