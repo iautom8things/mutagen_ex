@@ -1004,7 +1004,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
 
     @tag spec: ["mutagen.git_diff.r2", "mutagen.git_diff.r8"]
     test "error paths in hints and details have no control characters", %{tmp_dir: tmp} do
-      repo = Path.join(tmp, "checkout\e[31m\ntext")
+      repo = Path.join(tmp, "checkout\u202Etext")
       File.mkdir!(repo)
       init!(repo)
       write!(repo, "lib/a.ex", "base\n")
@@ -1012,7 +1012,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
 
       assert {:error, :diff_unavailable,
               %{cause: :invalid_root_directory, root: "ab", component: "ab"}} =
-               GitDiff.changed_lines("HEAD", cd: repo, roots: ["a\e\nb"])
+               GitDiff.changed_lines("HEAD", cd: repo, roots: ["a\e\n\u2066\u200Bb"])
 
       home = Path.join(tmp, "isolated-home")
       File.mkdir!(home)
@@ -1026,8 +1026,9 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       assert {:error, :diff_unavailable, %{cause: :dubious_ownership, hint: hint}} =
                GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
 
-      refute Regex.match?(~r/\p{Cc}/u, hint)
-      assert hint =~ "checkout[31mtext"
+      refute Regex.match?(~r/[\p{Cc}\p{Cf}]/u, hint)
+      assert hint =~ "checkouttext"
+      refute hint =~ "git config"
     end
 
     @tag spec: "mutagen.git_diff.r8"
