@@ -8,8 +8,28 @@ defmodule MutagenEx.GitDiffTest do
   @base String.duplicate("c", 40)
   @ref "refs/heads/main"
   @diff_flags ~w(diff --no-ext-diff --no-textconv --no-color --raw --numstat -z --patch --no-abbrev
-                 --unified=0 --find-renames --diff-filter=AMR --src-prefix=a/ --dst-prefix=b/
-                 --no-relative --ignore-submodules=all)
+                 --unified=0 --find-renames --diff-filter=AMRT --text --src-prefix=a/ --dst-prefix=b/
+                 --no-relative --ignore-submodules=dirty --submodule=short)
+
+  @moduletag :tmp_dir
+
+  setup %{tmp_dir: dir} do
+    Process.put(:git_diff_test_dir, dir)
+
+    for relative <- [
+          "lib/sample.ex",
+          "lib/raw_å.ex",
+          "lib/new\nname.ex",
+          "apps/[scope]/lib/in.ex",
+          "extra/other.ex"
+        ] do
+      path = Path.join(dir, relative)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, String.duplicate("line\n", 40))
+    end
+
+    :ok
+  end
 
   @tag spec: "mutagen.git_diff.r1"
   test "takes only the new side of each hunk" do
@@ -48,7 +68,7 @@ defmodule MutagenEx.GitDiffTest do
     pure_new = "lib/pure move.ex"
     edited_old = "lib/old\tname.ex"
     edited_new = "lib/new\nname.ex"
-    raw_path = <<"lib/raw_", 255, ".ex">>
+    raw_path = "lib/raw_å.ex"
 
     output =
       diff([
@@ -67,7 +87,7 @@ defmodule MutagenEx.GitDiffTest do
   end
 
   @tag spec: "mutagen.git_diff.r1"
-  test "skips deletes, binary files, file mode changes, symlinks and other files" do
+  test "reports skipped source entries and ignores ordinary files without new lines" do
     insertion = "@@ -0,0 +1 @@\n+new\n"
 
     output =
@@ -82,11 +102,18 @@ defmodule MutagenEx.GitDiffTest do
         {"A", ["library/file.ex"], "100644", insertion}
       ])
 
-    for patch <- [output, ""] do
-      assert {:ok, %{files: files, renames: renames, warnings: [:empty_diff]}} = changed(patch)
-      assert files == %{}
-      assert renames == %{}
-    end
+    assert {:ok, %{files: files, renames: renames, skipped: skipped, warnings: []}} =
+             changed(output)
+
+    assert files == %{}
+    assert renames == %{}
+
+    assert skipped == [
+             %{path: "lib/binary.ex", reason: :binary},
+             %{path: "lib/link.ex", reason: :symlink}
+           ]
+
+    assert {:ok, %{skipped: [], warnings: [:empty_diff]}} = changed("")
   end
 
   @tag spec: ["mutagen.git_diff.r1", "mutagen.git_diff.r3"]
@@ -114,7 +141,7 @@ defmodule MutagenEx.GitDiffTest do
       end)
 
     assert {:ok, %{files: files}} =
-             GitDiff.changed_lines(@ref, cmd: cmd, roots: ["apps/[scope]/lib", "extra"])
+             read_changes(@ref, cmd: cmd, roots: ["apps/[scope]/lib", "extra"])
 
     assert files == %{"apps/[scope]/lib/in.ex" => [{1, 1}], "extra/other.ex" => [{1, 1}]}
   end
@@ -140,6 +167,9 @@ defmodule MutagenEx.GitDiffTest do
           "HEAD;rm -rf",
           "a..b",
           "@{-1}",
+          "HEAD@{0}",
+          "HEAD^{tree}",
+          "refs/heads/main~1",
           "HEAD\n",
           String.duplicate("a", 300)
         ] do
@@ -152,18 +182,34 @@ defmodule MutagenEx.GitDiffTest do
   test "keeps the ref in one verification argument and uses only validated SHAs afterward" do
     config = "filter.Example.clean\0diff.Example.textconv\0"
 
+    test_pid = self()
     fake = runner(%{config: {config, 0}})
 
     cmd = fn "git", argv, opts ->
       args = git_args(argv)
-      send(self(), {:git, args, opts})
-      send(self(), {:git_prefix, Enum.take(argv, length(argv) - length(args))})
+      send(test_pid, {:git, args, opts})
+      send(test_pid, {:git_prefix, Enum.take(argv, length(argv) - length(args))})
       fake.("git", argv, opts)
     end
 
     assert {:ok, _} = GitDiff.changed_lines(@ref, cmd: cmd)
+    assert_received {:git, ["version"], _}
     assert_received {:git, ["rev-parse", "--is-shallow-repository"], _}
     assert_received {:git, ["config", "--null", "--name-only", "--get-regexp", _], _}
+    assert_received {:git, ["rev-parse", "--show-prefix"], _}
+
+    assert_received {:git,
+                     ["rev-parse", "--path-format=absolute", "--git-path", "info/attributes"], _}
+
+    assert_received {:git,
+                     [
+                       "rev-parse",
+                       "--verify",
+                       "--quiet",
+                       "--symbolic-full-name",
+                       "--end-of-options",
+                       "refs/heads/main"
+                     ], _}
 
     assert_received {:git,
                      [
@@ -188,14 +234,13 @@ defmodule MutagenEx.GitDiffTest do
     assert "diff.external=" in prefix
     assert "diff.noPrefix=false" in prefix
 
-    for _ <- 1..5, do: assert_received({:git_prefix, ^prefix})
+    for _ <- 1..9, do: assert_received({:git_prefix, ^prefix})
     refute_received {:git_prefix, _}
 
     assert %{
              "GIT_CONFIG_PARAMETERS" => "'filter.Example.clean'='' 'diff.Example.textconv'=''",
              "GIT_OPTIONAL_LOCKS" => "0",
              "GIT_CONFIG_NOSYSTEM" => "1",
-             "GIT_CONFIG_GLOBAL" => "/dev/null",
              "GIT_NO_LAZY_FETCH" => "1",
              "GIT_ALLOW_PROTOCOL" => ":"
            } = opts[:env]
@@ -204,8 +249,10 @@ defmodule MutagenEx.GitDiffTest do
   @tag spec: "mutagen.git_diff.r5"
   test "reports shallow history with a fetch-depth hint and stops there" do
     cmd = fn "git", args, _opts ->
-      assert git_args(args) == ["rev-parse", "--is-shallow-repository"]
-      {"true\n", 0}
+      case git_args(args) do
+        ["version"] -> {"git version 2.54.0\n", 0}
+        ["rev-parse", "--is-shallow-repository"] -> {"true\n", 0}
+      end
     end
 
     assert {:error, :diff_unavailable, %{shallow: true, hint: hint, cause: :shallow_repository}} =
@@ -218,7 +265,7 @@ defmodule MutagenEx.GitDiffTest do
   test "distinguishes repository, Git executable, revision, and command failures" do
     cmd = fn "git", _args, _opts -> :erlang.error(:enoent) end
 
-    assert {:error, :diff_unavailable, %{cause: :git_not_installed, step: :repository}} =
+    assert {:error, :diff_unavailable, %{cause: :git_not_installed, step: :version}} =
              GitDiff.changed_lines(@ref, cmd: cmd)
 
     for {step, output, cause} <- [
@@ -290,7 +337,8 @@ defmodule MutagenEx.GitDiffTest do
   test "reads exact base bytes and distinguishes an absent path from a command failure" do
     path = "lib/old café\twith\nlines[1].ex"
     content = <<"old\r\n", 0, 255>>
-    entry = "100644 blob " <> @since <> "\t" <> path <> <<0>>
+    blob = :crypto.hash(:sha, ["blob ", Integer.to_string(byte_size(content)), <<0>>, content])
+    entry = "100644 blob " <> Base.encode16(blob, case: :lower) <> "\t" <> path <> <<0>>
 
     cmd =
       runner(%{base_tree: {entry, 0}, base_file: {content, 0}}, fn
@@ -299,7 +347,7 @@ defmodule MutagenEx.GitDiffTest do
                    "ls-tree",
                    "-z",
                    "--full-tree",
-                   @base <> "^{commit}",
+                   @base,
                    "--",
                    ":(top,literal)" <> path
                  ]
@@ -339,10 +387,41 @@ defmodule MutagenEx.GitDiffTest do
     end
   end
 
-  defp changed(output), do: GitDiff.changed_lines(@ref, cmd: runner(%{diff: {output, 0}}))
+  @tag spec: "mutagen.git_diff.r5"
+  test "reports unsupported Git before probing the repository" do
+    cmd = fn "git", argv, _opts ->
+      assert git_args(argv) == ["version"]
+      {"git version 2.40.9\n", 0}
+    end
+
+    assert {:error, :diff_unavailable, %{cause: :unsupported_git_version, minimum: "2.41"}} =
+             GitDiff.changed_lines(@ref, cmd: cmd)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r5"
+  test "reports a missing working directory without calling Git", %{tmp_dir: dir} do
+    assert {:error, :diff_unavailable, %{cause: :missing_cd}} =
+             GitDiff.changed_lines(@ref,
+               cd: Path.join(dir, "missing"),
+               cmd: &unexpected_command/3
+             )
+  end
+
+  defp changed(output), do: read_changes(@ref, cmd: runner(%{diff: {output, 0}}))
+
+  defp read_changes(ref, opts) do
+    GitDiff.changed_lines(ref, Keyword.put_new(opts, :cd, Process.get(:git_diff_test_dir)))
+  end
 
   defp runner(overrides, inspect_call \\ fn _args, _opts -> :ok end) do
     defaults = %{
+      version: {"git version 2.54.0\n", 0},
+      worktree: {"\n", 0},
+      info_attributes:
+        {Path.join(Process.get(:git_diff_test_dir), "nonexistent-attributes") <> "\n", 0},
+      ambiguity: {"refs/heads/main\n", 0},
+      base_type: {"commit\n", 0},
       repository: {"false\n", 0},
       config: {"", 1},
       resolve_ref: {@since <> "\n", 0},
@@ -355,6 +434,7 @@ defmodule MutagenEx.GitDiffTest do
 
     fn "git", argv, opts ->
       args = git_args(argv)
+      assert opts[:stderr_to_stdout]
       inspect_call.(args, opts)
       Map.fetch!(responses, step_for(args))
     end
@@ -365,6 +445,23 @@ defmodule MutagenEx.GitDiffTest do
   defp strip_config(["-c", _setting | rest]), do: strip_config(rest)
   defp strip_config(args), do: args
 
+  defp step_for(["version"]), do: :version
+  defp step_for(["rev-parse", "--show-prefix"]), do: :worktree
+
+  defp step_for(["rev-parse", "--path-format=absolute", "--git-path", "info/attributes"]),
+    do: :info_attributes
+
+  defp step_for([
+         "rev-parse",
+         "--verify",
+         "--quiet",
+         "--symbolic-full-name",
+         "--end-of-options",
+         _
+       ]),
+       do: :ambiguity
+
+  defp step_for(["cat-file", "-t", @base]), do: :base_type
   defp step_for(["rev-parse", "--is-shallow-repository"]), do: :repository
   defp step_for(["config" | _]), do: :config
 
@@ -388,7 +485,18 @@ defmodule MutagenEx.GitDiffTest do
   defp steps_through(step) do
     {before_step, [^step | _]} =
       Enum.split_while(
-        [:repository, :config, :resolve_ref, :resolve_head, :merge_base, :diff],
+        [
+          :version,
+          :repository,
+          :config,
+          :worktree,
+          :info_attributes,
+          :ambiguity,
+          :resolve_ref,
+          :resolve_head,
+          :merge_base,
+          :diff
+        ],
         &(&1 != step)
       )
 
