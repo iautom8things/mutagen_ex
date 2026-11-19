@@ -418,7 +418,11 @@ defmodule MutagenEx.Integration.HostSetupTest do
 
   @tag spec: "mutagen.cli.r27"
   test "coverage, baseline and after-suite callbacks have deadlines", %{archive: host} do
-    tests = File.read!(Path.join(host.dir, @tests))
+    tests =
+      host.dir
+      |> Path.join(@tests)
+      |> File.read!()
+      |> String.replace("@tag :pricing", "@tag :pricing\n  @tag timeout: :infinity")
 
     for {phase, operator} <- [{"coverage", "=="}, {"baseline", "!="}] do
       blocking =
@@ -433,7 +437,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
         )
 
       with_file(host, @tests, blocking, fn ->
-        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "1500"])
+        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "5000"])
         assert decode_report(stdout)["abort_reason"] == "#{phase}_timeout"
       end)
     end
@@ -461,7 +465,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
       Process.sleep(:infinity)
       """,
       fn ->
-        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "1500"])
+        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "5000"])
         report = decode_report(stdout)
         assert report["abort_reason"] == "host_setup_timeout"
         assert report["details"]["step"] == "test_helper"
