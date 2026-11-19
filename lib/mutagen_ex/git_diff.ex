@@ -3,8 +3,14 @@ defmodule MutagenEx.GitDiff do
   Reads changed source lines against a Git merge-base and reads blobs from it.
 
   Diff roots must be real directories within the resolved project directory.
-  Case-insensitive checkouts use case-folded scope with tracked path spelling.
-  A changed symlink or gitlink at or below a root counts as a skipped entry.
+  Scope compares normalized root spellings and folds case when Git config or
+  the disk indicates case-insensitivity. Results keep Git's path spelling,
+  including case and normalization. The gate wiring should use those keys
+  directly and treat any skipped entry as an incomplete read.
+
+  Symlinks and gitlinks in the index at or below a root count as skipped
+  even when unchanged. A changed entry can also carry its diff reason.
+  Running from inside a submodule checkout is unsupported.
 
   Git runs without a shell or pager. The environment drops inherited `GIT_*`
   variables, including `GIT_EXTERNAL_DIFF`, `GIT_DIFF_OPTS`, `GIT_PAGER`,
@@ -39,6 +45,7 @@ defmodule MutagenEx.GitDiff do
   `core.autocrlf`, `core.eol`, and `core.safecrlf` are pinned for raw working
   bytes. Git's repository `info/attributes` must be empty. `GIT_WORK_TREE` is
   pinned to the discovered checkout and `GIT_GRAFT_FILE` disables grafts.
+  `core.precomposeUnicode` is disabled to pass literal pathspec bytes to Git.
   `advice.graftFileDeprecated` suppresses the diagnostic for the empty graft
   file. Promisor repositories fail closed before a command can fetch.
   As with the index and worktree, keep the local config stable during the read.
@@ -46,7 +53,7 @@ defmodule MutagenEx.GitDiff do
 
   defmodule Output do
     @moduledoc false
-    defstruct [:limit]
+    defstruct [:limit, :keep]
   end
 
   @ref_pattern ~r/\A(?:[A-Za-z0-9][A-Za-z0-9._\/+-]*|HEAD(?:[~^][0-9]*)+)\z/
@@ -76,7 +83,7 @@ defmodule MutagenEx.GitDiff do
     diff.orderFile=/dev/null diff.renames=true diff.renameLimit=1000
     diff.ignoreSubmodules=dirty diff.submodule=short submodule.recurse=false
     core.autocrlf=false core.safecrlf=false core.eol=lf core.warnAmbiguousRefs=true
-    advice.graftFileDeprecated=false
+    advice.graftFileDeprecated=false core.precomposeUnicode=false
     diff.autoRefreshIndex=false
   )
   @git_options ["--no-pager" | Enum.flat_map(@git_config, &["-c", &1])]
@@ -131,6 +138,7 @@ defmodule MutagenEx.GitDiff do
   `:cd` selects the project directory. `:timeout` is the deadline in
   milliseconds for each Git command and defaults to 30 seconds. `:cmd` accepts a three-argument
   function with the same arguments and binary result as `System.cmd/3`.
+  `:kill_cmd` can inject that same interface for timeout cleanup.
   `:renames` maps each selected destination to its old path, including pure
   renames. Git detects renames within the selected roots.
   """
@@ -180,18 +188,21 @@ defmodule MutagenEx.GitDiff do
 
   defp read_changes(git, ref, roots) do
     with {:ok, git} <- repository_context(git),
-         :ok <- validate_root_directories(git.cd, roots),
          :ok <- check_info_attributes(git),
          :ok <- reject_ambiguous(git, ref),
          {:ok, since} <- resolve_commit(git, ref, :resolve_ref, :unresolvable_ref),
          {:ok, head} <- resolve_commit(git, "HEAD", :resolve_head, :unresolvable_head),
          {:ok, base} <- merge_base(git, since, head),
+         {:ok, snapshot} <- snapshot_roots(git, roots, base),
+         git = probe_case(git, roots),
          git = put_git_env(git, "GIT_ATTR_SOURCE", object_id("tree", "", head)),
-         paths = diff_paths(git, roots),
+         {:ok, paths, index_links} <- tracked_scope(git, base, roots),
          args = ["diff" | @diff_flags] ++ [base, "--" | paths],
          {:ok, output} <- command(git, args, :diff, @max_diff_bytes),
+         :ok <- verify_roots(git.cd, roots, snapshot),
          {:ok, changes} <- parse_diff(output, roots, git),
          :ok <- validate_ranges(git, changes.files) do
+      changes = %{changes | skipped: changes.skipped ++ index_links}
       warnings = if changes.files == %{} and changes.skipped == [], do: [:empty_diff], else: []
       {:ok, Map.merge(changes, %{base: base, head: head, warnings: warnings})}
     end
@@ -199,6 +210,7 @@ defmodule MutagenEx.GitDiff do
 
   defp read_base_file(git, sha, path, roots) do
     with {:ok, git} <- repository_context(git),
+         git = probe_case(git, roots),
          :ok <- validate_base_path(path, roots, git.ignore_case?),
          :ok <- verify_base_type(git, sha),
          path = git.prefix <> path,
@@ -319,31 +331,234 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp path_key(path, false), do: path
+  defp path_key(path, false) do
+    if String.valid?(path), do: String.normalize(path, :nfc), else: path
+  end
 
   defp path_key(path, true) do
     if String.valid?(path),
-      do: path |> String.normalize(:nfd) |> :string.casefold(),
+      do: path |> :string.casefold() |> String.normalize(:nfc),
       else: String.downcase(path, :ascii)
   end
 
-  defp diff_paths(%{ignore_case?: true}, _roots), do: []
-  defp diff_paths(git, roots), do: Enum.map(roots, &literal_path(git.prefix <> &1))
   defp literal_path(path), do: ":(top,literal)" <> path
 
-  defp validate_root_directories(cd, roots) do
-    case Enum.find(roots, &(not real_root?(Path.split(&1), cd))) do
-      nil -> :ok
-      root -> unavailable(:invalid_root_directory, :worktree, %{root: root})
+  # Git's literal pathspecs preserve the index and tree's exact spelling.
+  # Select the root aliases before requesting a patch or detecting renames.
+  defp tracked_scope(git, base, roots) do
+    paths = Enum.map(roots, &(git.prefix <> &1))
+
+    keys =
+      Enum.map(paths, fn path ->
+        key = path_key(path, git.ignore_case?)
+        {key, key <> "/", length(path_segments(path))}
+      end)
+
+    alias_for = &matching_root(&1, keys, git.ignore_case?)
+    repo = %{git | cd: git.env["GIT_WORK_TREE"] || git.cd}
+
+    with {:ok, index} <-
+           inventory(repo, ["ls-files", "-s", "-z", "--full-name"], :index, alias_for),
+         {:ok, tree} <-
+           inventory(repo, ["ls-tree", "-r", "-z", "--full-tree", base], :scope_tree, alias_for) do
+      aliases = Enum.map(index ++ tree, fn {_, _, _, root} -> root end)
+      pathspecs = paths |> Kernel.++(aliases) |> Enum.uniq() |> Enum.map(&literal_path/1)
+      {:ok, pathspecs, index_links(index, git)}
     end
   end
 
-  defp real_root?([], _dir), do: true
+  defp matching_root(path, keys, ignore_case?) do
+    key = path_key(path, ignore_case?)
 
-  defp real_root?([part | rest], dir) do
-    path = Path.join(dir, part)
-    match?({:ok, %{type: :directory}}, File.lstat(path)) and real_root?(rest, path)
+    Enum.find_value(keys, fn {root, prefix, depth} ->
+      if key == root or String.starts_with?(key, prefix) do
+        path |> path_segments() |> Enum.take(depth) |> Enum.join("/")
+      end
+    end)
   end
+
+  defp inventory(git, args, step, alias_for) do
+    keep = fn record ->
+      case inventory_entry(record) do
+        {:ok, _, _, path} -> is_binary(alias_for.(path))
+        :error -> throw(:git_invalid_output)
+      end
+    end
+
+    with {:ok, output} <- command(git, args, step, @max_diff_bytes, keep) do
+      case Enum.reverse(:binary.split(output, <<0>>, [:global])) do
+        ["" | records] -> collect_inventory(Enum.reverse(records), alias_for, step, [])
+        _ -> unavailable(:invalid_output, step)
+      end
+    end
+  end
+
+  defp collect_inventory([], _alias_for, _step, entries), do: {:ok, Enum.reverse(entries)}
+
+  defp collect_inventory([record | rest], alias_for, step, entries) do
+    case inventory_entry(record) do
+      {:ok, mode, oid, path} ->
+        case alias_for.(path) do
+          nil -> collect_inventory(rest, alias_for, step, entries)
+          root -> collect_inventory(rest, alias_for, step, [{mode, oid, path, root} | entries])
+        end
+
+      :error ->
+        unavailable(:invalid_output, step)
+    end
+  end
+
+  defp inventory_entry(record) do
+    with [header, path] <- :binary.split(record, "\t"),
+         [mode, second, third] <- :binary.split(header, " ", [:global]),
+         true <- Regex.match?(~r/\A[0-7]{6}\z/, mode) and relative_path?(path),
+         oid when is_binary(oid) <- entry_oid(second, third),
+         true <- valid_sha?(oid) do
+      {:ok, mode, oid, path}
+    else
+      _ -> :error
+    end
+  end
+
+  defp entry_oid(type, oid) when type in ["blob", "tree", "commit"], do: oid
+  defp entry_oid(oid, stage) when stage in ["0", "1", "2", "3"], do: oid
+  defp entry_oid(_second, _third), do: nil
+
+  defp index_links(index, git) do
+    index
+    |> Enum.flat_map(fn
+      {"120000", _, path, _} ->
+        [%{path: project_relative(path, git), reason: :preexisting_symlink}]
+
+      {"160000", _, path, _} ->
+        [%{path: project_relative(path, git), reason: :preexisting_gitlink}]
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq()
+  end
+
+  defp path_segments(path), do: :binary.split(path, "/", [:global])
+
+  defp probe_case(git, roots) do
+    disk = roots |> Enum.map(&case_alias?(git.cd, &1)) |> Enum.any?()
+    %{git | ignore_case?: git.ignore_case? or disk}
+  end
+
+  defp case_alias?(cd, root) do
+    mode = if String.valid?(root), do: :default, else: :ascii
+    upper = String.upcase(root, mode)
+    flipped = if upper == root, do: String.downcase(root, mode), else: upper
+
+    with true <- flipped != root,
+         {:ok, original} <- File.stat(Path.join(cd, root)),
+         {:ok, alternate} <- File.stat(Path.join(cd, flipped)) do
+      file_identity(original) == file_identity(alternate)
+    else
+      _ -> false
+    end
+  end
+
+  defp file_identity(stat), do: {stat.major_device, stat.minor_device, stat.inode}
+
+  defp snapshot_roots(git, roots, base) do
+    case scan_roots(git.cd, roots) do
+      {:ok, _} = snapshot ->
+        snapshot
+
+      {:invalid_root, root, component, :symlink} ->
+        symlinked_root_error(git, base, root, component)
+
+      {cause, root, component, type} ->
+        root_error(cause, root, component, type)
+    end
+  end
+
+  defp scan_roots(cd, roots) do
+    Enum.reduce_while(roots, {:ok, %{}}, fn root, {:ok, snapshots} ->
+      case scan_components(cd, path_segments(root), "", []) do
+        {:ok, entries} -> {:cont, {:ok, Map.put(snapshots, root, entries)}}
+        {cause, component, type} -> {:halt, {cause, root, component, type}}
+      end
+    end)
+  end
+
+  defp scan_components(_cd, [], _component, snapshots), do: {:ok, snapshots}
+
+  defp scan_components(cd, [part | rest], parent, snapshots) do
+    component = Path.join(parent, part)
+    path = Path.join(cd, component)
+
+    case File.lstat(path) do
+      {:ok, %{type: :directory} = stat} ->
+        case File.lstat(Path.join(path, ".git")) do
+          {:error, :enoent} ->
+            scan_components(cd, rest, component, [Map.delete(stat, :atime) | snapshots])
+
+          {:ok, %{type: type}} ->
+            {:nested_git_checkout, component, type}
+
+          {:error, _} ->
+            {:invalid_root, component, :inaccessible}
+        end
+
+      {:ok, %{type: type}} ->
+        {:invalid_root, component, type}
+
+      {:error, :enoent} ->
+        {:invalid_root, component, :missing}
+
+      {:error, _} ->
+        {:invalid_root, component, :inaccessible}
+    end
+  end
+
+  defp verify_roots(cd, roots, before) do
+    case scan_roots(cd, roots) do
+      {:ok, ^before} ->
+        :ok
+
+      {:ok, after_diff} ->
+        root = Enum.find(roots, &(before[&1] != after_diff[&1]))
+        unavailable(:root_changed, :worktree, %{root: report_path(root)})
+
+      {_, root, component, type} ->
+        root_error(:root_changed, root, component, type)
+    end
+  end
+
+  defp symlinked_root_error(git, base, root, component) do
+    path = git.prefix <> component
+    args = ["ls-tree", "-z", "--full-tree", base, "--", literal_path(path)]
+
+    with {:ok, output} <- command(git, args, :base_root) do
+      cause =
+        with [record, ""] <- :binary.split(output, <<0>>),
+             {:ok, "120000", oid, ^path} <- inventory_entry(record),
+             {:ok, target} <- File.read_link(Path.join(git.cd, component)),
+             true <- object_id("blob", target, oid) == oid do
+          :preexisting_symlinked_root
+        else
+          _ -> :invalid_root_directory
+        end
+
+      root_error(cause, root, component, :symlink)
+    end
+  end
+
+  defp root_error(:invalid_root, root, component, type),
+    do: root_error(:invalid_root_directory, root, component, type)
+
+  defp root_error(cause, root, component, type) do
+    unavailable(cause, :worktree, %{
+      root: report_path(root),
+      component: report_path(component),
+      type: type
+    })
+  end
+
+  defp report_path(path), do: Regex.replace(~r/\p{Cc}/u, String.replace_invalid(path), "")
 
   defp git_context(opts) do
     cd = Keyword.get_lazy(opts, :cd, &File.cwd!/0)
@@ -358,7 +573,13 @@ defmodule MutagenEx.GitDiff do
         |> Map.new(&{&1, nil})
         |> Map.merge(@git_env)
 
-      git = %{cmd: Keyword.get(opts, :cmd, &System.cmd/3), cd: cd, env: env, timeout: timeout}
+      git = %{
+        cmd: Keyword.get(opts, :cmd, &System.cmd/3),
+        kill_cmd: Keyword.get(opts, :kill_cmd, &System.cmd/3),
+        cd: cd,
+        env: env,
+        timeout: timeout
+      }
 
       case worktree_root(cd) do
         nil -> {:ok, git}
@@ -438,6 +659,7 @@ defmodule MutagenEx.GitDiff do
 
   defp repository_context(git) do
     with :ok <- require_worktree(git),
+         :ok <- require_superproject_boundary(git),
          {:ok, git} <- neutralize_drivers(git),
          {:ok, ignore_case?} <- ignore_case(git),
          {:ok, output} <- command(git, ["rev-parse", "--show-prefix"], :worktree),
@@ -457,6 +679,21 @@ defmodule MutagenEx.GitDiff do
       {:ok, "true\n"} -> :ok
       {:ok, _} -> unavailable(:not_inside_worktree, :worktree)
       error -> error
+    end
+  end
+
+  defp require_superproject_boundary(git) do
+    case command(git, ["rev-parse", "--show-superproject-working-tree"], :worktree) do
+      {:ok, ""} ->
+        :ok
+
+      {:ok, _} ->
+        unavailable(:inside_submodule, :worktree, %{
+          hint: "Running the gate from inside a submodule checkout is not supported."
+        })
+
+      error ->
+        error
     end
   end
 
@@ -645,29 +882,32 @@ defmodule MutagenEx.GitDiff do
     })
   end
 
-  defp command(git, args, step, limit \\ @metadata_bytes) do
-    case run(git, args, step, limit) do
+  defp command(git, args, step, limit \\ @metadata_bytes, keep \\ nil) do
+    case run(git, args, step, limit, keep) do
       {:ok, output, 0} -> {:ok, output}
       {:ok, _, status} -> unavailable(:git_exit, step, %{status: status})
       {:error, _, _} = error -> error
     end
   end
 
-  defp run(git, args, step, limit) do
-    opts = [cd: git.cd, env: git.env, into: %Output{limit: limit}, stderr_to_stdout: true]
+  defp run(git, args, step, limit, keep \\ nil) do
+    opts = [
+      cd: git.cd,
+      env: git.env,
+      into: %Output{limit: limit, keep: keep},
+      stderr_to_stdout: true
+    ]
 
     case timed_cmd(git, @git_options ++ args, opts) do
-      :timeout ->
+      {:timeout, :ok} ->
         unavailable(:timeout, step, %{timeout_ms: git.timeout})
+
+      {:timeout, :error} ->
+        unavailable(:timeout, step, %{timeout_ms: git.timeout, child_may_still_run: true})
 
       {"fatal: detected dubious ownership" <> _, status} when status != 0 ->
         checkout = git.env["GIT_WORK_TREE"] || git.cd
-        command = "git config --global --add safe.directory " <> config_quote(checkout)
-
-        unavailable(:dubious_ownership, step, %{
-          status: status,
-          hint: "Git refused #{inspect(checkout)}. Run as the owning user or run " <> command
-        })
+        unavailable(:dubious_ownership, step, %{status: status, hint: ownership_hint(checkout)})
 
       {output, status}
       when is_binary(output) and is_integer(status) and byte_size(output) <= limit ->
@@ -687,6 +927,18 @@ defmodule MutagenEx.GitDiff do
       end
   catch
     :git_output_limit -> unavailable(:output_limit, step, %{limit_bytes: limit})
+    :git_invalid_output -> unavailable(:invalid_output, step)
+  end
+
+  defp ownership_hint(checkout) do
+    printable = report_path(checkout)
+    hint = "Git refused #{inspect(printable)}. Run as the owning user"
+
+    if printable == checkout do
+      hint <> " or run git config --global --add safe.directory " <> config_quote(checkout)
+    else
+      hint <> ". The checkout path contains characters omitted from this diagnostic."
+    end
   end
 
   defp timed_cmd(git, args, opts) do
@@ -696,7 +948,9 @@ defmodule MutagenEx.GitDiff do
           {:result, git.cmd.("git", args, opts)}
         catch
           kind, reason ->
-            if reason == :git_output_limit, do: kill_child(self())
+            if reason in [:git_output_limit, :git_invalid_output],
+              do: kill_child(git.kill_cmd, self())
+
             {kind, reason, __STACKTRACE__}
         end
       end)
@@ -709,26 +963,31 @@ defmodule MutagenEx.GitDiff do
         :erlang.raise(kind, reason, stacktrace)
 
       nil ->
-        kill_child(task.pid)
+        cleanup = kill_child(git.kill_cmd, task.pid)
         Task.yield(task, to_timeout(millisecond: 100)) || Task.shutdown(task, :brutal_kill)
-        :timeout
+        {:timeout, cleanup}
     end
   end
 
   # OTP starts each Unix port command in its own session and process group.
-  defp kill_child(owner) do
-    for port <- Port.list(),
-        Port.info(port, :connected) == {:connected, owner},
-        {:os_pid, pid} <- [Port.info(port, :os_pid)],
-        is_integer(pid) do
-      {program, args} =
-        case :os.type() do
-          {:win32, _} -> {"taskkill", ["/F", "/T", "/PID", Integer.to_string(pid)]}
-          _ -> {"/bin/kill", ["-KILL", "--", Integer.to_string(-pid)]}
-        end
+  defp kill_child(kill_cmd, owner) do
+    results =
+      for port <- Port.list(),
+          Port.info(port, :connected) == {:connected, owner},
+          {:os_pid, pid} <- [Port.info(port, :os_pid)],
+          is_integer(pid) do
+        {program, args} =
+          case :os.type() do
+            {:win32, _} -> {"taskkill", ["/F", "/T", "/PID", Integer.to_string(pid)]}
+            _ -> {"/bin/kill", ["-KILL", "--", Integer.to_string(-pid)]}
+          end
 
-      System.cmd(program, args, stderr_to_stdout: true)
-    end
+        kill_cmd.(program, args, stderr_to_stdout: true)
+      end
+
+    if Enum.all?(results, &match?({_, 0}, &1)), do: :ok, else: :error
+  rescue
+    ErlangError -> :error
   end
 
   defp with_shallow({:error, reason, details}, shallow),
@@ -866,19 +1125,13 @@ defmodule MutagenEx.GitDiff do
   defp project_relative(nil, _git), do: nil
   defp project_relative(path, %{prefix: ""}), do: path
 
-  defp project_relative(path, %{prefix: prefix, ignore_case?: false}) do
-    if String.starts_with?(path, prefix) do
-      size = byte_size(prefix)
-      binary_part(path, size, byte_size(path) - size)
-    end
-  end
-
-  defp project_relative(path, %{prefix: prefix, ignore_case?: true}) do
-    components = :binary.split(prefix, "/", [:global]) |> Enum.drop(-1)
-    {directory, relative} = Enum.split(:binary.split(path, "/", [:global]), length(components))
+  defp project_relative(path, %{prefix: prefix, ignore_case?: ignore_case?}) do
+    components = path_segments(prefix) |> Enum.drop(-1)
+    {directory, relative} = Enum.split(path_segments(path), length(components))
 
     if relative != [] and
-         path_key(Enum.join(directory, "/"), true) == path_key(Enum.join(components, "/"), true) do
+         path_key(Enum.join(directory, "/"), ignore_case?) ==
+           path_key(Enum.join(components, "/"), ignore_case?) do
       Enum.join(relative, "/")
     end
   end
@@ -1049,21 +1302,46 @@ defmodule MutagenEx.GitDiff do
   end
 
   defimpl Collectable, for: Output do
-    def into(%{limit: limit}) do
+    def into(%{limit: limit, keep: nil}) do
       {{[], 0},
        fn
-         {chunks, size}, {:cont, bytes} when size + byte_size(bytes) <= limit ->
-           {[bytes | chunks], size + byte_size(bytes)}
+         acc, {:cont, bytes} -> append(acc, bytes, limit)
+         {chunks, _}, :done -> chunks |> Enum.reverse() |> IO.iodata_to_binary()
+         _, :halt -> :ok
+       end}
+    end
 
-         {_chunks, _size}, {:cont, _bytes} ->
-           throw(:git_output_limit)
+    def into(%{limit: limit, keep: keep}) do
+      {{{[], 0}, ""},
+       fn
+         {acc, pending}, {:cont, bytes} ->
+           [pending | reversed] =
+             :binary.split(pending <> bytes, <<0>>, [:global]) |> Enum.reverse()
 
-         {chunks, _size}, :done ->
+           acc =
+             reversed
+             |> Enum.reverse()
+             |> Enum.reduce(acc, fn record, acc ->
+               if keep.(record), do: append(acc, record <> <<0>>, limit), else: acc
+             end)
+
+           if byte_size(pending) > limit, do: throw(:git_invalid_output)
+           {acc, pending}
+
+         {{chunks, _}, ""}, :done ->
            chunks |> Enum.reverse() |> IO.iodata_to_binary()
 
-         _acc, :halt ->
+         _, :done ->
+           throw(:git_invalid_output)
+
+         _, :halt ->
            :ok
        end}
     end
+
+    defp append({chunks, size}, bytes, limit) when size + byte_size(bytes) <= limit,
+      do: {[bytes | chunks], size + byte_size(bytes)}
+
+    defp append(_, _, _), do: throw(:git_output_limit)
   end
 end
