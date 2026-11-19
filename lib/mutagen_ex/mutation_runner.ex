@@ -474,7 +474,6 @@ defmodule MutagenEx.MutationRunner do
   # the prime step's `{:error, _, _}` short-circuits cleanly via `with`.
   defp execute_after_prime(cfg, drift) do
     sites = cfg.sites
-    total = length(sites)
     max_concurrency = resolve_max_concurrency(cfg)
     warn_experimental_parallel_mode(max_concurrency)
     on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)
@@ -486,6 +485,7 @@ defmodule MutagenEx.MutationRunner do
       warnings: [],
       host_warnings: [],
       tainted: false,
+      snapshot_after: nil,
       truncated: false
     }
 
@@ -500,8 +500,6 @@ defmodule MutagenEx.MutationRunner do
     # early also avoids dispatching subsequent sites.
     budget_ms = Map.get(cfg, :budget_ms)
     started_at = System.monotonic_time(:millisecond)
-
-    indexed_sites = Enum.with_index(sites, 1)
 
     # When `max_concurrency == 1` we stay in the caller process. This:
     #   1. Preserves the v1.0 byte-identical execution path — the
@@ -530,18 +528,16 @@ defmodule MutagenEx.MutationRunner do
 
     task_outcomes_stream =
       if max_concurrency == 1 do
-        Stream.map(indexed_sites, fn {site, idx} ->
-          {:ok, process_site_task(site, idx, total, cfg)}
-        end)
+        sites
       else
         group_leader = Process.group_leader()
 
         Task.Supervisor.async_stream_nolink(
           parallel_task_sup,
-          indexed_sites,
-          fn {site, idx} ->
+          sites,
+          fn site ->
             Process.group_leader(self(), group_leader)
-            process_site_task(site, idx, total, cfg)
+            process_site_task(site, cfg, nil)
           end,
           max_concurrency: max_concurrency,
           ordered: true,
@@ -557,7 +553,18 @@ defmodule MutagenEx.MutationRunner do
 
     outcome =
       Enum.reduce_while(task_outcomes_stream, {:ok, initial}, fn
-        {:ok, task_outcome}, {:ok, acc} ->
+        {:exit, reason}, {:ok, _acc} ->
+          # Let the stream unwind before restoring modules that sibling
+          # sites may still be using.
+          {:halt, {:outer_task_exit, reason}}
+
+        input, {:ok, acc} ->
+          task_outcome =
+            case input do
+              %Site{} = site -> process_site_task(site, cfg, acc.snapshot_after)
+              {:ok, task_outcome} -> task_outcome
+            end
+
           # Fold the completed site's outcome FIRST (so the site that
           # crossed the budget still lands in results), then evaluate
           # the budget AFTER recording it — that decides whether to
@@ -581,15 +588,6 @@ defmodule MutagenEx.MutationRunner do
             {:halt, abort} ->
               {:halt, abort}
           end
-
-        {:exit, reason}, {:ok, _acc} ->
-          # An outer task exited unexpectedly (e.g. the supervisor
-          # killed it). Do NOT restore inside this fold branch:
-          # ordered async_stream can surface site i's exit while sibling
-          # sites are still running. Halt with a sentinel, let the
-          # stream unwind, then teardown siblings before the restore
-          # sweep in the post-reduce case below.
-          {:halt, {:outer_task_exit, reason}}
       end)
 
     case finish_parallel_run(outcome, parallel_task_sup, cfg) do
@@ -686,28 +684,24 @@ defmodule MutagenEx.MutationRunner do
   # see `mutagen.json_schema.r4`), `{:compile_error, site, msg}`,
   # `{:ast_miss, site}`, `{:site_not_found, site}`, or `{:abort,
   # reason, details}`; the fold decides whether to continue or halt.
-  defp process_site_task(%Site{} = site, _idx, _total, cfg) do
-    process_site_body(site, cfg)
-  end
-
-  defp process_site_body(%Site{} = site, cfg) do
+  defp process_site_task(%Site{} = site, cfg, snapshot_before) do
     case AstCache.get(cfg.ast_cache, site.file) do
       :error ->
         {:ast_miss, site}
 
       {:ok, {file_ast, source_text}} ->
-        run_one_site_task(site, file_ast, source_text, cfg)
+        run_one_site_task(site, file_ast, source_text, cfg, snapshot_before)
     end
   end
 
-  defp run_one_site_task(%Site{} = site, file_ast, source_text, cfg) do
+  defp run_one_site_task(%Site{} = site, file_ast, source_text, cfg, snapshot_before) do
     case mutate_at_path(file_ast, site) do
       {:ok, mutated_ast} ->
         cfg = Map.put(cfg, :host_snapshot, MutagenEx.Test.RunGroup.snapshot())
 
         case safe_compile_quoted(mutated_ast, site.file, cfg) do
           {:ok, _modules, compile_stderr} ->
-            run_within_restore(site, file_ast, source_text, compile_stderr, cfg)
+            run_within_restore(site, file_ast, source_text, compile_stderr, cfg, snapshot_before)
 
           {:error, :compile_error, message} ->
             # r5: `:compile_error` outcomes don't go in `results`; they
@@ -737,7 +731,14 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  defp run_within_restore(%Site{} = site, file_ast, source_text, compile_stderr, cfg) do
+  defp run_within_restore(
+         %Site{} = site,
+         file_ast,
+         source_text,
+         compile_stderr,
+         cfg,
+         snapshot_before
+       ) do
     case with_restore(file_ast, site, cfg, fn ->
            outcome =
              MutationLoop.run(%{
@@ -746,6 +747,7 @@ defmodule MutagenEx.MutationRunner do
                failure_times: Map.get(cfg, :failure_times),
                host_snapshot: cfg.host_snapshot,
                serial?: resolve_max_concurrency(cfg) == 1,
+               snapshot_before: snapshot_before,
                ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
                ex_unit_server: Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
                capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
@@ -841,7 +843,8 @@ defmodule MutagenEx.MutationRunner do
        | results: [result | acc.results],
          warnings: host_warnings ++ snapshot_warning ++ acc.warnings,
          host_warnings: Enum.uniq(acc.host_warnings ++ host_warnings),
-         tainted: next_tainted
+         tainted: next_tainted,
+         snapshot_after: post_meta.snapshot_after
      }}
   end
 
@@ -1259,24 +1262,20 @@ defmodule MutagenEx.MutationRunner do
     pieces =
       for {kind, entries} <- [
             processes: delta.processes,
-            ets: Enum.map(delta.ets, &table_name/1),
+            ets: delta.ets,
             persistent_term: delta.persistent_terms
           ],
-          Enum.any?(entries) do
-        "#{kind}: #{inspect(Enum.sort(entries))}"
+          map_size(entries) > 0 do
+        growth =
+          Enum.map_join(Enum.sort(entries), ", ", fn {name, count} ->
+            "#{inspect(name)} +#{count}"
+          end)
+
+        "#{kind}: #{growth}"
       end
 
     "state_leak after site #{site.id}: #{Enum.join(pieces, ", ")}. " <>
       "Subsequent results carry tainted_predecessors: true"
-  end
-
-  defp table_name(table) when is_atom(table), do: table
-
-  defp table_name(table) do
-    case :ets.info(table, :name) do
-      :undefined -> table
-      name -> name
-    end
   end
 
   # ---------------------------------------------------------------------------

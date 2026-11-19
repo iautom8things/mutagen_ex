@@ -56,7 +56,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   @typedoc "Pre/post state snapshot."
   @type snapshot :: %{
           processes: MapSet.t(atom()),
-          ets: MapSet.t(:ets.tab()),
+          ets: %{optional(atom()) => pos_integer()},
           persistent_terms: MapSet.t(term())
         }
 
@@ -98,6 +98,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           optional(:ex_unit_server) => module(),
           optional(:failure_times) => :ets.tab() | nil,
           optional(:serial?) => boolean(),
+          optional(:snapshot_before) => snapshot() | nil,
           optional(:capture_io) => module(),
           optional(:cancel_grace_ms) => non_neg_integer(),
           optional(:task_sup) => atom() | pid()
@@ -105,7 +106,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
   @spec run(input()) :: outcome()
   def run(input) when is_map(input) do
-    snapshot_before = take_snapshot()
+    snapshot_before = Map.get(input, :snapshot_before) || take_snapshot()
 
     {stderr, {body_result, host_warnings}} =
       capture_stderr(input, fn ->
@@ -139,30 +140,56 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   def take_snapshot do
     %{
       processes: MapSet.new(Process.registered()),
-      ets: MapSet.new(:ets.all()),
-      persistent_terms:
-        for(
-          {key, _} <- :persistent_term.get(),
-          not bookkeeping_key?(key),
-          into: MapSet.new(),
-          do: key
-        )
+      ets: ets_name_counts(),
+      persistent_terms: MapSet.new(:persistent_term.get(), &elem(&1, 0))
     }
   end
 
-  defp bookkeeping_key?({:logger_config, module}) when is_atom(module), do: true
-  defp bookkeeping_key?(:elixir_erl_compiler), do: true
-  defp bookkeeping_key?(_), do: false
+  defp ets_name_counts do
+    Enum.reduce(:ets.all(), %{}, fn table, counts ->
+      name = :ets.info(table, :name)
 
-  @spec snapshot_delta(snapshot(), snapshot()) :: snapshot()
-  def snapshot_delta(before, after_) do
-    Map.new(after_, fn {kind, entries} ->
-      {kind, MapSet.difference(entries, Map.fetch!(before, kind))}
+      if name == :undefined and :ets.info(table, :owner) == :undefined do
+        counts
+      else
+        Map.update(counts, name, 1, &(&1 + 1))
+      end
     end)
   end
 
-  @spec snapshot_grew?(snapshot()) :: boolean()
-  def snapshot_grew?(delta), do: Enum.any?(delta, fn {_, entries} -> MapSet.size(entries) > 0 end)
+  @typep delta :: %{atom() => %{optional(term()) => pos_integer()}}
+
+  @spec snapshot_delta(snapshot(), snapshot()) :: delta()
+  def snapshot_delta(before, after_) do
+    ets =
+      for {name, count} <- after_.ets,
+          (growth = count - Map.get(before.ets, name, 0)) > 0,
+          into: %{},
+          do: {name, growth}
+
+    persistent_terms =
+      for key <- MapSet.difference(after_.persistent_terms, before.persistent_terms),
+          not bookkeeping_key?(key),
+          into: %{},
+          do: {key, 1}
+
+    %{
+      processes: additions(before.processes, after_.processes),
+      ets: ets,
+      persistent_terms: persistent_terms
+    }
+  end
+
+  defp additions(before, after_), do: Map.new(MapSet.difference(after_, before), &{&1, 1})
+
+  defp bookkeeping_key?({:logger_config, module}) when is_atom(module),
+    do: :logger.get_module_level(module) == []
+
+  defp bookkeeping_key?(:elixir_erl_compiler), do: true
+  defp bookkeeping_key?(_), do: false
+
+  @spec snapshot_grew?(delta()) :: boolean()
+  def snapshot_grew?(delta), do: Enum.any?(delta, fn {_, entries} -> map_size(entries) > 0 end)
 
   # ---- timeout + run ----
 

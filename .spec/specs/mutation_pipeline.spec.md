@@ -49,6 +49,7 @@ decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
   - mutagen.decision.state_leak_snapshots
+  - mutagen.decision.state_leak_name_counts
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.mutation_loop_private
@@ -185,13 +186,17 @@ decisions:
 - id: mutagen.mutation_pipeline.r7
   priority: must
   statement: |
-    The runner compares the registered process names, ETS table identities,
-    and persistent term keys before and after each site's test run. Ignore
-    persistent term keys of the form `{:logger_config, module}` and the key
-    `:elixir_erl_compiler`. If any new entries remain, the `state_leak`
-    warning identifies the site and names the new processes, tables or
-    keys. Every subsequent mutation result carries
-    `tainted_predecessors: true` until the run ends.
+    The runner compares registered process names, the count of ETS tables
+    per name, and persistent term keys. Replacing a table or restarting
+    a process under the same name does not count as growth. Unnamed ETS
+    tables count under the name returned by `:ets.info(table, :name)`.
+    Ignore the new key `:elixir_erl_compiler` and a new
+    `{:logger_config, module}` key only when Logger has no explicit level
+    for that module. A `state_leak` warning identifies the site and lists
+    each new name or key with its positive count delta. Every subsequent
+    mutation result carries `tainted_predecessors: true` until the run ends.
+    In serial runs the next site reuses the previous tested site's
+    after-snapshot. In parallel, each site takes both snapshots.
 
 - id: mutagen.mutation_pipeline.r8
   priority: must

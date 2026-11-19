@@ -1,6 +1,7 @@
 ---
 id: mutagen.decision.state_leak_snapshots
-status: accepted
+status: superseded
+superseded_by: mutagen.decision.state_leak_name_counts
 date: 2026-11-19
 affects:
   - mutagen.mutation_pipeline
