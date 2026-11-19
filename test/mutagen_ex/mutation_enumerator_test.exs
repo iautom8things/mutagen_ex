@@ -855,6 +855,41 @@ defmodule MutagenEx.MutationEnumeratorTest do
     end
   end
 
+  describe "function capture references" do
+    @describetag spec: "mutagen.mutation_enumeration.r10"
+
+    test "the `/` naming a captured function is offered to no mutator" do
+      source = """
+      defmodule CaptureRefs do
+        def local(xs), do: Enum.map(xs, &double/1)
+        def remote(xs), do: Enum.reduce(xs, &Kernel.max/2)
+        def erlang(xs), do: Enum.reduce(xs, &:erlang.max/2)
+        def body(xs), do: Enum.map(xs, &(&1 / 2))
+        def plain(x), do: x / 2
+        defp double(x), do: x * 2
+      end
+      """
+
+      cache = ast_cache("lib/capture_refs.ex", source)
+      scopes = [scope("lib/capture_refs.ex", CaptureRefs)]
+      covered = covered_lines("lib/capture_refs.ex", Enum.to_list(1..8))
+
+      for mode <- [:head_atom, :legacy] do
+        result = MutationEnumerator.enumerate(cache, scopes, covered, dispatch_mode: mode)
+
+        assert result.sites
+               |> Enum.filter(&(&1.mutator == :arith))
+               |> Enum.map(&{&1.line, Macro.to_string(&1.mutated_ast)}) == [
+                 {5, "&1 * 2"},
+                 {6, "x * 2"},
+                 {7, "x / 2"}
+               ]
+
+        refute Enum.any?(result.skipped, &(&1.mutator == :arith))
+      end
+    end
+  end
+
   describe "r7 — --max-sites cap (mutagen.mutation_enumeration.r7)" do
     @describetag spec: "mutagen.mutation_enumeration.r7"
 

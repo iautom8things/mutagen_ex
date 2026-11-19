@@ -104,6 +104,11 @@ file for traceability.
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
 
+- **Function captures are no longer mutated as division.** The `/` in
+  `&fun/1` and `&Mod.fun/2` names a function, but `arith` swapped it for
+  `*`, which could never compile. Division inside a capture body, such as
+  `&(&1 / 2)`, still mutates.
+
 - **Archive-installed CLI no longer crashes on a cold start.** When
   `mix mutagen` was installed globally via `mix archive.install` (no
   `:mutagen_ex` entry in the host project's deps) and run for the first
