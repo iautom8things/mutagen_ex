@@ -226,7 +226,7 @@ defmodule MutagenEx.JsonReporterTest do
       [r | _] = decoded["mutation"]["results"]
 
       for k <-
-            ~w(id file line column mutator before before_source after status
+            ~w(id file line column mutator confidence before before_source after status
                tainted_predecessors warnings) do
         assert Map.has_key?(r, k), "result entry missing required field #{k}"
       end

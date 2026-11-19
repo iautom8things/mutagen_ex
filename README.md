@@ -114,7 +114,7 @@ guards, `with`, or the pipe:
 |---|---|---|
 | `result_tuple` | flips `{:ok, x}` ↔ `{:error, x}` | targets Elixir's tagged-tuple result convention |
 | `guard_drop` | drops a function-clause `when` guard | guards are an Elixir/Erlang dispatch construct |
-| `with_swap` | reorders `with` clauses | `with` is an Elixir control structure |
+| `with_swap` | swaps the first two leading `<-` clauses of a `with` | `with` is an Elixir control structure |
 | `else_removal` | drops the `else` branch of `if`/`with` | shaped to Elixir's `if`/`with` else semantics |
 | `case_drop` | drops the last `case`/`cond` clause | closest to the classic statement/clause-deletion (SDL) family, but Elixir's exhaustiveness and `CaseClauseError` behaviour make it its own thing (see Known limitations) |
 | `pipeline` | reorders adjacent `\|>` segments | the pipe operator is Elixir-idiomatic |
@@ -124,6 +124,44 @@ well-understood, citable backbone, while the six idiomatic operators cover the
 fault classes that only show up in Elixir code. Treat the standard-operator
 names above as the vocabulary a reviewer (human or LLM judge) already knows;
 treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
+
+### Mutator confidence
+
+Every aggregate `mutation.results[]` entry and every NDJSON `"result"` line
+has a `"confidence"` field. It is a rating for the mutator, independent of
+the outcome of any one mutation. A CI gate can filter for
+`status == "survived" and confidence == "high"`. The field is part of
+report schema version `"2"`. The summary counts results of both confidence
+levels.
+
+| Mutator | Confidence | Reason |
+|---|---|---|
+| `arith` | high | The swapped operator computes a different result for typical operands. |
+| `compare` | high | Each swap negates the original comparison. |
+| `boolean` | high | The mutation changes the truth table or removes a negation. |
+| `literal` | high | The mutation changes a concrete value in an expression or a pattern. |
+| `with_swap` | low | Two checks can still return the same failure in practice, or their failures may never occur together. |
+| `case_drop` | high | Inputs handled by the removed final arm can now raise a clause error. |
+| `pipeline` | high | Swapping distinct stages changes which transform receives the original input. Some stages commute. |
+| `result_tuple` | high | The tag swap changes which consumers treat a result as success or failure. |
+| `else_removal` | high | Removing the branch changes how a false condition or failed match is handled. |
+| `guard_drop` | high | Dropping the guard can let a clause accept values it used to reject. |
+
+`with_swap` looks for a possible change in which of the first two failures
+gets returned or handled by `else`. It records the following reasons in
+`mutation.skipped`.
+
+| Reason | When it applies |
+|---|---|
+| `bound_var_used_before_binding` | The clause moved first refers to a now-later binding in its expression, guard or pin. |
+| `insufficient_refutable_patterns` | Either match uses an unguarded variable, a wildcard, or a literal pattern with an identical literal expression. |
+| `indistinguishable_failures` | Both expressions are the same quoted literal or read the same variable that neither pattern binds. |
+| `else_ignores_failure` | There is a single `else` arm with an unguarded wildcard. |
+
+Guards and pins can fail. The check treats calls as opaque and leaves later
+clauses in place. Filtering can miss bugs that depend on evaluation order,
+such as writes that run before a short circuit, which exception is raised,
+or which clause supplies the final value of a rebound variable.
 
 ## Self-mutation
 
@@ -323,7 +361,7 @@ shape is byte-equal to the equivalent entry in the aggregate
 
 ```
 {"version":"2","kind":"start","total":42,"meta":{"id_scheme":"2",...}}
-{"version":"2","kind":"result","id":"...","function":"MyApp.Counter.add/2","status":"killed","mutator":"arith",...}
+{"version":"2","kind":"result","id":"...","function":"MyApp.Counter.add/2","status":"killed","mutator":"arith","confidence":"high",...}
 {"version":"2","kind":"compile_error","id":"...","message":"..."}
 {"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,"kill_rate":0.81,...}
 ```
@@ -514,10 +552,11 @@ output is plain JSON with no comments.)
         "line": 12,
         "column": 24,
         "mutator": "arith",     // which mutator produced this edit
+        "confidence": "high",   // rating assigned to the mutator
         "before": "a + b",      // original source at the site
         "after": "a - b",       // the mutated source that was tested
         "before_source": "a + b",
-        // killed | survived | timeout | error | compile_error
+        // killed | survived | timeout | error
         "status": "killed",
         "tainted_predecessors": false,
         "warnings": { "count": 1 } // count of advisory warnings for this site
@@ -529,6 +568,7 @@ output is plain JSON with no comments.)
         "line": 18,
         "column": 29,
         "mutator": "literal",
+        "confidence": "high",
         "before": "0",
         "after": "1",
         "before_source": "0",
@@ -539,8 +579,7 @@ output is plain JSON with no comments.)
       // ... remaining results elided ...
     ],
 
-    // Sites that failed to compile when mutated. Same outer shape as a
-    // result, plus a "message" field; empty here.
+    // Sites that failed to compile when mutated, with a diagnostic message.
     "compile_errors": [],
 
     // Sites that were enumerated but not run, with a reason.

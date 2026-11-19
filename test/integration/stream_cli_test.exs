@@ -202,6 +202,10 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert Enum.all?(ndjson, &(&1["version"] == "2")),
            "every NDJSON line must carry version \"2\": #{inspect(ndjson)}"
 
+    results = Enum.filter(ndjson, &(&1["kind"] == "result"))
+    assert [_ | _] = results
+    assert Enum.all?(results, &(&1["confidence"] == "high"))
+
     start_line = List.first(ndjson)
     assert start_line["meta"]["id_scheme"] == "2"
 
