@@ -31,11 +31,21 @@ defmodule MutagenEx.Test.RunGroup do
   end
 
   def stop(group, action, processes, {session, _runner} = tracker) do
-    restore_members(group, processes, Process.group_leader(), action, tracker)
+    if Process.alive?(group) do
+      try do
+        restore_members(group, processes, Process.group_leader(), action, tracker)
+      after
+        :trace.session_destroy(session)
+        monitor = Process.monitor(group)
+        send(group, :stop)
+
+        receive do
+          {:DOWN, ^monitor, :process, ^group, _} -> :ok
+        end
+      end
+    end
+
     :ok
-  after
-    :trace.session_destroy(session)
-    send(group, :stop)
   end
 
   def host_warnings(_snapshot, false), do: []
@@ -84,16 +94,16 @@ defmodule MutagenEx.Test.RunGroup do
   end
 
   defp restore_members(group, processes, destination, action, tracker) do
-    candidates = members(group)
     owned = if action == :reap, do: descendants(group, tracker), else: MapSet.new()
 
     kill =
-      for pid <- candidates,
-          not restore_or_reap(pid, processes, destination, owned) do
-        pid
-      end
+      MapSet.filter(owned, fn pid -> not Map.has_key?(processes, pid) and Process.alive?(pid) end)
 
-    if kill != [] do
+    for pid <- members(group), not MapSet.member?(kill, pid) do
+      restore_leader(pid, previous_leader(pid, processes, destination), destination)
+    end
+
+    if MapSet.size(kill) > 0 do
       monitors = Enum.map(kill, &Process.monitor/1)
       Enum.each(kill, &Process.exit(&1, :kill))
 
@@ -119,15 +129,6 @@ defmodule MutagenEx.Test.RunGroup do
 
     receive do
       {^ref, descendants} -> MapSet.put(descendants, runner)
-    end
-  end
-
-  defp restore_or_reap(pid, processes, fallback, owned) do
-    if not Map.has_key?(processes, pid) and MapSet.member?(owned, pid) do
-      false
-    else
-      restore_leader(pid, previous_leader(pid, processes, fallback), fallback)
-      true
     end
   end
 

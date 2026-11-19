@@ -32,6 +32,20 @@ defmodule MutagenEx.FailFastTest do
   end
 
   setup_all do
+    server = Process.whereis(ExUnit.Server)
+
+    # A restart can discard this module's results before ExUnit reports them.
+    System.at_exit(fn exit_code ->
+      if Process.whereis(ExUnit.Server) != server do
+        IO.puts(
+          :stderr,
+          "ExUnit.Server restarted during the fail-fast tests. Test counts may be incomplete."
+        )
+
+        exit({:shutdown, max(exit_code, 1)})
+      end
+    end)
+
     compile_fixture(@fixture, @source)
     :ok
   end
@@ -118,7 +132,7 @@ defmodule MutagenEx.FailFastTest do
 
     assert {{%{total: 0, failures: 0}, _output}, _stderr} =
              ExUnit.CaptureIO.with_io(:stderr, fn ->
-               ExUnit.CaptureIO.with_io(fn -> ExUnit.run() end)
+               ExUnit.CaptureIO.with_io(fn -> with_exunit_server(&ExUnit.run/0) end)
              end)
   end
 
@@ -145,14 +159,19 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :before_failure
-  @tag spec: "mutagen.mutation_pipeline.r4"
-  test "a deadline before any recorded failure stays a timeout in both modes" do
-    {capped, traces, _} = run_pipeline(["--timeout-ms", "250"])
-    {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
+  @tag spec: ["mutagen.mutation_pipeline.r4", "mutagen.mutation_pipeline.r27"]
+  test "an async case times out and later sites run in both fail-fast modes" do
+    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "1000"])
+    {full, full_traces, _} = run_pipeline(["--timeout-ms", "1000", "--no-fail-fast"])
 
     assert [{_, "timeout"}, {_, "killed"}, {_, "killed"}, {_, "survived"}] = verdicts(capped)
     assert verdicts(full) == verdicts(capped)
-    assert hd(traces) == [{:first, 1}]
+    assert hd(capped_traces) == [{:first, 1}, {:async, true}]
+    assert hd(full_traces) == [{:first, :infinity}, {:async, true}]
+
+    for trace <- capped_traces ++ full_traces do
+      assert {:async, true} in trace
+    end
   end
 
   @tag scenario: :slow_cleanup
@@ -177,7 +196,15 @@ defmodule MutagenEx.FailFastTest do
              output |> String.split("\n", trim: true) |> Enum.map(&:json.decode/1)
 
     assert %{"kind" => "start", "total" => 4, "meta" => %{"fail_fast" => true}} = start
-    assert %{"kind" => "end", "aborted" => false, "completed" => 1, "killed" => 1} = finish
+
+    assert %{
+             "kind" => "end",
+             "aborted" => false,
+             "completed" => 1,
+             "killed" => 1,
+             "truncated" => true
+           } = finish
+
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
     assert Map.delete(aggregate["meta"], "timings_ms") == start["meta"]
     assert start["meta"] == finish["meta"]
@@ -213,22 +240,24 @@ defmodule MutagenEx.FailFastTest do
     before = Map.new(Application.get_all_env(:ex_unit))
 
     assert_raise RuntimeError, "mutation phase interrupted", fn ->
-      MutagenEx.MutationRunner.run(%{
-        seed: 0,
-        timeout_ms: 250,
-        test_filter: %MutagenEx.TestSelector.TestFilter{include: [], exclude: [], files: []},
-        ast_cache: %{},
-        sites: [],
-        scope_records: [
-          %MutagenEx.ScopeResolver.Scope{
-            file: @source,
-            line_range: 1..1,
-            module: FailFastFixture.Arithmetic
-          }
-        ],
-        test_modules: [],
-        code_server: __MODULE__.InterruptingCodeServer
-      })
+      with_exunit_server(fn ->
+        MutagenEx.MutationRunner.run(%{
+          seed: 0,
+          timeout_ms: 250,
+          test_filter: %MutagenEx.TestSelector.TestFilter{include: [], exclude: [], files: []},
+          ast_cache: %{},
+          sites: [],
+          scope_records: [
+            %MutagenEx.ScopeResolver.Scope{
+              file: @source,
+              line_range: 1..1,
+              module: FailFastFixture.Arithmetic
+            }
+          ],
+          test_modules: [],
+          code_server: __MODULE__.InterruptingCodeServer
+        })
+      end)
     end
 
     assert Map.new(Application.get_all_env(:ex_unit)) == before
@@ -275,13 +304,13 @@ defmodule MutagenEx.FailFastTest do
       ExUnit.configure(fail_fast_formatter_counter: counter)
 
       report =
-        run_fixture(fixture, ["--timeout-ms", "150" | mode], %{mutation: __MODULE__.CountDrains})
+        run_fixture(fixture, ["--timeout-ms", "1000" | mode], %{mutation: __MODULE__.CountDrains})
 
       assert Process.delete(:fail_fast_drains) == 1
       assert Enum.map(verdicts(report), &elem(&1, 1)) == ~w(timeout killed killed)
       assert Enum.at(report["mutation"]["results"], 1)["tainted_predecessors"]
       assert :counters.get(counter, 1) == 5
-      assert %{total: 0, failures: 0} = ExUnit.run()
+      assert %{total: 0, failures: 0} = with_exunit_server(&ExUnit.run/0)
     end
   end
 
@@ -291,7 +320,7 @@ defmodule MutagenEx.FailFastTest do
     cfg = baseline_config(root, "test/shapes_test.exs")
 
     assert {:error, :baseline_red, %{failed: 4, passed: 1, failures: failures}} =
-             MutagenEx.Baseline.run(cfg)
+             with_exunit_server(fn -> MutagenEx.Baseline.run(cfg) end)
 
     assert Enum.sort(failures) == [
              {FailFastBaseline.PlainTest, :"test d fails"},
@@ -312,7 +341,11 @@ defmodule MutagenEx.FailFastTest do
     file = Path.join(root, "test/red_a_test.exs")
     cfg = baseline_config(root, "test/red_a_test.exs")
 
-    {baseline, _io} = ExUnit.CaptureIO.with_io(fn -> MutagenEx.Baseline.run(cfg) end)
+    {baseline, _io} =
+      ExUnit.CaptureIO.with_io(fn ->
+        with_exunit_server(fn -> MutagenEx.Baseline.run(cfg) end)
+      end)
+
     assert {:error, :baseline_red, %{failed: 2, failures: [_, _]}} = baseline
     assert_host_settings()
     assert_run_settings(true)
@@ -324,7 +357,9 @@ defmodule MutagenEx.FailFastTest do
 
     {coverage, _io} =
       ExUnit.CaptureIO.with_io(fn ->
-        MutagenEx.CoverageRunner.run(Map.put(cfg, :in_scope_modules, []))
+        with_exunit_server(fn ->
+          MutagenEx.CoverageRunner.run(Map.put(cfg, :in_scope_modules, []))
+        end)
       end)
 
     assert {:ok, _} = coverage
@@ -335,7 +370,9 @@ defmodule MutagenEx.FailFastTest do
   @tag spec: ["mutagen.json_schema.r1", "mutagen.cli.r17"]
   test "early CLI errors still report the default mode" do
     assert {:aborted, :unknown_flag, _} =
-             Mix.Tasks.Mutagen.run(["--bogus"], %{io: __MODULE__.Capture})
+             with_exunit_server(fn ->
+               Mix.Tasks.Mutagen.run(["--bogus"], %{io: __MODULE__.Capture})
+             end)
 
     assert_receive {:mutagen_output, 2, output}
 
@@ -431,7 +468,7 @@ defmodule MutagenEx.FailFastTest do
       counter = Keyword.fetch!(opts, :fail_fast_formatter_counter)
 
       :counters.add(counter, 1, 1)
-      if :counters.get(counter, 1) == 3, do: Process.sleep(500)
+      if :counters.get(counter, 1) == 3, do: Process.sleep(:infinity)
 
       {:ok, nil}
     end
@@ -476,7 +513,9 @@ defmodule MutagenEx.FailFastTest do
     {{_result, stream}, _stderr} =
       ExUnit.CaptureIO.with_io(:stderr, fn ->
         ExUnit.CaptureIO.with_io(fn ->
-          File.cd!(root, fn -> Mix.Tasks.Mutagen.run(args, dispatch) end)
+          with_exunit_server(fn ->
+            File.cd!(root, fn -> Mix.Tasks.Mutagen.run(args, dispatch) end)
+          end)
         end)
       end)
 
@@ -485,6 +524,18 @@ defmodule MutagenEx.FailFastTest do
     assert Map.new(Application.get_all_env(:ex_unit)) == before
     {traces, elapsed} = Process.get(:fail_fast_run, {nil, nil})
     {stream <> output, traces, elapsed}
+  end
+
+  defp with_exunit_server(fun) do
+    server = Process.whereis(ExUnit.Server)
+    assert is_pid(server)
+
+    try do
+      fun.()
+    after
+      assert Process.whereis(ExUnit.Server) == server,
+             "ExUnit.Server restarted during an in-suite pipeline run"
+    end
   end
 
   defp verdicts(report), do: Enum.map(report["mutation"]["results"], &{&1["id"], &1["status"]})
@@ -549,5 +600,11 @@ defmodule MutagenEx.FailFastTest do
     end
   end
 
-  def phase_events, do: test_steps(:infinity)
+  def phase_events do
+    [first | rest] = test_steps(:infinity)
+
+    if Probe.scenario() == :before_failure,
+      do: [first, {:async, true} | rest],
+      else: [first | rest]
+  end
 end

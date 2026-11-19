@@ -53,6 +53,30 @@ defmodule MutagenEx.Test.RunGroupTest do
       assert Process.info(worker, :group_leader) == {:group_leader, Process.group_leader()}
     end
 
+    test "a timed-out worker blocked inside capture_io is reaped" do
+      caller = self()
+
+      :persistent_term.put(
+        {__MODULE__, :site},
+        {caller,
+         fn ->
+           spawn(fn ->
+             ExUnit.CaptureIO.capture_io(fn ->
+               send(caller, {:capturing, self(), Process.group_leader()})
+               Process.sleep(:infinity)
+             end)
+           end)
+
+           Process.sleep(:infinity)
+         end}
+      )
+
+      assert {:timeout, _meta} = MutationLoop.run(site_input())
+      assert_received {:capturing, worker, capture_device}
+      on_exit(fn -> Enum.each([worker, capture_device], &Process.exit(&1, :kill)) end)
+      refute Process.alive?(worker)
+    end
+
     test "the group forwards member I/O and reaps processes its members spawn" do
       {:ok, device} = StringIO.open("")
       group = RunGroup.start(device)
@@ -78,6 +102,39 @@ defmodule MutagenEx.Test.RunGroupTest do
       refute Process.alive?(member)
       refute Process.alive?(child)
     end
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r26"
+  test "stop waits for the group to exit and an immediate second stop returns" do
+    group = RunGroup.start(Process.group_leader())
+    runner = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(runner, :kill) end)
+    tracker = RunGroup.track(group, runner)
+    session = :trace.session_create(:run_group_stop_test, self(), [])
+
+    task =
+      Task.async(fn ->
+        receive do
+          :stop_group -> RunGroup.stop(group, :release, %{}, tracker)
+        end
+      end)
+
+    assert :erlang.suspend_process(group)
+
+    try do
+      assert :trace.process(session, task.pid, true, [:send]) == 1
+      send(task.pid, :stop_group)
+      task_pid = task.pid
+      assert_receive {:trace, ^task_pid, :send, :stop, ^group}, to_timeout(second: 1)
+      refute Task.yield(task, to_timeout(millisecond: 100))
+    after
+      :erlang.resume_process(group)
+      :trace.session_destroy(session)
+    end
+
+    assert :ok = Task.await(task)
+    refute Process.alive?(group)
+    assert :ok = RunGroup.stop(group, :reap, %{}, tracker)
   end
 
   @tag spec: "mutagen.mutation_pipeline.r23"

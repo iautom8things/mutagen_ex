@@ -29,3 +29,6 @@ A replacement under the same name produces no warning. An extra table
 under a name records growth even when a table under another name goes
 away. Taint remains sticky. Snapshots are VM-wide and count net changes
 between observation points.
+
+If one table dies and a new same-named table leaks during the same site,
+the net count is unchanged and the report misses that leak.

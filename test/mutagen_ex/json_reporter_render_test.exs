@@ -1,7 +1,6 @@
-defmodule Mix.Tasks.MutagenRenderTest do
+defmodule MutagenEx.JsonReporterRenderTest do
   @moduledoc """
-  Tests `Mix.Tasks.Mutagen`'s private result-rendering path via the
-  `__render_result__/1` test seam.
+  Tests the result renderer shared by the aggregate report and stream.
 
   Covers two contracts:
 
@@ -20,6 +19,110 @@ defmodule Mix.Tasks.MutagenRenderTest do
   """
 
   use ExUnit.Case, async: true
+
+  alias MutagenEx.{Ast, AstCache, JsonReporter, MutationEnumerator}
+  alias MutagenEx.JsonReporter.Source
+  alias MutagenEx.ScopeResolver.Scope
+
+  @tag spec: ["mutagen.json_schema.r27", "mutagen.mutation_enumeration.r11"]
+  test "every site in the fixture and library corpus renders its exact source expression" do
+    files =
+      ["lib", "test/fixtures"]
+      |> Enum.flat_map(&Path.wildcard(&1 <> "/**/*.{ex,exs}"))
+      |> Enum.reject(&String.contains?(&1, ["/_build/", "/deps/"]))
+
+    site_count =
+      Enum.reduce(files, 0, fn file, count ->
+        assert {:ok, %{^file => {ast, source}} = cache} = AstCache.load([file])
+        lines = 1..length(String.split(source, "\n"))
+
+        scopes =
+          for {module, _, _} <- Ast.module_blocks(ast), uniq: true do
+            %Scope{file: file, line_range: lines, module: module}
+          end
+
+        %{sites: sites} =
+          MutationEnumerator.enumerate(cache, scopes, %{file => MapSet.new(lines)})
+
+        for site <- sites do
+          result = site |> Map.from_struct() |> Map.merge(%{source_text: source, status: :killed})
+          excerpt = JsonReporter.render_result(result).before_source
+          location = "#{file}:#{site.line}:#{site.column} (#{site.mutator})"
+
+          assert {start, length} = site.source_span, "missing source span at #{location}"
+          assert excerpt == binary_part(source, start, length), "wrong excerpt at #{location}"
+
+          assert {:ok, parsed} = Code.string_to_quoted(excerpt, emit_warnings: false),
+                 "cannot parse excerpt at #{location}: #{inspect(excerpt)}"
+
+          assert without_metadata(parsed) == without_metadata(site.original_ast),
+                 "excerpt has a different AST at #{location}: #{inspect(excerpt)}"
+        end
+
+        count + length(sites)
+      end)
+
+    assert site_count > 2_000
+  end
+
+  @tag spec: ["mutagen.json_schema.r27", "mutagen.mutation_enumeration.r11"]
+  test "source spans include call receivers and keep literal spelling" do
+    expressions = [
+      "order.quantity * rate",
+      "Enum.count(list)  +  0x1",
+      "Map.new() |> Map.put(:key, 0x1)",
+      "(fun).(value) * rate",
+      "values[:key]  +  -1",
+      "débit.valeur * taux"
+    ]
+
+    for expression <- expressions do
+      source = "  " <> expression <> " # trailing comment\n"
+      assert {2, length} = source |> Source.index("sample.ex") |> Source.span([])
+      assert binary_part(source, 2, length) == expression
+    end
+  end
+
+  @tag spec: "mutagen.json_schema.r27"
+  test "a trailing comment at EOF is outside the source span" do
+    source = "a + b # trailing comment"
+    assert {0, 5} = source |> Source.index("sample.ex") |> Source.span([])
+  end
+
+  @tag spec: "mutagen.json_schema.r21"
+  test "invalid slices and slices of a different expression reuse the rendered AST" do
+    [result] = sample_results(1)
+
+    for source <- ["a - 1", "a + (", <<255, 32, ?a, ?+, ?1>>] do
+      result =
+        Map.merge(result, %{
+          source_text: source,
+          source_span: {0, byte_size(source)}
+        })
+
+      rendered = JsonReporter.render_result(result)
+      assert rendered.before_source == "a + 1"
+      assert :erts_debug.same(rendered.before, rendered.before_source)
+    end
+
+    legacy =
+      Map.merge(result, %{
+        original_ast: Code.string_to_quoted!("a + 1", columns: true),
+        source_text: "a - 1",
+        end_line: 1,
+        end_column: 6
+      })
+
+    rendered = JsonReporter.render_result(legacy)
+    assert :erts_debug.same(rendered.before, rendered.before_source)
+  end
+
+  defp without_metadata(ast) do
+    Macro.prewalk(ast, fn
+      {form, meta, args} when is_list(meta) -> {form, [], args}
+      node -> node
+    end)
+  end
 
   @tag spec: "mutagen.json_schema.r12"
   test "rendering each site calls Macro.to_string/1 twice on both paths" do
@@ -41,8 +144,8 @@ defmodule Mix.Tasks.MutagenRenderTest do
       Task.async(fn ->
         receive do
           :render ->
-            fallback_result = Mix.Tasks.Mutagen.__render_result__(fallback)
-            slice_result = Mix.Tasks.Mutagen.__render_result__(sliced)
+            fallback_result = JsonReporter.render_result(fallback)
+            slice_result = JsonReporter.render_result(sliced)
             send(parent, {:rendered, fallback_result, slice_result})
         end
 
@@ -90,7 +193,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
           end_line: 1,
           end_column: String.length(source) + 1
         })
-        |> Mix.Tasks.Mutagen.__render_result__()
+        |> JsonReporter.render_result()
 
       assert rendered.before_source == source
     end
@@ -141,7 +244,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
           end_line: length(lines),
           end_column: String.length(List.last(lines)) + column_offset + 1
         })
-        |> Mix.Tasks.Mutagen.__render_result__()
+        |> JsonReporter.render_result()
 
       assert rendered.before_source == expected
     end
@@ -154,7 +257,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
   describe "r12 fallback: when end_line/end_column are nil, before_source aliases before" do
     test "before and before_source are byte-identical for every rendered result" do
       for r <- sample_results(5) do
-        wire = Mix.Tasks.Mutagen.__render_result__(r)
+        wire = JsonReporter.render_result(r)
 
         assert wire[:before] == wire[:before_source],
                "r12: before and before_source must be byte-identical " <>
@@ -170,7 +273,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
       # `:erts_debug.same/2` returns true only when both arguments are
       # the SAME term in memory.
       for r <- sample_results(5) do
-        wire = Mix.Tasks.Mutagen.__render_result__(r)
+        wire = JsonReporter.render_result(r)
 
         assert :erts_debug.same(wire[:before], wire[:before_source]),
                "r12 fallback: before and before_source must be the SAME binary " <>
@@ -181,21 +284,21 @@ defmodule Mix.Tasks.MutagenRenderTest do
 
     test "before is byte-equal to a fresh Macro.to_string(r.original_ast)" do
       [r | _] = sample_results(1)
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       assert wire[:before] == Macro.to_string(r.original_ast)
     end
 
     test "after is byte-equal to Macro.to_string(r.mutated_ast)" do
       [r | _] = sample_results(1)
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       assert wire[:after] == Macro.to_string(r.mutated_ast)
     end
 
     test "before_source is NOT the same reference as after (sanity — they're different ASTs)" do
       [r | _] = sample_results(1)
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       refute :erts_debug.same(wire[:before_source], wire[:after]),
              "before_source and after must come from distinct " <>
@@ -209,7 +312,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
       # report by falling back.
       [r0 | _] = sample_results(1)
       r = Map.merge(r0, %{end_line: 1, end_column: 5, source_text: nil})
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       assert :erts_debug.same(wire[:before], wire[:before_source])
     end
@@ -259,7 +362,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
         source_text: source
       }
 
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       assert wire[:before_source] == "a + b",
              "verbatim slice must equal the hand-cut source slice. " <>
@@ -323,7 +426,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
         source_text: source
       }
 
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       # The verbatim slice keeps the doubled whitespace.
       assert wire[:before_source] == "a  +  b",
@@ -381,7 +484,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
         source_text: source
       }
 
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       # The slice covers just "a + b" — no sentinel comment leaked.
       assert wire[:before_source] == "a + b"
@@ -416,7 +519,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
         source_text: source
       }
 
-      wire = Mix.Tasks.Mutagen.__render_result__(r)
+      wire = JsonReporter.render_result(r)
 
       # Fallback: before_source IS before, byte-identical and
       # same-reference.
@@ -466,7 +569,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
       fallback_result = hd(sample_results(1))
 
       for r <- [slice_result, fallback_result] do
-        wire = Mix.Tasks.Mutagen.__render_result__(r)
+        wire = JsonReporter.render_result(r)
         assert wire[:before] == Macro.to_string(r.original_ast)
         assert wire[:after] == Macro.to_string(r.mutated_ast)
       end
@@ -536,7 +639,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
         source_text: source
       }
 
-      wire = Mix.Tasks.Mutagen.__render_result__(result_map)
+      wire = JsonReporter.render_result(result_map)
 
       # Hand-cut slice: line 12 of arith.ex is "  def add(a, b), do: a + b".
       # `a + b` spans cols 22..26 inclusive, exclusive end col 27.
