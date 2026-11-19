@@ -92,6 +92,7 @@ defmodule MutagenEx.FailFastTest do
 
   @moduletag scenario: :normal
 
+  @tag spec: ["mutagen.mutation_pipeline.r20", "mutagen.cli.r17", "mutagen.json_schema.r1"]
   test "three consecutive kills stop early and the next survivor runs the full suite" do
     {full, full_traces, _} = run_pipeline(["--no-fail-fast"])
     {capped, capped_traces, _} = run_pipeline([])
@@ -132,6 +133,7 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :after_failure
+  @tag spec: ["mutagen.mutation_pipeline.r4", "mutagen.mutation_pipeline.r20"]
   test "a failed test followed by a slow test changes only timeout to killed" do
     {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "250"])
     {full, full_traces, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
@@ -144,6 +146,7 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :before_failure
+  @tag spec: "mutagen.mutation_pipeline.r4"
   test "a deadline before any recorded failure stays a timeout in both modes" do
     {capped, traces, _} = run_pipeline(["--timeout-ms", "250"])
     {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
@@ -154,6 +157,7 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :slow_cleanup
+  @tag spec: "mutagen.mutation_pipeline.r4"
   test "a failure recorded before the deadline is a kill even if suite cleanup takes longer" do
     {capped, _, _} = run_pipeline(["--timeout-ms", "250"])
     {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
@@ -166,6 +170,7 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :budget
+  @tag spec: ["mutagen.cli.r13", "mutagen.json_schema.r14", "mutagen.mutation_pipeline.r2"]
   test "a budget truncation preserves stream ordering and restores ExUnit configuration" do
     {output, _traces, _elapsed} = invoke(["--stream", "--budget-ms", "1"], 0)
 
@@ -180,6 +185,7 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :red
+  @tag spec: ["mutagen.mutation_pipeline.r1", "mutagen.coverage.r4", "mutagen.json_schema.r16"]
   test "coverage reads later lines and the error document lists every baseline failure" do
     {output, nil, nil} = invoke([], 2)
     report = :json.decode(output)
@@ -204,6 +210,7 @@ defmodule MutagenEx.FailFastTest do
     assert Probe.drain() == phase ++ phase
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r2"
   test "the mutation phase restores a finite failure cap when it raises" do
     before = Map.new(Application.get_all_env(:ex_unit))
 
@@ -229,6 +236,7 @@ defmodule MutagenEx.FailFastTest do
     assert Map.new(Application.get_all_env(:ex_unit)) == before
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r20"
   test "skipping another test's cleanup can kill later mutants that would survive" do
     fixture = fixture("fail_fast_state", "calc")
     on_exit(fn -> Application.delete_env(:fail_fast_state, :flag) end)
@@ -246,6 +254,7 @@ defmodule MutagenEx.FailFastTest do
     assert Application.get_env(:fail_fast_state, :flag)
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r20"
   test "skipping another test's cleanup can let a later mutant survive" do
     fixture = fixture("fail_fast_cleanup", "calc")
     Application.put_env(:fail_fast_cleanup, :strict, true)
@@ -258,6 +267,7 @@ defmodule MutagenEx.FailFastTest do
     assert [{"killed", "killed"}, {"killed", "survived"} | _] = verdict_changes(full, capped)
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r10"
   test "a formatter startup timeout drains ExUnit registrations for the next mutant" do
     fixture = fixture("fail_fast_drain", "num")
     ExUnit.configure(formatters: [__MODULE__.SlowFormatter])
@@ -274,6 +284,7 @@ defmodule MutagenEx.FailFastTest do
     end
   end
 
+  @tag spec: ["mutagen.mutation_pipeline.r1", "mutagen.mutation_pipeline.r10"]
   test "cold baseline records invalid tests and failed module teardown" do
     root = Path.join(@fixtures, "fail_fast_baseline")
     cfg = baseline_config(root, "test/shapes_test.exs")
@@ -289,6 +300,12 @@ defmodule MutagenEx.FailFastTest do
            ]
   end
 
+  @tag spec: [
+         "mutagen.mutation_pipeline.r2",
+         "mutagen.mutation_pipeline.r10",
+         "mutagen.coverage.r4",
+         "mutagen.coverage.r10"
+       ]
   test "file configuration cannot override the phase options and survives afterward" do
     root = Path.join(@fixtures, "fail_fast_host")
     file = Path.join(root, "test/red_a_test.exs")
@@ -314,6 +331,7 @@ defmodule MutagenEx.FailFastTest do
     assert_run_settings(false)
   end
 
+  @tag spec: ["mutagen.json_schema.r1", "mutagen.cli.r17"]
   test "early CLI errors still report the default mode" do
     assert {:aborted, :unknown_flag, _} =
              Mix.Tasks.Mutagen.run(["--bogus"], %{io: __MODULE__.Capture})

@@ -490,7 +490,7 @@ defmodule MutagenEx.MutationRunnerTest do
   # r5 / s4: five outcomes; :compile_error excluded from results array
   # ---------------------------------------------------------------------------
 
-  @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
+  @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2", "mutagen.mutation_pipeline.r20"]
   test "configures the mutation phase with one test case at a time and the given seed" do
     cfg = %{base_cfg(build_site()) | seed: 42}
     ExUnitFake.set_results([{:report_options, self()}])
@@ -567,7 +567,11 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r4 + r7: timeout and taint (s3, s6)" do
-    @tag spec: ["mutagen.mutation_pipeline.r5", "mutagen.mutation_pipeline.r7"]
+    @tag spec: [
+           "mutagen.mutation_pipeline.r4",
+           "mutagen.mutation_pipeline.r5",
+           "mutagen.mutation_pipeline.r7"
+         ]
     test ":timeout site classifies as :timeout and subsequent result has tainted_predecessors: true" do
       clear_stubs()
       site1 = build_site(id: "t1", line: 2, column: 13)
@@ -624,6 +628,7 @@ defmodule MutagenEx.MutationRunnerTest do
     #     environmental and hard to reproduce inside a unit test. The
     #     observable proxy is "purge was called for the scope module".
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "a clean reply during graceful cancellation is still a timeout" do
       for fail_fast <- [true, false] do
         first = build_site(id: "graceful", line: 2, column: 13)
@@ -647,6 +652,7 @@ defmodule MutagenEx.MutationRunnerTest do
       end
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "a failure recorded during cancellation does not kill the mutant" do
       site = build_site(id: "late-failure", line: 2, column: 13)
       ExUnitFake.set_results([{:late_failure_on_shutdown, self()}])
@@ -657,6 +663,7 @@ defmodule MutagenEx.MutationRunnerTest do
       assert_receive :late_failure_recorded
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "brutal-kill escalation: task that ignores :shutdown still terminates via :brutal_kill and classifies :timeout" do
       clear_stubs()
       site = build_site(id: "brutal", line: 2, column: 13)
@@ -687,6 +694,7 @@ defmodule MutagenEx.MutationRunnerTest do
              "brutal-kill escalation should clear the site in under 800ms; got #{elapsed_ms}ms — phase 2 likely did not fire"
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "code-server settle: :code.purge/1 is invoked for the site's scoped modules on :timeout" do
       clear_stubs()
       site = build_site(id: "settle", line: 2, column: 13)
@@ -729,6 +737,7 @@ defmodule MutagenEx.MutationRunnerTest do
       :ets.delete(purge_calls)
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "non-timeout outcomes do NOT call :code.purge/1 (settle is timeout-only)" do
       # The settle path is opt-in for the timeout class because
       # gratuitous purges on every successful site would slow down
