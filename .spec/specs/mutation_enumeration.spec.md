@@ -176,7 +176,7 @@ decisions:
   statement: |
     The enumerator offers no mutator the subtree rooted at the `/` of
     a named function capture such as `&fun/1`, `&Mod.fun/2` or
-    `&:erlang.fun/2`. Neither the reference nor any of its children,
+    `&:erlang.fun/2`, including a quoted `&unquote(fun)/1`. Neither the reference nor any of its children,
     including the arity integer, yields a site or a skipped entry in
     either dispatch mode. Expressions and literals inside anonymous
     capture bodies such as `&(&1 / 1)` remain eligible.

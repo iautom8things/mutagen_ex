@@ -30,22 +30,22 @@ defmodule MutagenEx.Mutators.Pipeline do
 
   alias MutagenEx.Mutators
 
-  @impl true
+  @impl MutagenEx.Mutators
   def match?({:|>, _meta, [{:|>, _, [_initial, _inner]}, _outer]}), do: true
   def match?(_), do: false
 
-  @impl true
+  @impl MutagenEx.Mutators
   def name, do: :pipeline
 
   @impl MutagenEx.Mutators
   def confidence, do: :low
 
-  @impl true
+  @impl MutagenEx.Mutators
   def mutate({:|>, outer_meta, [{:|>, inner_meta, [initial, inner_call]}, outer_call]}) do
     {:|>, outer_meta, [{:|>, inner_meta, [initial, outer_call]}, inner_call]}
   end
 
-  @impl true
+  @impl MutagenEx.Mutators
   def validate({:|>, _outer_meta, [{:|>, _inner_meta, [_initial, inner_call]}, outer_call]}) do
     if Mutators.normalize(inner_call) == Mutators.normalize(outer_call) do
       {:skip, :no_op_shadowed}

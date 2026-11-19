@@ -489,6 +489,8 @@ defmodule MutagenEx.MutationEnumerator do
   defp function_target?({name, _meta, context}) when is_atom(name) and is_atom(context),
     do: true
 
+  defp function_target?({:unquote, _, [_]}), do: true
+
   defp function_target?({{:., _, [_module, name]}, _meta, []}) when is_atom(name), do: true
   defp function_target?(_target), do: false
 

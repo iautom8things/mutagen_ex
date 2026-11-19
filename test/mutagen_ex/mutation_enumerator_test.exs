@@ -274,40 +274,57 @@ defmodule MutagenEx.MutationEnumeratorTest do
     end
 
     @tag spec: "mutagen.mutators.r9"
-    test "with_swap skips only unguarded else catchalls whose bodies ignore the failure" do
-      arms = [
-        "_other -> :fallback",
-        "_invalid -> :fallback",
-        "other -> :fallback",
-        "other -> {:error, other}",
-        "other when is_atom(other) -> :fallback",
-        "other -> binding()",
-        ":error -> :fallback"
-      ]
-
-      for {arm, index} <- Enum.with_index(arms) do
+    test "a low-confidence with swap can load data before authorization despite a catchall" do
+      for pattern <- ["_", "_other"] do
         source = """
-        defmodule ElseCatchall do
-          def run(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :pass, else: (#{arm}))
+        defmodule AuthorizationOrdering do
+          def run(user) do
+            with {:ok, account} <- authorize(user), {:ok, data} <- load(user) do
+              {account, data}
+            else
+              #{pattern} -> :denied
+            end
+          end
+
+          defp authorize(:admin), do: {:ok, :admin}
+          defp authorize(_), do: :error
+          defp load(:admin), do: {:ok, :data}
+          defp load(:guest), do: raise(ArgumentError, "load ran for unauthorized :guest")
         end
         """
 
-        file = "lib/else_catchall.ex"
+        file = "lib/authorization_ordering.ex"
+        cache = ast_cache(file, source)
 
-        result =
-          MutationEnumerator.enumerate(
-            ast_cache(file, source),
-            [scope(file, ElseCatchall)],
-            covered_lines(file, [2]),
-            mutators: [MutagenEx.Mutators.WithSwap]
-          )
+        assert %{sites: [site], skipped: []} =
+                 MutationEnumerator.enumerate(
+                   cache,
+                   [scope(file, AuthorizationOrdering)],
+                   covered_lines(file, [3]),
+                   mutators: [MutagenEx.Mutators.WithSwap]
+                 )
 
-        if index < 3 do
-          assert result.sites == [], arm
-          assert [%{mutator: :with_swap, reason: :else_ignores_failure}] = result.skipped
-        else
-          assert [%{mutator: :with_swap}] = result.sites
-          assert result.skipped == [], arm
+        assert MutagenEx.Mutators.confidence(site.mutator) == :low
+        ast = Code.string_to_quoted!(source, token_metadata: true, columns: true)
+
+        mutated =
+          Macro.prewalk(ast, fn
+            {:with, _, _} -> site.mutated_ast
+            {:defmodule, meta, [_name, body]} -> {:defmodule, meta, [SwappedAuthorization, body]}
+            node -> node
+          end)
+
+        Code.compile_quoted(ast)
+        Code.compile_quoted(mutated)
+        assert apply(AuthorizationOrdering, :run, [:guest]) == :denied
+
+        assert_raise ArgumentError, "load ran for unauthorized :guest", fn ->
+          apply(SwappedAuthorization, :run, [:guest])
+        end
+
+        for module <- [AuthorizationOrdering, SwappedAuthorization] do
+          :code.delete(module)
+          :code.purge(module)
         end
       end
     end
@@ -332,12 +349,11 @@ defmodule MutagenEx.MutationEnumeratorTest do
           mutators: [MutagenEx.Mutators.WithSwap]
         )
 
-      assert [%{line: 5, function: "Noisy.kept/2"}] = result.sites
+      assert [%{function: "Noisy.ignored/2"}, %{function: "Noisy.kept/2"}] = result.sites
 
       assert Enum.map(result.skipped, & &1.reason) == [
                :insufficient_refutable_patterns,
-               :indistinguishable_failures,
-               :else_ignores_failure
+               :indistinguishable_failures
              ]
 
       for skipped <- result.skipped do
@@ -940,6 +956,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
         def body(xs), do: Enum.map(xs, &(&1 / 1))
         def plain(x), do: x / 2
         defp double(x), do: x * 2
+        defmacro quoted(fun), do: quote(do: &unquote(fun)/1)
       end
       """
 
@@ -958,7 +975,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
                  {7, "x / 2"}
                ]
 
-        refs_only = covered_lines("lib/capture_refs.ex", [2, 3, 4])
+        refs_only = covered_lines("lib/capture_refs.ex", [2, 3, 4, 8])
 
         assert %{sites: [], skipped: []} =
                  MutationEnumerator.enumerate(cache, scopes, refs_only, dispatch_mode: mode)
