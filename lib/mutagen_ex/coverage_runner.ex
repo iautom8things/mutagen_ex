@@ -393,7 +393,6 @@ defmodule MutagenEx.CoverageRunner do
           details =
             e
             |> MutagenEx.Runtime.exception_facts(__STACKTRACE__)
-            |> Map.put(:file, file)
             |> Map.put(
               :message,
               "could not load test file #{inspect(file)}: #{Exception.message(e)}"

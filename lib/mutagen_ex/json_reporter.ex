@@ -100,11 +100,28 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
     limit = Keyword.get(opts, :byte_size_limit, @default_byte_size_limit)
     patterns = Keyword.get_lazy(opts, :patterns, &configured_patterns/0)
 
-    value
-    |> to_binary()
-    |> text()
-    |> Redactor.redact(compile_patterns!(patterns))
-    |> truncate(limit)
+    input = to_binary(value)
+
+    head =
+      if byte_size(input) > Redactor.input_limit(),
+        do: safe_byte_prefix(input, Redactor.input_limit()),
+        else: input
+
+    input_dropped = byte_size(input) - byte_size(head)
+
+    {head, dropped} =
+      case {input_dropped, truncation_marker(head, limit)} do
+        {0, {offset, removed}} -> {binary_part(head, 0, offset), removed}
+        _ -> {head, input_dropped}
+      end
+
+    redacted = head |> text() |> Redactor.redact(compile_patterns!(patterns))
+
+    cond do
+      redacted == Redactor.failure() -> redacted
+      dropped == 0 -> truncate(redacted, limit)
+      true -> append_truncation(redacted, limit, dropped)
+    end
   end
 
   @doc """
@@ -120,13 +137,17 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   """
   @spec truncate(binary(), pos_integer()) :: binary()
   def truncate(bin, limit) when is_binary(bin) and is_integer(limit) and limit > 0 do
-    if byte_size(bin) <= limit or truncated?(bin, limit) do
+    if byte_size(bin) <= limit or truncation_marker(bin, limit) do
       bin
     else
-      prefix = safe_byte_prefix(bin, limit)
-      dropped = byte_size(bin) - byte_size(prefix)
-      prefix <> " ... <#{dropped} bytes truncated>"
+      append_truncation(bin, limit, 0)
     end
+  end
+
+  defp append_truncation(bin, limit, already_dropped) do
+    prefix = if byte_size(bin) > limit, do: safe_byte_prefix(bin, limit), else: bin
+    dropped = already_dropped + byte_size(bin) - byte_size(prefix)
+    prefix <> " ... <#{dropped} bytes truncated>"
   end
 
   @doc """
@@ -149,8 +170,8 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
 
   defp text(value) do
     value
-    |> String.replace_invalid()
-    |> String.replace(~r/[\x00-\x08\x0B-\x1F\x7F-\x9F]/u, "")
+    |> String.replace_invalid("")
+    |> String.replace(~r/[\x00-\x08\x0B-\x1F\x7F-\x9F\p{Cf}]/u, "")
   end
 
   defp configured_patterns do
@@ -171,13 +192,18 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
     end
   end
 
-  defp truncated?(bin, limit) do
-    if byte_size(bin) <= limit + 40 do
-      offset = max(0, limit - 3)
+  defp truncation_marker(bin, limit) do
+    if byte_size(bin) in (limit + 1)..(limit + 40) do
+      offset = max(0, limit - 40)
       tail = binary_part(bin, offset, byte_size(bin) - offset)
-      Regex.match?(~r/\A.{0,3} \.\.\. <[1-9][0-9]* bytes truncated>\z/s, tail)
-    else
-      false
+
+      case Regex.run(~r/ \.\.\. <([1-9][0-9]*) bytes truncated>\z/, tail, return: :index) do
+        [{at, _}, {digits, length}] when offset + at <= limit ->
+          {offset + at, tail |> binary_part(digits, length) |> String.to_integer()}
+
+        _ ->
+          nil
+      end
     end
   end
 
@@ -194,6 +220,8 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   defp safe_byte_prefix(bin, limit) do
     aligned_byte_prefix(bin, limit)
   end
+
+  defp aligned_byte_prefix(_bin, 0), do: ""
 
   defp aligned_byte_prefix(bin, limit) do
     if Bitwise.band(:binary.at(bin, limit), 0b11000000) == 0b10000000 do
@@ -266,7 +294,7 @@ defmodule MutagenEx.JsonReporter.Report do
           baseline: map() | nil,
           coverage: map() | nil,
           mutation: map() | nil,
-          warnings: [String.t() | {atom(), String.t()}],
+          warnings: [String.t() | {atom(), String.t()} | {:host_names, atom(), [term()]}],
           aborted: boolean(),
           abort_reason: String.t() | nil,
           details: map() | nil,
@@ -319,8 +347,7 @@ defmodule MutagenEx.JsonReporter do
   would break `r9`.
   """
 
-  alias MutagenEx.JsonReporter.Report
-  alias MutagenEx.JsonReporter.Sanitizer
+  alias MutagenEx.JsonReporter.{Provenance, Report, Sanitizer}
   alias MutagenEx.Mutators
 
   @behaviour MutagenEx.Pipeline.ReporterOkFacade
@@ -381,7 +408,6 @@ defmodule MutagenEx.JsonReporter do
           | :host_setup_timeout
           | :invalid_boot_timeout
           | :umbrella_root
-          | :after_suite_failed
           | :coverage_timeout
           | :baseline_timeout
           | :invalid_redact_config
@@ -443,11 +469,11 @@ defmodule MutagenEx.JsonReporter do
       "version" => @schema_version,
       "meta" => meta_to_wire(r.meta),
       "scope" => scope_to_wire(r.scope),
-      "tests" => tests_to_wire(r.tests),
-      "baseline" => baseline_to_wire(r.baseline),
+      "tests" => tests_to_wire(r.tests, r.include_host_output),
+      "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation, r),
-      "warnings" => warnings_to_wire(r.warnings || [], r),
+      "warnings" => warnings_to_wire(Enum.uniq(r.warnings || []), r) |> Enum.uniq(),
       "aborted" => r.aborted == true,
       "abort_reason" => r.abort_reason,
       "details" => details_to_wire(r.details, r.abort_reason, r.include_host_output),
@@ -468,22 +494,28 @@ defmodule MutagenEx.JsonReporter do
       else
         details
         |> Map.take(@structured_details)
-        |> Map.reject(fn {key, value} -> key == :reason and not is_atom(value) end)
+        |> Map.update(:reason, nil, &default_reason/1)
+        |> Map.reject(fn {key, value} -> key == :reason and is_nil(value) end)
       end
 
     details
-    |> Map.replace_lazy(:failures, fn failures -> Enum.map(failures, &failure_fields/1) end)
-    |> Map.drop([:include, :exclude])
+    |> Map.drop([:include, :exclude, :exception, :failures])
     |> detail_value_to_wire()
-    |> put_filter_details(details)
+    |> put_filter_details(details, include_host_output)
+    |> put_failure_details(details, include_host_output)
+    |> put_exception(details, include_host_output)
     |> put_hint(reason)
   end
 
-  defp put_filter_details(wire, details) do
+  defp put_filter_details(wire, details, include_host_output) do
     Enum.reduce([:include, :exclude], wire, fn key, acc ->
       case Map.fetch(details, key) do
         {:ok, filters} when is_list(filters) ->
-          Map.put(acc, Atom.to_string(key), Enum.map(filters, &filter_to_wire/1))
+          Map.put(
+            acc,
+            Atom.to_string(key),
+            Enum.map(filters, &filter_to_wire(&1, include_host_output))
+          )
 
         _ ->
           acc
@@ -491,12 +523,43 @@ defmodule MutagenEx.JsonReporter do
     end)
   end
 
+  defp put_failure_details(wire, %{failures: failures}, include_host_output) do
+    Map.put(wire, "failures", failures_to_wire(failures, include_host_output))
+  end
+
+  defp put_failure_details(wire, _details, _include_host_output), do: wire
+
+  defp put_exception(wire, %{exception: exception}, include_host_output)
+       when not is_nil(exception) do
+    value =
+      cond do
+        include_host_output and is_binary(exception) ->
+          Sanitizer.clean(exception)
+
+        include_host_output or Provenance.compiled_module?(exception) ->
+          Sanitizer.clean(inspect(exception))
+
+        true ->
+          "host exception"
+      end
+
+    Map.put(wire, "exception", value)
+  end
+
+  defp put_exception(wire, _details, _include_host_output), do: wire
+
+  defp default_reason(reason) when is_atom(reason) do
+    if hint(Atom.to_string(reason)), do: reason, else: :host_reason
+  end
+
+  defp default_reason(_), do: :host_reason
+
   defp put_hint(details, nil), do: details
 
   defp put_hint(details, reason) do
     details
-    |> Map.put("hint", hint(reason))
-    |> Map.put_new(
+    |> Map.put("hint", hint(reason) || "Check the inputs and diagnostics on stderr.")
+    |> Map.put(
       "note",
       "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
     )
@@ -558,14 +621,11 @@ defmodule MutagenEx.JsonReporter do
       "test_helper_load_failed" ->
         "Check the test helper at the reported location."
 
-      "after_suite_failed" ->
-        "Check the host's ExUnit.after_suite callbacks."
-
       "coverage_timeout" ->
-        "Narrow --tests or increase the coverage deadline."
+        "Narrow --tests or increase --boot-timeout-ms or --timeout-ms."
 
       "baseline_timeout" ->
-        "Narrow --tests or increase the baseline deadline."
+        "Narrow --tests or increase --boot-timeout-ms or --timeout-ms."
 
       "baseline_red" ->
         "Fix the listed failing tests before running mutations."
@@ -652,15 +712,9 @@ defmodule MutagenEx.JsonReporter do
         "Narrow --scope or increase --max-sites."
 
       _ ->
-        "Check the inputs and diagnostics on stderr."
+        nil
     end
   end
-
-  defp failure_fields({module, name}), do: %{module: inspect(module), name: to_string(name)}
-  defp failure_fields(%{module: module, name: name}), do: failure_fields({module, name})
-
-  defp failure_fields(%{"module" => _, "name" => _} = failure),
-    do: Map.take(failure, ~w(module name))
 
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
@@ -717,15 +771,20 @@ defmodule MutagenEx.JsonReporter do
     end)
   end
 
-  defp tests_to_wire(nil), do: nil
+  defp tests_to_wire(nil, _include_host_output), do: nil
 
-  defp tests_to_wire(%{include: include, exclude: exclude, files: files}) do
+  defp tests_to_wire(%{include: include, exclude: exclude, files: files}, include_host_output) do
     %{
-      "include" => Enum.map(include, &filter_to_wire/1),
-      "exclude" => Enum.map(exclude, &filter_to_wire/1),
+      "include" => Enum.map(include, &filter_to_wire(&1, include_host_output)),
+      "exclude" => Enum.map(exclude, &filter_to_wire(&1, include_host_output)),
       "files" => Enum.map(files, &Sanitizer.clean(to_string(&1)))
     }
   end
+
+  defp filter_to_wire({:helper_filter, _key, value}, true), do: filter_to_wire(value)
+  defp filter_to_wire({:helper_filter, nil, _value}, false), do: "host tag"
+  defp filter_to_wire({:helper_filter, key, _value}, false), do: filter_to_wire(key)
+  defp filter_to_wire(value, _include_host_output), do: filter_to_wire(value)
 
   def filter_to_wire({:location, {path, line}}) do
     %{"kind" => "location", "file" => Sanitizer.clean(path), "line" => line}
@@ -751,36 +810,45 @@ defmodule MutagenEx.JsonReporter do
   def filter_to_wire(value) when is_atom(value) or is_binary(value),
     do: value |> to_string() |> Sanitizer.clean()
 
-  defp baseline_to_wire(nil), do: nil
+  defp baseline_to_wire(nil, _include_host_output), do: nil
 
-  defp baseline_to_wire(%{passed: passed, failed: failed, failures: failures}) do
+  defp baseline_to_wire(
+         %{passed: passed, failed: failed, failures: failures},
+         include_host_output
+       ) do
     %{
       "passed" => passed,
       "failed" => failed,
-      "failures" => Enum.map(failures, &failure_to_wire/1)
+      "failures" => failures_to_wire(failures, include_host_output)
     }
   end
 
-  # The Mix task assembles baseline in already-wire form when building
-  # the abort report (see partial_baseline in lib/mix/tasks/mutagen.ex);
-  # pass it through unchanged.
-  defp baseline_to_wire(%{"passed" => passed, "failed" => failed, "failures" => failures}) do
-    %{
-      "passed" => passed,
-      "failed" => failed,
-      "failures" => Enum.map(failures, &failure_to_wire/1)
-    }
+  defp baseline_to_wire(
+         %{"passed" => p, "failed" => f, "failures" => failures},
+         include_host_output
+       ) do
+    baseline_to_wire(%{passed: p, failed: f, failures: failures}, include_host_output)
   end
 
-  defp failure_to_wire({module, name}) do
-    failure_to_wire(%{"module" => inspect(module), "name" => to_string(name)})
+  defp failures_to_wire(failures, true) do
+    for failure <- failures do
+      {module, name} = failure_fields(failure)
+      %{"module" => Sanitizer.clean(module), "name" => Sanitizer.clean(name)}
+    end
   end
 
-  defp failure_to_wire(%{module: module, name: name}), do: failure_to_wire({module, name})
-
-  defp failure_to_wire(%{"module" => module, "name" => name}) do
-    %{"module" => Sanitizer.clean(module), "name" => Sanitizer.clean(name)}
+  defp failures_to_wire(failures, false) do
+    failures
+    |> Enum.frequencies_by(fn failure -> failure |> failure_fields() |> elem(0) end)
+    |> Enum.sort()
+    |> Enum.map(fn {module, count} ->
+      %{"module" => Sanitizer.clean(module), "count" => count}
+    end)
   end
+
+  defp failure_fields({module, name}), do: {inspect(module), to_string(name)}
+  defp failure_fields(%{module: module, name: name}), do: failure_fields({module, name})
+  defp failure_fields(%{"module" => module, "name" => name}), do: {module, name}
 
   defp coverage_to_wire(nil), do: nil
 
@@ -862,17 +930,52 @@ defmodule MutagenEx.JsonReporter do
   defp put_source(wire, _result, _options), do: wire
 
   defp warnings_to_wire(warnings, options) do
-    Enum.flat_map(warnings, fn
-      {:host_output, text} ->
-        if options.include_host_output, do: [Sanitizer.clean(text)], else: []
+    {host_names, ordinary} = Enum.split_with(warnings, &match?({:host_process_died, _}, &1))
 
-      {kind, name} when kind in [:host_process_died, :host_supervisor_changed] ->
-        [Sanitizer.clean("#{kind}: #{name}")]
+    registered =
+      render_host_names(
+        :host_process_died,
+        Enum.map(host_names, &elem(&1, 1)),
+        options.include_host_output
+      )
 
-      text ->
-        [Sanitizer.clean(text)]
-    end)
+    registered ++
+      Enum.flat_map(ordinary, fn
+        {:host_output, text} ->
+          if options.include_host_output, do: [Sanitizer.clean(text)], else: []
+
+        {:host_names, kind, names} ->
+          render_host_names(kind, names, options.include_host_output)
+
+        {:host_supervisor_changed, name} ->
+          [Sanitizer.clean("host_supervisor_changed: #{name}")]
+
+        text ->
+          [Sanitizer.clean(text)]
+      end)
   end
+
+  @doc """
+  Renders host-derived names under a fixed warning kind. Use only a
+  tool-owned kind. Runner warnings can also carry `{:host_names, kind, names}`
+  to apply this policy at the JSON boundary.
+  """
+  def render_host_names(_kind, [], _include_host_output), do: []
+
+  def render_host_names(kind, names, true) do
+    for name <- Enum.uniq(names) do
+      text = if is_binary(name) or is_atom(name), do: to_string(name), else: inspect(name)
+      Sanitizer.clean("#{kind}: #{text}")
+    end
+  end
+
+  def render_host_names(:host_process_died, names, false) do
+    count = length(Enum.uniq(names))
+    noun = if count == 1, do: "process", else: "processes"
+    ["host_process_died: #{count} registered #{noun}"]
+  end
+
+  def render_host_names(kind, names, false), do: ["#{kind}: #{length(Enum.uniq(names))}"]
 
   defp skipped_to_wire(%{} = entry) do
     %{
@@ -894,11 +997,7 @@ defmodule MutagenEx.JsonReporter do
         wire
       end
 
-    wire =
-      case Map.get(entry, :exception) do
-        nil -> wire
-        exception -> Map.put(wire, "exception", Sanitizer.clean(inspect(exception)))
-      end
+    wire = put_exception(wire, entry, options.include_host_output)
 
     if options.include_host_output do
       Map.put(wire, "message", Sanitizer.clean(Map.fetch!(entry, :message)))

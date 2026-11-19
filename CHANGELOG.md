@@ -13,6 +13,12 @@ file for traceability.
 
 ### Report safety
 
+- Default reports count host process losses and baseline failures by
+  module. Dynamic names and helper filter values require opt-in.
+- Mutagen writes the report before cleanup and gives cleanup the boot
+  timeout. Each coverage and baseline pass gets the greater of the boot
+  timeout and ten times the mutation timeout.
+
 - JSON and NDJSON omit host diagnostic text by default. Abort documents retain
   a fixed hint, step, exception type, and location where available. Use
   `--include-host-output` to include captured diagnostics with best-effort

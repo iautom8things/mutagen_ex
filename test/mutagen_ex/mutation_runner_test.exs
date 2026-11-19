@@ -821,8 +821,13 @@ defmodule MutagenEx.MutationRunnerTest do
 
     {json, 0} = MutagenEx.JsonReporter.emit_report(report)
     report = :json.decode(IO.iodata_to_binary(json))
-    assert "host_process_died: #{name}" in report["warnings"]
-    assert "host_process_died: #{name}" in Enum.at(report["mutation"]["results"], 2)["warnings"]
+    assert "host_process_died: 1 registered process" in report["warnings"]
+
+    assert "host_process_died: 1 registered process" in Enum.at(report["mutation"]["results"], 2)[
+             "warnings"
+           ]
+
+    refute inspect(report) =~ Atom.to_string(name)
   end
 
   # ---------------------------------------------------------------------------

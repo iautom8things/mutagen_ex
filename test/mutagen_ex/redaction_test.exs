@@ -41,8 +41,8 @@ defmodule MutagenEx.RedactionTest do
       end
     end
 
-    assert Sanitizer.clean("tokens: 3, secretary: ann, primary_key: 7") ==
-             "tokens: 3, secretary: ann, primary_key: 7"
+    assert Sanitizer.clean("tokenizer: 3, secretary: ann, primary_key: 7") ==
+             "tokenizer: 3, secretary: ann, primary_key: 7"
 
     report = %Report{
       include_host_output: true,

@@ -31,6 +31,7 @@ status: active
 summary: Version 2 JSON output schema for success, partial, and error runs.
 surface:
   - lib/mutagen_ex/json_reporter/redactor.ex
+  - lib/mutagen_ex/json_reporter/provenance.ex
   - lib/mutagen_ex/json_reporter.ex
   - lib/mutagen_ex/json_streamer.ex
   - test/mutagen_ex/golden/baseline_red.json
@@ -71,7 +72,7 @@ Top-level keys, all present in every variant unless noted:
 - `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme, fail_fast}`.
 - `scope`: array of resolved scope records.
 - `tests`: resolved test filter (the `{include, exclude, files}` triple).
-- `baseline`: `{passed: int, failed: int, failures: [{module, name}]}` or
+- `baseline`: `{passed: int, failed: int, failures: [{module, count}]}` or
   `null` if baseline never ran.
 - `coverage`: `{covered_lines: %{file => [int]}}` or `null` if coverage never
   ran.
@@ -383,8 +384,8 @@ Top-level keys, all present in every variant unless noted:
     pipeline before emission. Map values may nest one layer deep
     (e.g. `failures: [...]` from baseline-red details).
 
-    For `baseline_red`, `details.failures` holds the same `{module,
-    name}` objects as `baseline.failures`
+    For `baseline_red`, `details.failures` holds the same objects as
+    `baseline.failures`
     (mutagen.mutation_pipeline.r1), not inspected Elixir terms.
 
     Decision: mutagen.decision.details_always_present.
@@ -437,6 +438,27 @@ Top-level keys, all present in every variant unless noted:
     When a binary operator has a literal left operand and the parser does not
     record the start of that operand, before_source uses the rendered AST
     instead of emitting a slice starting at the operator.
+
+- id: mutagen.json_schema.r22
+  priority: must
+  statement: |
+    Default documents and stream lines apply the field provenance table.
+    Host process names, dynamic exception names, test names, and helper
+    filter values are opt-in. Unknown default reason atoms become host_reason.
+    Exception locations come from repository stack frames, relative to the root.
+
+- id: mutagen.json_schema.r23
+  priority: must
+  statement: |
+    Credential redaction examines at most 64 KiB per field before the 4 KiB
+    payload cap. A regex execution error discards the field and replaces it
+    with the fixed redaction-failure marker.
+
+- id: mutagen.json_schema.r24
+  priority: must
+  statement: |
+    Source excerpts omit Unicode format characters, including bidi and
+    zero-width characters.
 ```
 
 ```spec-scenarios
@@ -665,4 +687,82 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r19
     - mutagen.json_schema.r20
     - mutagen.json_schema.r21
+    - mutagen.json_schema.r22
+    - mutagen.json_schema.r23
+    - mutagen.json_schema.r24
 ```
+
+## Default string provenance
+
+Static JSON keys are schema constants. The table uses `[]` for an array
+element and `{}` for a dynamic map entry. NDJSON result and compile
+error lines reuse their aggregate fields. The start and end lines reuse
+the envelope fields and add `kind`.
+
+| Field | Origin | Default treatment |
+| --- | --- | --- |
+| `version` | Mutagen schema constant | Keep |
+| `kind` | Mutagen stream discriminator | Keep |
+| `meta.id_scheme` | Mutagen ID scheme constant | Keep |
+| `meta.tool_version` | Mutagen build | Keep |
+| `meta.elixir_version` | Runner toolchain | Keep |
+| `meta.otp_version` | Runner toolchain | Keep |
+| `scope[].file` | Repository or CLI path | Keep |
+| `scope[].module` | Repository module declaration | Keep |
+| `tests.files[]` | Repository or CLI path | Keep |
+| `tests.include[]` | CLI selector or host helper | Keep CLI strings. Keep literal helper tag keys. Use the fixed token `host tag` for other helper keys. Omit helper values. |
+| `tests.exclude[]` | CLI selector or host helper | Same filter policy as include |
+| `tests.include[].kind` | Mutagen location discriminator | Keep |
+| `tests.include[].file` | CLI location | Keep |
+| `tests.exclude[].kind` | Mutagen location discriminator | Keep |
+| `tests.exclude[].file` | CLI location | Keep |
+| `coverage.covered_lines{key}` | Repository path | Keep |
+| `baseline.failures[].module` | Repository test module | Keep with a failure count |
+| `mutation.results[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.results[].file` | Repository path | Keep with source enabled |
+| `mutation.results[].function` | Repository definition | Keep with source enabled |
+| `mutation.results[].before` | Repository AST | Strip controls and Unicode format characters. Cap. Omit with source disabled. |
+| `mutation.results[].before_source` | Repository slice or AST | Same treatment as before |
+| `mutation.results[].after` | AST produced from repository source | Same treatment as before |
+| `mutation.results[].mutator` | Mutagen catalog | Keep |
+| `mutation.results[].confidence` | Mutagen catalog | Keep |
+| `mutation.results[].status` | Mutagen verdict vocabulary | Keep |
+| `mutation.results[].warnings[]` | Mutagen text, repository references, or host diagnostics | Keep tool warnings. Render host-derived names as counts. Omit host bodies. |
+| `mutation.compile_errors[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.compile_errors[].file` | Repository path | Keep with source enabled |
+| `mutation.compile_errors[].function` | Repository definition | Keep with source enabled |
+| `mutation.compile_errors[].mutator` | Mutagen catalog | Keep |
+| `mutation.compile_errors[].confidence` | Mutagen catalog | Keep |
+| `mutation.compile_errors[].diagnostic` | Mutagen constant | Keep with source enabled |
+| `mutation.compile_errors[].exception` | Exception type | Keep OTP, Elixir, dependency, and compiled project names. Compiled project names are repository text. Use `host exception` for other names. |
+| `mutation.skipped[].site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.skipped[].file` | Repository path | Keep |
+| `mutation.skipped[].reason` | Mutagen enumeration vocabulary | Keep |
+| `mutation.skipped[].mutator` | Mutagen catalog | Keep |
+| `mutation.state_drift_warning{key}` | Repository module declaration | Keep |
+| `mutation.state_drift_warning{}[]` | Repository use directive | Keep |
+| `warnings[]` | Mutagen text plus repository paths, IDs, modules, app names, or runtime names | Keep tool warnings. Render host-derived names as counts. Omit host bodies. Deduplicate. |
+| `abort_reason` | Mutagen abort vocabulary | Keep |
+| `details.flag` | CLI flag | Keep |
+| `details.file` | CLI or repository path, or a repository stack frame on raise | Keep repository stack frames relative to root. Omit missing or unverifiable frames. |
+| `details.origin_file` | Repository stack frame | Keep relative to root |
+| `details.module` | CLI argument or repository module | Keep |
+| `details.exception` | Exception type | Same provenance policy as compile error exception |
+| `details.reason` | Mutagen abort vocabulary or host reason | Keep known atoms. Replace other reasons with `host_reason`. |
+| `details.site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `details.phase` | Mutagen phase name | Keep |
+| `details.step` | Mutagen step name | Keep |
+| `details.hint` | Mutagen constant | Keep |
+| `details.note` | Mutagen constant | Keep |
+| `details.failures[].module` | Repository test module | Keep with a failure count |
+| `details.include[]` | CLI selector or host helper | Same filter policy as tests include |
+| `details.include[].kind` | Mutagen location discriminator | Keep |
+| `details.include[].file` | CLI location | Keep |
+| `details.exclude[]` | CLI selector or host helper | Same filter policy as tests exclude |
+| `details.exclude[].kind` | Mutagen location discriminator | Keep |
+| `details.exclude[].file` | CLI location | Keep |
+
+With `--include-host-output`, the report can also carry diagnostic bodies
+in `details.message`, compile errors, and warnings. It can include actual
+test names, helper filters, host warning names, and dynamic reason and
+exception names. Pattern redaction is best-effort.

@@ -216,7 +216,8 @@ decisions:
     `{:error, :ex_unit_run_failed, %{message: msg}}`, where `msg` names the
     coverage phase and how the run ended. The report includes that text
     only with --include-host-output and sanitizes it at emission. The
-    exception type and position are reportable when available.
+    exception type and position are reportable when available. Load
+    failures use a verified project stack frame for the exception location.
 ```
 
 ```spec-scenarios

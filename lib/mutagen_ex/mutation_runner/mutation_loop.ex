@@ -198,17 +198,24 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     task_sup = Map.get(input, :task_sup, MutagenEx.TaskSup)
 
     destination = Process.group_leader()
+    start = make_ref()
     host = Map.get_lazy(input, :host_snapshot, &RunGroup.snapshot/0)
     group = RunGroup.start(destination)
 
     task =
       Task.Supervisor.async_nolink(task_sup, fn ->
+        receive do
+          ^start -> :ok
+        end
+
         Process.group_leader(self(), group)
         Enum.each(test_modules, fn {mod, cfg} -> server.add_module(mod, cfg) end)
         result = MutagenEx.Test.Suite.run(ex_unit, :mutation)
         {System.monotonic_time(), result}
       end)
 
+    tracker = RunGroup.track(group, task.pid)
+    send(task.pid, start)
     deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
 
     try do
@@ -235,12 +242,12 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
       if failures, do: :ets.delete(failures, task.pid)
 
       {body_result, cancel_mode} =
-        finish_group(result, group, destination, host.processes, input, ex_unit, server)
+        finish_group(result, group, host.processes, tracker, input, ex_unit, server)
 
-      {body_result, cancel_mode, RunGroup.host_warnings(host, match?({:timeout, _}, body_result))}
+      {body_result, cancel_mode, RunGroup.host_warnings(host, not match?({:ok, _}, body_result))}
     catch
       kind, reason ->
-        RunGroup.stop(group, :reap, host.processes)
+        RunGroup.stop(group, :reap, host.processes, tracker)
         :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
@@ -248,20 +255,20 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   defp finish_group(
          {{:ok, _}, _} = completed,
          group,
-         destination,
          host_processes,
+         tracker,
          _input,
          _ex_unit,
          _server
        ) do
-    RunGroup.stop(group, {:release, destination}, host_processes)
+    RunGroup.stop(group, :release, host_processes, tracker)
     completed
   end
 
-  defp finish_group(unsuccessful, group, _destination, host_processes, input, ex_unit, server) do
+  defp finish_group(unsuccessful, group, host_processes, tracker, input, ex_unit, server) do
     # ExUnit's test and module workers are monitored, so killing the
     # runner leaves them alive. They inherit its group leader on spawn.
-    RunGroup.stop(group, :reap, host_processes)
+    RunGroup.stop(group, :reap, host_processes, tracker)
 
     if ex_unit == MutagenEx.Test.ExUnit and Map.get(input, :serial?, true) do
       server.discard_pending_modules()
