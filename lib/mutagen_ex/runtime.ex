@@ -109,7 +109,7 @@ defmodule MutagenEx.Runtime do
 
       {:DOWN, ^monitor, :process, ^pid, reason} ->
         run_callbacks(take_after_suite(), empty_suite())
-        failure(phase, :exit, reason, [])
+        failure(phase, :exit, reason, [], nil)
     after
       max(deadline - System.monotonic_time(:millisecond), 0) ->
         Process.exit(pid, :kill)
@@ -142,43 +142,58 @@ defmodule MutagenEx.Runtime do
     step(reason, fun)
   end
 
-  defp step(reason, fun) do
+  defp step(reason, fun, helper \\ nil) do
     case fun.() do
       :ok -> :ok
-      {:error, message} -> failure(reason, :message, message, [])
+      {:error, message} -> failure(reason, :message, message, [], helper)
       {:error, _, _} = error -> error
     end
   rescue
-    error -> failure(reason, :error, error, __STACKTRACE__)
+    error -> failure(reason, :error, error, __STACKTRACE__, helper)
   catch
-    kind, value -> failure(reason, kind, value, __STACKTRACE__)
+    kind, value -> failure(reason, kind, value, __STACKTRACE__, helper)
   end
 
-  defp failure(reason, kind, value, stack) do
+  defp failure(reason, kind, value, stack, helper) do
     message = if kind == :message, do: value, else: Exception.format_banner(kind, value, stack)
     IO.puts(:stderr, [message, "\n", Exception.format_stacktrace(stack)])
     summary = if kind == :error, do: Exception.message(value), else: message
     details = %{message: Sanitizer.summary(short_message(reason, summary))}
 
-    case reason do
-      :test_helper_load_failed ->
-        location =
-          Enum.find_value(stack, %{}, fn {_, _, _, meta} ->
-            case meta[:file] && to_string(meta[:file]) do
-              nil ->
-                nil
+    if helper,
+      do: {:error, reason, Map.merge(details, helper_location(helper, value, stack))},
+      else: {:error, reason, details}
+  end
 
-              file ->
-                if String.ends_with?(file, ".exs"), do: %{file: file, line: meta[:line]}
-            end
-          end)
+  # The line comes from the helper's own frame. A failure raised in a file
+  # the helper evaluated, such as a seeds script, is reported as the origin.
+  defp helper_location(helper, value, stack) do
+    in_helper? = fn {file, _line} -> Path.expand(file) == Path.expand(helper) end
 
-        {:error, reason, Map.merge(details, location)}
+    {inner, from_helper} =
+      (error_location(value) ++
+         for({_, _, _, meta} <- stack, meta[:file], do: {to_string(meta[:file]), meta[:line]}))
+      |> Enum.split_while(&(not in_helper?.(&1)))
 
-      _ ->
-        {:error, reason, details}
+    location =
+      case from_helper do
+        [{_file, line} | _] when is_integer(line) -> %{file: helper, line: line}
+        _ -> %{file: helper}
+      end
+
+    case Enum.find(inner, fn {file, _line} -> String.ends_with?(file, ".exs") end) do
+      {file, line} ->
+        Map.merge(location, %{origin_file: Path.relative_to_cwd(file), origin_line: line})
+
+      nil ->
+        location
     end
   end
+
+  defp error_location(%{file: file, line: line}) when is_binary(file) and is_integer(line),
+    do: [{file, line}]
+
+  defp error_location(_value), do: []
 
   defp short_message(:host_app_start_failed, "Could not start application " <> rest) do
     [app | _] = String.split(rest, ":", parts: 2)
@@ -321,12 +336,16 @@ defmodule MutagenEx.Runtime do
       Enum.reduce_while(test_paths(), :ok, fn root, :ok ->
         file = Path.join(root, "test_helper.exs")
 
-        case step(:test_helper_load_failed, fn ->
-               Code.require_file(file)
-               :ok
-             end) do
+        case step(
+               :test_helper_load_failed,
+               fn ->
+                 Code.require_file(file)
+                 :ok
+               end,
+               file
+             ) do
           :ok -> {:cont, :ok}
-          {:error, reason, details} -> {:halt, {:error, reason, Map.put(details, :file, file)}}
+          {:error, _reason, _details} = error -> {:halt, error}
         end
       end)
     after
