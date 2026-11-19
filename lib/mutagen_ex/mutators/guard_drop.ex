@@ -35,19 +35,22 @@ defmodule MutagenEx.Mutators.GuardDrop do
 
   @behaviour MutagenEx.Mutators
 
-  @impl true
+  @impl MutagenEx.Mutators
   def name, do: :guard_drop
 
-  @impl true
+  @impl MutagenEx.Mutators
+  def confidence, do: :low
+
+  @impl MutagenEx.Mutators
   def match?({:when, _meta, [_head, _guard]}), do: true
   def match?({:when, _meta, args}) when is_list(args) and length(args) >= 2, do: true
   def match?(_), do: false
 
-  @impl true
+  @impl MutagenEx.Mutators
   def mutate({:when, _meta, [head, _guard]}), do: head
   def mutate({:when, _meta, args} = node) when is_list(args) and length(args) > 2, do: node
 
-  @impl true
+  @impl MutagenEx.Mutators
   def validate({:when, _meta, [_, _, _ | _]}), do: {:skip, :structurally_invalid}
   def validate(_head_or_pattern), do: :ok
 end

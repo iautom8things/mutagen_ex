@@ -28,7 +28,6 @@ defmodule MutagenEx.Mutators.WithSwap do
       with an identical literal expression.
     * `:indistinguishable_failures` if both expressions are the same
       literal or read the same variable.
-    * `:else_ignores_failure` if `else` consists of one `_ -> ...` arm.
 
   Unexpanded macros can hide reads, bindings and effects. The filters can
   miss swaps that only change side effects or exceptions, and kept swaps
@@ -61,7 +60,7 @@ defmodule MutagenEx.Mutators.WithSwap do
         {:with, _,
          [
            {:<-, _, [first, first_expr]} = first_clause,
-           {:<-, _, [second, second_expr]} = second_clause | rest
+           {:<-, _, [second, second_expr]} = second_clause | _rest
          ]}
       ) do
     second_bindings = names(second, :bindings)
@@ -78,9 +77,6 @@ defmodule MutagenEx.Mutators.WithSwap do
 
       same_value?(first_expr, second_expr) ->
         {:skip, :indistinguishable_failures}
-
-      ignores_failure?(List.last(rest)) ->
-        {:skip, :else_ignores_failure}
 
       true ->
         :ok
@@ -204,10 +200,4 @@ defmodule MutagenEx.Mutators.WithSwap do
       pairs
     end
   end
-
-  defp ignores_failure?(options) when is_list(options) do
-    match?([{:->, _, [[{:_, _, context}], _]}] when is_atom(context), Keyword.get(options, :else))
-  end
-
-  defp ignores_failure?(_), do: false
 end

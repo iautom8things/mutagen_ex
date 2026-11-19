@@ -94,24 +94,31 @@ defmodule MutagenEx.MixProject do
       groups_for_modules: [
         Mutators: [~r/^MutagenEx\.Mutators/],
         "Pipeline Facades": [~r/^MutagenEx\.Pipeline/],
+        "Test Facades": [~r/^MutagenEx\.Test\..*Facade$/],
         Core: [
           MutagenEx.MutationRunner,
-          MutagenEx.MutationRunner.MutationLoop,
           MutagenEx.MutationEnumerator,
+          MutagenEx.MutationEnumerator.Site,
           MutagenEx.Baseline,
           MutagenEx.CoverageRunner,
           MutagenEx.Config,
-          MutagenEx.Cli,
+          MutagenEx.CLI,
+          MutagenEx.Runtime,
+          MutagenEx.Application,
           MutagenEx.ScopeResolver,
+          MutagenEx.ScopeResolver.Scope,
           MutagenEx.Ast,
           MutagenEx.AstCache,
           MutagenEx.BeamCache,
           MutagenEx.JsonReporter,
+          MutagenEx.JsonReporter.Report,
+          MutagenEx.JsonReporter.Sanitizer,
           MutagenEx.JsonStreamer,
           MutagenEx.JsonPath,
           MutagenEx.Progress,
           MutagenEx.TestModuleDiscovery,
           MutagenEx.TestSelector,
+          MutagenEx.TestSelector.TestFilter,
           MutagenEx.Types
         ]
       ]
