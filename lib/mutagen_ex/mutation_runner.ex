@@ -171,6 +171,7 @@ defmodule MutagenEx.MutationRunner do
   @typedoc "Successful per-site result. `:compile_error` outcomes live in `compile_errors` instead."
   @type site_result :: %{
           id: String.t(),
+          function: String.t() | nil,
           file: String.t(),
           line: pos_integer(),
           column: pos_integer(),
@@ -783,6 +784,7 @@ defmodule MutagenEx.MutationRunner do
 
     result = %{
       id: site.id,
+      function: site.function,
       file: site.file,
       line: site.line,
       column: site.column,
@@ -903,9 +905,8 @@ defmodule MutagenEx.MutationRunner do
 
   # Replace the first AST node whose positional metadata matches
   # `site.line` / `site.column` AND whose value equals
-  # `site.original_ast`. The dual check protects against
-  # `:erlang.phash2`-style hash collisions if a file has two identical
-  # sub-trees on the same line.
+  # `site.original_ast`. The two checks verify the cached path against
+  # the original node before swapping it.
   #
   # Two shapes are handled (bw mutagen-wrd.16):
   #
@@ -923,7 +924,7 @@ defmodule MutagenEx.MutationRunner do
   #      the *parent* operator / clause-head's `:line` and `:column`.
   #      We locate these via a custom walker that threads ambient
   #      `{line, column}` downward, mirroring the enumerator's
-  #      `walk_tree/6`. The path-index pre-compute deliberately SKIPS
+  #      `walk_tree/5`. The path-index pre-compute deliberately SKIPS
   #      bare-literal sites (they have no static `{form, meta, args}`
   #      to address) — they fall back to `replace_bare_site/2` here.
   #
@@ -1023,13 +1024,9 @@ defmodule MutagenEx.MutationRunner do
   # elements; for lists descend into each element.
   #
   # `sites_by_node` is keyed by `{line, column, original_ast}` so the
-  # match check is a single map lookup per visit. Duplicate-position
-  # sites that share the same `original_ast` and mutate to the same
-  # value are coalesced into one entry — but the content-addressed
-  # `site.id` keeps them distinct in the returned map only when their
-  # mutated ASTs differ enough that the enumerator emitted both. In
-  # practice the enumerator de-dupes (see r1 byte-identity), so this
-  # is a non-issue.
+  # match check is a single map lookup per visit. Different mutators at the
+  # same AST node share a path and keep separate IDs. Keep the first path
+  # if a caller supplies its own sites with repeated IDs.
   defp collect_paths(file_ast, file_sites) do
     sites_by_node =
       Enum.reduce(file_sites, %{}, fn %Site{} = site, acc ->
@@ -1230,7 +1227,7 @@ defmodule MutagenEx.MutationRunner do
     if replaced?, do: {:ok, new_ast}, else: {:error, :site_not_found}
   end
 
-  # Pre-order walker that mirrors the enumerator's `walk_tree/6`:
+  # Pre-order walker that mirrors the enumerator's `walk_tree/5`:
   # threads `{ambient_line, ambient_column}` downward and short-circuits
   # via the `replaced?` flag once the first bare-literal match is
   # rewritten. Returns `{rewritten_node, ambient_for_next_sibling,

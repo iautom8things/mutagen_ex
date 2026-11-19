@@ -199,10 +199,15 @@ defmodule MutagenEx.Integration.StreamCliTest do
 
     # Every NDJSON line carries the schema version literal — proves the
     # lines are the contract surface, not stray JSON-shaped stdout.
-    assert Enum.all?(ndjson, &(&1["version"] == "1")),
-           "every NDJSON line must carry version \"1\": #{inspect(ndjson)}"
+    assert Enum.all?(ndjson, &(&1["version"] == "2")),
+           "every NDJSON line must carry version \"2\": #{inspect(ndjson)}"
 
     start_line = List.first(ndjson)
+    assert start_line["meta"]["id_scheme"] == "2"
+
+    for %{"kind" => "result"} = result <- ndjson do
+      assert result["function"] == "#{calc_module}.add/2"
+    end
 
     assert is_integer(start_line["total"]) and start_line["total"] > 0,
            "start envelope must carry a positive total: #{inspect(start_line)}"

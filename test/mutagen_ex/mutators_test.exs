@@ -83,11 +83,8 @@ defmodule MutagenEx.MutatorsTest do
       assert {:-, _, [{:x, _, nil}, 1]} = mutated
       assert MutagenEx.Mutators.Arith.validate(mutated) == :ok
 
-      id = Mutators.site_id("lib/foo.ex", ast, :arith)
-      assert id =~ ~r/^lib\/foo\.ex:\d+:arith$/
-      # ID hash is `:erlang.phash2` of the *normalised* node:
-      [_file, hash, _name] = String.split(id, ":")
-      assert String.to_integer(hash) == :erlang.phash2(Mutators.normalize(ast))
+      id = Mutators.site_id("lib/foo.ex", {{Foo, :f, 1}, Mutators.identity_node(ast), 0}, :arith)
+      assert id =~ ~r/^lib\/foo\.ex:[0-9a-f]{32}:arith$/
     end
   end
 
@@ -138,24 +135,28 @@ defmodule MutagenEx.MutatorsTest do
 
     test "produces `relative_file:hash:mutator_name`" do
       {:ok, ast} = Code.string_to_quoted("a + b")
-      id = Mutators.site_id("lib/example.ex", ast, :arith)
+      id = Mutators.site_id("lib/example.ex", {nil, Mutators.identity_node(ast), 0}, :arith)
       parts = String.split(id, ":")
       assert length(parts) == 3
       [file, hash, name] = parts
       assert file == "lib/example.ex"
-      assert {_int, ""} = Integer.parse(hash)
+      assert {:ok, <<_::128>>} = Base.decode16(hash, case: :lower)
       assert name == "arith"
     end
 
-    test "ID hash uses :erlang.phash2 of the normalised AST" do
-      {:ok, ast} = Code.string_to_quoted("a + b")
-      normalised = Mutators.normalize(ast)
-      [_f, hash, _n] = "lib/example.ex" |> Mutators.site_id(ast, :arith) |> String.split(":")
-      assert String.to_integer(hash) == :erlang.phash2(normalised)
+    test "ID hash includes the definition, normalized node, and ordinal" do
+      ast = {:+, [], [{:a, [], nil}, {:b, [], nil}]}
+      identity = {{Example, :f, 2}, ast, 1}
+
+      [_file, hash, "arith"] =
+        Mutators.site_id("lib/example.ex", identity, :arith) |> String.split(":")
+
+      assert Base.decode16!(hash, case: :lower) ==
+               :erlang.md5(:erlang.term_to_binary(identity, [:deterministic]))
     end
   end
 
-  describe "normalize/1 strips positional metadata (mutagen.decision.content_addressed_ids)" do
+  describe "normalize/1 strips positional metadata" do
     test "strips :line, :column, :end_line, :end_column from every meta keyword" do
       ast =
         {:+, [line: 5, column: 17, end_line: 5, end_column: 22, context: :test],
@@ -168,15 +169,9 @@ defmodule MutagenEx.MutatorsTest do
       refute Keyword.has_key?(meta, :column)
       refute Keyword.has_key?(meta, :end_line)
       refute Keyword.has_key?(meta, :end_column)
-      # Non-positional metadata is preserved per the decision file.
+      # Non-positional metadata is preserved for mutator comparisons.
       assert Keyword.get(meta, :context) == :test
       assert x_meta == []
-    end
-
-    test "ASTs that differ only in positional metadata hash equal" do
-      ast_a = {:+, [line: 5, column: 17], [{:x, [line: 5, column: 17], nil}, 1]}
-      ast_b = {:+, [line: 99, column: 1], [{:x, [line: 99, column: 1], nil}, 1]}
-      assert Mutators.ast_hash(ast_a) == Mutators.ast_hash(ast_b)
     end
   end
 

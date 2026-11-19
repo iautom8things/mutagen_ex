@@ -40,6 +40,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
   - mutagen.decision.serial_execution_and_seed
@@ -355,21 +356,18 @@ decisions:
     `apply_swap_at_path/3` — an `O(depth)` descent along the cached
     path — to produce each site's mutated file AST. The per-file
     path index is keyed by `site.id` (the content-addressed site ID
-    per mutagen.decision.content_addressed_ids) so duplicate-position
-    sites do not collide.
+    per mutagen.decision.mutation_id_scheme_2). Distinct indexed sites from
+    the enumerator keep distinct keys in the per-file path index.
 
     Byte-identity contract: for every site, the mutated file AST
     produced by the batched path is byte-for-byte identical to the
     file AST that an unconditional per-site `Macro.prewalk/2` would
     have produced (the legacy reference walker, preserved as a
     fallback). The legacy reference path is invoked when the path
-    index lacks an entry for `site.id` — for bare-literal sites
-    (`Literal` mutator on a raw integer or boolean; `ResultTuple`
-    targeting bare booleans) whose `original_ast` carries no
-    metadata of its own, or for any caller that did not pre-populate
-    the path index. Bare-literal sites resolve via the
-    ambient-threading walker (`replace_bare_site/2`) that mirrors
-    `MutagenEx.MutationEnumerator.walk_tree/6`'s descent rules.
+    index lacks an entry for `site.id`, including bare integer and
+    boolean sites whose `original_ast` carries no metadata of its own.
+    Bare-literal sites resolve via the ambient-threading walker (`replace_bare_site/2`) that mirrors
+    `MutagenEx.MutationEnumerator.walk_tree/5`'s descent rules.
 
     The pre-compute is internal to `MutationRunner` and is NOT a
     public input — callers that pass a custom `cfg` without

@@ -134,7 +134,9 @@ decisions:
     (`Outer.Inner`); the unqualified inner name (`Inner`) does not match and
     returns `reason: :module_not_found`. This mirrors the AST-layer
     nested-module qualification carve-out (mutagen.ast.r2 /
-    mutagen.mutation_enumeration.r4) at the resolver boundary.
+    mutagen.mutation_enumeration.r4) at the resolver boundary. A nested
+    declaration with an absolute alias (`Elixir.Other`) or a literal atom
+    uses that module directly. `__MODULE__.Inner` resolves to `Outer.Inner`.
 ```
 
 ```spec-scenarios

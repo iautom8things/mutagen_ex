@@ -10,8 +10,9 @@ defmodule MutagenEx.MutationEnumerator.Site do
   Fields:
 
     * `:id` — content-addressed site ID
-      (`"{file}:{ast_hash}:{mutator_name}"`) per
-      `mutagen.decision.content_addressed_ids`.
+      (`"{file}:{hash}:{mutator_name}"`) per
+      `mutagen.decision.mutation_id_scheme_2`.
+    * `:function` — enclosing definition as `Mod.fun/arity`, or `nil`.
     * `:file` — relative path the site lives in, as taken from the
       `MutagenEx.ScopeResolver.Scope` it came from.
     * `:line` / `:column` — 1-based source coordinates of the original AST
@@ -44,6 +45,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
     :mutator,
     :original_ast,
     :mutated_ast,
+    function: nil,
     end_line: nil,
     end_column: nil
   ]
@@ -56,6 +58,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
           mutator: atom(),
           original_ast: Macro.t(),
           mutated_ast: Macro.t(),
+          function: String.t() | nil,
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil
         }
@@ -117,12 +120,11 @@ defmodule MutagenEx.MutationEnumerator do
   Specifically:
 
     * scope records are walked in input order;
-    * within a scope, the AST is walked by `Macro.prewalk/2` which is
-      deterministic for a given AST;
+    * within a scope, sites follow the AST's depth-first walk order;
     * within a node, mutators are tried in `Mutators.all/0` order;
     * a node that matches two mutators produces two sites, in that order;
-    * site IDs are `:erlang.phash2`-based and stable under formatting
-      (`mutagen.decision.content_addressed_ids`).
+    * site IDs use file-wide ordinals and stay stable under formatting
+      (`mutagen.decision.mutation_id_scheme_2`).
 
   The property test exercises this on randomly generated input tuples.
   """
@@ -203,11 +205,18 @@ defmodule MutagenEx.MutationEnumerator do
               ":dispatch_mode must be :head_atom or :legacy, got #{inspect(dispatch_mode)}"
     end
 
-    initial = %{sites: [], skipped: [], warnings: []}
+    scopes = Enum.uniq_by(scope_records, &{&1.file, &1.module})
+
+    by_file =
+      scopes
+      |> Enum.group_by(& &1.file, & &1.module)
+      |> Map.new(fn {file, modules} ->
+        {file, enumerate_file(file, modules, ast_cache, covered_lines, mutators, dispatch_mode)}
+      end)
 
     final =
-      Enum.reduce(scope_records, initial, fn scope, acc ->
-        enumerate_scope(scope, ast_cache, covered_lines, mutators, dispatch_mode, acc)
+      Enum.reduce(scopes, %{sites: [], skipped: [], warnings: []}, fn scope, acc ->
+        append_scope(scope, Map.fetch!(by_file, scope.file), acc)
       end)
 
     site_count = length(final.sites)
@@ -235,209 +244,114 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  # Walk one scope record. Pulls the AST for the scope's file out of the
-  # cache, narrows to the matching `defmodule` body (r4), runs each
-  # qualifying node through the mutator catalog. If the walk produces no
-  # sites AND no skips, emit the no-mutation-candidates warning (r5).
-  defp enumerate_scope(
-         %Scope{file: file, module: module} = scope,
-         ast_cache,
-         covered_lines,
-         mutators,
-         dispatch_mode,
-         acc
-       ) do
-    case Map.fetch(ast_cache, file) do
-      :error ->
-        # No AST entry for this file in the cache. We surface this as a
-        # warning rather than crashing — the caller (S5 pipeline) populates
-        # the cache and is responsible for ensuring scope files are present;
-        # a missing entry here is a programmer error, but we keep
-        # enumeration moving for the remaining scope records.
-        %{acc | warnings: [{:ast_cache_miss, file, module} | acc.warnings]}
+  # Walk the file once so ordinals are independent of scope and coverage.
+  defp enumerate_file(file, modules, ast_cache, covered_lines, mutators, dispatch_mode) do
+    with {:ok, ast} <- Map.fetch(ast_cache, file) do
+      env = %{
+        file: file,
+        ranks: modules |> Enum.with_index() |> Map.new(),
+        covered: Map.get(covered_lines, file, MapSet.new()),
+        mutators: mutators,
+        dispatch_mode: dispatch_mode,
+        module: nil,
+        enclosing: nil,
+        owner: nil
+      }
 
-      {:ok, ast} ->
-        case Ast.find_module_body(ast, Atom.to_string(module)) do
-          :not_found ->
-            # The scope record names a module we cannot find in the cached
-            # AST — same "programmer error" shape as above. Warn and move on.
-            %{acc | warnings: [{:module_not_in_ast, file, module} | acc.warnings]}
-
-          {:ok, body} ->
-            covered = Map.get(covered_lines, file, MapSet.new())
-            before_count = {length(acc.sites), length(acc.skipped)}
-
-            acc_after = walk_body(body, scope, covered, mutators, dispatch_mode, acc)
-
-            if {length(acc_after.sites), length(acc_after.skipped)} == before_count do
-              # Scope produced nothing — neither sites nor skips. Warn per r5.
-              %{acc_after | warnings: [{:no_mutation_candidates, module} | acc_after.warnings]}
-            else
-              acc_after
-            end
-        end
+      acc = %{ordinals: %{}, scopes: %{}, sites: %{}, skipped: %{}, count: 0}
+      walked = walk_tree(ast, {nil, 1}, nil, env, acc)
+      {:ok, Map.take(walked, [:scopes, :sites, :skipped])}
     end
   end
 
-  # Walk a module body AST.
-  #
-  # Implementation note (bw mutagen-wrd.16): we used to drive this with
-  # `Macro.prewalk/3`, which is deterministic and pleasant — but it has no
-  # mechanism for threading "ambient" parent state downward. The literal
-  # mutator surfaced the cost: Elixir 1.19's parser does NOT wrap atomic
-  # literals (e.g. the `0` in `n > 0`, the `1` in `do: 1`, bare booleans
-  # in boolean operands, case-clause-head literals) in
-  # `{:__block__, meta, [value]}` 3-tuples — those are children of their
-  # parent operator / clause-head 3-tuple and carry no metadata of their
-  # own. `node_line/1` returns nil for bare literals; the old
-  # `is_nil(line) -> acc` filter in `try_one_mutator/5` dropped every such
-  # site even when the parent operator's line was covered.
-  #
-  # We picked parent-line-inheritance over a pre-pass AST rewrite (the
-  # other resolution path the ticket listed) because:
-  #
-  #   1. It keeps the AST in the cache byte-identical to what the runner
-  #      will restore (r6's "same AST enumerated is the AST restored"
-  #      invariant). A pre-pass rewrite would mutate the cache value.
-  #   2. It's localised: one change in the walker, no churn through the
-  #      mutator catalog. Other mutators that match bare values in the
-  #      future automatically inherit the same line-coverage behaviour.
-  #   3. The literal mutator already handles both bare and `__block__`-
-  #      wrapped shapes (bw mutagen-wrd.15); adding a normaliser would be
-  #      redundant with that work.
-  #
-  # The walker is a hand-rolled pre-order recursion that mirrors
-  # `Macro.prewalk`'s left-to-right depth-first order (so determinism r1
-  # is preserved) but additionally threads an `ambient` `{line, column}`
-  # tuple downward. When `try_one_mutator/5` is consulted for a node, it
-  # uses the node's own positional metadata if present, else the ambient
-  # tuple from the nearest enclosing 3-tuple.
-  defp walk_body(body, scope, covered, mutators, dispatch_mode, acc) do
-    walk_tree(
-      body,
-      _ambient = {nil, 1},
-      _context = nil,
-      scope,
-      covered,
-      mutators,
-      dispatch_mode,
-      acc
-    )
+  defp append_scope(%Scope{file: file, module: module}, :error, acc) do
+    %{acc | warnings: [{:ast_cache_miss, file, module} | acc.warnings]}
   end
 
-  # Pre-order recursion. The visit happens BEFORE descent, which matches
-  # `Macro.prewalk` semantics. `ambient` is `{ambient_line, ambient_column}`.
-  defp walk_tree(node, ambient, context, scope, covered, mutators, dispatch_mode, acc) do
-    acc = try_mutators(node, ambient, context, scope, covered, mutators, dispatch_mode, acc)
+  defp append_scope(%Scope{file: file, module: module}, {:ok, walked}, acc) do
+    case Map.get(walked.scopes, module) do
+      nil ->
+        %{acc | warnings: [{:module_not_in_ast, file, module} | acc.warnings]}
+
+      :empty ->
+        %{acc | warnings: [{:no_mutation_candidates, module} | acc.warnings]}
+
+      :matched ->
+        %{
+          acc
+          | sites: Map.get(walked.sites, module, []) ++ acc.sites,
+            skipped: Map.get(walked.skipped, module, []) ++ acc.skipped
+        }
+    end
+  end
+
+  defp walk_tree({:defmodule, meta, [name, [do: body]]} = node, ambient, context, env, acc) do
+    acc = try_mutators(node, ambient, context, env, acc)
+    position = update_ambient(meta, ambient)
+    acc = walk_tree(name, position, %{parent: node, index: 0}, env, acc)
+    module = Ast.declared_module(name, env.module)
+    rank = Map.get(env.ranks, module)
+
+    # Overlapping scopes share one visit. The first scope gets the output.
+    owner = earlier_scope(env.owner, rank, module)
+    body_env = %{env | module: module, enclosing: nil, owner: owner}
+    body_position = if is_nil(env.owner), do: {nil, 1}, else: position
+    walked = walk_tree(body, body_position, nil, body_env, acc)
+
+    case rank do
+      nil -> walked
+      _ when walked.count > acc.count -> put_in(walked.scopes[module], :matched)
+      _ -> %{walked | scopes: Map.put_new(walked.scopes, module, :empty)}
+    end
+  end
+
+  defp walk_tree(node, ambient, context, env, acc) do
+    env = enter_definition(node, env)
+    acc = try_mutators(node, ambient, context, env, acc)
 
     case node do
       {form, meta, args} when is_list(meta) ->
-        # Update ambient from this node's own metadata (if any) before
-        # descending. Children that lack their own :line will inherit this
-        # node's line. Falls back to the prior ambient when meta is
-        # incomplete.
-        new_ambient = update_ambient(meta, ambient)
-        # The first element of a 3-tuple (`form`) is usually an atom
-        # (e.g. `:def`, `:+`) but can itself be a nested AST node for
-        # remote / dynamic calls. We recurse into both the form (when it
-        # is structured) and the args. Variables have shape
-        # `{name, meta, nil}` where `args` is `nil` (no children); list-
-        # valued args are children to walk.
+        position = update_ambient(meta, ambient)
+
         acc =
-          maybe_walk_node(form, new_ambient, node, scope, covered, mutators, dispatch_mode, acc)
-
-        case args do
-          children when is_list(children) ->
-            walk_children(
-              children,
-              new_ambient,
-              node,
-              scope,
-              covered,
-              mutators,
-              dispatch_mode,
-              acc
-            )
-
-          _ ->
+          if is_atom(form) do
             acc
-        end
+          else
+            walk_tree(form, position, %{parent: node, index: :form}, env, acc)
+          end
 
-      {a, b} ->
-        # Two-tuples in AST (e.g. keyword tuples, do/else pairs). Walk
-        # both halves under the same ambient — no new positional info to
-        # propagate.
-        acc =
-          walk_tree(
-            a,
-            ambient,
-            %{parent: node, index: 0},
-            scope,
-            covered,
-            mutators,
-            dispatch_mode,
-            acc
-          )
+        if is_list(args), do: walk_children(args, position, node, env, acc), else: acc
 
-        walk_tree(
-          b,
-          ambient,
-          %{parent: node, index: 1},
-          scope,
-          covered,
-          mutators,
-          dispatch_mode,
-          acc
-        )
+      {left, right} ->
+        acc = walk_tree(left, ambient, %{parent: node, index: 0}, env, acc)
+        walk_tree(right, ambient, %{parent: node, index: 1}, env, acc)
 
       list when is_list(list) ->
-        walk_children(list, ambient, list, scope, covered, mutators, dispatch_mode, acc)
+        walk_children(list, ambient, list, env, acc)
 
-      _atom_or_literal ->
-        # Leaf — already visited above. Nothing to recurse into.
+      _ ->
         acc
     end
   end
 
-  # Walk a list of children left-to-right with a shared ambient.
-  defp walk_children(children, ambient, parent, scope, covered, mutators, dispatch_mode, acc)
-       when is_list(children) do
-    children
-    |> Enum.with_index()
-    |> Enum.reduce(acc, fn {child, index}, child_acc ->
-      walk_tree(
-        child,
-        ambient,
-        %{parent: parent, index: index},
-        scope,
-        covered,
-        mutators,
-        dispatch_mode,
-        child_acc
-      )
-    end)
+  defp earlier_scope(owner, nil, _module), do: owner
+  defp earlier_scope({earlier, _} = owner, rank, _module) when earlier < rank, do: owner
+  defp earlier_scope(_owner, rank, module), do: {rank, module}
+
+  defp enter_definition(node, env) do
+    case Ast.definition_signature(node) do
+      {name, arity} -> %{env | enclosing: {env.module, name, arity}}
+      nil -> env
+    end
   end
 
-  # The `form` slot of a 3-tuple is usually an atom (e.g. `:def`, `:+`)
-  # but can itself be a nested AST node for remote / dynamic calls. Only
-  # recurse if it's a non-atom AST node — bare atoms have no further
-  # structure and `try_mutators` already had its shot during the parent
-  # visit (no mutator in the catalog matches a bare atom).
-  defp maybe_walk_node(form, _ambient, _parent, _scope, _covered, _mutators, _dispatch_mode, acc)
-       when is_atom(form),
-       do: acc
-
-  defp maybe_walk_node(form, ambient, parent, scope, covered, mutators, dispatch_mode, acc) do
-    walk_tree(
-      form,
-      ambient,
-      %{parent: parent, index: :form},
-      scope,
-      covered,
-      mutators,
-      dispatch_mode,
-      acc
-    )
+  # Bare literals inherit the nearest ancestor's source position.
+  defp walk_children(children, ambient, parent, env, acc) do
+    children
+    |> Enum.with_index()
+    |> Enum.reduce(acc, fn {child, index}, acc ->
+      walk_tree(child, ambient, %{parent: parent, index: index}, env, acc)
+    end)
   end
 
   # Try each mutator on a single AST node. A node may match more than one
@@ -458,12 +372,29 @@ defmodule MutagenEx.MutationEnumerator do
   # head-atom equivalence test
   # (`test/mutagen_ex/head_atom_dispatch_test.exs`); it is not exposed
   # via the Mix task.
-  defp try_mutators(node, ambient, context, scope, covered, mutators, dispatch_mode, acc) do
-    candidates = pre_filter_mutators(node, mutators, dispatch_mode)
+  defp try_mutators(node, ambient, context, env, acc) do
+    mutators =
+      node
+      |> pre_filter_mutators(env.mutators, env.dispatch_mode)
+      |> Enum.filter(& &1.match?(node))
 
-    Enum.reduce(candidates, acc, fn mutator, inner_acc ->
-      try_one_mutator(mutator, node, ambient, context, scope, covered, inner_acc)
-    end)
+    case mutators do
+      [] ->
+        acc
+
+      mutators ->
+        normalized = Mutators.identity_node(node)
+
+        Enum.reduce(mutators, acc, fn mutator, acc ->
+          name = mutator.name()
+          key = {env.enclosing, normalized, name}
+          ordinal = Map.get(acc.ordinals, key, 0)
+          acc = put_in(acc.ordinals[key], ordinal + 1)
+          identity = {env.enclosing, normalized, ordinal}
+
+          emit_site(mutator, node, ambient, context, env, {identity, name}, acc)
+        end)
+    end
   end
 
   # Filter `mutators` down to the sub-sequence that could possibly match
@@ -485,34 +416,25 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp pre_filter_mutators(_node, mutators, :legacy), do: mutators
 
-  defp try_one_mutator(mutator, node, ambient, context, %Scope{file: file} = _scope, covered, acc) do
-    if mutator.match?(node) do
-      {line, column} = effective_position(node, ambient)
+  defp emit_site(_mutator, _node, _ambient, _context, %{owner: nil}, _identity, acc),
+    do: acc
 
-      cond do
-        # Per r2: filter by covered_lines BEFORE consulting validate/1.
-        # A nil line means neither the node nor any enclosing ancestor
-        # carried positional metadata — extremely rare in real ASTs, and
-        # the right behaviour is still "uncovered" (we cannot honestly
-        # attribute the site to a source line).
-        is_nil(line) ->
-          acc
+  defp emit_site(mutator, node, ambient, context, env, {identity, name}, acc) do
+    {line, column} = effective_position(node, ambient)
 
-        not MapSet.member?(covered, line) ->
-          acc
-
-        true ->
-          run_mutator(mutator, node, context, file, line, column, acc)
-      end
+    if line && MapSet.member?(env.covered, line) do
+      record_site(mutator, node, {line, column}, context, env, {identity, name}, acc)
     else
       acc
     end
   end
 
-  defp run_mutator(mutator, node, context, file, line, column, acc) do
+  defp record_site(mutator, node, {line, column}, context, env, {identity, name}, acc) do
+    file = env.file
+    {_rank, owner} = env.owner
+    id = Mutators.site_id(file, identity, name)
     mutated = mutator.mutate(node)
-    name = mutator.name()
-    id = Mutators.site_id(file, node, name)
+    acc = %{acc | count: acc.count + 1}
 
     validation =
       if contextually_invalid_literal?(name, mutated, context) do
@@ -531,6 +453,7 @@ defmodule MutagenEx.MutationEnumerator do
 
         site = %Site{
           id: id,
+          function: format_function(env.enclosing),
           file: file,
           line: line,
           column: column,
@@ -541,13 +464,18 @@ defmodule MutagenEx.MutationEnumerator do
           end_column: end_column
         }
 
-        %{acc | sites: [site | acc.sites]}
+        %{acc | sites: Map.update(acc.sites, owner, [site], &[site | &1])}
 
       {:skip, reason} ->
         entry = %{site_id: id, reason: reason, mutator: name, file: file}
-        %{acc | skipped: [entry | acc.skipped]}
+        %{acc | skipped: Map.update(acc.skipped, owner, [entry], &[entry | &1])}
     end
   end
+
+  defp format_function({module, name, arity}) when not is_nil(module),
+    do: "#{inspect(module)}.#{name}/#{arity}"
+
+  defp format_function(_), do: nil
 
   defp contextually_invalid_literal?(:literal, mutated, context) do
     literal_zero?(mutated) and invalid_zero_literal_context?(context)
@@ -602,12 +530,6 @@ defmodule MutagenEx.MutationEnumerator do
 
   # --- AST helpers ----------------------------------------------------------
   #
-  # `alias_to_module/1`, `find_module_body/2`, and `node_line/1` were
-  # lifted to `MutagenEx.Ast` per `mutagen.ast` (mutagen-wrd.25.2). This
-  # module routes through that canonical surface. `node_column_or_nil/1`
-  # is enumerator-specific (only the ambient-position threading needs
-  # column-aware fallback) and stays here.
-
   # `nil` if the node has no `:column` metadata of its own. Used by
   # `effective_position/2` so missing columns can fall back to the
   # ambient column rather than masking it with `1`.

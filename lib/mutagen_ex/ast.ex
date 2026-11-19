@@ -117,7 +117,7 @@ defmodule MutagenEx.Ast do
   end
 
   defp find_module_body({:defmodule, _meta, [alias_ast, [do: body]]}, target_mod_str, parent) do
-    case qualify_module(alias_ast, parent) do
+    case declared_module(alias_ast, parent) do
       nil ->
         find_module_body(body, target_mod_str, parent)
 
@@ -153,14 +153,38 @@ defmodule MutagenEx.Ast do
   defp find_module_body([], _target_mod_str, _parent), do: :not_found
   defp find_module_body(_literal, _target_mod_str, _parent), do: :not_found
 
-  defp qualify_module(alias_ast, nil), do: alias_to_module(alias_ast)
+  @doc false
+  def declared_module({:__aliases__, _, [Elixir | _]} = name, _parent),
+    do: alias_to_module(name)
 
-  defp qualify_module(alias_ast, parent) when is_atom(parent) do
-    case alias_to_module(alias_ast) do
+  def declared_module({:__aliases__, _, [{:__MODULE__, _, _} | parts]}, parent)
+      when is_atom(parent) and not is_nil(parent) do
+    if Enum.all?(parts, &is_atom/1), do: Module.concat([parent | parts])
+  end
+
+  def declared_module({:__aliases__, _, _} = name, parent) when not is_nil(parent) do
+    case alias_to_module(name) do
       nil -> nil
-      mod when is_atom(mod) -> Module.concat(parent, mod)
+      module -> Module.concat(parent, module)
     end
   end
+
+  def declared_module(name, _parent), do: alias_to_module(name)
+
+  @doc false
+  def definition_signature({kind, _, [head | _]})
+      when kind in [:def, :defp, :defmacro, :defmacrop],
+      do: head_signature(head)
+
+  def definition_signature(_), do: nil
+
+  defp head_signature({:when, _, [head | _]}), do: head_signature(head)
+
+  defp head_signature({name, _, args}) when is_atom(name) and is_list(args),
+    do: {name, length(args)}
+
+  defp head_signature({name, _, nil}) when is_atom(name), do: {name, 0}
+  defp head_signature(_), do: nil
 
   # Compare an AST-derived module atom against a `target_mod_str` per
   # the contract in the @doc. The AST atom's `Atom.to_string/1` form is

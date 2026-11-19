@@ -12,8 +12,8 @@ The catalog is the language of mutations the verifier judge will reason about.
 It must be:
 
 - **Stable across formatting**: re-running `mix mutagen` after `mix format`
-  produces the same `mutation.results[].id` values, per
-  mutagen.decision.content_addressed_ids.
+  preserves IDs when normalized expressions and their ordinals are unchanged, per
+  mutagen.decision.mutation_id_scheme_2.
 - **Discriminating**: a mutator does not produce a "no-op" mutation (one
   whose meaning is identical to the original) or a "structurally invalid"
   mutation that never compiles. `validate/1` filters those out at enumeration
@@ -68,7 +68,7 @@ surface:
   - lib/mutagen_ex/mutators/else_removal.ex
   - lib/mutagen_ex/mutators/guard_drop.ex
 decisions:
-  - mutagen.decision.content_addressed_ids
+  - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.validate_predicates
   - mutagen.decision.ancora_migration
 ```
@@ -99,20 +99,23 @@ decisions:
   priority: must
   statement: |
     Every mutation site has an ID of shape
-    `{relative_file}:{ast_hash}:{mutator_name}`. `relative_file` is the file
-    path relative to the project root. `ast_hash` is `:erlang.phash2/2` of
-    the normalized AST node, where normalization strips `:line`, `:column`,
-    `:end_line`, and `:end_column` from every metadata keyword. `mutator_name`
-    is the snake_case atom name (`:arith`, `:case_drop`, etc.).
+    `{relative_file}:{hash}:{mutator_name}`. The hash is the lowercase
+    hexadecimal MD5 of the deterministic external term encoding of
+    `{enclosing, node, ordinal}`. The file path is relative to the project
+    root and the mutator name is snake_case.
+    The normalized node preserves compiler metadata that can change the
+    meaning of valid code and drops source locations and presentation
+    metadata at every depth. The ordinal starts at zero and counts identical
+    normalized nodes with the same enclosing definition and mutator in
+    file walk order.
 
 - id: mutagen.mutators.r4
   priority: must
   statement: |
-    Mutation IDs are stable across `mix format`. Specifically: running the
-    enumerator on a file, then running `mix format` on that file, then
-    running the enumerator again, produces the same site ID set (modulo
-    sites that `mix format` actually removed, which is none for the
-    supported subset).
+    With the same Elixir/OTP version, a site's ID is stable across formatting
+    and unrelated edits that leave its file, enclosing module, function name
+    and arity, normalized AST, mutator, and ordinal unchanged. Changing the
+    enclosing function or the normalized expression changes the site's ID.
 
 - id: mutagen.mutators.r5
   priority: must
@@ -171,8 +174,8 @@ decisions:
     - |
       `match?` returns true. `mutate/1` returns the AST for `x - 1`.
       `validate/1` returns `:ok`. The site ID is
-      `"lib/foo.ex:<hash>:arith"` where `<hash>` is the `:erlang.phash2`
-      of the normalized `+` AST node.
+      `"lib/foo.ex:<hash>:arith"` where `<hash>` encodes the enclosing
+      function, normalized `+` node, and ordinal zero.
 
 - id: mutagen.mutators.s2
   covers: [mutagen.mutators.r2]

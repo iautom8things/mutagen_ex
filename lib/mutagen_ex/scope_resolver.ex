@@ -444,7 +444,7 @@ defmodule MutagenEx.ScopeResolver do
   end
 
   defp collect_defmodules({:defmodule, _meta, [alias_ast, [do: body]]} = node, parent, acc) do
-    case qualify_module(alias_ast, parent) do
+    case Ast.declared_module(alias_ast, parent) do
       nil ->
         collect_defmodules(body, parent, acc)
 
@@ -491,7 +491,7 @@ defmodule MutagenEx.ScopeResolver do
   end
 
   defp find_defmodule_block({:defmodule, _meta, [alias_ast, [do: body]]} = node, target, parent) do
-    case qualify_module(alias_ast, parent) do
+    case Ast.declared_module(alias_ast, parent) do
       nil ->
         find_defmodule_block(body, target, parent)
 
@@ -527,15 +527,6 @@ defmodule MutagenEx.ScopeResolver do
   defp find_defmodule_block([], _target, _parent), do: :not_found
   defp find_defmodule_block(_literal, _target, _parent), do: :not_found
 
-  defp qualify_module(alias_ast, nil), do: Ast.alias_to_module(alias_ast)
-
-  defp qualify_module(alias_ast, parent) when is_atom(parent) do
-    case Ast.alias_to_module(alias_ast) do
-      nil -> nil
-      mod when is_atom(mod) -> Module.concat(parent, mod)
-    end
-  end
-
   # Find every `def`/`defp`/`defmacro`/`defmacrop` clause matching the given
   # function name and arity. Returns the list of line ranges (one per
   # clause) in source order. Atom safety (`r8`, mutagen-wrd.20):
@@ -561,40 +552,12 @@ defmodule MutagenEx.ScopeResolver do
     Enum.reverse(acc)
   end
 
-  # `def name(args) do body end` and the keyword shorthand
-  # `def name(args), do: body` both parse to:
-  #
-  #     {def_kind, meta, [{name, _, args}, [do: body]]}
-  #
-  # where `def_kind` is `:def`, `:defp`, `:defmacro`, or `:defmacrop`.
-  # Guard clauses wrap the head in
-  # `{:when, _, [{name, _, args}, guard_expr]}`.
-  defp extract_def({kind, _meta, [head, [do: _body]]} = node)
-       when kind in [:def, :defp, :defmacro, :defmacrop] do
-    case head_to_fun_arity(head) do
-      {:ok, fun, arity} -> {:ok, fun, arity, node_line_range(node)}
-      :error -> :error
+  defp extract_def(node) do
+    case Ast.definition_signature(node) do
+      {name, arity} -> {:ok, name, arity, node_line_range(node)}
+      nil -> :error
     end
   end
-
-  defp extract_def({kind, _meta, [head]} = node)
-       when kind in [:def, :defp, :defmacro, :defmacrop] do
-    case head_to_fun_arity(head) do
-      {:ok, fun, arity} -> {:ok, fun, arity, node_line_range(node)}
-      :error -> :error
-    end
-  end
-
-  defp extract_def(_), do: :error
-
-  defp head_to_fun_arity({:when, _, [inner | _]}), do: head_to_fun_arity(inner)
-
-  defp head_to_fun_arity({fun, _, args}) when is_atom(fun) do
-    arity = if is_list(args), do: length(args), else: 0
-    {:ok, fun, arity}
-  end
-
-  defp head_to_fun_arity(_), do: :error
 
   # --- range plumbing --------------------------------------------------------
 
