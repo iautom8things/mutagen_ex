@@ -160,3 +160,9 @@ source-defined calls. These exceptions keep the findings visible while
 the concrete modules and observed calls keep their normal checks.
 The repeat probe changed all 56 library files and passed with zero
 unexcepted uncovered files and 20 informational exceptions.
+
+### Growth cutover complete
+
+The first post-merge commit removes the eight import-only growth overrides.
+The tagged suite is now present on the target branch. New primary bindings
+use Ancora's default warning.
