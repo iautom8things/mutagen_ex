@@ -71,6 +71,12 @@ defmodule MutagenEx.MutatorsTest do
         assert module.name() == name
       end
     end
+
+    test "confidence rejects unknown names" do
+      assert_raise ArgumentError, "unknown mutator: :not_in_catalog", fn ->
+        Mutators.confidence(:not_in_catalog)
+      end
+    end
   end
 
   describe "scenario mutagen.mutators.s1 — arith + content-addressed ID" do
