@@ -172,6 +172,48 @@ An `else` arm does not affect validation. Even if it ignores the failure
 value, swapping the clauses can run side effects or raise an exception
 that the original order avoided.
 
+### How much to trust a survivor
+
+A blind measurement at one commit covered ten files from two private
+Phoenix applications. A seeded script selected the files. They included
+two contexts, two controllers, LiveViews, and plain modules. A reviewer
+judged each survivor after seeing only the code change and the test file.
+
+The reviewer judged public functions by the inputs their specs admit.
+For private functions, controllers, and LiveViews, the reviewer used
+the inputs their real callers, routes, and forms can deliver.
+
+| Survivors | Real test gaps | Share | 95% interval |
+|---|---:|---:|---:|
+| High confidence | 27 of 32 | 84% | 68% to 93% |
+| High confidence, reachable by current production callers | 23 of 32 | 72% | 55% to 84% |
+| Low confidence | 8 of 24 | 33% | 18% to 53% |
+
+| Confidence | Mutator | Real test gaps |
+|---|---|---:|
+| High | `boolean` | 7 of 7 |
+| High | `case_drop` | 12 of 15 |
+| High | `else_removal` | 3 of 3 |
+| High | `result_tuple` | 2 of 2 |
+| High | `compare` | 1 of 1 |
+| High | `literal` | 2 of 4 |
+| Low | `pipeline` | 5 of 19 |
+| Low | `guard_drop` | 2 of 4 |
+| Low | `with_swap` | 1 of 1 |
+
+Every figure uses one test file per module and measures gaps in the
+selected tests. A follow-up ran nine of the real-gap
+survivors against every test file that mentions the function. Other
+test files in the same suite killed six of them. Three survived.
+
+A survivor means “the tests you selected miss it”. First rerun with a
+wider `--tests` selection before writing a test.
+
+The sample is small and per-mutator confidence is provisional. The gate
+is advisory. The project requires 85% real test gaps under this judging
+rule before recommending enforcement. This measurement falls short.
+[Anonymized judgments](docs/precision/blind-2026-11.csv).
+
 ## Self-mutation
 
 The repository tests mutation runs against the mutator registry, scope
@@ -351,6 +393,9 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
             --seed 42 \
             --json out/mutagen.json
 ```
+
+A survivor means “the tests you selected miss it”. First rerun with a
+wider `--tests` selection before writing a test.
 
 ## Running in CI
 
