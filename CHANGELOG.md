@@ -56,6 +56,15 @@ file for traceability.
 - **NDJSON source slices.** Streamed `before_source` uses the same verbatim
   slice as the aggregate report when source coordinates are available.
   Early abort lines include the report version and ID scheme.
+- **Mutants stop executing tests after the first failure by default.**
+  A failure recorded before the deadline kills the mutant, even when
+  a later test would make a full run time out. Baseline and coverage
+  have no failure cap. Report schema 2 records the mode in
+  `meta.fail_fast`.
+  Equivalence assumes tests run independently. If a test sets up or
+  cleans up state for another, skipping it can change later mutants'
+  verdicts, warnings, and taint. These suites already depend on the
+  ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock
@@ -79,6 +88,10 @@ file for traceability.
   telemetry handlers, if any, no longer receive events.
 
 ### Fixed
+
+- **Baseline errors name every failing cited test.** Baseline runs
+  with an unbounded failure count even if the host config sets an
+  ExUnit failure cap.
 
 - **Archive-installed CLI no longer crashes on a cold start.** When
   `mix mutagen` was installed globally via `mix archive.install` (no

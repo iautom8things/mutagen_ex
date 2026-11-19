@@ -84,7 +84,6 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
 
   defmodule ExUnitStub do
     @moduledoc false
-    def configure(_opts), do: :ok
 
     def run do
       %{failures: 0, total: 1, excluded: 0, skipped: 0}
@@ -93,6 +92,8 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
 
   defmodule ExUnitServerStub do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(_mod, _cfg), do: :ok
   end
 

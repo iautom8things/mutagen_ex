@@ -85,16 +85,10 @@ defmodule MutagenEx.MutationRunnerTest do
     @agent :mutagen_ex_runner_test_exunit_fake
 
     def start_link do
-      Agent.start_link(fn -> %{configure: nil, results: []} end, name: @agent)
+      Agent.start_link(fn -> %{results: []} end, name: @agent)
     end
 
     def set_results(results), do: Agent.update(@agent, fn s -> %{s | results: results} end)
-    def get_configure, do: Agent.get(@agent, & &1.configure)
-
-    def configure(opts) do
-      Agent.update(@agent, fn s -> %{s | configure: opts} end)
-      :ok
-    end
 
     def run do
       next =
@@ -111,6 +105,11 @@ defmodule MutagenEx.MutationRunnerTest do
     defp handle_next(:default), do: %{failures: 0, total: 1, excluded: 0, skipped: 0}
 
     defp handle_next({:result, r}), do: r
+
+    defp handle_next({:report_options, observer}) do
+      send(observer, {:ex_unit_options, Application.get_all_env(:ex_unit)})
+      %{failures: 0, total: 1, excluded: 0, skipped: 0}
+    end
 
     defp handle_next({:raise, msg}), do: raise(msg)
 
@@ -134,6 +133,19 @@ defmodule MutagenEx.MutationRunnerTest do
       after
         # Defensive ceiling so a buggy fake doesn't hang the suite.
         5_000 -> r
+      end
+    end
+
+    defp handle_next({:late_failure_on_shutdown, observer}) do
+      Process.flag(:trap_exit, true)
+
+      receive do
+        {:EXIT, _from, :shutdown} ->
+          Application.fetch_env!(:ex_unit, :mutagen_on_failure).(self(), nil)
+          send(observer, :late_failure_recorded)
+          %{failures: 1, total: 1}
+      after
+        5_000 -> raise "shutdown was not received"
       end
     end
 
@@ -199,6 +211,8 @@ defmodule MutagenEx.MutationRunnerTest do
 
   defmodule ExUnitServerStub do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(_mod, _cfg) do
       Process.put(:exunit_server_stub_calls, (Process.get(:exunit_server_stub_calls) || 0) + 1)
       :ok
@@ -404,7 +418,6 @@ defmodule MutagenEx.MutationRunnerTest do
 
   defp clear_stubs do
     Process.delete(:exunit_fake_run_results)
-    Process.delete(:exunit_fake_configure)
     Process.delete(:exunit_server_stub_calls)
     Process.delete(:compiler_stub_calls)
     Process.delete(:compiler_stub_hooks)
@@ -477,12 +490,16 @@ defmodule MutagenEx.MutationRunnerTest do
   # r5 / s4: five outcomes; :compile_error excluded from results array
   # ---------------------------------------------------------------------------
 
-  @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
+  @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2", "mutagen.mutation_pipeline.r20"]
   test "configures the mutation phase with one test case at a time and the given seed" do
     cfg = %{base_cfg(build_site()) | seed: 42}
+    ExUnitFake.set_results([{:report_options, self()}])
 
     assert {:ok, %{results: [_]}} = MutationRunner.run(cfg)
-    assert [max_cases: 1, seed: 42, include: [], exclude: [:test]] = ExUnitFake.get_configure()
+    assert_receive {:ex_unit_options, options}
+
+    assert %{max_cases: 1, seed: 42, include: [], exclude: [:test], max_failures: 1} =
+             Map.new(options)
   end
 
   describe "r5: five outcomes" do
@@ -550,7 +567,11 @@ defmodule MutagenEx.MutationRunnerTest do
   # ---------------------------------------------------------------------------
 
   describe "r4 + r7: timeout and taint (s3, s6)" do
-    @tag spec: ["mutagen.mutation_pipeline.r5", "mutagen.mutation_pipeline.r7"]
+    @tag spec: [
+           "mutagen.mutation_pipeline.r4",
+           "mutagen.mutation_pipeline.r5",
+           "mutagen.mutation_pipeline.r7"
+         ]
     test ":timeout site classifies as :timeout and subsequent result has tainted_predecessors: true" do
       clear_stubs()
       site1 = build_site(id: "t1", line: 2, column: 13)
@@ -607,48 +628,42 @@ defmodule MutagenEx.MutationRunnerTest do
     #     environmental and hard to reproduce inside a unit test. The
     #     observable proxy is "purge was called for the scope module".
 
-    test "graceful-cancel path: task that traps exit and returns on :shutdown classifies :timeout without brutal_kill" do
-      clear_stubs()
-      site = build_site(id: "graceful", line: 2, column: 13)
+    @tag spec: "mutagen.mutation_pipeline.r4"
+    test "a clean reply during graceful cancellation is still a timeout" do
+      for fail_fast <- [true, false] do
+        first = build_site(id: "graceful", line: 2, column: 13)
+        second = build_site(id: "next", line: 2, column: 13)
+        caller = self()
 
-      cfg = base_cfg(site, timeout_ms: 50)
+        cfg =
+          base_cfg([first, second], timeout_ms: 50)
+          |> Map.merge(%{fail_fast: fail_fast, code_purge: &send(caller, {:purged, &1})})
 
-      # The task will trap exits, wait for :shutdown, and return.
-      # `Task.shutdown(task, grace)` in the loop sends :shutdown.
-      # The task returns its configured result, which the loop reports
-      # via the graceful path. r4 classification is :timeout (the
-      # wall-clock budget elapsed regardless of the unwind mechanism).
-      ExUnitFake.set_results([
-        {:trap_then_yield_on_shutdown, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
-      ])
+        ExUnitFake.set_results([
+          {:trap_then_yield_on_shutdown, %{failures: 0, total: 1}},
+          {:result, %{failures: 0, total: 1}}
+        ])
 
-      start_ms = System.monotonic_time(:millisecond)
-      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
-      elapsed_ms = System.monotonic_time(:millisecond) - start_ms
-
-      # The graceful path returns a `{:ok, result}` from the task —
-      # classification becomes :killed/:survived depending on
-      # failures. Here failures == 0, so :survived. This is the
-      # WIN of cooperative cancellation: the task got to finish
-      # unwinding inside the grace window so its result is honored.
-      # The bug repro (brutal_kill only) had no path to this outcome.
-      assert r.status == :survived,
-             "expected the trap-and-yield-on-shutdown task to be honoured as :survived on the graceful path (proving phase 1 of cancel_on_timeout fired); got #{inspect(r.status)}"
-
-      # Sanity: the timeout DID fire (we slept past 50ms wall-clock
-      # before the grace window settled). Without this, the test
-      # would be vacuous against a regression that skipped the
-      # timeout entirely.
-      assert elapsed_ms >= 50,
-             "expected elapsed >= 50ms (timeout_ms) but got #{elapsed_ms}ms — the timeout didn't fire"
-
-      # And it completed before the upper bound (timeout_ms + grace +
-      # noise). If a regression made the grace window unbounded, this
-      # would catch it.
-      assert elapsed_ms < 1_000,
-             "graceful cancel took #{elapsed_ms}ms — exceeded the timeout + grace budget"
+        assert {:ok, %{results: [timed_out, successor]}} = MutationRunner.run(cfg)
+        assert timed_out.status == :timeout
+        assert successor.status == :survived
+        assert successor.tainted_predecessors
+        assert_receive {:purged, _module}
+      end
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
+    test "a failure recorded during cancellation does not kill the mutant" do
+      site = build_site(id: "late-failure", line: 2, column: 13)
+      ExUnitFake.set_results([{:late_failure_on_shutdown, self()}])
+
+      assert {:ok, %{results: [%{status: :timeout}]}} =
+               MutationRunner.run(base_cfg(site, timeout_ms: 50))
+
+      assert_receive :late_failure_recorded
+    end
+
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "brutal-kill escalation: task that ignores :shutdown still terminates via :brutal_kill and classifies :timeout" do
       clear_stubs()
       site = build_site(id: "brutal", line: 2, column: 13)
@@ -679,6 +694,7 @@ defmodule MutagenEx.MutationRunnerTest do
              "brutal-kill escalation should clear the site in under 800ms; got #{elapsed_ms}ms — phase 2 likely did not fire"
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "code-server settle: :code.purge/1 is invoked for the site's scoped modules on :timeout" do
       clear_stubs()
       site = build_site(id: "settle", line: 2, column: 13)
@@ -721,6 +737,7 @@ defmodule MutagenEx.MutationRunnerTest do
       :ets.delete(purge_calls)
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r4"
     test "non-timeout outcomes do NOT call :code.purge/1 (settle is timeout-only)" do
       # The settle path is opt-in for the timeout class because
       # gratuitous purges on every successful site would slow down

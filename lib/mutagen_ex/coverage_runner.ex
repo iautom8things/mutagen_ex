@@ -18,9 +18,8 @@ defmodule MutagenEx.CoverageRunner do
     * **r3 — modules de-instrumented.** After `:cover.stop/0`,
       `:code.which/1` for every cover-instrumented module returns a real
       `.beam` path (or `:non_existing`) rather than `:cover_compiled`.
-    * **r4 — forced ExUnit configuration.** `ExUnit.configure(max_cases: 1,
-      seed: cfg.seed)` runs **before** any test. There is no `--parallel`
-      knob in v1.
+    * **r4 — forced ExUnit configuration.** Runs ExUnit serially with
+      the configured seed and an unbounded failure count.
     * **r5 — scope-filtered output.** The returned `covered_lines` map is
       keyed by relative file path and contains entries only for files that
       back the modules in `cfg.in_scope_modules`.
@@ -187,10 +186,7 @@ defmodule MutagenEx.CoverageRunner do
     with :ok <- ensure_cover_loadable(cfg),
          :ok <- start_cover(cfg),
          {:ok, instrumented} <- cover_compile_modules(cfg),
-         :ok <- configure_exunit(cfg),
-         :ok <- load_test_files(cfg),
-         :ok <- register_test_modules(cfg),
-         {:ok, _exunit_result} <- run_exunit(cfg),
+         {:ok, _exunit_result} <- run_cited_tests(cfg),
          {:ok, covered} <- gather_covered_lines(cfg, instrumented) do
       {:ok,
        %{
@@ -359,19 +355,12 @@ defmodule MutagenEx.CoverageRunner do
     end
   end
 
-  # r4: forced ExUnit.configure(max_cases: 1, seed: seed). The async flag is
-  # ignored — modules can still be `async: true`; max_cases: 1 collapses
-  # them to serial execution per mutagen.decision.serial_execution_and_seed.
-  defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
-
-    ex_unit.configure([max_cases: 1, seed: cfg.seed] ++ test_filter_options(cfg.test_filter))
-
-    :ok
-  end
-
-  defp test_filter_options(%TestFilter{include: include, exclude: exclude}) do
-    [include: include, exclude: exclude]
+  defp run_cited_tests(cfg) do
+    with :ok <- load_test_files(cfg),
+         :ok <- register_test_modules(cfg) do
+      options = MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
+      MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end)
+    end
   end
 
   # The runner loads test files exactly once; mutation_pipeline.r10
@@ -408,13 +397,7 @@ defmodule MutagenEx.CoverageRunner do
   # per site.
   defp register_test_modules(cfg) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-    test_modules = Map.get(cfg, :test_modules, [])
-
-    Enum.each(test_modules, fn {mod, mod_cfg} ->
-      server.add_module(mod, mod_cfg)
-    end)
-
-    :ok
+    MutagenEx.Test.ExUnitServer.register_cited_modules(server, Map.get(cfg, :test_modules, []))
   end
 
   defp run_exunit(cfg) do
