@@ -60,3 +60,9 @@ The runtime rule is syntactic. A named `def` called only during
 compilation still qualifies and can become an uncovered blocker. Code
 inside `unquote` within `quote` falls outside the runtime plan even
 when a runtime call evaluates it.
+
+An outer mutation site can depend on nested syntax. A site ID can
+include the whole expression or, for a bare literal, its parent. Keep
+that syntax in the outer fingerprint when the ID includes it. Swapping
+two nested bodies under identical outer conditions could otherwise
+transfer an outer ID without changing its fingerprint.

@@ -199,6 +199,8 @@ decisions:
     encoding of its list of normalized clauses or statements in file walk
     order. A nested module or definition contributes its boundary to the
     outer group's AST and contributes its own sites to its own group.
+    When the normalized expression used by an outer site's ID includes
+    nested syntax, the outer fingerprint includes that syntax too.
     Planned enumeration hashes only groups that own a planned site or
     skip. Each planned entry carries the fingerprint of its existing ID
     group. Formatting, comments, blank lines, and edits outside the group

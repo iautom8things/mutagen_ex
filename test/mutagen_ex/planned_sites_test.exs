@@ -361,6 +361,39 @@ defmodule MutagenEx.PlannedSitesTest do
     assert Map.drop(before, [inner, @group]) == Map.drop(after_edit, [inner, @group])
   end
 
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "the outer fingerprint changes when nested bodies transfer an outer site's ID" do
+    for {condition, tail, mutator} <- [
+          {"true", "", :literal},
+          {"x", "else\n  :keep", :else_removal}
+        ] do
+      branch = fn operator ->
+        """
+        if #{condition} do
+          defmodule Inner do
+            def inner(x), do: x #{operator} 1
+          end
+        #{tail}
+        end
+        """
+      end
+
+      source = fn left, right ->
+        module_source("def target(x) do\n" <> branch.(left) <> branch.(right) <> "end")
+      end
+
+      before = source.("+", "-")
+      swapped = source.("-", "+")
+      sites = fn source -> Enum.filter(target_sites(source), &(&1.mutator == mutator)) end
+      [first, second] = sites.(before)
+      [moved_second, moved_first] = sites.(swapped)
+      assert first.id == moved_first.id
+      assert second.id == moved_second.id
+      refute first.path == moved_first.path
+      refute fingerprint(before) == fingerprint(swapped)
+    end
+  end
+
   @tag spec: "mutagen.mutation_enumeration.r14"
   test "runtime classification uses syntax for compile-time calls and unquotes" do
     plan =

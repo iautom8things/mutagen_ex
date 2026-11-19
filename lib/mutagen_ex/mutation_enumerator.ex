@@ -537,9 +537,8 @@ defmodule MutagenEx.MutationEnumerator do
     Mutators.identity_hash(owned, :ast_list)
   end
 
-  defp prune_group({kind, meta, args}) when kind in @definition_kinds do
-    {kind, meta, Enum.map(args, &prune_nested/1)}
-  end
+  defp prune_group({kind, _, _} = definition) when kind in @definition_kinds,
+    do: prune_call(definition)
 
   defp prune_group(node), do: prune_nested(node)
 
@@ -551,12 +550,35 @@ defmodule MutagenEx.MutationEnumerator do
   defp prune_nested({kind, meta, [_head | _]}) when kind in @definition_kinds,
     do: {kind, meta, []}
 
-  defp prune_nested({form, meta, args}) when is_list(args),
-    do: {prune_nested(form), meta, Enum.map(args, &prune_nested/1)}
+  defp prune_nested({_, _, args} = node) when is_list(args), do: prune_call(node)
 
-  defp prune_nested({left, right}), do: {prune_nested(left), prune_nested(right)}
-  defp prune_nested(list) when is_list(list), do: Enum.map(list, &prune_nested/1)
+  defp prune_nested({left, right} = node) do
+    if bare_mutable_literal?(left) or bare_mutable_literal?(right) or mutable_expression?(node),
+      do: node,
+      else: {prune_nested(left), prune_nested(right)}
+  end
+
+  defp prune_nested(list) when is_list(list) do
+    if Enum.any?(list, &bare_mutable_literal?/1), do: list, else: Enum.map(list, &prune_nested/1)
+  end
+
   defp prune_nested(node), do: node
+
+  # A mutator can identify this entire subtree, or a bare literal can
+  # identify its whole parent. Keep those ID inputs in the outer hash.
+  defp prune_call({form, meta, args} = node) do
+    if Enum.any?(args, &bare_mutable_literal?/1) or mutable_expression?(node),
+      do: node,
+      else: {prune_nested(form), meta, Enum.map(args, &prune_nested/1)}
+  end
+
+  defp bare_mutable_literal?(node) when is_integer(node) or is_boolean(node),
+    do: Mutators.Literal.match?(node)
+
+  defp bare_mutable_literal?(_node), do: false
+
+  defp mutable_expression?(node),
+    do: Enum.any?(Dispatch.mutators_for_node(node), & &1.match?(node))
 
   defp cached_ast({ast, source}) when is_binary(source), do: ast
   defp cached_ast(ast), do: ast
