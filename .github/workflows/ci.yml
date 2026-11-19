@@ -52,3 +52,32 @@ jobs:
 
       - name: Run integration tests
         run: mix test.integration
+
+  specs:
+    name: Spec contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Elixir / OTP
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.19"
+          otp-version: "28"
+
+      - run: mix deps.get
+      - run: mix spec.validate --strict
+      - name: Check the change against its base
+        env:
+          SPEC_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [ "$SPEC_BASE" = "0000000000000000000000000000000000000000" ]; then
+            SPEC_BASE="origin/$DEFAULT_BRANCH"
+          fi
+          mix spec.check --base "$SPEC_BASE"
