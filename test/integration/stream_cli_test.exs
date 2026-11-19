@@ -18,8 +18,9 @@ defmodule MutagenEx.Integration.StreamCliTest do
     * the run exits `0` (no `FunctionClauseError`);
     * stdout is well-formed line-delimited JSON: a `start` envelope, one or
       more per-site `result` / `compile_error` lines, then an `end` envelope,
-      each a parseable JSON object carrying the documented `kind`
-      discriminator (`mutagen.json_schema.r10`); and
+      each carrying the documented `kind` discriminator
+      (`mutagen.json_schema.r14`), followed by the aggregate document
+      without a `kind` field; and
     * `--stream`'s NDJSON lands on the json sink (stdout here) and does NOT
       leak onto stderr — stdout is the contract surface, stderr is reserved
       for the progress feed, so the `.7` progress/stream composition (two
@@ -43,6 +44,11 @@ defmodule MutagenEx.Integration.StreamCliTest do
   # the generated downstream project can point a `path:` dep back at us.
   @project_root Path.expand("../..", __DIR__)
 
+  @tag spec: [
+         "mutagen.json_schema.r14",
+         "mutagen.json_schema.r25",
+         "mutagen.mutation_pipeline.r25"
+       ]
   test "`mix mutagen --stream` emits valid NDJSON and exits 0" do
     rand = :rand.uniform(1_000_000_000) |> Integer.to_string()
     app_name = "mutagen_ex_stream_test_#{rand}"
@@ -111,7 +117,7 @@ defmodule MutagenEx.Integration.StreamCliTest do
       use ExUnit.Case, async: true
 
       test "add/2 sums two integers" do
-        assert #{calc_module}.add(1, 2) == 3
+        assert #{calc_module}.add(1, 2) == #{calc_module}.Helper.expected()
       end
 
       test "add/2 is commutative for integers" do
@@ -121,6 +127,10 @@ defmodule MutagenEx.Integration.StreamCliTest do
       test "check/1 returns the failed first match" do
         assert #{calc_module}.check({:ok, :ok}) == {:ok, :ok}
       end
+    end
+
+    defmodule #{calc_module}.Helper do
+      def expected, do: 3
     end
     """)
 
@@ -174,19 +184,13 @@ defmodule MutagenEx.Integration.StreamCliTest do
            #{File.read(stderr_path) |> elem(1)}
            """
 
-    # ── 6. The NDJSON stream is the set of stdout lines that parse as JSON
-    #      objects carrying a `kind`. Per-mutation runs also print
-    #      pretty-printed ExUnit output to stdout (killed mutants emit
-    #      failure messages), so filter to the envelope/result lines. ───
-    ndjson =
+    {ndjson, [aggregate]} =
       mutagen_out
-      |> String.split("\n", trim: true)
-      |> Enum.map(&String.trim/1)
-      |> Enum.filter(&stream_line?/1)
-      |> Enum.map(&:json.decode/1)
+      |> json_lines()
+      |> Enum.split(-1)
 
-    refute ndjson == [],
-           "no NDJSON lines found on stdout:\n#{mutagen_out}"
+    refute Map.has_key?(aggregate, "kind")
+    assert %{"mutation" => %{"results" => aggregate_results}} = aggregate
 
     kinds = Enum.map(ndjson, & &1["kind"])
 
@@ -217,16 +221,6 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert [%{"confidence" => "low", "status" => "killed"} = swap] =
              Enum.filter(results, &(&1["mutator"] == "with_swap"))
 
-    aggregate_results =
-      mutagen_out
-      |> String.split("\n", trim: true)
-      |> Enum.find_value(fn line ->
-        case safe_decode(line) do
-          {:ok, %{"mutation" => %{"results" => results}}} -> results
-          _ -> nil
-        end
-      end)
-
     assert [%{"confidence" => "low", "status" => "killed"}] =
              Enum.filter(aggregate_results, &(&1["id"] == swap["id"]))
 
@@ -250,6 +244,18 @@ defmodule MutagenEx.Integration.StreamCliTest do
 
     end_line = List.last(ndjson)
 
+    assert %{"timings_ms" => timings} = aggregate["meta"]
+    assert Map.keys(timings) |> Enum.sort() == ~w(baseline boot coverage mutation total)
+    assert Enum.all?(timings, fn {_, ms} -> is_integer(ms) and ms >= 0 end)
+    assert timings["boot"] > 0
+    assert timings["coverage"] > 0
+    assert timings["baseline"] > 0
+    assert timings["mutation"] > 0
+    assert timings["total"] >= Enum.sum(Map.values(Map.delete(timings, "total")))
+    assert Map.delete(aggregate["meta"], "timings_ms") == start_line["meta"]
+    assert start_line["meta"] == end_line["meta"]
+    refute Enum.any?(results, &Map.has_key?(&1, "meta"))
+
     assert end_line["aborted"] == false,
            "end envelope must report aborted: false on a clean run: #{inspect(end_line)}"
 
@@ -257,6 +263,11 @@ defmodule MutagenEx.Integration.StreamCliTest do
     #      sink) and never leaks onto stderr — the `.7` two-sink
     #      composition is intact. ──────────────────────────────────────
     {:ok, stderr} = File.read(stderr_path)
+    refute stderr =~ "UndefinedFunctionError"
+
+    refute Enum.any?(aggregate_results, fn result ->
+             Enum.any?(result["warnings"], &String.contains?(&1, "__ex_unit__"))
+           end)
 
     refute stream_emitted_on_stderr?(stderr),
            "NDJSON envelope lines must not leak onto stderr (json sink is stdout):\n#{stderr}"
@@ -276,12 +287,27 @@ defmodule MutagenEx.Integration.StreamCliTest do
                "abort_reason" => "too_many_sites",
                "version" => "2",
                "meta" => %{"id_scheme" => "2"}
-             }
+             } = abort_end,
+             %{
+               "aborted" => true,
+               "abort_reason" => "too_many_sites",
+               "meta" => %{"timings_ms" => abort_timings}
+             } = abort_aggregate
            ] =
-             abort_out
-             |> String.split("\n", trim: true)
-             |> Enum.filter(&stream_line?/1)
-             |> Enum.map(&:json.decode/1)
+             json_lines(abort_out)
+
+    refute Map.has_key?(abort_aggregate, "kind")
+    refute Map.has_key?(abort_end["meta"], "timings_ms")
+    assert abort_timings["coverage"] > 0
+    assert abort_timings["baseline"] == 0
+    assert abort_timings["mutation"] == 0
+  end
+
+  defp json_lines(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.filter(&String.starts_with?(&1, "{"))
+    |> Enum.map(&:json.decode/1)
   end
 
   # Build a `sh -c` command string that runs `mix <args>` with stderr

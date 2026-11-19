@@ -1011,6 +1011,11 @@ defmodule MutagenEx.CLITest do
       assert doc =~ ~r/##\s+Exit Codes/
     end
 
+    test "documents --no-progress in the synopsis and flags", %{moduledoc: doc} do
+      assert doc =~ ~r/^    MIX_ENV=test mix mutagen .*\[--no-progress\]/m
+      assert doc =~ ~r/^  \* `--no-progress` suppresses/m
+    end
+
     test "contains a Known Caveats section", %{moduledoc: doc} do
       assert doc =~ ~r/##\s+Known Caveats/
     end
@@ -1024,7 +1029,7 @@ defmodule MutagenEx.CLITest do
         "use SomeModule",
         "Macro mutation",
         "Equivalent mutants",
-        "content-addressed",
+        "scheme 2",
         "--no-json",
         "ExUnit ordering",
         "colon syntax",

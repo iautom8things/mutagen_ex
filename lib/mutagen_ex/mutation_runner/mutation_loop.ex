@@ -7,29 +7,11 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # Owns three responsibilities that the runner needs once per mutation
   # site but baseline/coverage do NOT need:
   #
-  #   1. **Timeout wrapping with cooperative cancellation.**
-  #      `Task.Supervisor.async_nolink(task_sup, fn -> ... end)` +
-  #      `Task.yield(timeout_ms)` is the happy path. On timeout the
-  #      loop drives a two-phase cancellation:
-  #
-  #        a. `Task.shutdown(task, cancel_grace_ms)` — issues a
-  #           trappable `:shutdown` exit. A test process that is in a
-  #           normal `receive` or that traps exits at a hot loop
-  #           checkpoint can terminate cleanly here, releasing any
-  #           locks it holds (in particular the Code.Server's per-module
-  #           load lock — see `mutagen.decision.timeout_handling`).
-  #        b. If the task is still alive after the grace window,
-  #           `Task.Supervisor.terminate_child(task_sup, task.pid)`.
-  #           This routes the kill through the supervisor's child table
-  #           (synchronous removal of the dead child) and dispatches
-  #           `Process.exit(_, :shutdown)`, which propagates through
-  #           the task's link tree to reap descendants — the untrapped-
-  #           link and OTP-supervised-subtree classes per
-  #           `mutagen.decision.supervision_tree`. Immediately after
-  #           `terminate_child/2`, the loop calls
-  #           `Process.demonitor(task.ref, [:flush])` so the dying
-  #           task's stale `:DOWN` does not accumulate in the runner's
-  #           mailbox across timeout sites.
+  #   1. **Timeout and cancellation.** The task timestamps its reply.
+  #      Replies after the deadline cannot supply a verdict. If no reply
+  #      arrives, Task.shutdown/2 gives the task a grace period before
+  #      killing it. A zero grace period goes straight to supervisor
+  #      termination.
   #
   #      When fail-fast is on, a failure recorded before the deadline
   #      still counts if the rest of the runner takes too long to exit.
@@ -38,9 +20,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   #      so compiler warnings or test-emitted stderr never reach the user's
   #      terminal. The captured string is returned alongside the outcome
   #      and lands in the JSON's `results[i].warnings` field.
-  #   3. **Pre/post state snapshots.** `length(Process.registered())`,
-  #      `length(:ets.all())`, and `:persistent_term.info().count`. The
-  #      runner uses the deltas to flag `tainted_predecessors: true`.
+  #   3. **Pre/post state snapshots.** The runner uses new process names,
+  #      ETS tables and persistent term keys to flag later results.
   #
   # Module is documented with `@moduledoc false` because its API is
   # internal — the runner is its only caller; tests reach it through the
@@ -74,13 +55,10 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
   @typedoc "Pre/post state snapshot."
   @type snapshot :: %{
-          processes: non_neg_integer(),
-          ets: non_neg_integer(),
-          persistent_terms: non_neg_integer()
+          processes: MapSet.t(atom()),
+          ets: MapSet.t(:ets.tab()),
+          persistent_terms: MapSet.t(term())
         }
-
-  @typedoc "Mechanism the timeout cancellation actually used."
-  @type cancel_mode :: :graceful | :brutal | :n_a
 
   @typedoc "Outcome of a single `run/1` call."
   @type outcome ::
@@ -89,14 +67,14 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
              stderr: binary(),
              snapshot_before: snapshot(),
              snapshot_after: snapshot(),
-             cancel_mode: cancel_mode()
+             host_warnings: [term()]
            }}
           | {:timeout,
              %{
                stderr: binary(),
                snapshot_before: snapshot(),
                snapshot_after: snapshot(),
-               cancel_mode: cancel_mode(),
+               host_warnings: [term()],
                failure_recorded?: boolean()
              }}
           | {:error, term(),
@@ -104,7 +82,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
                stderr: binary(),
                snapshot_before: snapshot(),
                snapshot_after: snapshot(),
-               cancel_mode: cancel_mode()
+               host_warnings: [term()]
              }}
 
   @typedoc """
@@ -129,7 +107,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   def run(input) when is_map(input) do
     snapshot_before = take_snapshot()
 
-    {stderr, {body_result, cancel_mode, host_warnings}} =
+    {stderr, {body_result, host_warnings}} =
       capture_stderr(input, fn ->
         execute_with_timeout(input)
       end)
@@ -140,8 +118,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
       stderr: stderr,
       snapshot_before: snapshot_before,
       snapshot_after: snapshot_after,
-      host_warnings: host_warnings,
-      cancel_mode: cancel_mode
+      host_warnings: host_warnings
     }
 
     case body_result do
@@ -161,25 +138,31 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   @spec take_snapshot() :: snapshot()
   def take_snapshot do
     %{
-      processes: length(Process.registered()),
-      ets: length(:ets.all()),
-      persistent_terms: :persistent_term.info().count
+      processes: MapSet.new(Process.registered()),
+      ets: MapSet.new(:ets.all()),
+      persistent_terms:
+        for(
+          {key, _} <- :persistent_term.get(),
+          not bookkeeping_key?(key),
+          into: MapSet.new(),
+          do: key
+        )
     }
   end
+
+  defp bookkeeping_key?({:logger_config, module}) when is_atom(module), do: true
+  defp bookkeeping_key?(:elixir_erl_compiler), do: true
+  defp bookkeeping_key?(_), do: false
 
   @spec snapshot_delta(snapshot(), snapshot()) :: snapshot()
   def snapshot_delta(before, after_) do
-    %{
-      processes: after_.processes - before.processes,
-      ets: after_.ets - before.ets,
-      persistent_terms: after_.persistent_terms - before.persistent_terms
-    }
+    Map.new(after_, fn {kind, entries} ->
+      {kind, MapSet.difference(entries, Map.fetch!(before, kind))}
+    end)
   end
 
   @spec snapshot_grew?(snapshot()) :: boolean()
-  def snapshot_grew?(delta) do
-    delta.processes > 0 or delta.ets > 0 or delta.persistent_terms > 0
-  end
+  def snapshot_grew?(delta), do: Enum.any?(delta, fn {_, entries} -> MapSet.size(entries) > 0 end)
 
   # ---- timeout + run ----
 
@@ -222,29 +205,26 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
       result =
         case Task.yield(task, timeout) do
           {:ok, {finished_at, result}} when finished_at <= deadline ->
-            {site_result(result), :n_a}
+            site_result(result)
 
           {:ok, _late_reply} ->
-            timeout_result(input, server, failures, task.pid, deadline, :n_a)
+            timeout_result(failures, task.pid, deadline)
 
           nil ->
-            cancel_mode = cancel_on_timeout(task, grace, task_sup)
-            timeout_result(input, server, failures, task.pid, deadline, cancel_mode)
+            cancel_on_timeout(task, grace, task_sup)
+            timeout_result(failures, task.pid, deadline)
 
           {:exit, reason} ->
             if System.monotonic_time() <= deadline do
-              {{:error, {:task_exited, reason}}, :n_a}
+              {:error, {:task_exited, reason}}
             else
-              timeout_result(input, server, failures, task.pid, deadline, :n_a)
+              timeout_result(failures, task.pid, deadline)
             end
         end
 
       if failures, do: :ets.delete(failures, task.pid)
-
-      {body_result, cancel_mode} =
-        finish_group(result, group, host.processes, tracker, input, ex_unit, server)
-
-      {body_result, cancel_mode, RunGroup.host_warnings(host, not match?({:ok, _}, body_result))}
+      body_result = finish_group(result, group, host.processes, tracker, input, server)
+      {body_result, RunGroup.host_warnings(host, not match?({:ok, _}, body_result))}
     catch
       kind, reason ->
         RunGroup.stop(group, :reap, host.processes, tracker)
@@ -253,24 +233,23 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   end
 
   defp finish_group(
-         {{:ok, _}, _} = completed,
+         {:ok, _} = completed,
          group,
          host_processes,
          tracker,
          _input,
-         _ex_unit,
          _server
        ) do
     RunGroup.stop(group, :release, host_processes, tracker)
     completed
   end
 
-  defp finish_group(unsuccessful, group, host_processes, tracker, input, ex_unit, server) do
+  defp finish_group(unsuccessful, group, host_processes, tracker, input, server) do
     # ExUnit's test and module workers are monitored, so killing the
     # runner leaves them alive. They inherit its group leader on spawn.
     RunGroup.stop(group, :reap, host_processes, tracker)
 
-    if ex_unit == MutagenEx.Test.ExUnit and Map.get(input, :serial?, true) do
+    if Map.get(input, :serial?, true) do
       server.discard_pending_modules()
     end
 
@@ -282,10 +261,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
   defp site_result(result), do: result
 
-  defp timeout_result(input, server, failures, runner, deadline, cancel_mode) do
-    if Map.get(input, :serial?, true), do: server.discard_pending_modules()
-    {{:timeout, failure_before_deadline?(failures, runner, deadline)}, cancel_mode}
-  end
+  defp timeout_result(failures, runner, deadline),
+    do: {:timeout, failure_before_deadline?(failures, runner, deadline)}
 
   defp failure_before_deadline?(nil, _runner, _deadline), do: false
 
@@ -300,8 +277,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   defp cancel_on_timeout(task, grace_ms, task_sup) when grace_ms > 0 do
     case Task.shutdown(task, grace_ms) do
       nil -> brutal_shutdown(task, task_sup)
-      {:exit, :killed} -> :brutal
-      _ -> :graceful
+      _ -> :ok
     end
   end
 
@@ -311,7 +287,6 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     _ = Task.Supervisor.terminate_child(task_sup, task.pid)
     _ = Task.yield(task, 0)
     Process.demonitor(task.ref, [:flush])
-    :brutal
   end
 
   # ---- stderr capture ----

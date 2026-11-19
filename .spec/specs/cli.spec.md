@@ -126,9 +126,10 @@ decisions:
   priority: should
   statement: |
     The `mix help mutagen` output contains a Synopsis, Flags, Examples,
-    Constraints, Exit Codes, and Known Caveats section. The Caveats section
+    Constraints, Exit Codes, and Known Caveats section. The Synopsis and
+    Flags sections document `--no-progress`. The Caveats section
     enumerates: state drift on `use SomeModule`, macro mutation slowdown,
-    equivalent mutants, mix-format ID-stability via content-addressed IDs,
+    equivalent mutants, mix-format ID stability under scheme 2,
     no `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon
     syntax dropped, self-mutation refused, the `--json` path-safety
     contract (r10), and the `tag:NAME` charset gate (r11).

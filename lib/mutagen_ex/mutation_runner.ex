@@ -47,7 +47,7 @@ defmodule MutagenEx.MutationRunner do
       via `with_restore/4`, mirroring
       `MutagenEx.CoverageRunner`'s `with_cover_lifecycle/2`.
     * **r7** — pre/post state snapshots
-      (`Process.registered/0`, `:ets.all/0`, `:persistent_term.info/0`).
+      (`Process.registered/0`, `:ets.all/0`, `:persistent_term.get/0`).
       Growth flags `tainted_predecessors: true` for subsequent results
       and emits a warning naming the new entities (best-effort —
       `Process.registered/0` is the named-process surface; anonymous
@@ -997,40 +997,25 @@ defmodule MutagenEx.MutationRunner do
   # that module — releasing the orphaned lock. Modules with no old
   # revision are a no-op.
   #
-  # We only purge after a `:timeout`-classified outcome to keep the
-  # happy-path cycle cheap. Graceful cancels and normal completions
-  # do not trigger purge.
-  #
-  # `code_purge` is configurable for tests: pass `cfg.code_purge :: (module -> any)`.
-  defp settle_code_server!(%Site{} = site, cfg, outcome) do
-    needs_settle? =
-      case outcome do
-        {:timeout, %{cancel_mode: :brutal}} -> true
-        {:timeout, _} -> true
-        _ -> false
+  # Every timeout triggers a purge, including when the task replied late.
+  # `code_purge` is configurable for tests.
+  defp settle_code_server!(%Site{} = site, cfg, {:timeout, _}) do
+    purge_fun = Map.get(cfg, :code_purge, &:code.purge/1)
+
+    for %Scope{file: file, module: module} <- cfg.scope_records, file == site.file do
+      try do
+        purge_fun.(module)
+      rescue
+        _ -> :ok
+      catch
+        _, _ -> :ok
       end
-
-    if needs_settle? do
-      purge_fun = Map.get(cfg, :code_purge, &:code.purge/1)
-
-      modules_for_file =
-        cfg.scope_records
-        |> Enum.filter(fn %Scope{file: f} -> f == site.file end)
-        |> Enum.map(& &1.module)
-
-      Enum.each(modules_for_file, fn mod ->
-        try do
-          purge_fun.(mod)
-        rescue
-          _ -> :ok
-        catch
-          _, _ -> :ok
-        end
-      end)
     end
 
     :ok
   end
+
+  defp settle_code_server!(_site, _cfg, _outcome), do: :ok
 
   # ---------------------------------------------------------------------------
   # Compile + restore (r6, r11)
@@ -1272,19 +1257,26 @@ defmodule MutagenEx.MutationRunner do
 
   defp snapshot_warning(%Site{} = site, delta) do
     pieces =
-      [
-        if(delta.processes > 0, do: "processes+#{delta.processes}"),
-        if(delta.ets > 0, do: "ets+#{delta.ets}"),
-        if(delta.persistent_terms > 0, do: "persistent_term+#{delta.persistent_terms}")
-      ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.join(", ")
+      for {kind, entries} <- [
+            processes: delta.processes,
+            ets: Enum.map(delta.ets, &table_name/1),
+            persistent_term: delta.persistent_terms
+          ],
+          Enum.any?(entries) do
+        "#{kind}: #{inspect(Enum.sort(entries))}"
+      end
 
-    "state_leak after site " <>
-      site.id <>
-      ": " <>
-      pieces <>
-      " — subsequent results carry tainted_predecessors: true"
+    "state_leak after site #{site.id}: #{Enum.join(pieces, ", ")}. " <>
+      "Subsequent results carry tainted_predecessors: true"
+  end
+
+  defp table_name(table) when is_atom(table), do: table
+
+  defp table_name(table) do
+    case :ets.info(table, :name) do
+      :undefined -> table
+      name -> name
+    end
   end
 
   # ---------------------------------------------------------------------------

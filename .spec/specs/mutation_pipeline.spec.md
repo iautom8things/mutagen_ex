@@ -48,6 +48,7 @@ decisions:
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
+  - mutagen.decision.state_leak_snapshots
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.mutation_loop_private
@@ -184,12 +185,13 @@ decisions:
 - id: mutagen.mutation_pipeline.r7
   priority: must
   statement: |
-    Per mutagen.decision.timeout_handling, after each per-mutation test
-    run the runner snapshots `length(Process.registered())`,
-    `length(:ets.all())`, and `:persistent_term.info().count`. If any
-    grew compared to the snapshot taken before that mutation, a warning is
-    emitted and every subsequent mutation result has `tainted_predecessors:
-    true` until pipeline end.
+    The runner compares the registered process names, ETS table identities,
+    and persistent term keys before and after each site's test run. Ignore
+    persistent term keys of the form `{:logger_config, module}` and the key
+    `:elixir_erl_compiler`. If any new entries remain, the `state_leak`
+    warning identifies the site and names the new processes, tables or
+    keys. Every subsequent mutation result carries
+    `tainted_predecessors: true` until the run ends.
 
 - id: mutagen.mutation_pipeline.r8
   priority: must
@@ -223,12 +225,10 @@ decisions:
     `ExUnit.run/0` and the `use ExUnit.Case` `__after_compile__` hook
     only fires when a file is freshly evaluated, every phase that calls
     `ExUnit.run/0` after the first one MUST re-register the cited test
-    modules via `ExUnit.Server.add_module/2` before its run. The
-    orchestrator hands `CoverageRunner.run/1`, `Baseline.run/1`, and
-    `MutationRunner.run/1` a `test_modules` payload derived from
-    `MutagenEx.TestModuleDiscovery.discover/1`; `CoverageRunner` (per
-    `mutagen.coverage.r10`), `Baseline`, and `MutationLoop` each call
-    the registration seam per `ExUnit.run/0`. Without this, the
+    modules via `ExUnit.Server.add_module/2` before its run.
+    `CoverageRunner` and `Baseline` discover cited cases after loading
+    the files. The orchestrator hands `MutationRunner` the loaded cases
+    from `MutagenEx.TestModuleDiscovery.discover/1`. Without this, the
     affected phase would silently classify every run as zero-test
     (`%{total: 0, failures: 0}`); for baseline that disables the
     `:baseline_red` guard rail (mutagen-wrd.37), and for coverage
@@ -243,7 +243,7 @@ decisions:
     phase whether that phase loaded its file or an earlier one did. An
     empty list leaves the load registrations in place. In serial mode,
     after a per-site run passes its deadline, `MutationLoop` empties the
-    pending registrations through the `ExUnitServerFacade`
+    pending registrations once through the `ExUnitServerFacade`
     `discard_pending_modules/0` callback before the next site registers
     its modules. A runner cancelled before it consumed the registry
     therefore cannot make the next site's `add_module/2` fail.
@@ -541,8 +541,8 @@ decisions:
     only new members descended from the site runner with
     `Process.exit(pid, :kill)` and waits for each
     `:DOWN`, repeating until no member remains, before `run/1` returns.
-    With the real ExUnit backend and `max_concurrency == 1` it then calls
-    the ExUnit server's `discard_pending_modules/0` (r10), so the next
+    With `max_concurrency == 1` it then calls the ExUnit server's
+    `discard_pending_modules/0` once (r10), so the next
     site's run sees only the modules it registers. After a reply completed
     by its deadline, members still alive get the caller's group leader
     back and keep running.
@@ -563,6 +563,14 @@ decisions:
     pipeline leader. After a failed site, an existing name re-registered
     to a live process does not taint later verdicts. Identical report
     warnings appear once at the top level.
+
+- id: mutagen.mutation_pipeline.r25
+  priority: must
+  statement: |
+    Automatic case discovery for coverage, baseline and mutation selects
+    loaded modules from the cited test files whose bytecode exports
+    `__ex_unit__/0`. Ordinary helper modules in those files are never
+    registered as cases.
 ```
 
 ```spec-scenarios
@@ -699,7 +707,7 @@ decisions:
     - The runner snapshots before and after that mutation.
   then:
     - "The outcome is `{:timeout, _meta}`."
-    - "The post-mutation snapshot delta against pre-mutation snapshot is empty for `Process.registered()`, `:ets.all()`, and `:persistent_term.info().count` — the linked descendant was reaped by `terminate_child/2`'s recursive shutdown."
+    - "The post-mutation snapshot delta against pre-mutation snapshot is empty for `Process.registered()`, `:ets.all()`, and the persistent term keys. The linked descendant was reaped by `terminate_child/2`'s recursive shutdown."
 
 - id: mutagen.mutation_pipeline.s14
   covers: [mutagen.mutation_pipeline.r16]
@@ -877,4 +885,5 @@ decisions:
     - mutagen.mutation_pipeline.r22
     - mutagen.mutation_pipeline.r23
     - mutagen.mutation_pipeline.r24
+    - mutagen.mutation_pipeline.r25
 ```

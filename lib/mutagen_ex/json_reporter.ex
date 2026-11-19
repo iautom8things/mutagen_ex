@@ -467,7 +467,7 @@ defmodule MutagenEx.JsonReporter do
   defp to_wire(%Report{} = r) do
     %{
       "version" => @schema_version,
-      "meta" => meta_to_wire(r.meta),
+      "meta" => aggregate_meta_to_wire(r.meta),
       "scope" => scope_to_wire(r.scope),
       "tests" => tests_to_wire(r.tests, r.include_host_output),
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
@@ -757,6 +757,12 @@ defmodule MutagenEx.JsonReporter do
       "fail_fast" => Map.get(meta, :fail_fast, true)
     }
   end
+
+  defp aggregate_meta_to_wire(%{timings_ms: timings} = meta) do
+    Map.put(meta_to_wire(meta), "timings_ms", timings)
+  end
+
+  defp aggregate_meta_to_wire(meta), do: meta_to_wire(meta)
 
   defp scope_to_wire(nil), do: []
 

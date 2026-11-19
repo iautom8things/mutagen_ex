@@ -94,8 +94,9 @@ defmodule MutagenEx.EndToEndTest do
 
   The ticket's merge gate requires "each scenario maps to a golden
   fixture and matches byte-for-byte". The captured JSON contains a
-  handful of fields that are inherently non-deterministic per run:
+  handful of fields that vary with the environment or run duration:
 
+    * `meta.timings_ms` is elapsed wall-clock time.
     * `meta.elixir_version`, `meta.otp_version` — host-toolchain values.
     * `meta.exunit_seed` — random by default; pinned to `0` by the e2e
       driver but still environment-state.
@@ -117,7 +118,7 @@ defmodule MutagenEx.EndToEndTest do
        do not break the compare.
     3. `coverage.covered_lines` → values replaced with the bitmap's
        byte length so the shape is asserted without bit-level drift.
-    4. Recursive: same rules applied to nested objects.
+    4. Remove `meta.timings_ms` before comparing.
 
   Set `REGEN=1 mix test --only e2e_slow` to refresh every golden in
   place (mirrors `MutagenEx.JsonReporterGoldenTest`'s convention).
@@ -1176,7 +1177,11 @@ defmodule MutagenEx.EndToEndTest do
   # JSON so the byte-equal compare against the per-scenario golden is
   # stable across hosts and ExUnit seeds. See the module doc's
   # "Golden-fixture compare" section for the exact rules.
-  defp normalize_for_golden(value), do: do_normalize(value, [])
+  defp normalize_for_golden(report) do
+    report
+    |> update_in(["meta"], &Map.delete(&1, "timings_ms"))
+    |> do_normalize([])
+  end
 
   defp do_normalize(value, path) when is_map(value) do
     Map.new(value, fn {k, v} ->

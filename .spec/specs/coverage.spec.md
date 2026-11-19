@@ -165,13 +165,9 @@ decisions:
     on a repeated cited-file scenario, record zero covered lines, and
     downstream enumeration would produce zero sites (mutagen-wrd.38).
 
-    `:test_modules` defaults to `[]` — a single-invocation `mix mutagen`
-    is unaffected because the coverage phase is the first
-    `ExUnit.run/0` in the run and the cited modules' `use ExUnit.Case`
-    `__after_compile__` registration is still in the server's
-    registry. The orchestrator (`Mix.Tasks.Mutagen.phase_coverage/5`)
-    derives the payload from `MutagenEx.TestModuleDiscovery.discover/1`
-    against the resolved `test_filter.files`.
+    When `:test_modules` is absent, coverage discovers the cited cases
+    after loading all cited test files. This includes cases from files
+    already required in the same VM and files just loaded.
 
 - id: mutagen.coverage.r9
   priority: must
