@@ -209,7 +209,8 @@ defmodule MutagenEx.JsonReporter.Report do
 
   ## Field-by-field
 
-    * `:meta` — run metadata. The reporter adds `id_scheme` on the wire.
+    * `:meta` — versions, ExUnit seed, and the optional `:fail_fast` setting.
+      The reporter adds `id_scheme` on the wire.
       Always populated by the orchestrator before any phase runs (`r5`).
     * `:scope` — list of resolved `%MutagenEx.ScopeResolver.Scope{}`
       records or anything with `:file`, `:line_range`, `:module`. Empty
@@ -454,13 +455,18 @@ defmodule MutagenEx.JsonReporter do
   def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme}
 
   def meta_to_wire(meta) when is_map(meta) do
-    %{
+    wire = %{
       "id_scheme" => @id_scheme,
       "tool_version" => Map.get(meta, :tool_version),
       "elixir_version" => Map.get(meta, :elixir_version),
       "otp_version" => Map.get(meta, :otp_version),
       "exunit_seed" => Map.get(meta, :exunit_seed)
     }
+
+    case meta do
+      %{fail_fast: fail_fast} -> Map.put(wire, "fail_fast", fail_fast)
+      %{} -> wire
+    end
   end
 
   defp scope_to_wire(nil), do: []

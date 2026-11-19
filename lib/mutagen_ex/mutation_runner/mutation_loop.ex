@@ -31,9 +31,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   #           task's stale `:DOWN` does not accumulate in the runner's
   #           mailbox across timeout sites.
   #
-  #      Classification is `:timeout` whether the task exited via the
-  #      graceful or supervised-kill path — r4 cares about the
-  #      wall-clock budget, not which kill mechanism cleared it.
+  #      When fail-fast is on, a failure recorded before the deadline
+  #      still counts if the rest of the runner takes too long to exit.
   #
   #   2. **Stderr capture.** `ExUnit.CaptureIO.capture_io(:stderr, fn -> ...)`
   #      so compiler warnings or test-emitted stderr never reach the user's
@@ -62,6 +61,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   # brutal-only path; large enough that a task in a normal `receive`
   # block has time to process the `:shutdown` exit signal and unwind.
   @default_cancel_grace_ms 100
+
+  alias MutagenEx.Test.ExUnitServer
 
   @typedoc "ExUnit-shaped run result map (subset)."
   @type exunit_result :: %{
@@ -95,7 +96,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
                stderr: binary(),
                snapshot_before: snapshot(),
                snapshot_after: snapshot(),
-               cancel_mode: cancel_mode()
+               cancel_mode: cancel_mode(),
+               failure_recorded?: boolean()
              }}
           | {:error, term(),
              %{
@@ -116,6 +118,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           required(:timeout_ms) => pos_integer(),
           optional(:ex_unit) => module(),
           optional(:ex_unit_server) => module(),
+          optional(:failure_times) => :ets.tab() | nil,
+          optional(:serial?) => boolean(),
           optional(:capture_io) => module(),
           optional(:cancel_grace_ms) => non_neg_integer(),
           optional(:task_sup) => atom() | pid()
@@ -143,8 +147,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
       {:ok, exunit_result} ->
         {:completed, exunit_result, meta}
 
-      :timeout ->
-        {:timeout, meta}
+      {:timeout, failure_recorded?} ->
+        {:timeout, Map.put(meta, :failure_recorded?, failure_recorded?)}
 
       {:error, reason} ->
         {:error, reason, meta}
@@ -183,7 +187,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     grace = Map.get(input, :cancel_grace_ms, @default_cancel_grace_ms)
     test_modules = input.test_modules
     ex_unit = Map.get(input, :ex_unit, MutagenEx.Test.ExUnit)
-    server = Map.get(input, :ex_unit_server, MutagenEx.Test.ExUnitServer)
+    server = Map.get(input, :ex_unit_server, ExUnitServer)
+    failures = Map.get(input, :failure_times)
     # Per `mutagen.decision.supervision_tree`: the per-site task runs
     # under the named `MutagenEx.TaskSup` in production. Tests can
     # inject their own `Task.Supervisor` pid (or name) via `:task_sup`
@@ -213,24 +218,46 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         end
       end)
 
-    case Task.yield(task, timeout) do
-      {:ok, {:ok, result}} ->
-        {{:ok, result}, :n_a}
+    deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
 
-      {:ok, {:error, reason}} ->
-        {{:error, reason}, :n_a}
+    result =
+      case Task.yield(task, timeout) do
+        {:ok, {:ok, result}} ->
+          {{:ok, result}, :n_a}
 
-      nil ->
-        # r4: timeout fired. Cooperatively cancel first so any
-        # Code.Server load locks (or other VM-internal locks) the
-        # task holds can be released cleanly before we escalate to
-        # supervised termination. See
-        # `mutagen.decision.timeout_handling` and
-        # `mutagen.decision.supervision_tree`.
-        cancel_on_timeout(task, grace, task_sup)
+        {:ok, {:error, reason}} ->
+          {{:error, reason}, :n_a}
 
-      {:exit, reason} ->
-        {{:error, {:task_exited, reason}}, :n_a}
+        nil ->
+          recorded? = failure_before_deadline?(failures, task.pid, deadline)
+
+          case cancel_on_timeout(task, grace, task_sup) do
+            {:timeout, cancel_mode} ->
+              if Map.get(input, :serial?, false) and ex_unit == MutagenEx.Test.ExUnit and
+                   server == ExUnitServer do
+                ExUnitServer.discard_pending_modules()
+              end
+
+              {{:timeout, recorded?}, cancel_mode}
+
+            completed ->
+              completed
+          end
+
+        {:exit, reason} ->
+          {{:error, {:task_exited, reason}}, :n_a}
+      end
+
+    if failures, do: :ets.delete(failures, task.pid)
+    result
+  end
+
+  defp failure_before_deadline?(nil, _runner, _deadline), do: false
+
+  defp failure_before_deadline?(failures, runner, deadline) do
+    case :ets.lookup(failures, runner) do
+      [{^runner, time}] -> time <= deadline
+      [] -> false
     end
   end
 

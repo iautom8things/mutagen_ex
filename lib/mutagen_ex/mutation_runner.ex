@@ -15,9 +15,10 @@ defmodule MutagenEx.MutationRunner do
       structure owned by `MutagenEx.MutationRunner.MutationLoop`. The
       timeout uses the two-phase cooperative-cancellation path
       documented in `mutagen.decision.timeout_handling` (trappable
-      `:shutdown` first, brutal_kill only as escalation). Timed-out
-      sites are classified `:timeout` and the following site carries
-      `tainted_predecessors: true`. After a `:timeout`, before
+      `:shutdown` first, brutal_kill only as escalation). The runner
+      classifies a deadline hit as `:timeout` unless fail-fast already
+      recorded a failure. The following site carries
+      `tainted_predecessors: true` either way. Before
       restore, the runner calls `:code.purge/1` on the site's scoped
       modules to release any orphaned Code.Server load lock left by
       a brutal-killed task — the per-mutation hardening that
@@ -83,6 +84,8 @@ defmodule MutagenEx.MutationRunner do
 
   Optional:
 
+    * `:fail_fast` — `boolean`. Default `true`. Stops executing cited
+      tests after the first failure. Use `false` for a full suite run.
     * `:ex_unit` — module implementing `MutagenEx.Test.ExUnitFacade`.
       Default `MutagenEx.Test.ExUnit`. Passed through to `MutationLoop`.
     * `:ex_unit_server` — module implementing
@@ -155,6 +158,8 @@ defmodule MutagenEx.MutationRunner do
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.MutationRunner.MutationLoop
   alias MutagenEx.ScopeResolver.Scope
+  alias MutagenEx.Test.ExUnit, as: ExUnitFacade
+  alias MutagenEx.Test.FailureFormatter
   alias MutagenEx.TestSelector.TestFilter
 
   @behaviour MutagenEx.Pipeline.MutationFacade
@@ -212,9 +217,7 @@ defmodule MutagenEx.MutationRunner do
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
          :ok <- ensure_no_self_mutation(cfg) do
-      :ok = configure_exunit(cfg)
-      drift = compute_state_drift_warnings(cfg)
-      run_with_beam_cache(cfg, drift)
+      run_with_exunit(cfg)
     end
   end
 
@@ -274,17 +277,33 @@ defmodule MutagenEx.MutationRunner do
   # ExUnit config (r2's force, shared with baseline/coverage)
   # ---------------------------------------------------------------------------
 
-  defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
+  defp run_with_exunit(%{fail_fast: false} = cfg) do
+    run_configured(cfg, :infinity, [])
+  end
 
-    ex_unit.configure(
-      max_cases: 1,
-      seed: cfg.seed,
-      include: cfg.test_filter.include,
-      exclude: cfg.test_filter.exclude
-    )
+  defp run_with_exunit(cfg) do
+    failures = :ets.new(:mutation_failures, [:set, :public])
 
-    :ok
+    try do
+      options =
+        FailureFormatter.options(fn runner, _test ->
+          :ets.insert_new(failures, {runner, System.monotonic_time()})
+        end)
+
+      run_configured(Map.put(cfg, :failure_times, failures), 1, options)
+    after
+      :ets.delete(failures)
+    end
+  end
+
+  defp run_configured(cfg, max_failures, formatter_options) do
+    ex_unit = Map.get(cfg, :ex_unit, ExUnitFacade)
+    options = ExUnitFacade.options(cfg.seed, cfg.test_filter, max_failures)
+
+    ExUnitFacade.with_options(ex_unit, options ++ formatter_options, fn ->
+      drift = compute_state_drift_warnings(cfg)
+      run_with_beam_cache(cfg, drift)
+    end)
   end
 
   # ---------------------------------------------------------------------------
@@ -557,10 +576,10 @@ defmodule MutagenEx.MutationRunner do
           # sites are still running. Halt with a sentinel, let the
           # stream unwind, then teardown siblings before the restore
           # sweep in the post-reduce case below.
-          {:halt, {:outer_task_exit, reason, parallel_task_sup}}
+          {:halt, {:outer_task_exit, reason}}
       end)
 
-    case outcome do
+    case finish_parallel_run(outcome, parallel_task_sup, cfg) do
       {:ok, acc} ->
         {:ok,
          %{
@@ -571,13 +590,37 @@ defmodule MutagenEx.MutationRunner do
            truncated: Map.get(acc, :truncated, false)
          }}
 
-      {:outer_task_exit, reason, task_sup} ->
-        abort_after_outer_task_exit(reason, task_sup, cfg)
-
       err ->
         err
     end
   end
+
+  defp finish_parallel_run({:outer_task_exit, reason}, task_sup, cfg) do
+    abort_after_outer_task_exit(reason, task_sup, cfg)
+  end
+
+  defp finish_parallel_run({:ok, %{truncated: true}} = outcome, task_sup, cfg)
+       when task_sup != nil do
+    # Halting the outer stream can leave supervised ExUnit tasks alive.
+    teardown_task_supervisor_children(task_sup)
+
+    case restore_all_scoped_modules(cfg) do
+      :ok ->
+        outcome
+
+      {:error, message} ->
+        {:error, :unrecoverable_restore_failure,
+         %{message: MutagenEx.JsonReporter.Sanitizer.clean(message)}}
+    end
+  end
+
+  defp finish_parallel_run({:error, _, _} = error, task_sup, cfg) when task_sup != nil do
+    teardown_task_supervisor_children(task_sup)
+    _ = restore_all_scoped_modules(cfg)
+    error
+  end
+
+  defp finish_parallel_run(outcome, _task_sup, _cfg), do: outcome
 
   defp budget_exceeded?(nil, _started_at), do: false
 
@@ -691,6 +734,8 @@ defmodule MutagenEx.MutationRunner do
              MutationLoop.run(%{
                test_modules: cfg.test_modules,
                timeout_ms: cfg.timeout_ms,
+               failure_times: Map.get(cfg, :failure_times),
+               serial?: resolve_max_concurrency(cfg) == 1,
                ex_unit: Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit),
                ex_unit_server: Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer),
                capture_io: Map.get(cfg, :capture_io, MutagenEx.Test.CaptureIo),
@@ -747,7 +792,7 @@ defmodule MutagenEx.MutationRunner do
         []
       end
 
-    next_tainted = tainted_now or grew? or status == :timeout
+    next_tainted = tainted_now or grew? or match?({:timeout, _}, outcome)
 
     result = %{
       id: site.id,
@@ -1177,6 +1222,13 @@ defmodule MutagenEx.MutationRunner do
 
     warnings = compose_warnings([compile_stderr, meta.stderr])
     {status, warnings, meta}
+  end
+
+  defp classify({:timeout, %{failure_recorded?: true} = meta}, compile_stderr) do
+    warnings =
+      compose_warnings([compile_stderr, meta.stderr, "deadline exceeded after a test failure"])
+
+    {:killed, warnings, meta}
   end
 
   defp classify({:timeout, meta}, compile_stderr) do

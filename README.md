@@ -254,6 +254,7 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
 | `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `30000`. Must be positive. Phoenix/Ecto-style apps often need the larger default because setup and supplemental tests can make a single mutation cycle exceed five seconds. |
+| `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |
 | `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
@@ -266,6 +267,22 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 The flag surface above is exhaustive. `mix mutagen --no-json`
 and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 — see Known limitations.
+
+## Per-mutant fail-fast
+
+By default, a mutant is killed when ExUnit records a test failure before
+the per-mutant deadline. This includes a mutant whose full suite would
+time out in a later test. If the deadline arrives before any failure,
+the mutant is classified as a timeout. Surviving mutants, baseline,
+and coverage run the full cited suite. Use `--no-fail-fast` for full
+per-mutant runs and the historical timeout verdicts. JSON reports the
+selected mode as `meta.fail_fast`.
+
+ExUnit can still run teardown and a later module's `setup_all` in an
+already-started async group after the first failure. Per-mutant
+`warnings` and `tainted_predecessors` can differ between modes because
+skipped tests may emit stderr or affect shared state. A shorter mutation
+phase can complete more sites within the same `--budget-ms`.
 
 ## Parallel mode, streaming, and progress
 
@@ -429,7 +446,8 @@ output is plain JSON with no comments.)
     "tool_version": "0.1.0",     // mutagen_ex version
     "elixir_version": "1.19.6",
     "otp_version": "28",
-    "exunit_seed": 0             // the --seed value used for test ordering
+    "exunit_seed": 0,            // the --seed value used for test ordering
+    "fail_fast": true
   },
 
   // What was mutated, resolved from --scope.
