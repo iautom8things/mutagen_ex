@@ -314,7 +314,8 @@ defmodule MutagenEx.Integration.HostSetupTest do
     with_file(host, @tests, tests, fn ->
       {stdout, 0} = mutate(host, [])
       assert decode_report(stdout)["aborted"] == false
-      assert {^stdout, 0} = mutate(host, [])
+      assert {repeated, 0} = mutate(host, [])
+      assert without_timings(stdout) == without_timings(repeated)
       refute stdout =~ canary
 
       assert {"", 0} = mutate(host, ["--no-source", "--stream", "--json", "safety.ndjson"])
@@ -737,6 +738,17 @@ defmodule MutagenEx.Integration.HostSetupTest do
     :json.decode(stdout)
   rescue
     _ -> flunk("expected one JSON document, got:\n#{stdout}")
+  end
+
+  defp without_timings(stdout) do
+    report = decode_report(stdout)
+    assert %{"meta" => %{"timings_ms" => %{}}} = report
+
+    normalized =
+      Regex.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, stdout, "")
+
+    assert decode_report(normalized) == update_in(report["meta"], &Map.delete(&1, "timings_ms"))
+    normalized
   end
 
   defp put_env(host, name, value) do

@@ -1,6 +1,6 @@
 defmodule LaneFixture.GuardedTest do
   @moduledoc """
-  Tight + toothless tests for `LaneFixture.Guarded`.
+  Happy-path and guard rejection tests for `LaneFixture.Guarded`.
 
   The tight tests confirm the guard's behaviour by feeding values that
   the guard's domain rejects, expecting a `FunctionClauseError`. If the
@@ -8,8 +8,8 @@ defmodule LaneFixture.GuardedTest do
   match successfully — the assertion of `assert_raise` fails, killing
   the mutation.
 
-  The toothless test only checks the happy path: it doesn't probe what
-  happens for out-of-domain arguments, so guard removal survives.
+  The happy-path tests confirm the accepted values. The rejection tests
+  kill the guard removal mutants.
   """
 
   use ExUnit.Case, async: false
@@ -36,9 +36,7 @@ defmodule LaneFixture.GuardedTest do
     assert LaneFixture.Guarded.only_positive(5) == 5
   end
 
-  test "only_atoms/1 returns the atom (toothless: guard_drop survives)" do
-    # Happy path only — does not probe what happens for non-atom input,
-    # so removing `when is_atom(x)` still passes this test.
+  test "only_atoms/1 returns the atom" do
     assert LaneFixture.Guarded.only_atoms(:foo) == :foo
   end
 end

@@ -467,7 +467,7 @@ defmodule MutagenEx.JsonReporter do
   defp to_wire(%Report{} = r) do
     %{
       "version" => @schema_version,
-      "meta" => meta_to_wire(r.meta),
+      "meta" => aggregate_meta_to_wire(r.meta),
       "scope" => scope_to_wire(r.scope),
       "tests" => tests_to_wire(r.tests, r.include_host_output),
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
@@ -758,6 +758,13 @@ defmodule MutagenEx.JsonReporter do
     }
   end
 
+  defp aggregate_meta_to_wire(%{timings_ms: timings} = meta) do
+    wire_timings = Map.new(timings, fn {phase, ms} -> {to_string(phase), ms} end)
+    Map.put(meta_to_wire(meta), "timings_ms", wire_timings)
+  end
+
+  defp aggregate_meta_to_wire(meta), do: meta_to_wire(meta)
+
   defp scope_to_wire(nil), do: []
 
   defp scope_to_wire(records) when is_list(records) do
@@ -962,6 +969,20 @@ defmodule MutagenEx.JsonReporter do
   """
   def render_host_names(_kind, [], _include_host_output), do: []
 
+  def render_host_names(:state_leak, sites, include_host_output?) do
+    for {site_id, groups} <- sites do
+      pieces =
+        for {kind, deltas} <- groups, map_size(deltas) > 0 do
+          "#{kind}: #{render_growth(deltas, include_host_output?)}"
+        end
+
+      Sanitizer.clean(
+        "state_leak after site #{site_id}: #{Enum.join(pieces, ", ")}. " <>
+          "Subsequent results carry tainted_predecessors: true"
+      )
+    end
+  end
+
   def render_host_names(kind, names, true) do
     for name <- Enum.uniq(names) do
       text = if is_binary(name) or is_atom(name), do: to_string(name), else: inspect(name)
@@ -976,6 +997,16 @@ defmodule MutagenEx.JsonReporter do
   end
 
   def render_host_names(kind, names, false), do: ["#{kind}: #{length(Enum.uniq(names))}"]
+
+  defp render_growth(deltas, true) do
+    Enum.map_join(Enum.sort(deltas), ", ", fn {name, growth} ->
+      "#{inspect(name)} +#{growth}"
+    end)
+  end
+
+  defp render_growth(deltas, false) do
+    "names=#{map_size(deltas)}, +#{Enum.sum(Map.values(deltas))}"
+  end
 
   defp skipped_to_wire(%{} = entry) do
     %{

@@ -1,7 +1,6 @@
 defmodule MutagenEx.FailFastTest do
   use ExUnit.Case, async: false
 
-  alias MutagenEx.TestModuleDiscovery
   alias MutagenEx.TestSelector.TestFilter
 
   @fixtures Path.expand("../fixtures/lane_project", __DIR__)
@@ -180,7 +179,10 @@ defmodule MutagenEx.FailFastTest do
     assert %{"kind" => "start", "total" => 4, "meta" => %{"fail_fast" => true}} = start
     assert %{"kind" => "end", "aborted" => false, "completed" => 1, "killed" => 1} = finish
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
-    assert aggregate["meta"] == start["meta"]
+    assert Map.delete(aggregate["meta"], "timings_ms") == start["meta"]
+    assert start["meta"] == finish["meta"]
+    refute Map.has_key?(aggregate, "kind")
+    refute Map.has_key?(result, "meta")
     assert aggregate["truncated"]
   end
 
@@ -272,7 +274,10 @@ defmodule MutagenEx.FailFastTest do
       counter = :counters.new(1, [])
       ExUnit.configure(fail_fast_formatter_counter: counter)
 
-      report = run_fixture(fixture, ["--timeout-ms", "150" | mode])
+      report =
+        run_fixture(fixture, ["--timeout-ms", "150" | mode], %{mutation: __MODULE__.CountDrains})
+
+      assert Process.delete(:fail_fast_drains) == 1
       assert Enum.map(verdicts(report), &elem(&1, 1)) == ~w(timeout killed killed)
       assert Enum.at(report["mutation"]["results"], 1)["tainted_predecessors"]
       assert :counters.get(counter, 1) == 5
@@ -375,8 +380,7 @@ defmodule MutagenEx.FailFastTest do
 
     %{
       seed: 0,
-      test_filter: %TestFilter{files: [file], include: [], exclude: []},
-      test_modules: TestModuleDiscovery.discover([file])
+      test_filter: %TestFilter{files: [file], include: [], exclude: []}
     }
   end
 
@@ -388,8 +392,8 @@ defmodule MutagenEx.FailFastTest do
     {root, source, tests}
   end
 
-  defp run_fixture(fixture, extra) do
-    {output, nil, nil} = invoke(extra, 0, fixture, %{})
+  defp run_fixture(fixture, extra, dispatch \\ %{}) do
+    {output, nil, nil} = invoke(extra, 0, fixture, dispatch)
     report = :json.decode(output)
     assert report["aborted"] == false
     assert report["mutation"]["compile_errors"] == []
@@ -496,6 +500,25 @@ defmodule MutagenEx.FailFastTest do
     @impl MutagenEx.Pipeline.IoFacade
     def emit(iodata, exit_code, _config) do
       send(self(), {:mutagen_output, exit_code, IO.iodata_to_binary(iodata)})
+    end
+  end
+
+  defmodule CountDrains do
+    @behaviour MutagenEx.Pipeline.MutationFacade
+    @behaviour MutagenEx.Test.ExUnitServerFacade
+
+    @impl MutagenEx.Pipeline.MutationFacade
+    def run(cfg) do
+      MutagenEx.MutationRunner.run(Map.put(cfg, :ex_unit_server, __MODULE__))
+    end
+
+    @impl MutagenEx.Test.ExUnitServerFacade
+    defdelegate add_module(module, config), to: MutagenEx.Test.ExUnitServer
+
+    @impl MutagenEx.Test.ExUnitServerFacade
+    def discard_pending_modules do
+      Process.put(:fail_fast_drains, Process.get(:fail_fast_drains, 0) + 1)
+      MutagenEx.Test.ExUnitServer.discard_pending_modules()
     end
   end
 
