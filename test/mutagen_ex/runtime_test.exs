@@ -4,6 +4,13 @@ defmodule MutagenEx.RuntimeTest do
   import ExUnit.CaptureIO
   alias MutagenEx.Runtime
 
+  setup_all do
+    # run/1 loads the report modules before boot. Boot's loadpaths prunes
+    # this project's ebin from the fixture's code path.
+    Code.ensure_loaded!(MutagenEx.JsonReporter.Sanitizer)
+    :ok
+  end
+
   @tag :tmp_dir
   @tag spec: ["mutagen.cli.r14", "mutagen.cli.r18"]
   test "uses no default helper when test/ is absent and honors explicit MIX_ENV", %{tmp_dir: dir} do
@@ -77,6 +84,62 @@ defmodule MutagenEx.RuntimeTest do
                  Runtime.boot(host_app: false)
 
         assert message =~ "fixture_linked_exit"
+      end)
+    end)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.cli.r19"
+  test "locates a helper failure in the helper and names the evaluated file it came from", %{
+    tmp_dir: dir
+  } do
+    File.mkdir_p!(Path.join(dir, "priv"))
+
+    File.write!(Path.join(dir, "priv/seeds.exs"), """
+    # Seeds for the fixture.
+    #
+    #
+    #
+    #
+    raise "seed insert failed"
+    """)
+
+    write_helper(dir, """
+    # The helper's first lines are comments,
+    # so line 6 of this file is not code.
+    #
+    #
+    #
+    #
+    #
+    ExUnit.configure(exclude: [:slow])
+    Code.eval_file("priv/seeds.exs")
+    """)
+
+    in_project(dir, fn ->
+      capture_io(:stderr, fn ->
+        assert {:error, :test_helper_load_failed, details} = Runtime.boot(host_app: false)
+
+        assert %{
+                 file: "test/test_helper.exs",
+                 line: 9,
+                 origin_file: "priv/seeds.exs",
+                 origin_line: 6
+               } = details
+      end)
+    end)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.cli.r19"
+  test "reports no origin for a failure raised in the helper itself", %{tmp_dir: dir} do
+    write_helper(dir, "# comment\nraise \"helper failed\"\n")
+
+    in_project(dir, fn ->
+      capture_io(:stderr, fn ->
+        assert {:error, :test_helper_load_failed, details} = Runtime.boot(host_app: false)
+        assert %{file: "test/test_helper.exs", line: 2} = details
+        refute Map.has_key?(details, :origin_file)
       end)
     end)
   end

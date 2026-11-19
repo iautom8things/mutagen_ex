@@ -401,6 +401,11 @@ decisions:
         report module cannot load from the tool's ebin (r16).
       * `"test_helper_load_failed"` when a `test_helper.exs` is missing,
         raises, throws, or exits. `details.file` names that helper.
+        `details.line` is the line of the helper's own stack frame, or of
+        the compile error in it, when there is one. When the failure
+        came from another `.exs` file the helper evaluated, such as a
+        seeds script, `details.origin_file` and `details.origin_line`
+        name the innermost such frame.
 
     If the boot process exits during a step, for example because a
     process linked to it exits, the run aborts with that step's reason.
