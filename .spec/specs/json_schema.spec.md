@@ -53,6 +53,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
@@ -468,8 +469,9 @@ Top-level keys, all present in every variant unless noted:
     error. The total measures pipeline entry through report assembly,
     before encoding and output, and includes work between phases such as
     enumeration. Stream envelopes and per-site lines omit `timings_ms`.
-    `meta.timings_ms` is the only field whose values Mutagen itself makes
-    non-deterministic. Captured host output may contain timestamps,
+    Elapsed timings and the baseline-derived deadline are the only report
+    fields whose values Mutagen itself makes non-deterministic on a
+    deterministic test run. Captured host output may contain timestamps,
     process identifiers or references.
 
 - id: mutagen.json_schema.r26
@@ -487,6 +489,32 @@ Top-level keys, all present in every variant unless noted:
     call receivers, field access, and expressions beside or within quoted
     text containing multi-codepoint graphemes. The aggregate and stream use
     the same renderer.
+- id: mutagen.json_schema.r28
+  priority: must
+  statement: |
+    Changed-code reports include the requested ref, resolved base and
+    counts in meta.since. Incomplete paths have fixed reasons. A Git abort
+    reports a fixed cause without command diagnostics. Evaluated sites
+    carry fingerprints and scope reasons, and outstanding runtime sites
+    are listed as uncovered or not_run.
+
+- id: mutagen.json_schema.r29
+  priority: must
+  statement: |
+    Auto reports include selected files with selection reasons, each
+    escalation step's admitted files, cap and survivor counts, and each
+    result's steps and killing step. Host path disclosure follows the
+    host-name reporting option.
+
+- id: mutagen.json_schema.r30
+  priority: must
+  statement: |
+    After a mutation pass, meta records its baseline duration and the
+    deadline used. Each escalation step records its own baseline and
+    deadline when it runs mutants. A verified before_source slice has a
+    one-based excerpt_line at its first byte, omitted with --no-source.
+    AST-rendered fallbacks have no excerpt_line.
+
 ```
 
 ```spec-scenarios
@@ -726,6 +754,10 @@ Top-level keys, all present in every variant unless noted:
 
 ## Default string provenance
 
+Automatically selected test paths in `meta.tests_selected`,
+`meta.escalation`, and `tests.files` default to null. Host output and
+source reporting must both be enabled to expose them.
+
 Static JSON keys are schema constants. The table uses `[]` for an array
 element and `{}` for a dynamic map entry. NDJSON result and compile
 error lines reuse their aggregate fields. The start and end lines reuse
@@ -739,7 +771,29 @@ the envelope fields and add `kind`.
 | `meta.tool_version` | Mutagen build | Keep |
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
-| `meta.timings_ms` | Mutagen monotonic clock | Keep the five integer durations in the aggregate |
+| `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
+| `meta.since.ref` | CLI ref | Keep after Git resolves it |
+| `meta.since.base` | Verified Git object ID | Keep |
+| `meta.incomplete[].path` | Repository path | Keep with source enabled |
+| `meta.incomplete[].reason` | Git or runner failure vocabulary | Keep |
+| `meta.tests_selected[].why` | Mutagen selection vocabulary | Keep |
+| `meta.escalation[].step` | Mutagen escalation vocabulary | Keep |
+| `mutation.results[].excerpt_line` | Verified repository slice start | Keep with source enabled |
+| `mutation.results[].fingerprint` | MD5 of normalized group AST | Keep |
+| `mutation.results[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.results[].selection.killed_at` | Mutagen selection step | Keep |
+| `mutation.results[].selection.steps_run[]` | Mutagen selection steps | Keep |
+| `mutation.compile_errors[].fingerprint` | MD5 of normalized group AST | Keep |
+| `mutation.compile_errors[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.pending[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.pending[].file` | Repository path | Keep with source enabled |
+| `mutation.pending[].function` | Repository definition | Keep with source enabled |
+| `mutation.pending[].mutator` | Mutagen catalog | Keep |
+| `mutation.pending[].confidence` | Mutagen catalog | Keep |
+| `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
+| `mutation.pending[].fingerprint` | MD5 of normalized group AST | Keep |
+| `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
+| `details.cause` | Git reader failure vocabulary | Keep |
 | `scope[].file` | Repository or CLI path | Keep |
 | `scope[].module` | Repository module declaration | Keep |
 | `tests.files[]` | Repository or CLI path | Keep |

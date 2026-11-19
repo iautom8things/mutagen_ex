@@ -95,18 +95,26 @@ defmodule MutagenEx.JsonReporter.Source do
   defp wrap_literal(value, metadata),
     do: {:ok, {:__block__, [{:mutagen_literal, true} | metadata], [value]}}
 
-  def span({ast, ranges}, path) do
+  def span(index, path) do
+    case located_span(index, path) do
+      {span, _line} -> span
+      nil -> nil
+    end
+  end
+
+  def located_span({ast, ranges}, path) do
     with node when not is_nil(node) <- at_path(ast, path),
-         {start, _} <- Map.get(ranges, start_position(node)),
+         {line, _} = position <- start_position(node),
+         {start, _} <- Map.get(ranges, position),
          {_, stop} <- Map.get(ranges, last_token(node)),
          true <- start < stop do
-      {start, stop - start}
+      {{start, stop - start}, line}
     else
       _ -> nil
     end
   end
 
-  def span(nil, _path), do: nil
+  def located_span(nil, _path), do: nil
 
   defp at_path(node, []), do: node
 

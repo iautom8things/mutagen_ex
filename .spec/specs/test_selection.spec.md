@@ -28,8 +28,10 @@ kind: module
 status: active
 summary: Resolves --tests targets to ExUnit-shaped filter records via AST walking.
 surface:
+  - lib/mutagen_ex/auto_tests.ex
   - lib/mutagen_ex/test_selector.ex
 decisions:
+  - mutagen.decision.changed_code_run
   - mutagen.decision.ancora_migration
   - mutagen.decision.host_test_setup
 ```
@@ -130,6 +132,22 @@ decisions:
     options. Default reports preserve CLI selectors and omit helper
     values. Helper tag keys appear when they occur as literal atoms in the
     helper source.
+- id: mutagen.test_selection.r9
+  priority: must
+  statement: |
+    With --tests auto, relative paths under the configured source roots
+    map to *_test.exs paths under the configured test roots when present.
+    A --since auto run also selects surviving test files changed in Git,
+    including renamed files. A missing convention match selects no file.
+
+- id: mutagen.test_selection.r10
+  priority: must
+  statement: |
+    Auto escalation ranks uncited test files by text mentions of surviving
+    mutants, using module matches first and function calls or captures
+    second. Equal scores sort by path. Each step admits at most the
+    configured file cap and reports whether more files matched.
+
 ```
 
 ```spec-scenarios

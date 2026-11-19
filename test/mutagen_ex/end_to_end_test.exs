@@ -119,6 +119,8 @@ defmodule MutagenEx.EndToEndTest do
     3. `coverage.covered_lines` → values replaced with the bitmap's
        byte length so the shape is asserted without bit-level drift.
     4. Remove `meta.timings_ms` before comparing.
+    5. Drop the added excerpt coordinates for comparison with the original
+       report fixtures.
     5. Recursive: same rules applied to nested objects.
 
   Set `REGEN=1 mix test --only e2e_slow` to refresh every golden in
@@ -1181,6 +1183,13 @@ defmodule MutagenEx.EndToEndTest do
   defp normalize_for_golden(report) do
     report
     |> update_in(["meta"], &Map.delete(&1, "timings_ms"))
+    |> update_in(["mutation"], fn
+      %{"results" => results} = mutation ->
+        %{mutation | "results" => Enum.map(results, &Map.delete(&1, "excerpt_line"))}
+
+      mutation ->
+        mutation
+    end)
     |> do_normalize([])
   end
 

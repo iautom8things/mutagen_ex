@@ -29,6 +29,7 @@ kind: workflow
 status: active
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
+  - lib/mutagen_ex/selected_run.ex
   - lib/mutagen_ex/baseline.ex
   - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
@@ -43,6 +44,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
@@ -601,6 +603,31 @@ decisions:
     ExUnit setup and tests. The `max_cases: 1` runner retains ExUnit's async
     and sync ordering. A timeout in an async case leaves the next site
     able to register and run the same cases in either fail-fast mode.
+- id: mutagen.mutation_pipeline.r28
+  priority: must
+  statement: |
+    A --since run with no in-scope runtime mutations finishes before host
+    boot and coverage. A skipped Git path, failed source read or parse,
+    or a site dropped by the runner makes the run incomplete.
+
+- id: mutagen.mutation_pipeline.r29
+  priority: must
+  statement: |
+    Each auto escalation pass runs only survivors and newly covered sites
+    against the newly selected files. Each added file must pass an
+    unmutated baseline. Red or unloadable files
+    are omitted with a fixed warning. Accepted test cases register for
+    later runs without reloading their modules or restarting ExUnit.Server.
+
+- id: mutagen.mutation_pipeline.r30
+  priority: must
+  statement: |
+    Each mutation pass uses a deadline of ten times the measured baseline
+    duration with a five-second floor and the configured ceiling.
+    An explicit --timeout-ms overrides the calculation. A timeout with
+    fail-fast on kills a mutant only when a failure was recorded before
+    its effective deadline.
+
 ```
 
 ```spec-scenarios
