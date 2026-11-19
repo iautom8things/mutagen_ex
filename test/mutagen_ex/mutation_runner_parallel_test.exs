@@ -411,6 +411,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     end
   end
 
+  @tag spec: ["mutagen.mutation_pipeline.r17", "mutagen.cli.r13"]
   test "parallel budget truncation drains workers before sweeping the original BEAM" do
     task_sup = start_supervised!(Task.Supervisor)
     RecordingCodeServer.set_task_sup(task_sup)

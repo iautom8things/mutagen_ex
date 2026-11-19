@@ -61,3 +61,7 @@ sampling or parallelism for the seed to randomize?
 - `async: true` is silently overridden. Users who structured their suites
   around it lose that property in this tool. The warning is the visible
   signal; they can fix `setup_all` ordering deps if it matters.
+
+[Per-mutant fail-fast](per_mutant_fail_fast.md) amends the forced settings
+above. Each phase applies them after loading the cited files, adds a
+failure cap and restores the host values when it ends.

@@ -36,6 +36,7 @@ surface:
 decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
+  - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.supervision_tree
   - mutagen.decision.ancora_migration
 ```
@@ -75,9 +76,15 @@ decisions:
 - id: mutagen.coverage.r4
   priority: must
   statement: |
-    `CoverageRunner.run/1` forces `ExUnit.configure(max_cases: 1, seed:
-    config.seed)` before running. Concurrent test execution is not permitted
-    in v1 per mutagen.decision.serial_execution_and_seed.
+    `CoverageRunner.run/1` loads the cited test files and then sets ExUnit
+    options for its run: `max_cases: 1`, `seed: config.seed`, `include`
+    and `exclude` from the resolved test filter, and `max_failures:
+    :infinity`, so a failing test does not stop later tests from recording
+    coverage. The `formatters` list and other options present after
+    loading, such as `:timeout`, stay active. When the run returns or
+    raises, every key it set and `:trace` hold their post-load values
+    again. Concurrent test execution is not permitted in v1 per
+    mutagen.decision.serial_execution_and_seed.
 
 - id: mutagen.coverage.r5
   priority: must
@@ -144,7 +151,9 @@ decisions:
     **before** `ExUnit.run/0`. This re-registers the cited modules
     whenever a prior `ExUnit.run/0` in the same BEAM has drained
     `ExUnit.Server`'s registry — the multi-invocation hazard captured
-    in `mutagen.mutation_pipeline.r10`. Without this, coverage's
+    in `mutagen.mutation_pipeline.r10`. With a non-empty payload it first
+    discards the registrations queued by loading the files, so each cited
+    module runs once even when this phase loaded its file. Without this, coverage's
     `ExUnit.run/0` would silently observe `%{total: 0, failures: 0}`
     on a repeated cited-file scenario, record zero covered lines, and
     downstream enumeration would produce zero sites (mutagen-wrd.38).
