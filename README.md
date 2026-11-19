@@ -269,10 +269,11 @@ Compilation happens before that timer starts. If the helper calls
 `System.halt/1`, it terminates the BEAM immediately and prevents reporting.
 
 Startup errors use the usual report destination. `details.message` gives a
-short redacted summary. Stderr carries the full diagnostic, which may
-contain credentials. Keep it separate from the JSON artifact. If the task
-cannot safely write to `--json PATH`, it warns on stderr and writes the
-document to stdout.
+short redacted summary. Stderr carries the full diagnostic and the host's
+own output, and neither is redacted. Do not publish stderr as a CI
+artifact. Every document from a host setup failure repeats this warning in
+`details.note`. If the task cannot safely write to `--json PATH`, it
+warns on stderr and writes the document to stdout.
 
 ## Entrypoints
 

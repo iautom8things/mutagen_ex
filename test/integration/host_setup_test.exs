@@ -77,6 +77,9 @@ defmodule MutagenEx.Integration.HostSetupTest do
       assert stdout == ""
       report = File.read!(Path.join(host.dir, "host-error.json"))
       assert abort_message(report, "host_app_start_failed") =~ "Could not start application"
+
+      assert :json.decode(report)["details"]["note"] ==
+               "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
     end
 
     @tag spec: ["mutagen.cli.r16", "mutagen.cli.r19"]

@@ -7,6 +7,7 @@ defmodule MutagenEx.Runtime do
 
   @tool_version Mix.Project.config()[:version]
   @boot_timeout_ms 300_000
+  @stderr_note "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
 
   def tool_version, do: @tool_version
 
@@ -24,6 +25,8 @@ defmodule MutagenEx.Runtime do
          :ok <- step(:host_compile_failed, &compile_host/0),
          {:ok, session} <- timed_boot(opts) do
       {:ok, Map.merge(session, %{test_paths: test_paths(), exunit: ExUnit.configuration()})}
+    else
+      {:error, reason, details} -> {:error, reason, Map.put(details, :note, @stderr_note)}
     end
   end
 

@@ -47,8 +47,11 @@ defmodule MutagenEx.RuntimeTest do
     in_project(
       dir,
       fn ->
-        assert {:error, :umbrella_root, %{message: message}} = Runtime.boot()
+        assert {:error, :umbrella_root, %{message: message, note: note}} = Runtime.boot()
         assert message =~ "apps/<app>"
+
+        assert note ==
+                 "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
       end,
       "apps_path: \"apps\""
     )
@@ -62,8 +65,10 @@ defmodule MutagenEx.RuntimeTest do
     in_project(dir, fn ->
       started = System.monotonic_time(:millisecond)
 
-      assert {:error, :host_setup_timeout, %{step: :test_helper_load_failed}} =
+      assert {:error, :host_setup_timeout, %{step: :test_helper_load_failed, note: note}} =
                Runtime.boot(host_app: false, boot_timeout_ms: 1_000)
+
+      assert note =~ "Do not publish it as a CI artifact"
 
       assert File.read!("helper-entered") == "yes"
       assert System.monotonic_time(:millisecond) - started < to_timeout(second: 5)
@@ -175,7 +180,8 @@ defmodule MutagenEx.RuntimeTest do
 
     in_project(dir, fn ->
       capture_io(:stderr, fn ->
-        assert {:error, :host_compile_failed, %{message: message}} = Runtime.boot()
+        assert {:error, :host_compile_failed, %{message: message, note: note}} = Runtime.boot()
+        assert note =~ "unredacted host output"
         assert message =~ "no match of right hand side value"
         assert message =~ "[REDACTED]"
         refute message =~ "fixture-unlabelled-token"

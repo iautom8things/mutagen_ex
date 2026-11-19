@@ -415,6 +415,12 @@ decisions:
     `no match of right hand side value:` is replaced with
     `[REDACTED]`. Stderr receives the full diagnostic and stacktrace.
 
+    Every document from a host setup failure, including those of r18,
+    r21, and r22, carries `details.note` with the text
+    `Stderr may carry unredacted host output. Do not publish it as a CI
+    artifact.` Host code still writes raw values to stderr through its
+    own messages.
+
     Every host setup abort, including those of r18, r21, and r22, writes
     its document to the destination validated under r10 (stdout, or the
     `--json` file) and writes no `--stream` lines.
