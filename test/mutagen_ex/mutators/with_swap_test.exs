@@ -1,6 +1,8 @@
 defmodule MutagenEx.Mutators.WithSwapTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO, only: [capture_io: 1]
+
   alias MutagenEx.Mutators.WithSwap
 
   describe "name/0" do
@@ -164,6 +166,20 @@ defmodule MutagenEx.Mutators.WithSwapTest do
     end
 
     @tag :validate
+    test "a wildcard else keeps swaps whose moved-first pattern reads a later binding" do
+      for {source, inputs, failure} <- [
+            {"with {:ok, x} <- a, ^x <- b, do: :pass, else: (_ -> :failed)",
+             [x: :old, a: {:ok, :new}, b: :old], :failed},
+            {"with {:ok, n} <- a, <<_v::binary-size(n)>> <- b, do: :pass, else: (_ -> :f)",
+             [n: 1, a: {:ok, 2}, b: <<1>>], :f},
+            {"with {:ok, x} <- a, n when n > x <- b, do: :pass, else: (_ -> :f)",
+             [x: 1, a: {:ok, 10}, b: 2], :f}
+          ] do
+        assert_swap(source, inputs, :ok, failure, :pass)
+      end
+    end
+
+    @tag :validate
     test "keeps lexical introspection even with fresh bindings and a wildcard else" do
       for {source, inputs, failure} <- [
             {"with x <- :one, true <- Keyword.has_key?(binding(), :x), do: :pass", [], false},
@@ -179,17 +195,68 @@ defmodule MutagenEx.Mutators.WithSwapTest do
     end
 
     @tag :validate
-    test "reads in the moved expression exclude lambda parameters, match binders and quoted data" do
+    test "keeps no-argument dbg calls that inspect the binding" do
+      capture_io(fn ->
+        for call <- ["dbg()", "Kernel.dbg()"] do
+          assert_swap("with x <- :one, [_ | _] <- #{call}, do: x", [], :ok, :one, [])
+        end
+      end)
+    end
+
+    @tag :validate
+    test "the RHS name check can mistake nested binders or quoted data for a read" do
       for {source, swapped} <- [
             {"with {:ok, x} <- a, :ok <- (fn x -> x end).(:b), do: x", :b},
             {"with {:ok, x} <- a, :ok <- (x = :b), do: x", :b},
             {"with {:ok, x} <- a, :ok <- (quote do: x), do: x", {:x, [], Elixir}},
             {"with {:ok, x} <- a, :ok <- Macro.to_string(quote unquote: false, do: unquote(x)), do: x",
              "unquote(x)"},
-            {"with {:ok, x} <- a, :ok <- (x = :b; x), do: x", :b}
+            {"with {:ok, x} <- a, :ok <- (x = :b; x), do: x", :b},
+            {"with {:ok, x} <- a, :ok <- (case :b do x -> x end), do: :pass", :b}
           ] do
-        assert_swap(source, [a: :a], :ok, :a, swapped)
+        assert_swap(source, [a: :a], {:skip, :bound_var_used_before_binding}, :a, swapped)
       end
+    end
+
+    @tag :validate
+    test "module attributes introduce neither reads nor bindings" do
+      assert_swap(
+        "with {:ok, limit} <- a, true <- b < @limit, do: limit",
+        [a: :err, b: 10],
+        :ok,
+        :err,
+        false,
+        &run_with_attributes/2
+      )
+
+      assert_swap(
+        "with @expected <- a, :ok <- (if expected, do: :ok, else: :no), do: :pass",
+        [a: :bad, expected: false],
+        :ok,
+        :bad,
+        :no,
+        &run_with_attributes/2
+      )
+    end
+
+    @tag :validate
+    test "string and sigil interpolation do not read a variable named binary" do
+      for literal <- [~S("#{b}"), ~S(~s|#{b}|)] do
+        assert_swap(
+          "with {:ok, binary} <- a, :ok <- String.to_atom(#{literal}), do: binary",
+          [a: :err, b: "bad"],
+          :ok,
+          :err,
+          :bad
+        )
+      end
+
+      assert_unbound_swap(
+        ~S|with {:ok, binary} <- a, :ok <- String.to_atom("#{binary}"), do: :pass|,
+        [a: {:ok, "ok"}],
+        {:skip, :bound_var_used_before_binding},
+        :pass
+      )
     end
 
     @tag :validate
@@ -215,7 +282,7 @@ defmodule MutagenEx.Mutators.WithSwapTest do
       assert_swap(
         "with n <- count, :ok <- (fn <<n, _v::size(n)>> -> :ok end).(b), do: n",
         [b: <<8, 42>>, count: 8],
-        {:skip, :insufficient_refutable_patterns},
+        {:skip, :bound_var_used_before_binding},
         8,
         8
       )
@@ -285,12 +352,12 @@ defmodule MutagenEx.Mutators.WithSwapTest do
 
   defp parse(source), do: Code.string_to_quoted!(source, columns: true, token_metadata: true)
 
-  defp assert_swap(source, inputs, decision, original, swapped) do
+  defp assert_swap(source, inputs, decision, original, swapped, runner \\ &run/2) do
     ast = parse(source)
     mutant = WithSwap.mutate(ast)
     assert {source, WithSwap.validate(mutant)} == {source, decision}
-    assert {source, run(ast, inputs)} == {source, original}
-    assert {source, run(mutant, inputs)} == {source, swapped}
+    assert {source, runner.(ast, inputs)} == {source, original}
+    assert {source, runner.(mutant, inputs)} == {source, swapped}
   end
 
   defp assert_unbound_swap(source, inputs, decision, original) do
@@ -317,5 +384,28 @@ defmodule MutagenEx.Mutators.WithSwapTest do
       Code.with_diagnostics(fn -> Code.eval_quoted(ast, inputs) end)
 
     value
+  end
+
+  defp run_with_attributes(ast, inputs) do
+    module = Module.concat(__MODULE__, "Attributes#{System.unique_integer([:positive])}")
+    params = for {name, _} <- inputs, do: Macro.var(name, nil)
+
+    body =
+      quote do
+        @limit 5
+        @expected :ok
+
+        def run(unquote_splicing(params)), do: unquote(ast)
+      end
+
+    try do
+      {{:module, ^module, _, _}, _} =
+        Code.with_diagnostics(fn -> Module.create(module, body, Macro.Env.location(__ENV__)) end)
+
+      apply(module, :run, Keyword.values(inputs))
+    after
+      :code.delete(module)
+      :code.purge(module)
+    end
   end
 end

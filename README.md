@@ -149,20 +149,24 @@ levels.
 | `guard_drop` | high | Dropping the guard can let a clause accept values it used to reject. |
 
 `with_swap` applies its failure-priority filters only when the two clauses
-are independent. It checks for shared bindings, reads of the other pattern's
-bindings in either direction, and lexical introspection such as `binding()`
-and `__ENV__`. It records skip reasons in `mutation.skipped`.
+are independent. It treats a pair as dependent when a name bound by
+either pattern appears anywhere in the other clause, or when either clause
+uses `binding()`, `dbg()` or `__ENV__`. It records skip reasons in
+`mutation.skipped`.
 
 | Reason | When it applies |
 |---|---|
-| `bound_var_used_before_binding` | The expression moved first reads a name bound by the now-later pattern. This check can also reject a swap that could use an outer binding. |
+| `bound_var_used_before_binding` | A variable-shaped name in the moved-first expression also appears as a binding in the now-later pattern. The check ignores module attributes and binary modifiers. |
 | `insufficient_refutable_patterns` | In an independent pair, either match uses an unguarded variable, a wildcard, or a literal pattern with an equal literal expression. |
 | `indistinguishable_failures` | In an independent pair, both expressions are the same literal or read the same variable. |
 | `else_ignores_failure` | An independent pair has a single `else` arm with an unguarded wildcard. |
 
-Guards, pins, and binary sizes can read outer bindings. The compiler decides
-whether such a binding exists after a swap. The reference check works on
-unexpanded AST, so macros can hide reads and bindings. Calls are opaque.
+The RHS name check can skip a valid swap when the name has an outer binding
+or appears only inside a nested binder or quote. This includes names local
+to `fn`, `case`, `for`, `receive`, `rescue`, nested `with`,
+`match?`, matches and `destructure`. The compiler resolves dependencies
+in guards, pins and binary sizes for kept swaps. Unexpanded macros can
+hide reads and bindings.
 The filters can miss evaluation-order bugs such as writes that run before
 a short circuit or a change in which exception is raised.
 
