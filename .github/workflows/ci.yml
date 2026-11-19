@@ -67,17 +67,30 @@ jobs:
       - name: Set up Elixir / OTP
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.19"
-          otp-version: "28"
+          version-file: .tool-versions
+          version-type: strict
+
+      - name: Cache spec dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-specs-${{ hashFiles('.tool-versions', 'mix.lock') }}
 
       - run: mix deps.get
       - run: mix spec.validate --strict
       - name: Check the change against its base
         env:
-          SPEC_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+          SPEC_BASE: ${{ github.event.before }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [ "$SPEC_BASE" = "0000000000000000000000000000000000000000" ]; then
-            SPEC_BASE="origin/$DEFAULT_BRANCH"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Checkout uses GitHub's PR merge commit. Its first parent is the tested base.
+            SPEC_BASE="$(git rev-parse HEAD^1)"
+          elif [ "$SPEC_BASE" = "0000000000000000000000000000000000000000" ] ||
+               ! git cat-file -e "$SPEC_BASE^{commit}" 2>/dev/null; then
+            SPEC_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)"
           fi
           mix spec.check --base "$SPEC_BASE"
