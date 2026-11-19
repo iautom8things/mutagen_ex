@@ -591,7 +591,8 @@ decisions:
 - id: mutagen.mutation_pipeline.r26
   priority: must
   statement: |
-    Stopping a site group a second time after it exits returns `:ok`.
+    Stopping a site group waits for it to exit. An immediate second stop
+    returns `:ok`.
 
 - id: mutagen.mutation_pipeline.r27
   priority: must

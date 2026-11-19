@@ -105,15 +105,36 @@ defmodule MutagenEx.Test.RunGroupTest do
   end
 
   @tag spec: "mutagen.mutation_pipeline.r26"
-  test "stopping a group after it exits returns immediately" do
+  test "stop waits for the group to exit and an immediate second stop returns" do
     group = RunGroup.start(Process.group_leader())
     runner = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(runner, :kill) end)
     tracker = RunGroup.track(group, runner)
-    monitor = Process.monitor(group)
+    session = :trace.session_create(:run_group_stop_test, self(), [])
 
+    task =
+      Task.async(fn ->
+        receive do
+          :stop_group -> RunGroup.stop(group, :release, %{}, tracker)
+        end
+      end)
+
+    assert :erlang.suspend_process(group)
+
+    try do
+      assert :trace.process(session, task.pid, true, [:send]) == 1
+      send(task.pid, :stop_group)
+      task_pid = task.pid
+      assert_receive {:trace, ^task_pid, :send, :stop, ^group}, to_timeout(second: 1)
+      refute Task.yield(task, to_timeout(millisecond: 100))
+    after
+      :erlang.resume_process(group)
+      :trace.session_destroy(session)
+    end
+
+    assert :ok = Task.await(task)
+    refute Process.alive?(group)
     assert :ok = RunGroup.stop(group, :reap, %{}, tracker)
-    assert_receive {:DOWN, ^monitor, :process, ^group, :normal}
-    assert :ok = Task.await(Task.async(fn -> RunGroup.stop(group, :reap, %{}, tracker) end), 500)
   end
 
   @tag spec: "mutagen.mutation_pipeline.r23"
