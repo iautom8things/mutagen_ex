@@ -8,10 +8,10 @@ defmodule MutagenEx.CoverageRunner do
 
   ## Lifecycle invariants
 
-    * **r1 — refuse if cover already running.** If
-      `Process.whereis(:cover_server)` returns a non-nil pid before we
-      start, the runner aborts with `{:error, :cover_already_running, ...}`
-      without calling `:cover.compile_*` or `ExUnit.run/0`.
+    * **r1 — refuse another coverage session.** The runner can replace
+      an empty Cover server. If it owns compiled or imported modules,
+      the runner returns `{:error, :cover_already_running, ...}` before
+      instrumenting scope modules or running ExUnit.
     * **r2 — cover stopped after return.** Whether `run/1` succeeds or
       errors, `:cover.stop/0` is invoked at least once. The call is wrapped
       in `try/rescue` so repeated stops are idempotent.
