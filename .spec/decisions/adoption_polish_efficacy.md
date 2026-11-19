@@ -94,3 +94,6 @@ posture the shipped code already implements. The changes:
   that previously relied on bare-`Inner` matching. That path was
   ambiguous and is intentionally removed; the fully qualified form is the
   only supported spelling.
+
+The branch guard described above was part of SpecLedEx at the time. See
+[the Ancora migration decision](ancora_migration.md) for the current checks.

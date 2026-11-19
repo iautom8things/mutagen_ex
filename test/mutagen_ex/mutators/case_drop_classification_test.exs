@@ -31,6 +31,7 @@ defmodule MutagenEx.Mutators.CaseDropClassificationTest do
   """
 
   describe "guarded-recursive-base-case pattern (mutagen.mutators.r8)" do
+    @tag spec: "mutagen.mutators.r8"
     test "case_drop's validate/1 returns :ok — the catalog does not prove coverage" do
       ast = Code.string_to_quoted!(@guarded_recursive_base_case)
       mutated = CaseDrop.mutate(ast)
@@ -42,6 +43,7 @@ defmodule MutagenEx.Mutators.CaseDropClassificationTest do
       assert CaseDrop.validate(mutated) == :ok
     end
 
+    @tag spec: "mutagen.mutators.r8"
     test "mutated source raises CaseClauseError on the dropped value (not :timeout)" do
       ast = Code.string_to_quoted!(@guarded_recursive_base_case)
       mutated = CaseDrop.mutate(ast)
@@ -53,6 +55,7 @@ defmodule MutagenEx.Mutators.CaseDropClassificationTest do
       end
     end
 
+    @tag spec: "mutagen.mutators.r8"
     test "mutated source evaluates normally when guard matches" do
       # Sanity check the other side of the contract: when the recursion
       # has not yet reached the dropped value, the case still evaluates.
@@ -64,6 +67,7 @@ defmodule MutagenEx.Mutators.CaseDropClassificationTest do
   end
 
   describe "deterministic-timeout trigger note (mutagen.mutators.r8 corollary)" do
+    @tag spec: "mutagen.mutators.r8"
     test ":arith on the recursive descent is the documented :timeout trigger" do
       # The spec note for r8 directs fixture authors away from :case_drop
       # for deterministic :timeout and toward :arith against the recursive

@@ -33,12 +33,16 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
   end
 
   describe "byte_size_limit/0 (r10 — fixed cap)" do
+    @describetag spec: "mutagen.json_schema.r10"
+
     test "default cap is exactly 4096 bytes (4 KiB)" do
       assert Sanitizer.byte_size_limit() == 4 * 1024
     end
   end
 
   describe "truncate/2 (r10)" do
+    @describetag spec: "mutagen.json_schema.r10"
+
     test "leaves strings under the cap untouched" do
       bin = String.duplicate("a", 4096)
       assert Sanitizer.truncate(bin, 4096) == bin
@@ -96,6 +100,8 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
   end
 
   describe "apply_redactions/2 (r11)" do
+    @describetag spec: "mutagen.json_schema.r11"
+
     test "empty pattern list is a no-op" do
       assert Sanitizer.apply_redactions("hello world", []) == "hello world"
     end
@@ -134,6 +140,7 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
       assert Sanitizer.clean(nil) == nil
     end
 
+    @tag spec: "mutagen.json_schema.r11"
     test "reads :redact from application env by default" do
       Application.put_env(:mutagen_ex, :redact, [~r/SECRET_TOKEN=\S+/])
 
@@ -144,6 +151,7 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
       refute String.contains?(out, "hunter2")
     end
 
+    @tag spec: "mutagen.json_schema.r11"
     test "no redact env means only truncation happens" do
       Application.delete_env(:mutagen_ex, :redact)
 
@@ -154,6 +162,7 @@ defmodule MutagenEx.JsonReporter.SanitizerTest do
       refute String.contains?(out, "[REDACTED]")
     end
 
+    @tag spec: "mutagen.json_schema.r11"
     test "redaction happens BEFORE truncation so replacements are not lost (r11)" do
       # Pattern requires a terminating `=END` marker: anchored on both
       # ends. This is the falsifier lever — if any bytes between the

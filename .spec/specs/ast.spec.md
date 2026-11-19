@@ -44,9 +44,7 @@ surface:
   - test/mutagen_ex/ast_donor_equivalence_test.exs
 decisions:
   - mutagen.decision.adoption_polish_efficacy
-realized_by:
-  api_boundary:
-    - "MutagenEx.Ast"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -226,37 +224,12 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.ast.v1
-  covers: [mutagen.ast.r1, mutagen.ast.r2, mutagen.ast.r3]
-  kind: command
-  target: mix test test/mutagen_ex/ast_test.exs
-  execute: true
-  description: |
-    Unit tests for each public function: positive cases (alias tuple,
-    bare atom, target found, target missing, node with :line metadata,
-    node without).
-
-- id: mutagen.ast.v2
-  covers: [mutagen.ast.r4]
-  kind: command
-  target: "! grep -rn 'defp alias_to_module\\|defp find_module_body' lib/mutagen_ex/ | grep -v 'lib/mutagen_ex/ast.ex:'"
-  execute: true
-  description: |
-    Mechanical check that no donor module still carries a private duplicate
-    of the lifted helpers. Expected output is empty outside
-    `lib/mutagen_ex/ast.ex`; private `find_module_body` clauses may exist
-    inside the canonical owner.
-
-- id: mutagen.ast.v3
-  covers: [mutagen.ast.r5]
-  kind: command
-  target: mix test test/mutagen_ex/ast_donor_equivalence_test.exs
-  execute: true
-  description: |
-    Property-style equivalence test. The pre-.25 donor implementations are
-    preserved verbatim as fixture functions; for each AST in a representative
-    corpus, the test asserts donor output == lifted output except for the
-    nested-module r2 qualification carve-out. Locks in the safety net so a
-    future change to the lifted version cannot silently diverge from
-    established donor behaviour.
+- kind: tagged_tests
+  target: test/mutagen_ex
+  covers:
+    - mutagen.ast.r1
+    - mutagen.ast.r2
+    - mutagen.ast.r3
+    - mutagen.ast.r4
+    - mutagen.ast.r5
 ```

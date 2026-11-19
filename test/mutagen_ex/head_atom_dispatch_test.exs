@@ -140,6 +140,8 @@ defmodule MutagenEx.HeadAtomDispatchTest do
   ]
 
   describe "per-node equivalence (correctness of the head-atom pre-filter)" do
+    @describetag spec: "mutagen.mutation_enumeration.r9"
+
     for {tag, source} <- @corpus do
       @tag corpus: tag
       test "for every node in #{inspect(tag)}, dispatch filtered by match? equals legacy filtered by match?" do
@@ -162,6 +164,8 @@ defmodule MutagenEx.HeadAtomDispatchTest do
   end
 
   describe "Dispatch result shape (order-preservation and sub-sequence properties)" do
+    @describetag spec: "mutagen.mutation_enumeration.r9"
+
     test "Dispatch.mutators_for_node/1 returns a sub-sequence of Mutators.all/0" do
       all = Mutators.all()
       all_index = all |> Enum.with_index() |> Map.new()
@@ -305,6 +309,7 @@ defmodule MutagenEx.HeadAtomDispatchTest do
   describe "enumerator-level equivalence (head_atom vs legacy)" do
     for {label, file, module, range, source} <- @integration_corpus do
       @tag integration: label
+      @tag spec: "mutagen.mutation_enumeration.r9"
       test "byte-identical output for #{inspect(label)}" do
         cache = ast_cache_for(unquote(file), unquote(source))
         scopes = scope_for(unquote(file), unquote(module), unquote(Macro.escape(range)))
@@ -335,6 +340,7 @@ defmodule MutagenEx.HeadAtomDispatchTest do
       end
     end
 
+    @tag spec: "mutagen.mutation_enumeration.r9"
     test "head_atom mode is the default when :dispatch_mode is omitted" do
       cache =
         ast_cache_for("lib/default.ex", """
