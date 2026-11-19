@@ -145,14 +145,19 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :before_failure
-  @tag spec: "mutagen.mutation_pipeline.r4"
-  test "a deadline before any recorded failure stays a timeout in both modes" do
-    {capped, traces, _} = run_pipeline(["--timeout-ms", "250"])
-    {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
+  @tag spec: ["mutagen.mutation_pipeline.r4", "mutagen.mutation_pipeline.r27"]
+  test "an async case times out and later sites run in both fail-fast modes" do
+    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "250"])
+    {full, full_traces, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
 
     assert [{_, "timeout"}, {_, "killed"}, {_, "killed"}, {_, "survived"}] = verdicts(capped)
     assert verdicts(full) == verdicts(capped)
-    assert hd(traces) == [{:first, 1}]
+    assert hd(capped_traces) == [{:first, 1}, {:async, true}]
+    assert hd(full_traces) == [{:first, :infinity}, {:async, true}]
+
+    for trace <- capped_traces ++ full_traces do
+      assert {:async, true} in trace
+    end
   end
 
   @tag scenario: :slow_cleanup
@@ -549,5 +554,11 @@ defmodule MutagenEx.FailFastTest do
     end
   end
 
-  def phase_events, do: test_steps(:infinity)
+  def phase_events do
+    [first | rest] = test_steps(:infinity)
+
+    if Probe.scenario() == :before_failure,
+      do: [first, {:async, true} | rest],
+      else: [first | rest]
+  end
 end
