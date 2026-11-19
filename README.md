@@ -232,37 +232,47 @@ Pin the archive version or dependency version in CI.
 
 ## Host test setup
 
-Run `MIX_ENV=test mix mutagen` with either install method. Mix selects the
-environment before it loads project configuration or discovers dependency
-tasks. Setting it explicitly makes Mix load `config/test.exs` and compile
-the paths returned by `elixirc_paths(:test)`, such as `test/support`.
-Once Mix finds the task, any other environment returns `invalid_mix_env`.
-Use `MIX_QUIET=1` if Mix prints dependency discovery output before running
-the task and your CI parses stdout directly. Application log handlers keep
-their configured destinations. Use `--json PATH` to keep the report in its
-own file when the host logs to stdout.
+Run `MIX_ENV=test mix mutagen` with either install method. This loads
+`config/test.exs` and compiles test support. Explicit environments such as
+`MIX_ENV=ci` are allowed when the host configures them for tests. A host
+can also set `def cli, do: [preferred_envs: [mutagen: :test]]` in `mix.exs`.
+Mix may print dependency discovery output before the task runs. Use
+`MIX_QUIET=1` for a dependency install when parsing stdout directly.
+The task routes the default console Logger handler and ExUnit output to
+stderr.
 
-The task starts the host application, disables ExUnit autorun, and requires
-`test_helper.exs` once per configured `:test_paths` entry. The default helper
-is `test/test_helper.exs`. Prepare and migrate the test database as you would
-for `mix test`. Pass `MIX_TEST_PARTITION` as usual if your test configuration
-uses it to select a database. The helper can set Ecto Sandbox to manual mode,
-define Mox mocks, and configure ExUnit before the first cited test runs.
+After compiling, the task loads runtime config and runs the host `test`
+alias entries before the `test` task. A Phoenix alias can create and migrate
+the test database there. If the alias lacks those steps or you use
+`--no-test-alias`, create and migrate the test database before invoking
+mutagen. Pass `MIX_TEST_PARTITION` if your configuration uses it to select
+a database.
 
-Coverage, baseline, and every mutant use the same ExUnit helper options.
-Whole-file targets honor the helper's includes and excludes. A tag or line
-selection takes precedence over helper includes when it narrows the test set.
-The mutation task sets the ExUnit seed and runs one test case at a time.
+The task starts the host application and requires `test_helper.exs` once
+from each configured `:test_paths` entry, with ExUnit autorun disabled. The
+default is `test/test_helper.exs` when `test/` exists. Run from the app that
+owns the tests in an umbrella project. `--no-host-app` or
+`MUTAGEN_NO_HOST_APP=1` skips application startup and still loads runtime
+config and the helper.
 
-`--no-host-app` or `MUTAGEN_NO_HOST_APP=1` skips application startup. The task
-still requires the helper, so use this only when setup can run without your
-application.
+Coverage, baseline, and every mutant use the helper's ExUnit options.
+Whole-file targets honor helper includes and excludes. An explicit tag or
+line target takes precedence when narrowing the test set. A coverage or
+baseline pass that executes no tests aborts with `no_tests_run`. Helper
+formatters run on every pass. A formatter that writes a file may overwrite
+it after each mutant. ExUnit `after_suite` callbacks run once when mutagen
+finishes, including on a reported abort.
 
-Startup errors use the usual report destination, including `--json PATH`.
-Read `details.message` for the underlying error. Startup abort reasons include
-`host_loadpaths_failed`, `host_compile_failed`, `host_app_start_failed`,
-`runtime_load_failed`, and `test_helper_load_failed`. The last reason covers
-a missing helper as well as one that raises.
+`--boot-timeout-ms` bounds runtime configuration, the alias pre-steps,
+application startup, and helper evaluation. The default is 300000 ms.
+Compilation happens before that timer starts. If the helper calls
+`System.halt/1`, it terminates the BEAM immediately and prevents reporting.
+
+Startup errors use the usual report destination. `details.message` gives a
+short redacted summary. Stderr carries the full diagnostic, which may
+contain credentials. Keep it separate from the JSON artifact. If the task
+cannot safely write to `--json PATH`, it warns on stderr and writes the
+document to stdout.
 
 ## Entrypoints
 
@@ -329,6 +339,9 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
 |---|---|
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
 | `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
+| `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
+| `--no-test-alias` | Skip entries in the host's test alias before the test task. |
+| `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `30000`. Must be positive. Phoenix/Ecto-style apps often need the larger default because setup and supplemental tests can make a single mutation cycle exceed five seconds. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
