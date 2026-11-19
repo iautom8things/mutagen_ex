@@ -543,6 +543,13 @@ decisions:
     A missing JSON streamer beam makes startup abort with runtime_load_failed.
     Archive packages omit the repository benchmark and spike scripts.
 
+- id: mutagen.cli.r29
+  priority: must
+  statement: |
+    The CI workflow pins action references by full commit SHA, disables
+    persisted checkout credentials, and reads the Elixir and OTP versions
+    from .tool-versions in both jobs.
+
 ```
 
 ```spec-scenarios
@@ -1072,4 +1079,5 @@ decisions:
     - mutagen.cli.r26
     - mutagen.cli.r27
     - mutagen.cli.r28
+    - mutagen.cli.r29
 ```
