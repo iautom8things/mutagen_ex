@@ -135,13 +135,8 @@ defmodule MutagenEx.MixProject do
       # event (see `mutagen.mutation_pipeline.r15`).
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
 
-      # Spec-Led Development tooling. Dev/test only — the `mix spec.*`
-      # tasks validate and check the `.spec/` corpus against the code;
-      # they are not part of the mutagen runtime. Pinned to a branch
-      # because spec_led_ex is not yet published to Hex and carries no
-      # semver tag.
-      {:spec_led_ex,
-       github: "iautom8things/specled_ex", branch: "main", only: [:dev, :test], runtime: false}
+      # Ancora checks behavioral specs and their ExUnit bindings in dev and test.
+      {:ancora, "~> 1.3", only: [:dev, :test], runtime: false}
     ]
   end
 end

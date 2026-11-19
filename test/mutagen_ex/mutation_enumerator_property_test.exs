@@ -2,7 +2,7 @@ defmodule MutagenEx.MutationEnumeratorPropertyTest do
   @moduledoc """
   Property-style test for `MutagenEx.MutationEnumerator.enumerate/4`.
 
-  Covers `mutagen.mutation_enumeration.v2`: the determinism invariant
+  Covers `mutagen.mutation_enumeration.r1`: the determinism invariant
   (`r1`) on randomly-generated input tuples.
 
   ## The invariant
@@ -39,6 +39,8 @@ defmodule MutagenEx.MutationEnumeratorPropertyTest do
   end
 
   describe "determinism invariant (mutagen.mutation_enumeration.r1)" do
+    @describetag spec: "mutagen.mutation_enumeration.r1"
+
     test "two consecutive enumerations on identical inputs are byte-identical" do
       for _ <- 1..@iterations do
         {ast_cache, scopes, covered} = synthesize_inputs()

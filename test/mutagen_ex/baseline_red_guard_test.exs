@@ -92,6 +92,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
     :ok
   end
 
+  @tag spec: ["mutagen.mutation_pipeline.r1", "mutagen.mutation_pipeline.r10"]
   test "baseline_red fires against the real ExUnit.Server after a prior run drained it" do
     {{drain_result, baseline_result}, _io} =
       ExUnit.CaptureIO.with_io(fn ->
@@ -133,6 +134,7 @@ defmodule MutagenEx.BaselineRedGuardTest do
     assert details.failed >= 1
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r10"
   test "baseline stays green when the cited module passes (re-registration is not a false-positive)" do
     {{drain_result, baseline_result}, _io} =
       ExUnit.CaptureIO.with_io(fn ->

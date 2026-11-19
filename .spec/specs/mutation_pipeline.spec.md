@@ -50,17 +50,7 @@ decisions:
   - mutagen.decision.drop_telemetry_event_api
   - mutagen.decision.parallel_experimental_gate
   - mutagen.decision.adoption_polish_efficacy
-realized_by:
-  api_boundary:
-    - "MutagenEx.Baseline"
-    - "MutagenEx.BeamCache"
-    - "MutagenEx.MutationRunner"
-    - "MutagenEx.MutationRunner.MutationLoop"
-    - "MutagenEx.Progress"
-    - "MutagenEx.Application"
-    - "MutagenEx.Test.CodeServer"
-    - "MutagenEx.Test.CodeServerFacade"
-    - "Mix.Tasks.Mutagen"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -666,96 +656,25 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.mutation_pipeline.v1
-  kind: command
-  target: mix test test/mutagen_ex/baseline_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex
   covers:
     - mutagen.mutation_pipeline.r1
     - mutagen.mutation_pipeline.r2
-
-- id: mutagen.mutation_pipeline.v2
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_test.exs
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r3
-    - mutagen.mutation_pipeline.r4
     - mutagen.mutation_pipeline.r5
     - mutagen.mutation_pipeline.r6
     - mutagen.mutation_pipeline.r7
     - mutagen.mutation_pipeline.r8
     - mutagen.mutation_pipeline.r9
-
-- id: mutagen.mutation_pipeline.v3
-  kind: command
-  target: mix test --only spike test/mutagen_ex/integration/c1_test.exs
-  execute: true
-  covers:
-    - mutagen.mutation_pipeline.r6
-    - mutagen.mutation_pipeline.r11
-
-- id: mutagen.mutation_pipeline.v4
-  kind: command
-  target: mix test --only spike test/mutagen_ex/integration/c2_test.exs
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r10
-
-- id: mutagen.mutation_pipeline.v5
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_raise_test.exs
-  execute: true
-  covers:
+    - mutagen.mutation_pipeline.r11
     - mutagen.mutation_pipeline.r12
-
-- id: mutagen.mutation_pipeline.v6
-  kind: command
-  target: mix test test/mutagen_ex/supervision_test.exs
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r13
     - mutagen.mutation_pipeline.r14
-
-- id: mutagen.mutation_pipeline.v7
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r15
-
-- id: mutagen.mutation_pipeline.v8
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_batched_test.exs
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r16
-
-- id: mutagen.mutation_pipeline.v9
-  kind: command
-  target: mix test test/mutagen_ex/beam_cache_test.exs
-  execute: true
-  covers:
-    - mutagen.mutation_pipeline.r6
-
-- id: mutagen.mutation_pipeline.v10
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:"outer task crash restore sweep"
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r17
-
-- id: mutagen.mutation_pipeline.v11
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_parallel_test.exs --only describe:"experimental parallel-mode warning"
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r18
-
-- id: mutagen.mutation_pipeline.v12
-  kind: command
-  target: mix test test/mutagen_ex/cli_test.exs:98
-  execute: true
-  covers:
     - mutagen.mutation_pipeline.r19
 ```

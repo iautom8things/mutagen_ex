@@ -1,63 +1,41 @@
-# SpecLedEx workspace config for mutagen_ex.
-#
-# Adopted via /spec-led-bootstrap (full-adopt + migrate path). This file
-# overturns the prior "tooling-optional" stance documented in the original
-# .spec/AGENTS.md — see .spec/decisions/adopt_specled_tooling.md.
-#
-# Severities are intentionally SOFT during adoption: the corpus is mid-
-# migration and not yet bound to code, so branch_guard findings are
-# warnings, not errors. Graduate to `error` in a follow-on phase6 epic once
-# the triangle is green. See docs/adoption.md in the spec_led_ex repo.
-
-# Phase3 (test-tag scanner) is out of scope for this bootstrap. Leave the
-# scanner disabled until a follow-on epic wires @tag spec: into the suite.
-test_tags:
-  enabled: false
-  paths:
-    - test
-  enforcement: warning
-
-# Append-only / overlap governance on the authored corpus. Safe to keep at
-# error from day one — they guard against accidental requirement deletion
-# and duplicate coverage, neither of which the migration should introduce.
-guardrails:
-  severities:
-    append_only/requirement_deleted: error
-    append_only/scenario_regression: warning
-    # Facet-decomposed coverage is this corpus's intended style: a broad
-    # requirement (e.g. mutagen.cli.r10's multi-layer --json path-safety
-    # contract) is deliberately covered by several distinct-facet scenarios
-    # (s10a traversal, s10b NUL byte, s10c symlink-escape, s10d symlink-inside,
-    # s10e opt-out). The overlap/duplicate_covers guard assumes
-    # one-scenario-per-requirement, so it flags that intentional decomposition
-    # as "redundant". Set to `off` (not warning/info): mix spec.check raises on
-    # ANY branch finding regardless of severity, so only `off` — which drops
-    # the finding entirely — lets spec.check pass while keeping the facet
-    # bindings intact. Consolidating to single-owner instead would orphan the
-    # facet scenarios (covers: []) and weaken coverage fidelity, so we disable
-    # the incompatible check rather than mangle the corpus. requirement_deleted
-    # (error, above) still guards the case that actually matters. See
-    # mutagen-tcl (2026-06-24 review).
-    overlap/duplicate_covers: off
-
-# realized_by binding drift. Soft during adoption — phase2 only authors the
-# api_boundary tier; the deeper tiers (implementation, coverage) are not yet
-# opted in, so their detectors will report detector_unavailable, which is
-# expected and silent.
-branch_guard:
-  severities:
-    branch_guard_dangling_binding: warning
-    branch_guard_realization_drift: warning
-    # README.md is a docs/policy file with no runtime subject home: the CLI
-    # reference table there mirrors `Mix.Tasks.Mutagen` @moduledoc and is
-    # already governed by mutagen.cli + mutagen.mutation_pipeline r19. A
-    # docs-only edit accompanying covered code changes (e.g. the 30_000 ms
-    # timeout default) should not block the triangle. `warning` still blocks
-    # because mix spec.check raises on ANY branch finding regardless of
-    # severity, so — matching the documented overlap/duplicate_covers
-    # precedent above — only `off` drops the finding while keeping the
-    # corpus intact. The graduate-to-error phase6 epic (see header) can
-    # reintroduce this once docs files get an explicit policy mapping.
-    branch_guard_unmapped_change: off
-    branch_guard_untested_realization: warning
-    branch_guard_underspecified_realization: warning
+default_base: origin/main
+test_paths:
+  - test
+lib_paths:
+  - lib
+severities: {}
+# Remove these once the comparison base contains the first tagged suite.
+# See .spec/decisions/ancora_migration.md for the cutover finding review.
+overrides:
+  - subject: mutagen.ast
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing AST alias, module-body, and line helpers.
+  - subject: mutagen.cli
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing CLI parser, task dispatch, and runtime preamble.
+  - subject: mutagen.coverage
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing coverage runner and AST cache.
+  - subject: mutagen.mutation_enumeration
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing enumerator and head-atom dispatch.
+  - subject: mutagen.mutation_pipeline
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing baseline, bytecode cache, runner, loop, and task dispatch.
+  - subject: mutagen.mutators
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing mutator catalog, validators, and site ID helpers.
+  - subject: mutagen.scope_resolution
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing scope resolver and source-file ordering helper.
+  - subject: mutagen.test_selection
+    code: derived/growth
+    severity: info
+    reason: Initial tags bind the existing test selector.

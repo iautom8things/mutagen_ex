@@ -53,6 +53,7 @@ defmodule Mix.Tasks.MutagenTest do
   end
 
   describe "Mix.Tasks.Mutagen.run/2 preamble boundary (mutagen.cli.s14b)" do
+    @tag spec: "mutagen.cli.r14"
     test "run/2 does not invoke the runtime preamble" do
       :erlang.trace(self(), true, [:call])
       :erlang.trace_pattern({Mix.Task, :run, 1}, true, [:local])
@@ -77,6 +78,7 @@ defmodule Mix.Tasks.MutagenTest do
 
   describe "Mix.Tasks.Mutagen.__ensure_runtime__/1 archive context repair (mutagen.cli.s14c/s14d)" do
     @tag :archive_context
+    @tag spec: "mutagen.cli.r16"
     test "ensure_runtime/0 succeeds when :mutagen_ex is already loaded (dep-adoption shape)" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
 
@@ -89,6 +91,7 @@ defmodule Mix.Tasks.MutagenTest do
     end
 
     @tag :archive_context
+    @tag spec: "mutagen.cli.r14"
     test "ensure_runtime/0 starts the host OTP app before mutagen_ex by default" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
       Process.put(:mutagen_runtime_event_target, self())
@@ -108,6 +111,7 @@ defmodule Mix.Tasks.MutagenTest do
     end
 
     @tag :archive_context
+    @tag spec: "mutagen.cli.r14"
     test "ensure_runtime/0 skips host OTP app when opted out" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
       Process.put(:mutagen_runtime_event_target, self())
@@ -127,6 +131,7 @@ defmodule Mix.Tasks.MutagenTest do
     end
 
     @tag :archive_context
+    @tag spec: "mutagen.cli.r16"
     test "ensure_runtime/0 routes to structured-error JSON on unrecoverable load failure" do
       failure = {:error, {:mutagen_ex, {:enoent, ~c"mutagen_ex.app"}}}
 
@@ -160,6 +165,7 @@ defmodule Mix.Tasks.MutagenTest do
   end
 
   @tag :unsafe_json_path
+  @tag spec: "mutagen.cli.r15"
   test "unsafe --json path is rejected without writing to that path" do
     rejected_path =
       Path.join(System.tmp_dir!(), "mutagen-rejected-#{System.unique_integer([:positive])}.json")

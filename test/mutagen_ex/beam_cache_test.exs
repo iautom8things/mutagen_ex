@@ -112,6 +112,8 @@ defmodule MutagenEx.BeamCacheTest do
   # ---------------------------------------------------------------------------
 
   describe "snapshot/3 — captures via code_server.get_object_code" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     test "stores {module, filename, binary} in the table", %{table: table} do
       assert :ok = BeamCache.snapshot(table, SomeModule, CodeServerStub)
 
@@ -160,6 +162,8 @@ defmodule MutagenEx.BeamCacheTest do
   # ---------------------------------------------------------------------------
 
   describe "restore/3 — replays via code_server.load_binary" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     test "calls load_binary with the cached {filename, binary}", %{table: table} do
       :ok = BeamCache.snapshot(table, SwapMod, CodeServerStub)
 
@@ -249,6 +253,8 @@ defmodule MutagenEx.BeamCacheTest do
   # the `after` clause still fires.
 
   describe "MutationRunner.run/1 ETS cleanup" do
+    @describetag spec: "mutagen.mutation_pipeline.r6"
+
     alias MutagenEx.MutationRunner
     alias MutagenEx.ScopeResolver.Scope
     alias MutagenEx.TestSelector.TestFilter
@@ -303,6 +309,7 @@ defmodule MutagenEx.BeamCacheTest do
 
   describe "integration: real :code module round-trip" do
     @tag :integration
+    @tag spec: "mutagen.mutation_pipeline.r6"
     test "snapshot → load_binary a modified binary → restore → original bytecode is back" do
       # `:code.get_object_code/1` only succeeds for modules whose `.beam`
       # is findable via the code path (`:code.where_is_file/1`). A

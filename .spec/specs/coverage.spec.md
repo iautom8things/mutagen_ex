@@ -37,10 +37,7 @@ decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.supervision_tree
-realized_by:
-  api_boundary:
-    - "MutagenEx.CoverageRunner"
-    - "MutagenEx.AstCache"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -299,56 +296,16 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.coverage.v1
-  kind: command
-  target: mix test test/mutagen_ex/coverage_runner_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex
   covers:
     - mutagen.coverage.r1
     - mutagen.coverage.r2
     - mutagen.coverage.r3
     - mutagen.coverage.r4
-
-- id: mutagen.coverage.v2
-  kind: command
-  target: mix test test/mutagen_ex/coverage_runner_test.exs --only scope_filter
-  execute: true
-  covers:
     - mutagen.coverage.r5
-
-- id: mutagen.coverage.v3
-  kind: command
-  target: mix test test/mutagen_ex/ast_cache_test.exs
-  execute: true
-  covers:
     - mutagen.coverage.r6
-
-- id: mutagen.coverage.v4
-  kind: command
-  target: mix test --only spike test/mutagen_ex/integration/c1_test.exs
-  execute: true
-  covers:
-    - mutagen.coverage.r7
-
-- id: mutagen.coverage.v5
-  kind: command
-  target: mix test test/mutagen_ex/supervision_test.exs
-  execute: true
-  covers:
-    - mutagen.coverage.r1
     - mutagen.coverage.r8
-
-- id: mutagen.coverage.v6
-  kind: command
-  target: mix test test/mutagen_ex/ast_cache_test.exs test/mutagen_ex/baseline_test.exs
-  execute: true
-  covers:
     - mutagen.coverage.r9
-
-- id: mutagen.coverage.v7
-  kind: command
-  target: mix test test/mutagen_ex/coverage_runner_test.exs
-  execute: true
-  covers:
     - mutagen.coverage.r10
 ```

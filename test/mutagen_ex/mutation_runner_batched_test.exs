@@ -257,6 +257,8 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
   # ---- r16: byte-identity property -----------------------------------------
 
   describe "r16: batched prewalk byte-identity property" do
+    @describetag spec: "mutagen.mutation_pipeline.r16"
+
     test "arith site in a single-module file matches legacy prewalk byte-for-byte" do
       source = """
       defmodule SynthBatched.Mod do

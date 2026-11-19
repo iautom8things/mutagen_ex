@@ -303,6 +303,8 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   # ---------------------------------------------------------------------------
 
   describe "byte-identical determinism (r15 merge gate)" do
+    @describetag spec: "mutagen.mutation_pipeline.r15"
+
     test "parallel and serial runs produce byte-equal results on deterministic input" do
       # All sites get the same outcome — `survived`. Under serial and
       # parallel dispatch, the runner must emit byte-equal aggregate
@@ -379,6 +381,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   # ---------------------------------------------------------------------------
 
   describe "on_site_completed callback (streaming seam)" do
+    @tag spec: "mutagen.mutation_pipeline.r15"
     test "callback fires once per site in input order under parallel dispatch" do
       ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0}, 20)
 
@@ -408,6 +411,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   end
 
   describe "experimental parallel-mode warning" do
+    @tag spec: "mutagen.mutation_pipeline.r18"
     test "warns once for max_concurrency > 1 and stays silent for max_concurrency: 1" do
       ExUnitFake.set_outcome(%{failures: 0, total: 1, excluded: 0, skipped: 0})
 
@@ -435,6 +439,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   end
 
   describe "outer task crash restore sweep" do
+    @tag spec: "mutagen.mutation_pipeline.r17"
     test "worker exit tears down siblings before restoring snapshotted scoped modules" do
       crash_site = build_site("crash", 2)
       blocking_site = build_site("blocking", 3)

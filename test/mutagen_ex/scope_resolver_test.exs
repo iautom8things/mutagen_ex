@@ -22,7 +22,6 @@ defmodule MutagenEx.ScopeResolverTest do
   Plus error-path coverage for unknown modules / functions and the
   injectable-loader seam from `r7`.
 
-  Covers spec-verification stubs `mutagen.scope_resolution.v1` and `.v2`.
   """
 
   use ExUnit.Case, async: true
@@ -95,6 +94,7 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "file targets (r1, s1)" do
+    @tag spec: "mutagen.scope_resolution.r1"
     test "single-defmodule file returns one record covering the full block" do
       source = one_module_source()
       loader = loader_for(%{"lib/foo.ex" => source})
@@ -103,6 +103,7 @@ defmodule MutagenEx.ScopeResolverTest do
                ScopeResolver.resolve("lib/foo.ex", loader: loader)
     end
 
+    @tag spec: "mutagen.scope_resolution.r1"
     test "multi-defmodule file returns one record per defmodule (r1)" do
       source = multi_module_source()
       loader = loader_for(%{"lib/multi.ex" => source})
@@ -122,6 +123,7 @@ defmodule MutagenEx.ScopeResolverTest do
       assert b_scope.line_range.last == 25
     end
 
+    @tag spec: ["mutagen.scope_resolution.r1", "mutagen.scope_resolution.r10"]
     test "nested defmodules are returned with fully qualified module atoms" do
       source = """
       defmodule Outer do
@@ -153,6 +155,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "module targets (r2, s2)" do
+    @describetag spec: "mutagen.scope_resolution.r2"
+
     test "Module.Name resolves to a single record in the file containing the defmodule" do
       source = nested_module_source()
       loader = loader_for(%{"lib/foo/bar.ex" => source})
@@ -213,6 +217,7 @@ defmodule MutagenEx.ScopeResolverTest do
       assert is_binary(details.message)
     end
 
+    @tag spec: "mutagen.scope_resolution.r10"
     test "nested module target resolves by its fully qualified name" do
       source = """
       defmodule Outer do
@@ -244,6 +249,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "MFA targets (r3, s3)" do
+    @describetag spec: "mutagen.scope_resolution.r3"
+
     test "Module.Name.function/arity selects only the matching arity's clauses" do
       loader = loader_for(%{"lib/foo.ex" => mfa_source()})
 
@@ -329,6 +336,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "arity-required (r3, s4)" do
+    @describetag spec: "mutagen.scope_resolution.r3"
+
     @tag :error_cases
     test "Foo.bar (no /arity) returns :arity_required" do
       assert {:error, :arity_required, details} =
@@ -346,6 +355,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "colon syntax rejection (r4, s5)" do
+    @describetag spec: "mutagen.scope_resolution.r4"
+
     @tag :error_cases
     test "lib/foo.ex:Foo.bar/1 returns :colon_syntax_unsupported" do
       assert {:error, :colon_syntax_unsupported, details} =
@@ -363,6 +374,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "multi-defmodule isolation (r5, s6)" do
+    @describetag spec: "mutagen.scope_resolution.r5"
+
     test "module target's line_range does not include sibling defmodules" do
       loader = loader_for(%{"lib/multi.ex" => multi_module_source()})
 
@@ -394,6 +407,29 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "no on-disk side effects (r6, s7)" do
+    @describetag spec: "mutagen.scope_resolution.r6"
+
+    @tag :tmp_dir
+    test "default loader reads source without evaluating it or changing it", %{tmp_dir: tmp_dir} do
+      file = Path.join(tmp_dir, "scope.ex")
+
+      source = """
+      raise "scope resolution evaluated the file"
+
+      defmodule ScopeResolverNoEvalFixture do
+        def example, do: :ok
+      end
+      """
+
+      File.write!(file, source)
+
+      assert {:ok, [%Scope{file: ^file, module: ScopeResolverNoEvalFixture, line_range: 3..5}]} =
+               ScopeResolver.resolve(file)
+
+      assert File.read!(file) == source
+      refute Code.ensure_loaded?(ScopeResolverNoEvalFixture)
+    end
+
     test "resolver does not touch any file given by the loader" do
       source = mfa_source()
 
@@ -481,6 +517,7 @@ defmodule MutagenEx.ScopeResolverTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "module target with never-registered name does not register the atom" do
       # Pre-fix: `string_to_module(target)` did `String.to_atom("Elixir." <> target)`
       # — after the call, `binary_to_existing_atom("Elixir." <> target)` would succeed.
@@ -507,6 +544,7 @@ defmodule MutagenEx.ScopeResolverTest do
       refute_atom_registered(expected_atom_string)
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "MFA target's module segment is not materialized as an atom" do
       loader = loader_for(%{"lib/foo.ex" => "defmodule Foo do\nend\n"})
 
@@ -527,6 +565,7 @@ defmodule MutagenEx.ScopeResolverTest do
       refute_atom_registered(expected_atom_string)
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "MFA target's function-name segment is not materialized as an atom" do
       # The function-name segment is kept as a string and compared
       # against `Atom.to_string/1` of AST `def`-head atoms. If no
@@ -562,6 +601,7 @@ defmodule MutagenEx.ScopeResolverTest do
       refute_atom_registered(fn_seg)
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "MFA target's function-name segment matches AST atoms by string (not atom)" do
       # The function-name string is compared against `Atom.to_string/1`
       # of each AST `def`-head atom. The source defines `:world` as a
@@ -581,6 +621,7 @@ defmodule MutagenEx.ScopeResolverTest do
       assert b_world.line_range.last <= 25
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "looping N distinct never-registered module targets registers zero of them" do
       # DOS shape (mutagen-wrd.20): a CI loop running
       # `mix mutagen --scope NeverRegisteredN`. Pre-fix, this grew the
@@ -612,6 +653,7 @@ defmodule MutagenEx.ScopeResolverTest do
       end
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "module_not_found details carry the canonical string form, not an atom" do
       # The error report exposes the module name to callers (JSON
       # reporter, etc.). For atom safety we expose the canonical
@@ -629,6 +671,7 @@ defmodule MutagenEx.ScopeResolverTest do
       assert is_binary(details.message)
     end
 
+    @tag spec: "mutagen.scope_resolution.r8"
     test "successful resolution still returns an atom on %Scope{module: ...}" do
       # Atom safety isn't "never return any atom" — it's "never create one
       # from user input." Successful resolution finds an atom in the AST
@@ -675,6 +718,7 @@ defmodule MutagenEx.ScopeResolverTest do
       assert reason in [:file_not_found, :file_read_failed]
     end
 
+    @tag spec: "mutagen.scope_resolution.r7"
     test "loader is invoked exactly once per file for file-target resolution" do
       counter = :counters.new(1, [])
 
@@ -689,6 +733,8 @@ defmodule MutagenEx.ScopeResolverTest do
   end
 
   describe "wildcard determinism (mutagen.scope_resolution.r9, s9)" do
+    @describetag spec: "mutagen.scope_resolution.r9"
+
     # These tests exercise the F30 / CF7 sorted-wildcard contract for
     # `source_files/1`. They drive the no-`:source_files` branch via an
     # injectable `:wildcard_fn` that returns files in a known unsorted
