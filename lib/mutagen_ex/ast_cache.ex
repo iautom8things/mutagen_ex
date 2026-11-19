@@ -152,7 +152,8 @@ defmodule MutagenEx.AstCache do
     end
   end
 
-  defp parse(file, source_text) do
+  @doc false
+  def parse(file, source_text) do
     case Code.string_to_quoted(source_text,
            columns: true,
            token_metadata: true,
