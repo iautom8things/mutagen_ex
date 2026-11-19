@@ -5,41 +5,6 @@ lib_paths:
   - lib
 severities: {}
 overrides:
-  # 2026-11-19 cutover. Remove these eight growth overrides in the first
-  # commit after this lands on the target branch.
-  - subject: mutagen.ast
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing AST alias, module-body, and line helpers.
-  - subject: mutagen.cli
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing CLI parser, task dispatch, and runtime preamble.
-  - subject: mutagen.coverage
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing coverage runner and AST cache.
-  - subject: mutagen.mutation_enumeration
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing enumerator and head-atom dispatch.
-  - subject: mutagen.mutation_pipeline
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing baseline, bytecode cache, runner, loop, and task dispatch.
-  - subject: mutagen.mutators
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing mutator catalog, validators, and site ID helpers.
-  - subject: mutagen.scope_resolution
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing scope resolver and source-file ordering helper.
-  - subject: mutagen.test_selection
-    code: derived/growth
-    severity: info
-    reason: Initial tags bind the existing test selector.
-
   # The gate still reports these two known proof gaps at info level.
   - subject: mutagen.coverage
     requirement: mutagen.coverage.r7

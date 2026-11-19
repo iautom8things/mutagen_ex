@@ -147,7 +147,8 @@ defmodule MutagenEx.EndToEndTest do
     "no_defs.ex",
     "infinite_looper.ex",
     "ecto_user.ex",
-    "withblock.ex"
+    "withblock.ex",
+    "duplicate_literals.ex"
   ]
 
   # ---------------------------------------------------------------------------
@@ -288,8 +289,8 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      # mutagen.json_schema.r1: version is the literal "1".
-      assert json["version"] == "1"
+      # mutagen.json_schema.r1: version is the literal "2".
+      assert json["version"] == "2"
 
       # mutagen.json_schema.r2: aborted: false on full success;
       # abort_reason is nil.
@@ -362,7 +363,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
 
       assert json["aborted"] == false,
              "expected non-aborted run; got JSON=#{inspect(json, limit: :infinity)}"
@@ -472,11 +473,10 @@ defmodule MutagenEx.EndToEndTest do
       assert json["aborted"] == false
       mutation = json["mutation"]
 
-      # Verification target: "the six Elixir-flavored mutators produce
-      # mutations on their respective modules and EITHER kill cleanly OR
-      # record as :skipped with reason — never :compile_error flakes."
-      assert Enum.all?(mutation["results"], &(&1["status"] != "compile_error")),
-             "Elixir-flavored mutators should never produce :compile_error in results"
+      tuple_results = Enum.filter(mutation["results"], &(&1["mutator"] == "result_tuple"))
+      assert tuple_results != []
+      assert Enum.any?(tuple_results, &(&1["status"] == "killed"))
+      refute Enum.any?(json["warnings"], &String.starts_with?(&1, "site_node_not_found:"))
 
       Enum.each(mutation["skipped"], fn s ->
         assert is_binary(s["site_id"])
@@ -731,7 +731,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
 
       assert json["aborted"] == true,
              "expected aborted run; got JSON=#{inspect(json, limit: :infinity)}"
@@ -772,7 +772,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
       assert json["aborted"] == false
       mutation = json["mutation"]
 
@@ -878,6 +878,54 @@ defmodule MutagenEx.EndToEndTest do
 
       assert_e2e_golden!("scenario_8_macro_holder", json)
     end
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r16"
+  test "only the first of two identical literals is killed" do
+    json =
+      run_pipeline!([
+        "--scope",
+        "./lib//lane_fixture/duplicate_literals.ex",
+        "--tests",
+        "test/lane_fixture/duplicate_literals_test.exs"
+      ])
+
+    assert json["aborted"] == false
+
+    for {name, original} <- [{"triple/1", "1"}, {"opts/0", "true"}] do
+      function = "LaneFixture.DuplicateLiterals." <> name
+
+      assert [
+               %{"before" => ^original, "status" => "killed", "id" => first},
+               %{"before" => ^original, "status" => "survived", "id" => second}
+             ] =
+               Enum.filter(
+                 json["mutation"]["results"],
+                 &(&1["function"] == function && &1["mutator"] == "literal")
+               )
+
+      assert first != second
+      assert String.starts_with?(first, "lib/lane_fixture/duplicate_literals.ex:")
+    end
+  end
+
+  @tag spec: ["mutagen.mutation_enumeration.r4", "mutagen.scope_resolution.r3"]
+  test "an MFA scope excludes a covered function between its clauses" do
+    json =
+      run_pipeline!([
+        "--scope",
+        "LaneFixture.DuplicateLiterals.clause/2",
+        "--tests",
+        "test/lane_fixture/duplicate_literals_test.exs"
+      ])
+
+    assert json["aborted"] == false
+    results = json["mutation"]["results"]
+
+    assert Enum.map(results, & &1["function"]) ==
+             List.duplicate("LaneFixture.DuplicateLiterals.clause/2", 4)
+
+    assert Enum.uniq(Enum.map(results, & &1["line"])) == [5, 7]
   end
 
   # ---------------------------------------------------------------------------

@@ -79,10 +79,11 @@ defmodule MutagenEx.JsonReporterTest do
 
   describe "emit_report/1 — success-shape (mutagen.json_schema.s1, r1, r2)" do
     @tag spec: "mutagen.json_schema.r1"
-    test "version field equals the literal string \"1\"" do
+    test "version field equals the literal string \"2\"" do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       decoded = decode(iodata)
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
+      assert decoded["meta"]["id_scheme"] == "2"
     end
 
     test "exit code is 0 on success" do
@@ -286,12 +287,13 @@ defmodule MutagenEx.JsonReporterTest do
 
     @tag :error_variants
     @tag spec: "mutagen.json_schema.r1"
-    test "abort document has version: \"1\", aborted: true, abort_reason: \"missing_scope\"" do
+    test "abort document has version: \"2\", aborted: true, abort_reason: \"missing_scope\"" do
       report = %Report{meta: meta_minimum()}
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
       decoded = decode(iodata)
 
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
+      assert decoded["meta"]["id_scheme"] == "2"
       assert decoded["aborted"] == true
       assert decoded["abort_reason"] == "missing_scope"
     end
@@ -519,7 +521,7 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_report(full_report())
       str = IO.iodata_to_binary(iodata)
       assert {:ok, decoded} = safe_decode(str)
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
     end
 
     @tag :contract
@@ -815,7 +817,7 @@ defmodule MutagenEx.JsonReporterTest do
       assert_received {:io, iodata, 0, _config}
       decoded = decode(iodata)
       assert decoded["aborted"] == false
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
     end
 
     @tag spec: ["mutagen.cli.r13", "mutagen.json_schema.r13"]

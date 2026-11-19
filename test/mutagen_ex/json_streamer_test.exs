@@ -20,7 +20,7 @@ defmodule MutagenEx.JsonStreamerTest do
   alias MutagenEx.JsonStreamer
 
   defp capture_sink(fun) do
-    agent = start_supervised!({Agent, fn -> [] end})
+    agent = start_supervised!({Agent, fn -> [] end}, id: make_ref())
 
     sink = fn iodata ->
       Agent.update(agent, fn acc -> [acc, iodata] end)
@@ -54,7 +54,8 @@ defmodule MutagenEx.JsonStreamerTest do
 
       [decoded] = parse_lines(out)
       assert decoded["kind"] == "start"
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
+      assert decoded["meta"]["id_scheme"] == "2"
       assert decoded["total"] == 42
       assert decoded["meta"]["tool_version"] == "0.1.0"
       assert decoded["meta"]["elixir_version"] == "1.19.5"
@@ -95,7 +96,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "result"
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
       assert decoded["id"] == "lib/foo.ex:abc:arith"
       assert decoded["file"] == "lib/foo.ex"
       assert decoded["line"] == 42
@@ -107,6 +108,34 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["before"] == "1 + 2"
       assert decoded["before_source"] == "1 + 2"
       assert decoded["after"] == "1 - 2"
+    end
+
+    @tag spec: ["mutagen.json_schema.r4", "mutagen.json_schema.r14"]
+    test "streamed results and aggregate entries have the same ID and enclosing function bytes" do
+      for function <- ["Foo.bar/2", nil] do
+        result = %{
+          id: "lib/foo.ex:0123456789abcdef0123456789abcdef:arith",
+          function: function,
+          file: "lib/foo.ex",
+          line: 1,
+          column: 1,
+          mutator: :arith,
+          before: "a + b",
+          before_source: "a  +  b",
+          after: "a - b",
+          status: :killed,
+          warnings: []
+        }
+
+        {[doc, ?\n], 0} =
+          MutagenEx.JsonReporter.emit_report(%Report{mutation: %{results: [result]}})
+
+        [aggregate] = :json.decode(IO.iodata_to_binary(doc))["mutation"]["results"]
+        [stream] = capture_sink(&JsonStreamer.emit_result(&1, result)) |> parse_lines()
+
+        assert Map.fetch!(stream, "function") == (function || :null)
+        assert :json.encode(Map.drop(stream, ["version", "kind"])) == :json.encode(aggregate)
+      end
     end
 
     test "tainted_predecessors true round-trips" do
@@ -147,7 +176,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "compile_error"
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
       assert decoded["id"] == "lib/foo.ex:bad:case_drop"
       assert decoded["mutator"] == "case_drop"
       assert decoded["message"] == "bad arity for case_drop"
@@ -179,7 +208,8 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["kind"] == "end"
-      assert decoded["version"] == "1"
+      assert decoded["version"] == "2"
+      assert decoded["meta"]["id_scheme"] == "2"
       assert decoded["aborted"] == false
       assert decoded["abort_reason"] == :null
       assert decoded["killed"] == 3
@@ -263,7 +293,7 @@ defmodule MutagenEx.JsonStreamerTest do
 
       # r10: every line carries "version". This is the regression gate —
       # if any line kind drops the discriminator, this assertion fails.
-      assert Enum.all?(decoded, &(&1["version"] == "1"))
+      assert Enum.all?(decoded, &(&1["version"] == "2"))
     end
   end
 end
