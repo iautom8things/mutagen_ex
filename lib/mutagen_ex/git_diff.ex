@@ -189,7 +189,15 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp read_changes(git, ref, roots) do
+  defp read_changes(git, ref, roots, retry? \\ true) do
+    case read_changes_once(git, ref, roots) do
+      {:retry, _error} when retry? -> read_changes(git, ref, roots, false)
+      {:retry, error} -> error
+      result -> result
+    end
+  end
+
+  defp read_changes_once(git, ref, roots) do
     with {:ok, git} <- repository_context(git),
          :ok <- check_info_attributes(git),
          :ok <- reject_ambiguous(git, ref),
@@ -200,10 +208,11 @@ defmodule MutagenEx.GitDiff do
          git = probe_case(git),
          git = put_git_env(git, "GIT_ATTR_SOURCE", object_id("tree", "", head)),
          {:ok, paths, index} <- tracked_scope(git, base, roots),
+         before = snapshot_index_dirs(git, index, snapshot),
          args = ["diff" | @diff_flags] ++ [base, "--" | paths],
          {:ok, output} <- command(git, args, :diff, @max_diff_bytes),
-         :ok <- verify_roots(git.cd, roots, snapshot),
-         {:ok, changes} <- parse_diff(output, roots, git),
+         {:ok, changes, changed_paths} <- parse_diff(output, roots, git),
+         :ok <- verify_directories(git, roots, snapshot, before, changed_paths),
          :ok <- validate_ranges(git, changes.files) do
       changes = %{changes | skipped: changes.skipped ++ index_links(index, git)}
       warnings = if changes.files == %{} and changes.skipped == [], do: [:empty_diff], else: []
@@ -314,13 +323,17 @@ defmodule MutagenEx.GitDiff do
   end
 
   defp relative_path?(path) when is_binary(path) do
-    :binary.match(path, <<0>>) == :nomatch and
-      not Regex.match?(~r/\A[A-Za-z]:/, path) and
-      not (match?({:win32, _}, :os.type()) and :binary.match(path, "\\") != :nomatch) and
-      Enum.all?(:binary.split(path, "/", [:global]), &(&1 not in ["", ".", ".."]))
+    not Regex.match?(~r/\A[A-Za-z]:/, path) and safe_git_path?(path)
   end
 
   defp relative_path?(_path), do: false
+
+  defp safe_git_path?(path) do
+    :binary.match(path, <<0>>) == :nomatch and
+      not (match?({:win32, _}, :os.type()) and
+             (Path.type(path) != :relative or :binary.match(path, "\\") != :nomatch)) and
+      Enum.all?(path_segments(path), &(&1 not in ["", ".", ".."]))
+  end
 
   defp root_match(nil, _roots, _ignore_case?), do: nil
 
@@ -373,8 +386,19 @@ defmodule MutagenEx.GitDiff do
   end
 
   defp scope_pathspecs(paths, index, tree) do
+    former_files =
+      for {mode, _, path, root} <- tree,
+          mode in @regular_modes,
+          path == root,
+          into: MapSet.new() do
+        root
+      end
+
     aliases = Enum.map(index ++ tree, fn {_, _, _, root} -> root end)
-    paths |> Kernel.++(aliases) |> Enum.uniq() |> Enum.map(&literal_path/1)
+
+    for path <- Enum.uniq(paths ++ aliases) do
+      literal_path(if MapSet.member?(former_files, path), do: path <> "/", else: path)
+    end
   end
 
   defp matching_root(path, keys, ignore_case?) do
@@ -425,7 +449,7 @@ defmodule MutagenEx.GitDiff do
     with {:ok, mode, oid, path} <- inventory_entry(record) do
       case select.(mode, path) do
         nil -> :ignored
-        match -> {:ok, {mode, oid, path, match}}
+        match -> if safe_git_path?(path), do: {:ok, {mode, oid, path, match}}, else: :error
       end
     end
   end
@@ -433,7 +457,7 @@ defmodule MutagenEx.GitDiff do
   defp inventory_entry(record) do
     with [header, path] <- :binary.split(record, "\t"),
          [mode, second, third] <- :binary.split(header, " ", [:global]),
-         true <- Regex.match?(~r/\A[0-7]{6}\z/, mode) and relative_path?(path),
+         true <- Regex.match?(~r/\A[0-7]{6}\z/, mode),
          oid when is_binary(oid) <- entry_oid(second, third),
          true <- valid_sha?(oid) do
       {:ok, mode, oid, path}
@@ -508,45 +532,114 @@ defmodule MutagenEx.GitDiff do
 
   defp scan_components(cd, [part | rest], parent, snapshots) do
     component = Path.join(parent, part)
-    path = Path.join(cd, component)
 
+    case directory_snapshot(Path.join(cd, component)) do
+      {:ok, _} = snapshot ->
+        scan_components(cd, rest, component, [{component, snapshot} | snapshots])
+
+      {cause, type} ->
+        {cause, component, type}
+    end
+  end
+
+  defp directory_snapshot(path) do
     case File.lstat(path) do
       {:ok, %{type: :directory} = stat} ->
         case File.lstat(Path.join(path, ".git")) do
           {:error, :enoent} ->
-            scan_components(cd, rest, component, [Map.delete(stat, :atime) | snapshots])
+            {:ok, Map.delete(stat, :atime)}
 
           {:ok, %{type: type}} ->
-            {:nested_git_checkout, component, type}
+            {:nested_git_checkout, type}
 
           {:error, _} ->
-            {:invalid_root, component, :inaccessible}
+            {:invalid_root, :inaccessible}
         end
 
       {:ok, %{type: type}} ->
-        {:invalid_root, component, type}
+        {:invalid_root, type}
 
       {:error, :enoent} ->
-        {:invalid_root, component, :missing}
+        {:invalid_root, :missing}
 
       {:error, _} ->
-        {:invalid_root, component, :inaccessible}
+        {:invalid_root, :inaccessible}
     end
   end
 
-  defp verify_roots(cd, roots, before) do
-    case scan_roots(cd, roots) do
-      {:ok, ^before} ->
-        :ok
+  defp snapshot_index_dirs(git, index, roots) do
+    dirs = Enum.flat_map(roots, fn {_root, snapshots} -> snapshots end) |> Map.new()
 
-      {:ok, after_diff} ->
-        root = Enum.find(roots, &(before[&1] != after_diff[&1]))
-        unavailable(:root_changed, :worktree, %{root: report_path(root)})
+    Enum.reduce(index, dirs, fn {_, _, path, _}, snapshots ->
+      snapshot_parent(git.cd, project_relative(path, git), snapshots)
+    end)
+  end
 
-      {_, root, component, type} ->
-        root_error(:root_changed, root, component, type)
+  defp snapshot_parent(_cd, nil, snapshots), do: snapshots
+
+  defp snapshot_parent(cd, path, snapshots),
+    do: snapshot_directory(cd, Path.dirname(path), snapshots)
+
+  defp snapshot_directory(_cd, ".", snapshots), do: snapshots
+
+  defp snapshot_directory(cd, component, snapshots) do
+    if Map.has_key?(snapshots, component) do
+      snapshots
+    else
+      parent = Path.dirname(component)
+      snapshots = snapshot_directory(cd, parent, snapshots)
+
+      snapshot =
+        case Map.get(snapshots, parent) do
+          nil -> directory_snapshot(Path.join(cd, component))
+          {:ok, _} -> directory_snapshot(Path.join(cd, component))
+          error -> error
+        end
+
+      Map.put(snapshots, component, snapshot)
     end
   end
+
+  defp verify_directories(git, roots, root_snapshots, before, paths) do
+    current =
+      Enum.reduce(root_snapshots, %{}, fn {_root, snapshots}, acc ->
+        Enum.reduce(snapshots, acc, fn {component, _}, acc ->
+          snapshot_directory(git.cd, component, acc)
+        end)
+      end)
+
+    current = Enum.reduce(paths, current, &snapshot_parent(git.cd, &1, &2))
+
+    Enum.reduce_while(current, :ok, fn {component, snapshot}, result ->
+      case directory_change(before[component], snapshot) do
+        :none ->
+          {:cont, result}
+
+        {change, type} ->
+          root =
+            Enum.find(roots, fn root ->
+              root_match(component, [root], git.ignore_case?) != nil or
+                root_match(root, [component], git.ignore_case?) != nil
+            end)
+
+          error = root_error(:root_changed, root, component, type)
+          if change == :timestamp, do: {:cont, {:retry, error}}, else: {:halt, error}
+      end
+    end)
+  end
+
+  defp directory_change(snapshot, snapshot), do: :none
+
+  # Adding or removing an entry changes a directory's times, size, and link
+  # count but keeps its type and identity. That case earns one retry.
+  defp directory_change({:ok, before}, {:ok, current}) do
+    if file_identity(before) == file_identity(current),
+      do: {:timestamp, :directory},
+      else: {:replaced, :directory}
+  end
+
+  defp directory_change(_, {:ok, _}), do: {:replaced, :directory}
+  defp directory_change(_, {_, type}), do: {:replaced, type}
 
   defp symlinked_root_error(git, base, root, component) do
     path = git.prefix <> component
@@ -572,7 +665,7 @@ defmodule MutagenEx.GitDiff do
 
   defp root_error(cause, root, component, type) do
     unavailable(cause, :worktree, %{
-      root: report_path(root),
+      root: report_path(root || component),
       component: report_path(component),
       type: type
     })
@@ -1205,44 +1298,60 @@ defmodule MutagenEx.GitDiff do
 
   defp empty_changes, do: %{files: %{}, renames: %{}, skipped: []}
 
-  defp parse_diff("", _roots, _git), do: {:ok, empty_changes()}
+  defp parse_diff("", _roots, _git), do: {:ok, empty_changes(), []}
 
   # Raw records include modes, while numstat identifies patch order. Git can
   # emit a binary numstat record for an unchanged file whose stat data changed.
   defp parse_diff(output, roots, git) do
-    with [metadata, patch] <- :binary.split(output, <<0, 0>>),
-         fields = :binary.split(metadata, <<0>>, [:global]),
-         {:ok, raw, stats} <- raw_records(fields, %{}, @max_files),
-         {:ok, records} <- stat_records(stats, raw, [], git) do
-      patches(patch, records, roots, git, empty_changes())
-    else
-      {:error, _, _} = error -> error
-      _ -> unavailable(:invalid_output, :diff)
+    with {:ok, fields, patch} <- diff_sections(output),
+         {:ok, raw, stats} <- raw_records(fields, %{}),
+         {:ok, records} <- stat_records(stats, raw, [], git),
+         paths = changed_paths(records, roots, git),
+         :ok <- check_file_limit(paths),
+         {:ok, changes} <- patches(patch, records, roots, git, empty_changes()) do
+      {:ok, changes, paths}
     end
   end
 
-  defp raw_records([":" <> _ | _], _, 0),
-    do: unavailable(:file_limit, :diff, %{limit_files: @max_files})
+  defp diff_sections(output) do
+    case :binary.split(output, <<0, 0>>) do
+      [metadata, patch] -> {:ok, :binary.split(metadata, <<0>>, [:global]), patch}
+      [_output] -> unavailable(:invalid_output, :diff)
+    end
+  end
 
-  defp raw_records([":" <> _ = header, path | rest], records, remaining) do
+  defp changed_paths(records, roots, git) do
+    Enum.flat_map(records, fn {path, _old_path, status, _mode} ->
+      path = project_relative(path, git)
+      if status != "D" and root_match(path, roots, git.ignore_case?), do: [path], else: []
+    end)
+  end
+
+  defp check_file_limit(paths) do
+    if length(paths) <= @max_files,
+      do: :ok,
+      else: unavailable(:file_limit, :diff, %{limit_files: @max_files})
+  end
+
+  defp raw_records([":" <> _ = header, path | rest], records) do
     case {Regex.run(@raw_header, header, capture: :all_but_first), rest} do
       {[_, mode, old, _, "R"], [new_path | tail]} ->
-        add_record(new_path, path, {"R", mode, old, false}, tail, records, remaining)
+        add_record(new_path, path, {"R", mode, old, false}, tail, records)
 
       {[old_mode, mode, old, object, status], _} when status != "R" ->
         stat_only? = status == "M" and mode == old_mode and String.trim(object, "0") == ""
-        add_record(path, nil, {status, mode, old, stat_only?}, rest, records, remaining)
+        add_record(path, nil, {status, mode, old, stat_only?}, rest, records)
 
       _ ->
         unavailable(:invalid_output, :diff)
     end
   end
 
-  defp raw_records(fields, records, _remaining), do: {:ok, records, fields}
+  defp raw_records(fields, records), do: {:ok, records, fields}
 
-  defp add_record(path, old_path, entry, rest, records, remaining) do
+  defp add_record(path, old_path, entry, rest, records) do
     if relative_path?(path) and (is_nil(old_path) or relative_path?(old_path)) do
-      raw_records(rest, Map.put(records, {path, old_path}, entry), remaining - 1)
+      raw_records(rest, Map.put(records, {path, old_path}, entry))
     else
       unavailable(:invalid_path, :diff)
     end

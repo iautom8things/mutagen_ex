@@ -812,6 +812,70 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       assert_case_modes(repo, base, %{"lib/moved.ex" => [{1, 2}]})
     end
 
+    @tag spec: "mutagen.git_diff.r1"
+    test "reads a file that moved inside its replacement root directory as an add", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      write!(repo, "src", "first\nsecond\n")
+      commit!(repo, "File at future root")
+      base = sha(repo)
+      git!(repo, ~w(rm -- src))
+      write!(repo, "src/x.ex", "first\nsecond\n")
+      git!(repo, ~w(add -- src))
+
+      assert git!(repo, ["diff", "--raw", "--find-renames", base]) =~ "R100\tsrc\tsrc/x.ex"
+
+      assert {:ok, %{files: %{"src/x.ex" => [{1, 2}]}, renames: %{}}} =
+               GitDiff.changed_lines(base, cd: repo, roots: ["src"])
+    end
+
+    @tag spec: "mutagen.git_diff.r5"
+    test "unrelated paths with a drive-like prefix do not invalidate the inventory", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      write!(repo, "a:b", "outside\n")
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      write!(repo, "lib/a.ex", "change\n")
+
+      assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} = GitDiff.changed_lines("HEAD", cd: repo)
+    end
+
+    @tag timeout: 180_000
+    @tag spec: ["mutagen.git_diff.r4", "mutagen.git_diff.r5"]
+    test "stale index stats do not consume the changed file cap or refresh the index", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      File.mkdir!(Path.join(repo, "lib"))
+
+      paths =
+        for n <- 1..2_001 do
+          path = Path.join(repo, "lib/#{n}.ex")
+          File.write!(path, "unchanged\n")
+          path
+        end
+
+      write!(repo, "lib/changed.ex", "base\n")
+      commit!(repo, "Base")
+      for path <- paths, do: File.touch!(path, {{2000, 1, 1}, {0, 0, 0}})
+      write!(repo, "lib/changed.ex", "change\n")
+      index = Path.join(repo, ".git/index")
+      before = {File.stat!(index).mtime, File.read!(index)}
+
+      assert {:ok, %{files: %{"lib/changed.ex" => [{1, 1}]}, skipped: []}} =
+               GitDiff.changed_lines("HEAD", cd: repo)
+
+      write!(repo, "lib/changed.ex", "base\n")
+
+      assert {:ok, %{files: %{}, warnings: [:empty_diff]}} =
+               GitDiff.changed_lines("HEAD", cd: repo)
+
+      assert {File.stat!(index).mtime, File.read!(index)} == before
+    end
+
     @tag spec: "mutagen.git_diff.r5"
     test "an out-of-root patch does not consume the output or file size cap", %{tmp_dir: repo} do
       init!(repo)
@@ -881,6 +945,60 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       end
 
       assert {:error, :diff_unavailable, %{cause: :root_changed}} =
+               GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "retries a directory entry change once and fails if it changes again", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      write!(repo, "lib/a.ex", "changed\n")
+      root = Path.join(repo, "lib")
+      save = Path.join(root, ".editor_save~")
+
+      for changes <- [1, 2] do
+        counter = :atomics.new(1, [])
+
+        cmd =
+          after_diff(fn ->
+            attempt = :atomics.add_get(counter, 1, 1)
+
+            cond do
+              attempt > changes -> :ok
+              File.exists?(save) -> File.rm!(save)
+              true -> File.write!(save, "draft\n")
+            end
+          end)
+
+        result = GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
+
+        if changes == 1 do
+          assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} = result
+        else
+          assert {:error, :diff_unavailable, %{cause: :root_changed}} = result
+        end
+
+        assert :atomics.get(counter, 1) == 2
+      end
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "detects a directory swap below the root on a changed source path", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/p/sub/a.ex", "base\n")
+      commit!(repo, "Base")
+      write!(repo, "lib/p/sub/a.ex", "changed\n")
+
+      cmd =
+        after_diff(fn ->
+          File.rename!(Path.join(repo, "lib/p/sub"), Path.join(repo, "lib/p/old"))
+          write!(repo, "lib/p/sub/a.ex", "changed\n")
+        end)
+
+      assert {:error, :diff_unavailable, %{cause: :root_changed, component: "lib/p/sub"}} =
                GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
     end
 
@@ -996,6 +1114,14 @@ defmodule MutagenEx.GitDiffIntegrationTest do
 
     assert {:ok, %{files: ^expected}} =
              GitDiff.changed_lines(base, cd: Path.join(repo, project), roots: [root])
+  end
+
+  defp after_diff(action) do
+    fn executable, args, opts ->
+      result = System.cmd(executable, args, opts)
+      if "diff" in args, do: action.()
+      result
+    end
   end
 
   describe "read guards with real Git" do

@@ -34,8 +34,9 @@ decisions:
     is listed as preexisting even without a source extension and even when
     unchanged. A changed entry can also carry its diff reason. Only a result
     with no ranges or skipped entries carries :empty_diff. A rename into
-    scope from outside it is an addition. Every range ends within the working
-    file's line count.
+    scope from outside it is an addition, including when a former file at
+    the root becomes a directory. Every range ends within the working file's
+    line count.
 
 - id: mutagen.git_diff.r2
   priority: must
@@ -54,8 +55,11 @@ decisions:
     symlink that resolves to the project directory or one of its ancestors
     within the checkout. Each component of a configured diff root must be a
     real directory without a .git entry. Invalid components report their
-    path and type. An unchanged symlinked root and a root that changes
-    during the diff have distinct causes.
+    path and type. An unchanged symlinked root and a directory replaced
+    during the diff have distinct causes. The recheck after the diff covers
+    the root components and every directory of each in-scope changed path.
+    A directory that keeps its type and identity while its entries or times
+    change retries the whole read once. A change during the retry aborts.
     Matching normalizes tracked paths and roots to NFC. It also folds case
     when core.ignorecase is true or when the checkout's .git entry and its
     uppercase spelling name the same file. Results retain the tracked
@@ -91,9 +95,12 @@ decisions:
     command result produces a structured :diff_unavailable error. Shallow
     history produces an error with shallow: true and a fixed fetch-depth hint.
     Output past the byte cap or a diff beyond the file cap produces a structured
-    limit error without returning a partial map. Paths outside the roots
-    consume neither the diff byte budget nor the file cap. Missing working directories,
-    unsupported Git versions, and promisor repositories have distinct causes.
+    limit error without returning a partial map. Unchanged files with stale
+    index stat data consume no file slots and contribute no ranges. Paths
+    outside the roots consume neither the diff byte budget nor the file cap,
+    and only selected index and base-tree paths are validated. Missing
+    working directories, unsupported Git versions, and promisor repositories
+    have distinct causes.
 
 - id: mutagen.git_diff.r6
   priority: must
@@ -145,6 +152,7 @@ decisions:
     - mutagen.git_diff.r2
     - mutagen.git_diff.r3
     - mutagen.git_diff.r4
+    - mutagen.git_diff.r5
     - mutagen.git_diff.r6
     - mutagen.git_diff.r7
     - mutagen.git_diff.r8
