@@ -79,6 +79,19 @@ defmodule MutagenEx.Integration.HostSetupTest do
       assert abort_message(report, "host_app_start_failed") =~ "Could not start application"
     end
 
+    @tag spec: ["mutagen.cli.r16", "mutagen.cli.r19"]
+    test "reports a report module missing from the installed archive", %{archive: host} do
+      [beam] =
+        Path.wildcard(Path.join(host.dir, "archives/**/ebin/Elixir.MutagenEx.JsonPath.beam"))
+
+      relative = Path.relative_to(beam, host.dir)
+
+      with_file(host, relative, nil, fn ->
+        assert abort(host, "runtime_load_failed") =~
+                 "could not load MutagenEx.JsonPath"
+      end)
+    end
+
     @tag spec: "mutagen.cli.r19"
     test "reports a host loadpaths failure", %{archive: host} do
       mixfile = File.read!(Path.join(host.dir, "mix.exs"))

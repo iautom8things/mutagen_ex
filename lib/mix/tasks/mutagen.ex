@@ -295,24 +295,37 @@ defmodule Mix.Tasks.Mutagen do
   def run(argv) do
     Mix.Local.append_archives()
 
-    preload_report_modules()
-    run_pipeline(argv, default_dispatch(), :host)
+    run_pipeline(argv, default_dispatch(), {:host, preload_report_modules()})
   end
+
+  @report_modules [
+    MutagenEx.JsonReporter,
+    MutagenEx.Pipeline.DefaultIo,
+    MutagenEx.JsonReporter.Sanitizer,
+    MutagenEx.JsonPath
+  ]
 
   defp preload_report_modules do
     tool_ebin = __MODULE__ |> :code.which() |> Path.dirname()
+    Enum.reduce_while(@report_modules, :ok, &preload_report_module(&1, &2, tool_ebin))
+  end
 
-    for module <- [
-          MutagenEx.JsonReporter,
-          MutagenEx.Pipeline.DefaultIo,
-          MutagenEx.JsonReporter.Sanitizer,
-          MutagenEx.JsonPath
-        ] do
-      beam = Path.join(tool_ebin, Atom.to_string(module))
-      expected = beam <> ".beam"
+  defp preload_report_module(module, :ok, tool_ebin) do
+    beam = Path.join(tool_ebin, Atom.to_string(module))
 
-      if :code.is_loaded(module) != {:file, to_charlist(expected)} do
-        {:module, ^module} = :code.load_abs(to_charlist(beam))
+    if :code.is_loaded(module) == {:file, to_charlist(beam <> ".beam")} do
+      {:cont, :ok}
+    else
+      case :code.load_abs(to_charlist(beam)) do
+        {:module, ^module} ->
+          {:cont, :ok}
+
+        {:error, reason} ->
+          message =
+            "mutagen_ex could not load #{inspect(module)} from #{tool_ebin} " <>
+              "(#{inspect(reason)}). Reinstall mutagen_ex."
+
+          {:halt, {:error, :runtime_load_failed, %{message: message, module: inspect(module)}}}
       end
     end
   end
@@ -398,7 +411,7 @@ defmodule Mix.Tasks.Mutagen do
         :prepared ->
           pipeline.()
 
-        :host ->
+        {:host, _preloaded} ->
           with_stderr(fn ->
             Runtime.route_default_logger()
             pipeline.()
@@ -529,7 +542,11 @@ defmodule Mix.Tasks.Mutagen do
     do_pipeline(config, report, dispatch, output, %{test_paths: ["test"], exunit: []})
   end
 
-  defp run_configured_pipeline(:host, config, report, dispatch, output, argv) do
+  defp run_configured_pipeline({:host, {:error, reason, details}}, config, report, _, _, _) do
+    {:abort, report, %{config | stream: false}, reason, details}
+  end
+
+  defp run_configured_pipeline({:host, :ok}, config, report, dispatch, output, argv) do
     boot =
       Runtime.boot(
         host_app: config.host_app,
@@ -539,15 +556,16 @@ defmodule Mix.Tasks.Mutagen do
         command: Enum.join(["MIX_ENV=test mix mutagen" | Enum.map(argv, &shell_arg/1)], " ")
       )
 
-    preload_report_modules()
-
-    case boot do
-      {:ok, state} ->
+    case {boot, preload_report_modules()} do
+      {{:ok, state}, :ok} ->
         config
         |> do_pipeline(report, dispatch, output, state)
         |> finish_suite(state)
 
-      {:error, reason, details} ->
+      {{:ok, state}, {:error, reason, details}} ->
+        finish_suite({:abort, report, %{config | stream: false}, reason, details}, state)
+
+      {{:error, reason, details}, _preloaded} ->
         {:abort, report, %{config | stream: false}, reason, details}
     end
   end

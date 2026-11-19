@@ -348,9 +348,14 @@ decisions:
     `MutagenEx.JsonReporter.Sanitizer`, `MutagenEx.JsonPath`, and
     `MutagenEx.Pipeline.DefaultIo` from the ebin that holds
     `Mix.Tasks.Mutagen`, before host setup and again after it, so a host
-    module with one of those names does not replace the report path. The
-    document's `meta.tool_version` is the version `mutagen_ex` was built
-    with.
+    module with one of those names does not replace the report path. If
+    one of those modules cannot load from that ebin, for example because
+    its `.beam` file is missing or corrupt, the run aborts with
+    `abort_reason: "runtime_load_failed"`, a `details.message` that
+    names the module and the load error, and `details.module`. A failure
+    before host setup aborts before host setup starts. Neither case
+    raises. The document's `meta.tool_version` is the version
+    `mutagen_ex` was built with.
 
 - id: mutagen.cli.r17
   priority: must
@@ -392,7 +397,8 @@ decisions:
       * `"host_compile_failed"` when host compilation reports an error.
       * `"host_app_start_failed"` when runtime configuration or the host
         application start fails.
-      * `"runtime_load_failed"` when `:mutagen_ex` cannot start (r16).
+      * `"runtime_load_failed"` when `:mutagen_ex` cannot start or a
+        report module cannot load from the tool's ebin (r16).
       * `"test_helper_load_failed"` when a `test_helper.exs` is missing,
         raises, throws, or exits. `details.file` names that helper.
 
