@@ -4,6 +4,7 @@ defmodule MutagenEx.RedactionTest do
   alias MutagenEx.{JsonReporter, JsonStreamer}
   alias JsonReporter.{Report, Sanitizer}
 
+  @tag spec: "mutagen.json_schema.r17"
   test "redacts inspected key/value credentials, URLs, query parameters, and tokens by default" do
     for {message, secrets} <- [
           {~s(opts [password: "db-password", url: "ecto://admin:url-password@db/prod", api_key: "key-value"]),
@@ -24,6 +25,7 @@ defmodule MutagenEx.RedactionTest do
     end
   end
 
+  @tag spec: ["mutagen.json_schema.r11", "mutagen.json_schema.r17"]
   test "built-in redaction precedes configured patterns and truncation" do
     assert Sanitizer.clean("password=hunter2 custom example",
              patterns: ["custom"],
@@ -34,6 +36,7 @@ defmodule MutagenEx.RedactionTest do
     assert Sanitizer.summary("token=password123\nraw diagnostics") == "token=[REDACTED]"
   end
 
+  @tag spec: "mutagen.json_schema.r17"
   test "sanitizes report details, baseline failures, filters, and streamed warnings" do
     secret = "fixture-sensitive-string"
     warning = "password: #{secret}"

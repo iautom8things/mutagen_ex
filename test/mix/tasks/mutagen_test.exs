@@ -76,6 +76,20 @@ defmodule Mix.Tasks.MutagenTest do
     end
   end
 
+  @tag spec: "mutagen.json_schema.r14"
+  test "--stream writes no line when the run aborts before the mutation phase" do
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        assert {:aborted, :module_not_found, _report} =
+                 Mix.Tasks.Mutagen.run(
+                   ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs", "--stream"],
+                   %{scope: ScopeAbort, io: IoStub}
+                 )
+      end)
+
+    assert stdout == ""
+  end
+
   describe "MutagenEx.Runtime.boot/1 archive context repair (mutagen.cli.s14c/s14d)" do
     @tag :archive_context
     @tag spec: "mutagen.cli.r16"

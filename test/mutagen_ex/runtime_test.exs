@@ -5,6 +5,7 @@ defmodule MutagenEx.RuntimeTest do
   alias MutagenEx.Runtime
 
   @tag :tmp_dir
+  @tag spec: ["mutagen.cli.r14", "mutagen.cli.r18"]
   test "uses no default helper when test/ is absent and honors explicit MIX_ENV", %{tmp_dir: dir} do
     in_project(dir, fn ->
       previous_env = Mix.env()
@@ -34,6 +35,7 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.cli.r19"
   test "refuses umbrella roots with the child command location", %{tmp_dir: dir} do
     in_project(
       dir,
@@ -46,6 +48,7 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.cli.r21"
   test "uses its own deadline for a hanging helper", %{tmp_dir: dir} do
     write_helper(dir, "File.write!(\"helper-entered\", \"yes\"); Process.sleep(:infinity)")
 
@@ -61,6 +64,7 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.cli.r19"
   test "reports a linked helper exit instead of exiting the calling process", %{tmp_dir: dir} do
     write_helper(
       dir,
@@ -78,6 +82,7 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.cli.r22"
   test "reports an alias pre-step failure and allows opting out", %{tmp_dir: dir} do
     in_project(
       dir,
@@ -94,6 +99,7 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.cli.r19"
   test "compiler MatchError details omit an unlabelled term", %{tmp_dir: dir} do
     File.mkdir!(Path.join(dir, "lib"))
 
@@ -114,6 +120,7 @@ defmodule MutagenEx.RuntimeTest do
     end)
   end
 
+  @tag spec: "mutagen.cli.r20"
   test "captured callbacks run once in ExUnit order and failures do not skip later callbacks" do
     previous = Application.fetch_env!(:ex_unit, :after_suite)
     caller = self()

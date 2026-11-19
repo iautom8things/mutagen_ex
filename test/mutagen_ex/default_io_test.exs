@@ -2,6 +2,8 @@ defmodule MutagenEx.DefaultIoTest do
   use ExUnit.Case, async: true
 
   import ExUnit.CaptureIO
+
+  @moduletag spec: "mutagen.cli.r23"
   alias MutagenEx.{Config, JsonPath}
   alias MutagenEx.Pipeline.DefaultIo
 

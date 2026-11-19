@@ -58,6 +58,7 @@ decisions:
   - mutagen.decision.details_always_present
   - mutagen.decision.mutator_confidence
   - mutagen.decision.ancora_migration
+  - mutagen.decision.host_test_setup
 ```
 
 ## Schema (version 2)
@@ -179,7 +180,12 @@ Top-level keys, all present in every variant unless noted:
     `"module_not_found"`, `"arity_required"`, `"no_tests_match"`,
     `"self_mutation_refused"`, `"cover_already_running"`, `"baseline_red"`,
     `"unrecoverable_restore_failure"`, `"flag_not_supported_in_v1"`,
-    `"unsafe_json_path"`.
+    `"unsafe_json_path"`, `"invalid_boot_timeout"`, `"invalid_mix_env"`,
+    `"umbrella_root"`, `"host_loadpaths_failed"`, `"host_compile_failed"`,
+    `"test_alias_failed"`, `"host_app_start_failed"`,
+    `"runtime_load_failed"`, `"test_helper_load_failed"`,
+    `"host_setup_timeout"`, `"no_tests_run"`, `"ex_unit_run_failed"`,
+    `"after_suite_failed"`.
 
 - id: mutagen.json_schema.r6
   priority: must
@@ -244,7 +250,8 @@ Top-level keys, all present in every variant unless noted:
     pattern applied to it; matches are replaced with the literal
     string `[REDACTED]`. Redaction runs BEFORE truncation so the
     replacement is not pushed past the 4 KiB cap. Default `:redact` is
-    `[]` (no-op).
+    `[]`, which adds no patterns. The built-in redactions of r17 run
+    first, so configured patterns see text that is already redacted.
 
 - id: mutagen.json_schema.r12
   priority: must
@@ -308,7 +315,7 @@ Top-level keys, all present in every variant unless noted:
         emits (`r1`).
       - `"kind"` — one of `"start"`, `"result"`, `"compile_error"`,
         `"end"`.
-    The four kinds bracket the run:
+    The four kinds bracket the mutation phase:
       - `"start"` fires once at mutation-phase entry; carries `total`
         (planned site count, every enumerated site that was not skipped)
         and `meta` (`r2`'s meta block). That `meta` equals the aggregate
@@ -321,8 +328,8 @@ Top-level keys, all present in every variant unless noted:
       - `"compile_error"` fires once per `:compile_error` site; the
         line's wire shape MUST be byte-equal to the equivalent entry
         in `mutation.compile_errors[]`.
-      - `"end"` fires once at pipeline exit (success or abort);
-        carries the aggregate counters (`total`, `completed`,
+      - `"end"` fires once at pipeline exit (success or abort) when a
+        `"start"` line was written; carries the aggregate counters (`total`, `completed`,
         `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted` + `abort_reason`. Its `total` is the aggregate
         `mutation.total` (`r3`), so it is lower than the start line's
@@ -334,7 +341,9 @@ Top-level keys, all present in every variant unless noted:
     `:on_site_completed` sequential post-fold ensure a consumer
     concatenating the stream into the aggregate would reproduce
     `mutation.results[]` byte-equal to the standalone aggregate
-    document's array.
+    document's array. A run that aborts before the mutation phase
+    starts, including every host setup abort (mutagen.cli.r19), writes
+    no stream lines. Only the aggregate document is written.
 
 - id: mutagen.json_schema.r15
   priority: must
@@ -395,6 +404,41 @@ Top-level keys, all present in every variant unless noted:
     requirement, the same abort emits `details: {file:
     "test/foo_test.exs", message: "cannot use ExUnit.Case without
     starting the ExUnit application, ..."}`.
+
+- id: mutagen.json_schema.r17
+  priority: must
+  statement: |
+    Before any configured `:redact` pattern (r11) and before truncation
+    (r10), `MutagenEx.JsonReporter.Sanitizer.clean/2` applies built-in
+    redactions that replace the secret part with `[REDACTED]`:
+
+      * the password in URL userinfo (`scheme://user:PASSWORD@host`);
+      * the password in inspected `authority:` and `userinfo:` fields
+        of a `%URI{}`;
+      * the value after the whole-word keys `password`, `passwd`,
+        `secret`, `token`, `api_key`, `apikey`, `authorization`,
+        `private_key`, or `secret_key_base` (any case, optionally
+        quoted) followed by `=>`, `:`, or `=`, whether the value is a
+        quoted string, a `Bearer` or `Basic` credential, or a bare
+        word;
+      * whole tokens that start with `ghp_`, `gho_`, `ghu_`, `ghs_`,
+        `ghr_`, `github_pat_`, `xoxb-`, `xoxa-`, `xoxp-`, `xoxr-`,
+        `xoxs-`, `sk_live_`, or `AKIA` followed by at least 12 token
+        characters.
+
+    Cleaning already-cleaned text returns it unchanged. The aggregate
+    document passes every string it carries from host or user code
+    through this sanitizer: top-level `warnings[]`,
+    `mutation.results[].warnings[]`, `mutation.compile_errors[].message`,
+    `baseline.failures[].module` and `.name`, the module names in
+    `mutation.state_drift_warning`, every `details` key and string leaf
+    (r16), and the `tests.include` and `tests.exclude` renderings. A
+    `details` entry or `{key, value}` test filter whose key is one of the
+    secret keys above renders its value as `[REDACTED]` whatever the
+    value. Other `{key, value}` filters render as `"key:value"`, with
+    atoms, strings, and numbers as text and other terms through
+    `inspect/1`. `JsonStreamer` applies the same sanitizer to
+    `"result"` warnings and `"compile_error"` messages.
 ```
 
 ```spec-scenarios
@@ -549,6 +593,29 @@ Top-level keys, all present in every variant unless noted:
   then:
     - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap` and `\"high\"` for the other nine mutators, for every status."
     - "Each NDJSON result line equals its aggregate entry plus `kind` and `version`."
+
+- id: mutagen.json_schema.s14b
+  covers:
+    - mutagen.json_schema.r14
+  given:
+    - "A user runs `mix mutagen --stream` and scope resolution aborts."
+  when:
+    - The task emits the abort.
+  then:
+    - "Stdout holds no NDJSON line. The aggregate document is the only output."
+
+- id: mutagen.json_schema.s18
+  covers:
+    - mutagen.json_schema.r17
+    - mutagen.json_schema.r11
+  given:
+    - 'An abort report whose `details` is `%{password: "p-one", nested: [%{message: "password: p-two"}]}` and whose `tests.exclude` holds `{:token, "p-three"}` and `{:foo, [:a]}`.'
+    - 'A configured redaction pattern `"custom"`.'
+  when:
+    - '`JsonReporter.emit_error/2` renders the report, and `Sanitizer.clean("password=hunter2 custom example")` runs.'
+  then:
+    - 'The JSON contains none of `p-one`, `p-two`, or `p-three`. `details.password` is `"[REDACTED]"`, and `tests.exclude` is `["foo:[:a]", "token:[REDACTED]"]`.'
+    - 'The clean call returns `"password=[REDACTED] [REDACTED] example"`.'
 ```
 
 ```spec-verification
@@ -571,4 +638,5 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r14
     - mutagen.json_schema.r15
     - mutagen.json_schema.r16
+    - mutagen.json_schema.r17
 ```

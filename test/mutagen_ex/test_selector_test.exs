@@ -50,6 +50,7 @@ defmodule MutagenEx.TestSelectorTest do
   # mutagen.test_selection.s1 — file-only target (r1)
   # ---------------------------------------------------------------------------
 
+  @tag spec: "mutagen.test_selection.r8"
   test "merges host filters without widening restrictive selectors" do
     line = {:location, {"test/example_test.exs", 8}}
     helper = [include: [:focus, :keep], exclude: [:slow, database: :off]]
@@ -71,6 +72,7 @@ defmodule MutagenEx.TestSelectorTest do
   end
 
   @tag :tmp_dir
+  @tag spec: "mutagen.test_selection.r3"
   test "tag scans each configured test path", %{tmp_dir: dir} do
     dirs = for name <- ["first", "second"], do: Path.join(dir, name)
 
