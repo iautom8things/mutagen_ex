@@ -77,7 +77,7 @@ defmodule Mix.Tasks.MutagenTest do
   end
 
   @tag spec: "mutagen.json_schema.r14"
-  test "--stream writes no line when the run aborts before the mutation phase" do
+  test "--stream writes no line when scope resolution aborts" do
     stdout =
       ExUnit.CaptureIO.capture_io(fn ->
         assert {:aborted, :module_not_found, _report} =
