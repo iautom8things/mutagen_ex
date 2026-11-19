@@ -6,17 +6,48 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 The released and Unreleased sections describe user-visible behavior. The
-ticket-keyed engineering log is preserved as an appendix at the end of this
+engineering log is preserved as an appendix at the end of this
 file for traceability.
 
 ## [Unreleased]
+
+### Final review fixes
+
+- Timed-out sites reap traced descendants even when a worker switched its
+  group leader inside `ExUnit.CaptureIO.capture_io/1`. Stopping an exited site
+  group returns immediately.
+- Coverage, baseline and mutants keep each case's declared `async` value,
+  so Phoenix DataCase uses the same Sandbox mode as in `mix test`.
+  ExUnit still runs one case at a time. Nested cases register before
+  enclosing cases. A timed-out async case leaves the next site able
+  to run in either fail-fast mode.
+- The JSON reporter uses one renderer for aggregate and streaming results.
+  `before_source` preserves remote receivers, field access, parentheses
+  and original literal spelling. The NDJSON `end` line includes `truncated`.
+- Reports include `meta.max_concurrency` and warn when experimental
+  parallel mode makes verdicts unreliable.
+- Erlang/OTP 27 is required. Older releases get an
+  `unsupported_otp_version` startup document. The README lists every
+  abort reason and explains that a cleanup callback calling
+  `System.halt/1` owns the exit code after the report is written.
+- `MutationRunner.run/1` can return tuple entries such as
+  `{:host_names, kind, names}` in its warnings. The JSON reporter
+  converts them to strings under the report's host-output policy.
+- Per-site spawn tracing added about 4 ms per site on the lane fixture
+  in the final review. Spawn-heavy tests paid more.
+- The runner's disk-write test uses its own temporary directory.
+  The state-count ADR records the limit when an ETS table disappears
+  and a same-named table takes its place within one site.
+- Public fixtures use neutral example names.
+- The README publishes the anonymized survivor measurement and the
+  follow-up across other test files. CI gating remains advisory.
 
 ### Report safety
 
 - Default reports count host process losses and baseline failures by
   module. Dynamic names and helper filter values require opt-in.
-- Mutagen writes the report before cleanup and gives cleanup the boot
-  timeout. Each coverage and baseline pass gets the greater of the boot
+- Mutagen writes the report before cleanup and gives each callback its own
+  boot timeout. Each coverage and baseline pass gets the greater of the boot
   timeout and ten times the mutation timeout.
 
 - JSON and NDJSON omit host diagnostic text by default. Abort documents retain
@@ -31,7 +62,6 @@ file for traceability.
 - Coverage and baseline have independent deadlines. Cleanup callbacks
   have a bounded runtime. Site timeouts preserve pre-existing host processes,
   and the report names host process losses and taints later results.
-
 
 ### Added
 
@@ -298,9 +328,6 @@ Shipped with v0.1.0 and tracked for later releases:
 
 ## Internal development log (Unreleased)
 
-> The entries below are the original ticket-keyed engineering log for the
-> Unreleased cycle, kept verbatim for traceability. The user-facing summary
-> of the same work is in the `[Unreleased]` section above.
 
 - **Archive-installed CLI runtime self-heal.** Fixed the archive adoption
   path where invoking `mix mutagen` from a host project without
@@ -320,7 +347,7 @@ Shipped with v0.1.0 and tracked for later releases:
   `mutagen.cli.s14d`, and verification `mutagen.cli.v11`. The existing
   `path:` / Hex / git dependency adoption paths are preserved
   byte-for-byte because they succeed on the first runtime-start attempt
-  and never enter the archive repair branch. *(mutagen-wrd.40.x.)*
+  and never enter the archive repair branch.
 
 - **`.25` epic capstone: bench harness, large-scope memory test, and
   measured speedup.** The `.25` AST/perf epic (S1–S6) is complete.
@@ -394,10 +421,8 @@ Shipped with v0.1.0 and tracked for later releases:
   mutation, with `:cover` instrumentation) — and that's untouched
   by `.25`. `Mutators.normalize/1` (out of scope per the epic's Out
   of Scope) and the per-site ExUnit boot also dominate.
-  `mutagen-wrd.36` (follow-up to mutagen-wrd.25, the documented
-  `.25-fu2` slot) tracks the gap to the 2–4× target; a candidate
-  path is replacing the per-site ExUnit boot with a longer-lived
-  test-runner process. *(mutagen-wrd.25.7.)*
+  A follow-up considered replacing the per-site ExUnit boot with a
+  longer-lived test runner to close the gap to the 2–4× target.
 
   *Large-scope memory test* — new `test/mutagen_ex/memory_test.exs`
   (tagged `:e2e_slow`) generates a 1000-site synthetic fixture in
@@ -409,22 +434,21 @@ Shipped with v0.1.0 and tracked for later releases:
   graceful budget-cap (`truncated: true`); a non-graceful abort
   (any reason outside `budget_exceeded` / `too_many_sites`) fails
   the test. Heap-size assertions are not pinned (brittle across
-  BEAM versions). *(mutagen-wrd.25.7.)*
+  BEAM versions).
 
   *Epic summary — one line per feature shipped*:
 
   - `MutagenEx.Ast` helper lift: canonical `alias_to_module/1`,
-    `find_module_body/2`, `node_line/1` (mutagen-wrd.25.2)
+    `find_module_body/2`, `node_line/1`
   - `AstCache.load/2` categorised input + Baseline cache consumer
-    (mutagen-wrd.25.3)
+
   - `MutagenEx.Mutators.Dispatch` head-atom table + enumerator
-    pre-filter (mutagen-wrd.25.4)
+    pre-filter
   - Batched grouped-by-file prewalk for the per-site AST swap
-    (mutagen-wrd.25.5)
+
   - `MutagenEx.BeamCache` per-run ETS + binary-swap restore
-    (mutagen-wrd.25.6)
+
   - Bench harness, memory test, this CHANGELOG entry
-    (mutagen-wrd.25.7)
 
 - **BeamCache per-run ETS + binary-swap restore.**
   `MutagenEx.MutationRunner.run/1` no longer restores via
@@ -450,7 +474,6 @@ Shipped with v0.1.0 and tracked for later releases:
   `s16`/`s17` + verification stub `v9`. Two new decisions:
   `mutagen.decision.per_run_beam_cache` (ETS-via-cfg, not GenServer)
   and `mutagen.decision.code_server_facade` (testability seam).
-  *(mutagen-wrd.25.6.)*
 
 - **Batched grouped-by-file prewalk for the per-site AST swap.**
   `MutagenEx.MutationRunner.run/1` now pre-computes a per-file
@@ -472,7 +495,7 @@ Shipped with v0.1.0 and tracked for later releases:
   the file AST that an unconditional per-site `Macro.prewalk/2`
   would have produced. Closes F16 (HIGH, F-PERF-02). New
   requirement `mutagen.mutation_pipeline.r16` + scenarios `s14` /
-  `s15` + verification stub `v8`. *(mutagen-wrd.25.5.)*
+  `s15` + verification stub `v8`.
 
 ### Added
 
@@ -496,7 +519,6 @@ Shipped with v0.1.0 and tracked for later releases:
   `test/mutagen_ex/head_atom_dispatch_test.exs` lock the
   correctness (same mutators consulted per node) and order-
   preservation (byte-identity / r1) properties.
-  *(mutagen-wrd.25.4.)*
 
 ### Changed
 
@@ -510,14 +532,14 @@ Shipped with v0.1.0 and tracked for later releases:
   verbatim. Per-category counts are logged at debug level. The
   `phase_ast_cache` step of `mix mutagen` now loads scope files AND
   cited test files (`test_filter.files`) in one pass. New requirement
-  `mutagen.coverage.r9`. Closes F18 / F40. *(mutagen-wrd.25.3.)*
+  `mutagen.coverage.r9`. Closes F18 / F40.
 - **`Baseline.detect_async_modules/1` consumes the AST cache when
   provided.** When `Baseline.run/1`'s input map carries `:ast_cache`,
   the async-warning path looks each cited test file up via
   `AstCache.get/2` and consumes the cached `{ast, _source}` directly
   — no re-read of test files from disk. On cache miss the
   implementation falls back to `File.read/1` + parse (pre-`.25`
-  behaviour) and logs the miss for diagnostics. *(mutagen-wrd.25.3.)*
+  behaviour) and logs the miss for diagnostics.
 - **Shared AST helpers lifted into `MutagenEx.Ast`.** The
   `alias_to_module/1`, `find_module_body/2`, and `node_line/1`
   helpers — previously duplicated across `MutagenEx.ScopeResolver`,
@@ -526,13 +548,13 @@ Shipped with v0.1.0 and tracked for later releases:
   (`lib/mutagen_ex/ast.ex`). Behaviour is byte-identical to the
   donors (pinned by `test/mutagen_ex/ast_donor_equivalence_test.exs`).
   Closes F21 / CF10. New subject `mutagen.ast` carries the contract;
-  see `.spec/specs/ast.spec.md`. *(mutagen-wrd.25.2.)*
+  see `.spec/specs/ast.spec.md`.
 - **`ScopeResolver` sorts the default `lib/**/*.ex` wildcard
   result** before searching for module-shaped targets. Closes the
   F30 / CF7 determinism risk: `Path.wildcard/1`'s order is
   file-system-dependent, so two hosts could otherwise pick a
   different match. New requirement
-  `mutagen.scope_resolution.r9`. *(mutagen-wrd.25.2.)*
+  `mutagen.scope_resolution.r9`.
 
 ### Added
 
@@ -543,7 +565,7 @@ Shipped with v0.1.0 and tracked for later releases:
   (`scripts/helper_scripts/bench_ast_perf.exs`, completed in S6) and
   by the determinism safety-net test
   (`test/mutagen_ex/determinism_test.exs`, re-targeted from the
-  lane fixture). *(mutagen-wrd.25.2.)*
+  lane fixture).
 
 - **Parallel mutation loop, NDJSON streaming, and progress
   feedback.** The mutation runner now dispatches per-site work through
@@ -559,7 +581,7 @@ Shipped with v0.1.0 and tracked for later releases:
     `[Unreleased]` Removed section): the producer-only event API and the
     `:telemetry` runtime dependency were dropped so the archive install
     is dependency-free; per-site observation now rides the runner's
-    `:on_site_completed` callback. *(mutagen-hcs.7.)*
+    `:on_site_completed` callback.
   - `--stream` enables NDJSON-per-site emission via the new
     `MutagenEx.JsonStreamer`. Each line carries a `"kind"`
     discriminator (`"start"`, `"result"`, `"compile_error"`, `"end"`)
@@ -572,8 +594,7 @@ Shipped with v0.1.0 and tracked for later releases:
   - New dependency: `:telemetry ~> 1.0` (lightweight, no transitive
     deps). The runner emits events through the standard
     `:telemetry.execute/3` and `:telemetry.span/3` surfaces.
-    **Later removed in mutagen-hcs.7** — the runtime is now dependency-free.
-  - *(mutagen-wrd.30, closes F17 from the consolidated review.)*
+    The runtime is now dependency-free.
 
 ### Security
 
@@ -583,7 +604,7 @@ Shipped with v0.1.0 and tracked for later releases:
   paths, and Elixir source slices in compiler diagnostics flowed
   verbatim into `mutation.results[].warnings[]`,
   `mutation.compile_errors[].message`, and abort-detail message fields.
-  Combined with the lax `--json <path>` write (mutagen-wrd.21), secrets
+  Combined with the lax `--json <path>` write, secrets
   archived in those reports became file-system-resident. Fixed by:
   - A new `MutagenEx.JsonReporter.Sanitizer` module truncates every
     free-form text field at a 4 KiB cap, appending the literal marker
@@ -602,8 +623,6 @@ Shipped with v0.1.0 and tracked for later releases:
     load + ExUnit.run failure messages; `MutagenEx.MutationRunner`
     compile-error / restore-failure / unrecoverable-restore-failure
     messages and per-result warnings (via `compose_warnings/1`).
-  *(mutagen-wrd.26, closes F24 / CF9 from the consolidated Security +
-  Performance review.)*
 
 ### Performance
 
@@ -619,8 +638,7 @@ Shipped with v0.1.0 and tracked for later releases:
   contract documented in `lib/mutagen_ex/ast_cache.ex`) is deferred
   to a follow-up since it requires extending the `Site` struct to
   carry `{end_line, end_column}` metadata. New requirement:
-  `mutagen.json_schema.r12`. *(mutagen-wrd.26, closes
-  F-PERF-11 from the Performance review.)*
+  `mutagen.json_schema.r12`.
 
 - **Bound atom creation on CLI input.** Three call sites converted
   attacker- or typo-controlled strings to atoms with no upper bound,
@@ -646,8 +664,7 @@ Shipped with v0.1.0 and tracked for later releases:
     the AST. `details.module` on `:module_not_found` is now the
     canonical string (e.g. `"Elixir.Nope"`); `details.function` on
     `:function_not_found` is the user's string segment. New
-    requirement: `mutagen.scope_resolution.r8`. *(mutagen-wrd.20,
-    closes F6 from the consolidated security review.)*
+    requirement: `mutagen.scope_resolution.r8`.
 
 ### Changed
 
@@ -675,15 +692,15 @@ Shipped with v0.1.0 and tracked for later releases:
   Existing facade-using tests continue to swap modules (not function
   names) and pass without changes. The `:compiler` config key also
   accepts a legacy `{module, function}` tuple for back-compat with
-  pre-bw-mutagen-wrd.24 stubs; new callers should pass a behaviour-
-  implementing module atom. *(mutagen-wrd.24)*
+  older stubs; new callers should pass a behaviour-
+  implementing module atom.
 
 ### Fixed
 
 - **Scenario 7 (`:ecto_user_scenario`) un-skipped.** The end-to-end
   Scenario 7 `@tag :skip` in `test/mutagen_ex/end_to_end_test.exs` was
   long blamed on a `:cover` + Ecto-style DSL interaction. The
-  `mutagen-wrd.19` spike (direct reproduction in
+  coverage spike (direct reproduction in
   `scripts/helper_scripts/spike_19_repro.exs`) showed every macro-injected
   callback — `__schema_kind__/0`, `field/2`-generated `name/0` and
   `age/0`, the `birthday/1` arithmetic helper, and the persisted
@@ -701,8 +718,6 @@ Shipped with v0.1.0 and tracked for later releases:
   Scenario 7's `@tag :skip` was removed, and README "Known limitations"
   item 5 was marked resolved. The Spike-I bytecode-identical-restore
   invariant is now exercised end-to-end against the hand-rolled DSL.
-  *(mutagen-wrd.32, the .19b follow-up to mutagen-wrd.19's Option B
-  disposition.)*
 
 ### Security
 
@@ -721,7 +736,7 @@ Shipped with v0.1.0 and tracked for later releases:
   CI integrations that need to write outside the project root pass
   `--unsafe-json-outside-project` explicitly; that flag emits a one-shot
   stderr warning naming the resolved target. New invariant:
-  `mutagen.cli.r10`. *(mutagen-wrd.21)*
+  `mutagen.cli.r10`.
 
 - **Resource caps on input and output volume.** Closes F28 / CF11
   (MEDIUM consensus from Security M1 + Performance F-PERF-07/12): the
@@ -741,7 +756,6 @@ Shipped with v0.1.0 and tracked for later releases:
     report (`aborted: false`; the per-site `--timeout-ms` still
     bounds the in-flight site). New invariants: `mutagen.cli.r12`,
     `mutagen.cli.r13`, `mutagen.mutation_enumeration.r7`.
-    *(mutagen-wrd.22)*
 
 ### Added
 
@@ -751,33 +765,33 @@ Shipped with v0.1.0 and tracked for later releases:
   the mix task calls before any mutation phase. The project root is
   resolved through its own symlinks (handles macOS
   `/var -> /private/var`); the inside-root comparison uses the canonical
-  form. *(mutagen-wrd.21)*
+  form.
 - `--unsafe-json-outside-project` flag on `mix mutagen`. Boolean opt-in
   that bypasses the inside-root check while still resolving symlinks.
-  Lands on `Config.unsafe_json_outside_project`. *(mutagen-wrd.21)*
+  Lands on `Config.unsafe_json_outside_project`.
 - `MutagenEx.Application` — a one-for-one supervisor (`MutagenEx.Supervisor`)
   whose only child is a named `Task.Supervisor` registered as
   `MutagenEx.TaskSup`. Declared via `mod: {MutagenEx.Application, []}` in
   `mix.exs`, so the supervision tree starts whenever `:mutagen_ex` boots —
   for both the `mix mutagen` CLI path and library callers depending on
   `:mutagen_ex` directly. New invariant:
-  `mutagen.mutation_pipeline.r13`. *(mutagen-wrd.18)*
+  `mutagen.mutation_pipeline.r13`.
 - `test/mutagen_ex/supervision_test.exs` exercising start_link / terminate
   cycles, recursive-kill propagation across an OTP-supervised descendant
   subtree and an untrapped linked grandchild, and concurrent-caller
   rejection of `CoverageRunner.run/1`. Covers
   `mutagen.mutation_pipeline.r13`, `mutagen.mutation_pipeline.r14`,
-  `mutagen.coverage.r1`, and `mutagen.coverage.r8`. *(mutagen-wrd.18)*
+  `mutagen.coverage.r1`, and `mutagen.coverage.r8`.
 - `.spec/decisions/supervision_tree.md` documenting the
   Application + named `Task.Supervisor` choice, the singleton-ownership
   contract for `:cover_server` / `ExUnit.Server`, and the v2 won't-haves
   (out-of-process workers, `:cover.start/0` race arbiter).
-  *(mutagen-wrd.18)*
+
 - `test/support/disk_snapshot_helper.exs` — disk-snapshot diffing helper
   used by the r11 / r7 "no disk writes" tests. Captures byte-identity
   across `lib/**`, `_build/**/*.{beam,app}`, `cover/**`, host project
   config (`mix.exs`, `mix.lock`, `.formatter.exs`), and `mutagen_ex_`-
-  attributable entries under `System.tmp_dir!()`. *(mutagen-wrd.27)*
+  attributable entries under `System.tmp_dir!()`.
 
 ### Changed
 
@@ -790,7 +804,7 @@ Shipped with v0.1.0 and tracked for later releases:
   half-overlap with F20). Order of records is preserved; a new
   regression test (`test/mutagen_ex/mix_task_phase_scope_test.exs`)
   asserts both ordering and a 2_000 ms ceiling for 10_000 records
-  across 2_000 targets. *(mutagen-wrd.22)*
+  across 2_000 targets.
 
 - `MutationRunner.safe_compile_quoted/3` and
   `MutationLoop.capture_stderr/2` now use
@@ -804,7 +818,7 @@ Shipped with v0.1.0 and tracked for later releases:
   is byte-identical (same stderr capture, same suppression, same
   warning attachment). The `:capture_io` seam used by tests now
   requires `with_io/3` (test stubs `CaptureIoStub` and
-  `RaisingCaptureIO` updated in lock-step). *(mutagen-wrd.23)*
+  `RaisingCaptureIO` updated in lock-step).
 
 - The r11 disk-write test in `mutation_runner_test.exs` and the r7
   disk-write test in `coverage_runner_test.exs` now assert byte-identity
@@ -815,7 +829,7 @@ Shipped with v0.1.0 and tracked for later releases:
   under `_build/`, or wrote a coverage report to `cover/`. The
   `mutagen.mutation_pipeline.r11` and `mutagen.coverage.r7` spec
   statements were updated to name the broader surface explicitly, with
-  an allowed-write list of `NONE`. *(mutagen-wrd.27)*
+  an allowed-write list of `NONE`.
 
 - `MutationRunner.run_one_site/3` now routes the loaded-mutation window
   through a new `with_restore/4` lifecycle helper that mirrors
@@ -825,12 +839,12 @@ Shipped with v0.1.0 and tracked for later releases:
   `{kind, value, stacktrace}` is preserved via `reraise/2` /
   `:erlang.raise/3`; restore failure during propagation is swallowed
   inside `safe_restore/3` and never masks the original cause. New
-  invariant: `mutagen.mutation_pipeline.r12`. *(mutagen-wrd.17)*
+  invariant: `mutagen.mutation_pipeline.r12`.
 - The `:compile_error` branch now surfaces defensive-restore failure as
   `:unrecoverable_restore_failure` (with both the restore failure and
   the original `:compile_error` message in `details.message`) instead
   of silently discarding it via `_ = restore(...)`. Per
-  `mutagen.mutation_pipeline.r6`. *(mutagen-wrd.17)*
+  `mutagen.mutation_pipeline.r6`.
 - `MutationLoop.run/1` spawns its per-site task via
   `Task.Supervisor.async_nolink(MutagenEx.TaskSup, ...)` instead of
   `Task.async/1`. The two-phase cancel keeps `Task.shutdown(task,
@@ -844,12 +858,12 @@ Shipped with v0.1.0 and tracked for later releases:
   `:DOWN` messages accumulating in the runner's mailbox across timeout
   sites. The `.13` `:code.purge/1` post-timeout settle pass is retained
   on top. Per `mutagen.mutation_pipeline.r4` /
-  `mutagen.mutation_pipeline.r14`. *(mutagen-wrd.18)*
+  `mutagen.mutation_pipeline.r14`.
 - `CoverageRunner.run/1`'s `:cover_already_running` rejection message
   now names `MutagenEx.TaskSup` as the documented singleton owner of
   `:cover_server` and `ExUnit.Server` during a MutagenEx mutation cycle,
   and points readers at `.spec/decisions/supervision_tree.md`. Per
-  `mutagen.coverage.r1` / `mutagen.coverage.r8`. *(mutagen-wrd.18)*
+  `mutagen.coverage.r1` / `mutagen.coverage.r8`.
 - The C1/C2 integration spikes under `test/mutagen_ex/integration/` are
   now tagged `:spike` and excluded from the default `mix test` run.
   `test/test_helper.exs` calls `ExUnit.start(exclude: [:e2e_slow,
@@ -857,17 +871,17 @@ Shipped with v0.1.0 and tracked for later releases:
   in-process pipeline (per `mutagen.decision.in_process_pipeline`) and
   are runnable on demand via `mix test --only spike`. Default `mix
   test` wall-clock drops from ~24s to ~1s; the smoke gate is no longer
-  dominated by ~500 cover lifecycles every run. *(mutagen-wrd.28)*
+  dominated by ~500 cover lifecycles every run.
 - The C2 spike's iteration count is now controlled by the
   `MUTAGEN_SPIKE_ITERATIONS` env var (default `10`, original gating
   value `100`). The invariants — `failures == 0`, process growth ≤ 50,
   memory growth ≤ 1.5× — hold at any positive N; the count is a
   cycle-time knob, not a contract. C1's 100-iteration count is
   unchanged because its loop count IS the contract (restore fidelity
-  measured across cycles). *(mutagen-wrd.28)*
+  measured across cycles).
 - `README.md` documents the `:spike` opt-in and the
   `MUTAGEN_SPIKE_ITERATIONS` knob under a new "Test suite gates"
-  subsection. *(mutagen-wrd.28)*
+  subsection.
 
 ### Notes
 
@@ -876,7 +890,7 @@ Shipped with v0.1.0 and tracked for later releases:
   `:shutdown_timeout` (5_000 ms) bounds only a hypothetical scenario in
   which the per-site task itself traps `:shutdown`; in practice the task
   dies on the signal in microseconds and grandchild teardown is
-  asynchronous afterwards. *(mutagen-wrd.18)*
+  asynchronous afterwards.
 - Closes F2-arch for the common grandchild classes (untrapped linked
   processes, OTP-supervised subtrees). Hand-rolled trap-exit'd
   GenServers that swallow `{:EXIT, _, :shutdown}` info messages remain
@@ -887,9 +901,8 @@ Shipped with v0.1.0 and tracked for later releases:
 
 - `lib/mutagen_ex.ex` and `test/mutagen_ex_test.exs` (`mix new`
   placeholders) are deleted. The `MutagenEx` namespace is owned by its
-  submodules; no top-level module body is necessary. *(mutagen-wrd.17)*
+  submodules; no top-level module body is necessary.
 - The README's `.13` caveat ("re-run if the tail of the run looks
   wrong" after a timeout-classified mutation) is removed. The `.18`
   supervised teardown + `:code.purge` settle pass + recursive shutdown
   through the link tree close the underlying Code.Server hang condition.
-  *(mutagen-wrd.18)*
