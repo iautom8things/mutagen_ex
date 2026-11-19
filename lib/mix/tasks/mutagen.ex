@@ -146,7 +146,7 @@ defmodule Mix.Tasks.Mutagen do
     * `mutagen_ex` runs **in-process** (same BEAM as your suite); see
       Caveats for the consequences (state drift, no self-mutation).
 
-  Requires Erlang/OTP 27 or later.
+  Requires Elixir 1.18.0 or later and Erlang/OTP 27 or later.
 
   ## Exit Codes
 
@@ -298,6 +298,7 @@ defmodule Mix.Tasks.Mutagen do
   @type dispatch :: %{
           optional(:cli) => module(),
           optional(:otp_release) => String.t(),
+          optional(:elixir_version) => String.t(),
           optional(:scope) => module(),
           optional(:tests) => module(),
           optional(:ast_cache) => module(),
@@ -570,17 +571,31 @@ defmodule Mix.Tasks.Mutagen do
 
   defp maybe_emit_stream_end(_, _, _), do: :ok
 
+  @minimum_elixir "1.18.0"
+
   defp prepare_pipeline(argv, dispatch, output, mode) do
     otp = dispatch[:otp_release] || otp_version()
+    elixir = dispatch[:elixir_version] || System.version()
 
-    case Integer.parse(otp) do
-      {release, ""} when release >= 27 ->
+    case runtime_version_error(otp, elixir) do
+      nil ->
         prepare_supported_pipeline(argv, dispatch, output, mode)
 
-      _ ->
+      {reason, actual} ->
         {report, config} = abort_report_options(argv)
-        report = put_in(report.meta.otp_version, otp)
-        {:abort, report, config, :unsupported_otp_version, %{step: :startup, actual: otp}}
+        report = update_in(report.meta, &%{&1 | otp_version: otp, elixir_version: elixir})
+        {:abort, report, config, reason, %{step: :startup, actual: actual}}
+    end
+  end
+
+  defp runtime_version_error(otp, elixir) do
+    case Integer.parse(otp) do
+      {release, ""} when release >= 27 ->
+        if Version.compare(elixir, @minimum_elixir) == :lt,
+          do: {:unsupported_elixir_version, elixir}
+
+      _ ->
+        {:unsupported_otp_version, otp}
     end
   end
 
