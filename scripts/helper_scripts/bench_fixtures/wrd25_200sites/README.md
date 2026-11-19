@@ -1,7 +1,7 @@
 # wrd25_200sites bench fixture
 
 Self-contained Elixir source tree used by the `wrd25` perf bench harness
-(`priv/helper_scripts/bench_ast_perf.exs`, S6) and by the determinism
+(`scripts/helper_scripts/bench_ast_perf.exs`, S6) and by the determinism
 safety-net test (`test/mutagen_ex/determinism_test.exs`, S1+).
 
 ## Why this exists

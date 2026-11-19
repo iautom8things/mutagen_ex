@@ -201,6 +201,6 @@ defmodule Mix.Tasks.MutagenTest do
 
     assert decoded["aborted"] == true
     assert decoded["abort_reason"] == "unsafe_json_path"
-    assert decoded["details"]["message"] =~ "--unsafe-json-outside-project"
+    assert decoded["details"]["hint"] =~ "--unsafe-json-outside-project"
   end
 end

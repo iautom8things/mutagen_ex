@@ -96,21 +96,7 @@ defmodule MutagenEx.CLI do
   @behaviour MutagenEx.Pipeline.CliFacade
 
   @typedoc "Atom-shaped reason for a parse failure (see `mutagen.json_schema.abort_reason`)."
-  @type reason ::
-          :missing_scope
-          | :missing_tests
-          | :invalid_timeout
-          | :invalid_boot_timeout
-          | :invalid_seed
-          | :invalid_max_concurrency
-          | :flag_not_supported_in_v1
-          | :unknown_flag
-          | :self_mutation_refused
-          | :unsafe_json_path
-          | :invalid_tag_name
-          | :too_many_targets
-          | :invalid_max_sites
-          | :invalid_budget_ms
+  @type reason :: MutagenEx.JsonReporter.abort_reason()
 
   @typedoc "Structured error returned by `parse/1`."
   @type error :: {:error, reason, map()}
@@ -171,6 +157,8 @@ defmodule MutagenEx.CLI do
          budget_ms: budget_ms,
          max_concurrency: max_concurrency,
          stream: stream,
+         source: Keyword.get(parsed, :source, true),
+         include_host_output: Keyword.get(parsed, :include_host_output, false),
          progress: progress
        }}
     end
@@ -180,6 +168,23 @@ defmodule MutagenEx.CLI do
 
   # OptionParser would happily silently coerce `--no-json` to `--json = false`
   # because we declare `--json` as `:string`. Catch it before parsing so the
+  @doc false
+  def report_options(argv) do
+    with {:ok, parsed, _, _} <- option_parse(argv),
+         {:ok, path} <- pick_json_path(parsed) do
+      %Config{
+        scopes: [],
+        tests: [],
+        json_path: path,
+        source: Keyword.get(parsed, :source, true),
+        include_host_output: Keyword.get(parsed, :include_host_output, false),
+        unsafe_json_outside_project: pick_unsafe_outside_project(parsed)
+      }
+    else
+      _ -> %Config{scopes: [], tests: []}
+    end
+  end
+
   # error is the right shape per mutagen.decision.no_pretty_output_v1.
   defp refuse_unsupported(argv) do
     cond do
@@ -212,6 +217,8 @@ defmodule MutagenEx.CLI do
     budget_ms: :integer,
     max_concurrency: :integer,
     stream: :boolean,
+    source: :boolean,
+    include_host_output: :boolean,
     no_progress: :boolean
   ]
 

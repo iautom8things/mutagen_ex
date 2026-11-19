@@ -112,7 +112,7 @@ defmodule MutagenEx.BaselineTest do
 
     Process.put(:baseline_fake_suite, fn -> %{total: 2, excluded: 1, skipped: 1, failures: 0} end)
 
-    assert {:error, :no_tests_run, %{phase: :baseline, excluded: 1, exclude: ["load"]}} =
+    assert {:error, :no_tests_run, %{phase: :baseline, excluded: 1, exclude: [:load]}} =
              Baseline.run(input)
   end
 

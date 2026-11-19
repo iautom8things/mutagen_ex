@@ -46,41 +46,22 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   """
 
   @default_byte_size_limit 4 * 1024
-  @redact_replacement "[REDACTED]"
+  alias MutagenEx.JsonReporter.Redactor
 
-  # A key is secret when one of its snake, kebab or SCREAMING segments is a
-  # credential word: db_password, api-token, AWS_SECRET_ACCESS_KEY.
-  @secret_words ~w(password passwd secret token apikey api[_-]key authorization private[_-]key)
-  @secret_key_pattern "(?:[a-z0-9]*[_-])*(?:#{Enum.join(@secret_words, "|")})(?:[_-][a-z0-9]*)*"
-  @secret_key Regex.compile!("\\A#{@secret_key_pattern}\\z", "i")
-  @credentials ~r{([a-z][a-z0-9+.-]*://[^/:@\s"'<>]+:)[^@\s"'<>]+(@)}i
-  @uri_fields ~r{((?:authority|userinfo):\s*"[^:"\s]+:)[^@"\s]+}i
-  @secret_pair Regex.compile!(
-                 ~S'''
-                 ((?<![\w-])#{keys}["']?\s*(?>=>|:|=)\s*)(?!\[REDACTED\](?:$|[\s&,}\]]))(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:bearer|basic)\s+[^\s&,}\]]+|[^\s&,}\]]+)
-                 '''
-                 |> String.trim()
-                 |> String.replace(~S(#{keys}), @secret_key_pattern),
-                 "i"
-               )
-  @token_prefix ~r/\b(?:gh[pousr]_|github_pat_|xox[baprs]-|sk_live_|AKIA)[A-Za-z0-9_-]{12,}/
+  defdelegate secret_key?(key), to: Redactor
 
-  def secret_key?(key) when is_binary(key), do: Regex.match?(@secret_key, key)
+  @doc false
+  def put_patterns(patterns), do: Process.put(__MODULE__, patterns)
 
-  def summary(message) do
-    message
-    |> redact()
-    |> String.split("\n", parts: 2)
-    |> hd()
-    |> truncate(512)
-  end
+  @doc false
+  def with_patterns(patterns, fun) do
+    previous = put_patterns(patterns)
 
-  defp redact(message, patterns \\ configured_patterns()) do
-    message = Regex.replace(@credentials, message, "\\1[REDACTED]\\2")
-    message = Regex.replace(@uri_fields, message, "\\1[REDACTED]")
-    message = Regex.replace(@secret_pair, message, "\\1[REDACTED]")
-    message = Regex.replace(@token_prefix, message, @redact_replacement)
-    apply_redactions(message, patterns)
+    try do
+      fun.()
+    after
+      if previous, do: Process.put(__MODULE__, previous), else: Process.delete(__MODULE__)
+    end
   end
 
   @doc """
@@ -117,11 +98,12 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
 
   def clean(value, opts) do
     limit = Keyword.get(opts, :byte_size_limit, @default_byte_size_limit)
-    patterns = Keyword.get(opts, :patterns, configured_patterns())
+    patterns = Keyword.get_lazy(opts, :patterns, &configured_patterns/0)
 
     value
     |> to_binary()
-    |> redact(patterns)
+    |> text()
+    |> Redactor.redact(compile_patterns!(patterns))
     |> truncate(limit)
   end
 
@@ -138,14 +120,12 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   """
   @spec truncate(binary(), pos_integer()) :: binary()
   def truncate(bin, limit) when is_binary(bin) and is_integer(limit) and limit > 0 do
-    case byte_size(bin) do
-      n when n <= limit ->
-        bin
-
-      n ->
-        dropped = n - limit
-        prefix = safe_byte_prefix(bin, limit)
-        prefix <> " ... <#{dropped} bytes truncated>"
+    if byte_size(bin) <= limit or truncated?(bin, limit) do
+      bin
+    else
+      prefix = safe_byte_prefix(bin, limit)
+      dropped = byte_size(bin) - byte_size(prefix)
+      prefix <> " ... <#{dropped} bytes truncated>"
     end
   end
 
@@ -159,18 +139,45 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   """
   @spec apply_redactions(binary(), list()) :: binary()
   def apply_redactions(bin, patterns) when is_binary(bin) and is_list(patterns) do
-    Enum.reduce(patterns, bin, fn pattern, acc ->
-      regex = compile_pattern(pattern)
-      Regex.replace(regex, acc, @redact_replacement)
-    end)
+    Redactor.apply_patterns(bin, compile_patterns!(patterns))
   end
 
-  # ---- internals ----
+  @doc false
+  def source(nil), do: nil
+
+  def source(value) when is_binary(value), do: truncate(text(value), @default_byte_size_limit)
+
+  defp text(value) do
+    value
+    |> String.replace_invalid()
+    |> String.replace(~r/[\x00-\x08\x0B-\x1F\x7F-\x9F]/u, "")
+  end
 
   defp configured_patterns do
-    case Application.get_env(:mutagen_ex, :redact, []) do
-      list when is_list(list) -> list
-      _ -> []
+    Process.get(__MODULE__) || Application.get_env(:mutagen_ex, :redact, [])
+  end
+
+  defp compile_patterns!([%Regex{} | _] = patterns) do
+    if Enum.all?(patterns, &is_struct(&1, Regex)), do: patterns, else: compile_sources!(patterns)
+  end
+
+  defp compile_patterns!([]), do: []
+  defp compile_patterns!(patterns), do: compile_sources!(patterns)
+
+  defp compile_sources!(patterns) do
+    case Redactor.compile(patterns) do
+      {:ok, compiled} -> compiled
+      :error -> raise ArgumentError, "invalid mutagen :redact configuration"
+    end
+  end
+
+  defp truncated?(bin, limit) do
+    if byte_size(bin) <= limit + 40 do
+      offset = max(0, limit - 3)
+      tail = binary_part(bin, offset, byte_size(bin) - offset)
+      Regex.match?(~r/\A.{0,3} \.\.\. <[1-9][0-9]* bytes truncated>\z/s, tail)
+    else
+      false
     end
   end
 
@@ -184,41 +191,15 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
     end
   end
 
-  defp compile_pattern(%Regex{} = re), do: re
-
-  defp compile_pattern(source) when is_binary(source) do
-    Regex.compile!(source)
+  defp safe_byte_prefix(bin, limit) do
+    aligned_byte_prefix(bin, limit)
   end
 
-  # Find the largest codepoint-aligned prefix of `bin` that fits in
-  # `limit` bytes. We walk the binary by grapheme so a 4-byte emoji at
-  # the boundary is never split mid-codepoint.
-  defp safe_byte_prefix(bin, limit) when is_binary(bin) do
-    case String.valid?(bin) do
-      true -> safe_utf8_prefix(bin, limit)
-      false -> binary_part(bin, 0, limit)
-    end
-  end
-
-  defp safe_utf8_prefix(bin, limit) do
-    do_safe_utf8_prefix(bin, limit, <<>>)
-  end
-
-  defp do_safe_utf8_prefix(<<>>, _limit, acc), do: acc
-
-  defp do_safe_utf8_prefix(rest, limit, acc) do
-    case String.next_grapheme(rest) do
-      nil ->
-        acc
-
-      {grapheme, tail} ->
-        gsize = byte_size(grapheme)
-
-        if byte_size(acc) + gsize > limit do
-          acc
-        else
-          do_safe_utf8_prefix(tail, limit, acc <> grapheme)
-        end
+  defp aligned_byte_prefix(bin, limit) do
+    if Bitwise.band(:binary.at(bin, limit), 0b11000000) == 0b10000000 do
+      aligned_byte_prefix(bin, limit - 1)
+    else
+      binary_part(bin, 0, limit)
     end
   end
 end
@@ -274,7 +255,9 @@ defmodule MutagenEx.JsonReporter.Report do
             aborted: false,
             abort_reason: nil,
             details: nil,
-            truncated: false
+            truncated: false,
+            source: true,
+            include_host_output: false
 
   @type t :: %__MODULE__{
           meta: map() | nil,
@@ -283,11 +266,13 @@ defmodule MutagenEx.JsonReporter.Report do
           baseline: map() | nil,
           coverage: map() | nil,
           mutation: map() | nil,
-          warnings: [String.t()],
+          warnings: [String.t() | {atom(), String.t()}],
           aborted: boolean(),
           abort_reason: String.t() | nil,
           details: map() | nil,
-          truncated: boolean()
+          truncated: boolean(),
+          source: boolean(),
+          include_host_output: boolean()
         }
 end
 
@@ -366,7 +351,9 @@ defmodule MutagenEx.JsonReporter do
           | :no_tests_match
           | :invalid_target
           | :invalid_line
-          | :tag_walk_failed
+          | :function_not_found
+          | :invalid_tag_name
+          | :invalid_max_concurrency
           | :self_mutation_refused
           | :cover_already_running
           | :cover_module_unavailable
@@ -395,6 +382,9 @@ defmodule MutagenEx.JsonReporter do
           | :invalid_boot_timeout
           | :umbrella_root
           | :after_suite_failed
+          | :coverage_timeout
+          | :baseline_timeout
+          | :invalid_redact_config
           | :no_tests_run
 
   @doc """
@@ -456,22 +446,221 @@ defmodule MutagenEx.JsonReporter do
       "tests" => tests_to_wire(r.tests),
       "baseline" => baseline_to_wire(r.baseline),
       "coverage" => coverage_to_wire(r.coverage),
-      "mutation" => mutation_to_wire(r.mutation),
-      "warnings" => Enum.map(r.warnings || [], &Sanitizer.clean/1),
+      "mutation" => mutation_to_wire(r.mutation, r),
+      "warnings" => warnings_to_wire(r.warnings || [], r),
       "aborted" => r.aborted == true,
       "abort_reason" => r.abort_reason,
-      "details" => details_to_wire(r.details),
+      "details" => details_to_wire(r.details, r.abort_reason, r.include_host_output),
       "truncated" => r.truncated == true
     }
   end
 
-  defp details_to_wire(nil), do: %{}
+  @structured_details ~w(file line column origin_file origin_line module exception reason phase step
+                          note flag site_id passed failed failures excluded skipped include exclude
+                          limit cap count actual max_sites)a
 
-  defp details_to_wire(%{} = details) do
+  defp details_to_wire(details, reason, include_host_output) do
+    details = details || %{}
+
+    details =
+      if include_host_output do
+        details
+      else
+        details
+        |> Map.take(@structured_details)
+        |> Map.reject(fn {key, value} -> key == :reason and not is_atom(value) end)
+      end
+
     details
-    |> Map.replace_lazy(:failures, fn failures -> Enum.map(failures, &failure_to_wire/1) end)
+    |> Map.replace_lazy(:failures, fn failures -> Enum.map(failures, &failure_fields/1) end)
+    |> Map.drop([:include, :exclude])
     |> detail_value_to_wire()
+    |> put_filter_details(details)
+    |> put_hint(reason)
   end
+
+  defp put_filter_details(wire, details) do
+    Enum.reduce([:include, :exclude], wire, fn key, acc ->
+      case Map.fetch(details, key) do
+        {:ok, filters} when is_list(filters) ->
+          Map.put(acc, Atom.to_string(key), Enum.map(filters, &filter_to_wire/1))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp put_hint(details, nil), do: details
+
+  defp put_hint(details, reason) do
+    details
+    |> Map.put("hint", hint(reason))
+    |> Map.put_new(
+      "note",
+      "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
+    )
+  end
+
+  defp hint(reason) do
+    case reason do
+      "missing_scope" ->
+        "Pass --scope with a source file, module or function."
+
+      "missing_tests" ->
+        "Pass --tests with a test file, location or tag."
+
+      "invalid_timeout" ->
+        "Pass a positive integer to --timeout-ms."
+
+      "invalid_seed" ->
+        "Pass a non-negative integer to --seed."
+
+      "invalid_boot_timeout" ->
+        "Pass a positive integer to --boot-timeout-ms."
+
+      "invalid_budget_ms" ->
+        "Pass a positive integer to --budget-ms."
+
+      "invalid_max_sites" ->
+        "Pass a positive integer to --max-sites."
+
+      "invalid_max_concurrency" ->
+        "Pass a positive integer to --max-concurrency."
+
+      "invalid_redact_config" ->
+        "Set :mutagen_ex, :redact to a list of valid regular expressions."
+
+      "invalid_mix_env" ->
+        "Run the command with MIX_ENV=test."
+
+      "umbrella_root" ->
+        "Run from the umbrella child that owns the tests."
+
+      "runtime_load_failed" ->
+        "Reinstall the mutagen_ex archive and check for module name collisions."
+
+      "host_loadpaths_failed" ->
+        "Run mix loadpaths in the host test environment."
+
+      "host_compile_failed" ->
+        "Run mix compile in the host test environment."
+
+      "host_app_start_failed" ->
+        "Check runtime configuration and host application startup."
+
+      "test_alias_failed" ->
+        "Run the host test alias and check its setup steps."
+
+      "host_setup_timeout" ->
+        "Check the named startup step or increase --boot-timeout-ms."
+
+      "test_helper_load_failed" ->
+        "Check the test helper at the reported location."
+
+      "after_suite_failed" ->
+        "Check the host's ExUnit.after_suite callbacks."
+
+      "coverage_timeout" ->
+        "Narrow --tests or increase the coverage deadline."
+
+      "baseline_timeout" ->
+        "Narrow --tests or increase the baseline deadline."
+
+      "baseline_red" ->
+        "Fix the listed failing tests before running mutations."
+
+      "no_tests_run" ->
+        "Check the cited tests and the effective ExUnit filters."
+
+      "module_not_found" ->
+        "Check the module name and that its source compiles."
+
+      "function_not_found" ->
+        "Check the function name and arity against the source."
+
+      "arity_required" ->
+        "Use Module.function/arity for a function scope."
+
+      "colon_syntax_unsupported" ->
+        "Use Module.function/arity for a function scope."
+
+      "unrecognised_target" ->
+        "Check the format of the scope target."
+
+      "file_not_found" ->
+        "Check that the selected source or test file exists."
+
+      "file_read_failed" ->
+        "Check permissions on the reported file."
+
+      "parse_error" ->
+        "Fix the syntax at the reported file and line."
+
+      "no_tests_match" ->
+        "Choose a test target that resolves to a test file."
+
+      "invalid_target" ->
+        "Use a test file, file:line or tag:name as the test target."
+
+      "invalid_line" ->
+        "Use a positive test line number."
+
+      "invalid_tag_name" ->
+        "Check the spelling and format of the test tag."
+
+      "self_mutation_refused" ->
+        "Choose a scope outside MutagenEx."
+
+      "cover_already_running" ->
+        "Stop existing OTP coverage before running mutagen."
+
+      "cover_module_unavailable" ->
+        "Check that the Erlang tools application is installed."
+
+      "module_beam_missing" ->
+        "Compile the selected module in the host test environment."
+
+      "cover_compile_failed" ->
+        "Check that OTP coverage can instrument the selected module."
+
+      "ex_unit_run_failed" ->
+        "Check the ExUnit setup and formatters for the named phase."
+
+      "test_file_load_failed" ->
+        "Check that the reported test file loads after test_helper.exs."
+
+      "unrecoverable_restore_failure" ->
+        "Start a fresh VM and check the reported module."
+
+      "flag_not_supported_in_v1" ->
+        "Use the JSON report format."
+
+      "invalid_input" ->
+        "Check the arguments passed to mutagen."
+
+      "unknown_flag" ->
+        "Check the supported options with mix help mutagen."
+
+      "unsafe_json_path" ->
+        "Choose a path inside the project root or pass --unsafe-json-outside-project."
+
+      "too_many_targets" ->
+        "Reduce the number of scope or test targets."
+
+      "too_many_sites" ->
+        "Narrow --scope or increase --max-sites."
+
+      _ ->
+        "Check the inputs and diagnostics on stderr."
+    end
+  end
+
+  defp failure_fields({module, name}), do: %{module: inspect(module), name: to_string(name)}
+  defp failure_fields(%{module: module, name: name}), do: failure_fields({module, name})
+
+  defp failure_fields(%{"module" => _, "name" => _} = failure),
+    do: Map.take(failure, ~w(module name))
 
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
@@ -484,10 +673,10 @@ defmodule MutagenEx.JsonReporter do
 
   defp detail_value_to_wire(list) when is_list(list), do: Enum.map(list, &detail_value_to_wire/1)
   defp detail_value_to_wire(value) when is_boolean(value), do: value
-  defp detail_value_to_wire(value) when is_atom(value), do: Atom.to_string(value)
+  defp detail_value_to_wire(nil), do: nil
+  defp detail_value_to_wire(value) when is_atom(value), do: Sanitizer.clean(Atom.to_string(value))
   defp detail_value_to_wire(value) when is_binary(value), do: Sanitizer.clean(value)
   defp detail_value_to_wire(value) when is_integer(value), do: value
-  defp detail_value_to_wire(nil), do: nil
 
   defp detail_value_to_wire(value) do
     value
@@ -521,9 +710,9 @@ defmodule MutagenEx.JsonReporter do
     Enum.map(records, fn
       %{file: file, line_range: %Range{first: f, last: l}, module: mod} ->
         %{
-          "file" => to_string(file),
+          "file" => Sanitizer.clean(to_string(file)),
           "line_range" => [f, l],
-          "module" => inspect(mod)
+          "module" => Sanitizer.clean(inspect(mod))
         }
     end)
   end
@@ -534,7 +723,7 @@ defmodule MutagenEx.JsonReporter do
     %{
       "include" => Enum.map(include, &filter_to_wire/1),
       "exclude" => Enum.map(exclude, &filter_to_wire/1),
-      "files" => Enum.map(files, &to_string/1)
+      "files" => Enum.map(files, &Sanitizer.clean(to_string(&1)))
     }
   end
 
@@ -605,16 +794,16 @@ defmodule MutagenEx.JsonReporter do
             is_list(lines) -> Enum.sort(lines)
           end
 
-        {to_string(file), sorted}
+        {Sanitizer.clean(to_string(file)), sorted}
       end)
       |> Enum.into(%{})
 
     %{"covered_lines" => wire}
   end
 
-  defp mutation_to_wire(nil), do: nil
+  defp mutation_to_wire(nil, _options), do: nil
 
-  defp mutation_to_wire(%{} = m) do
+  defp mutation_to_wire(%{} = m, options) do
     %{
       "total" => Map.get(m, :total, 0),
       "completed" => Map.get(m, :completed, 0),
@@ -623,52 +812,99 @@ defmodule MutagenEx.JsonReporter do
       "timeout" => Map.get(m, :timeout, 0),
       "compile_error" => Map.get(m, :compile_error, 0),
       "kill_rate" => Map.get(m, :kill_rate, nil),
-      "results" => Enum.map(Map.get(m, :results, []), &result_to_wire/1),
+      "results" => Enum.map(Map.get(m, :results, []), &result_to_wire(&1, options)),
       "skipped" => Enum.map(Map.get(m, :skipped, []), &skipped_to_wire/1),
-      "compile_errors" => Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire/1),
+      "compile_errors" =>
+        Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire(&1, options)),
       "state_drift_warning" => state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
     }
   end
 
   @doc false
-  def result_to_wire(%{} = result) do
-    mutator = Map.fetch!(result, :mutator)
-
-    %{
-      "id" => Map.fetch!(result, :id),
-      "function" => Map.get(result, :function),
-      "file" => to_string(Map.fetch!(result, :file)),
-      "line" => Map.fetch!(result, :line),
-      "column" => Map.fetch!(result, :column),
-      "mutator" => Atom.to_string(mutator),
-      "confidence" => mutator |> Mutators.confidence() |> Atom.to_string(),
-      "before" => Map.fetch!(result, :before),
-      "before_source" => Map.fetch!(result, :before_source),
-      "after" => Map.fetch!(result, :after),
+  def result_to_wire(%{} = result, options \\ %Report{}) do
+    result
+    |> site_to_wire(options)
+    |> Map.merge(%{
       "status" => Atom.to_string(Map.fetch!(result, :status)),
       "tainted_predecessors" => Map.get(result, :tainted_predecessors, false) == true,
-      "warnings" => Enum.map(Map.get(result, :warnings, []), &Sanitizer.clean/1)
+      "warnings" => warnings_to_wire(Map.get(result, :warnings, []), options)
+    })
+    |> put_source(result, options)
+  end
+
+  defp site_to_wire(site, options) do
+    mutator = Map.fetch!(site, :mutator)
+
+    wire = %{
+      "id" => Sanitizer.clean(Map.fetch!(site, :id)),
+      "line" => Map.fetch!(site, :line),
+      "column" => Map.fetch!(site, :column),
+      "mutator" => Atom.to_string(mutator),
+      "confidence" => mutator |> Mutators.confidence() |> Atom.to_string()
     }
+
+    if options.source do
+      Map.merge(wire, %{
+        "file" => Sanitizer.clean(to_string(Map.fetch!(site, :file))),
+        "function" => Sanitizer.source(Map.get(site, :function))
+      })
+    else
+      wire
+    end
+  end
+
+  defp put_source(wire, result, %{source: true}) do
+    Enum.reduce([:before, :before_source, :after], wire, fn key, acc ->
+      Map.put(acc, Atom.to_string(key), Sanitizer.source(Map.fetch!(result, key)))
+    end)
+  end
+
+  defp put_source(wire, _result, _options), do: wire
+
+  defp warnings_to_wire(warnings, options) do
+    Enum.flat_map(warnings, fn
+      {:host_output, text} ->
+        if options.include_host_output, do: [Sanitizer.clean(text)], else: []
+
+      {kind, name} when kind in [:host_process_died, :host_supervisor_changed] ->
+        [Sanitizer.clean("#{kind}: #{name}")]
+
+      text ->
+        [Sanitizer.clean(text)]
+    end)
   end
 
   defp skipped_to_wire(%{} = entry) do
     %{
-      "site_id" => Map.fetch!(entry, :site_id),
+      "site_id" => Sanitizer.clean(Map.fetch!(entry, :site_id)),
       "reason" => Atom.to_string(Map.fetch!(entry, :reason)),
       "mutator" => Atom.to_string(Map.fetch!(entry, :mutator)),
-      "file" => to_string(Map.fetch!(entry, :file))
+      "file" => Sanitizer.clean(to_string(Map.fetch!(entry, :file)))
     }
   end
 
-  defp compile_error_to_wire(%{} = entry) do
-    %{
-      "id" => Map.fetch!(entry, :id),
-      "file" => to_string(Map.fetch!(entry, :file)),
-      "line" => Map.fetch!(entry, :line),
-      "column" => Map.fetch!(entry, :column),
-      "mutator" => Atom.to_string(Map.fetch!(entry, :mutator)),
-      "message" => MutagenEx.JsonReporter.Sanitizer.clean(Map.fetch!(entry, :message))
-    }
+  @doc false
+  def compile_error_to_wire(%{} = entry, options \\ %Report{}) do
+    wire = site_to_wire(entry, options)
+
+    wire =
+      if options.source do
+        Map.put(wire, "diagnostic", "Elixir could not compile the mutated source.")
+      else
+        wire
+      end
+
+    wire =
+      case Map.get(entry, :exception) do
+        nil -> wire
+        exception -> Map.put(wire, "exception", Sanitizer.clean(inspect(exception)))
+      end
+
+    if options.include_host_output do
+      Map.put(wire, "message", Sanitizer.clean(Map.fetch!(entry, :message)))
+    else
+      wire
+    end
   end
 
   defp state_drift_to_wire(%{} = drift) do

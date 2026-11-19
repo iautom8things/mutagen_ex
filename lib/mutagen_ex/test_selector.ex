@@ -108,7 +108,6 @@ defmodule MutagenEx.TestSelector do
           | :invalid_target
           | :invalid_line
           | :file_not_found
-          | :tag_walk_failed
 
   @typedoc "Options accepted by `resolve/2`."
   @type option :: {:test_root, String.t()} | {:test_paths, [String.t()]}

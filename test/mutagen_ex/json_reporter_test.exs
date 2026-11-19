@@ -401,6 +401,7 @@ defmodule MutagenEx.JsonReporterTest do
     test "test_file_load_failed abort has populated sanitized details (s16b)" do
       report = %Report{
         meta: meta_minimum(),
+        include_host_output: true,
         details: %{
           file: "test/foo_test.exs",
           message: "could not load test file \"test/foo_test.exs\"",
@@ -428,6 +429,7 @@ defmodule MutagenEx.JsonReporterTest do
     test "long details message is truncated through the sanitizer (s16c)" do
       report = %Report{
         meta: meta_minimum(),
+        include_host_output: true,
         details: %{message: String.duplicate("x", 10_240)}
       }
 

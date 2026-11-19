@@ -238,15 +238,18 @@ Run `MIX_ENV=test mix mutagen` with either install method. This loads
 can also set `def cli, do: [preferred_envs: [mutagen: :test]]` in `mix.exs`.
 Mix may print dependency discovery output before the task runs. Use
 `MIX_QUIET=1` for a dependency install when parsing stdout directly.
-The task routes the default console Logger handler and ExUnit output to
-stderr.
+The task routes the VM user device, the default console Logger handler,
+and ExUnit output to stderr.
 
 After compiling, the task loads runtime config and runs the host `test`
 alias entries before the `test` task. A Phoenix alias can create and migrate
 the test database there. If the alias lacks those steps or you use
 `--no-test-alias`, create and migrate the test database before invoking
 mutagen. Pass `MIX_TEST_PARTITION` if your configuration uses it to select
-a database.
+a database. Mutagen ignores arguments on the `test` entry and uses
+`--tests` and the helper's ExUnit configuration for selection. Alias
+functions get `[]`. Mutagen ignores their return values. An alias with
+entries and no recognizable `test` entry produces a report warning.
 
 The task starts the host application and requires `test_helper.exs` once
 from each configured `:test_paths` entry, with ExUnit autorun disabled. The
@@ -260,20 +263,30 @@ Whole-file targets honor helper includes and excludes. An explicit tag or
 line target takes precedence when narrowing the test set. A coverage or
 baseline pass that executes no tests aborts with `no_tests_run`. Helper
 formatters run on every pass. A formatter that writes a file may overwrite
-it after each mutant. ExUnit `after_suite` callbacks run once when mutagen
-finishes, including on a reported abort.
+it after each mutant. ExUnit `after_suite` callbacks share a cleanup
+deadline of one second or `--boot-timeout-ms`, whichever is lower.
+Mutagen emits the report with an `after_suite_timeout` warning if cleanup
+takes too long. A callback error before the deadline aborts a successful
+run. An earlier abort keeps its reason.
 
 `--boot-timeout-ms` bounds runtime configuration, the alias pre-steps,
-application startup, and helper evaluation. The default is 300000 ms.
-Compilation happens before that timer starts. If the helper calls
-`System.halt/1`, it terminates the BEAM immediately and prevents reporting.
+application startup, and helper evaluation. Coverage and baseline each
+get a separate deadline of the same length. The default is 300000 ms.
+Compilation happens before the startup timer. The mutation budget starts
+after baseline. If a boot timeout kills an alias step, an OS process it
+started can outlive the BEAM. Use your CI job's process cleanup for such
+steps. A helper that calls `System.halt/1` ends the BEAM before reporting.
 
-Startup errors use the usual report destination. `details.message` gives a
-short redacted summary. Stderr carries the full diagnostic and the host's
-own output, and neither is redacted. Do not publish stderr as a CI
-artifact. Every document from a host setup failure repeats this warning in
-`details.note`. If the task cannot safely write to `--json PATH`, it
-warns on stderr and writes the document to stdout.
+Abort documents include a fixed hint and, where available, the step,
+exception type, file and line. Host diagnostics go to stderr. Do not
+publish stderr as a CI artifact. Abort documents repeat this warning in
+`details.note`.
+
+Use `--json PATH` for CI artifact uploads. The file keeps report data
+separate from output written directly to fd 1 by native code or subprocesses
+and from Mix output before the task starts. Mutagen writes the file with
+mode 0600. If it cannot safely write the file, it warns on stderr and
+writes the report to stdout.
 
 ## Entrypoints
 
@@ -341,6 +354,8 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
 | `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
 | `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
+| `--no-source` | Omit source excerpts, file and function fields from mutation results and compile errors, including stream entries. |
+| `--include-host-output` | Include captured compiler and test stderr and abort messages, with best-effort redaction. |
 | `--no-test-alias` | Skip entries in the host's test alias before the test task. |
 | `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `30000`. Must be positive. Phoenix/Ecto-style apps often need the larger default because setup and supplemental tests can make a single mutation cycle exceed five seconds. |
@@ -484,7 +499,7 @@ path you write to is always the fully-canonical one.
 
 | Key | Purpose |
 |---|---|
-| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]`. Built-in patterns run first whatever this list holds. They redact URL passwords, common token prefixes, and the value after any key with a credential segment, such as `password`, `DATABASE_PASSWORD`, `api-token`, or `AWS_SECRET_ACCESS_KEY`. Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
+| `:redact` | A list of compiled regexes or regex source strings. Mutagen validates it after loading runtime configuration and before the test alias and helper. Invalid entries abort with `invalid_redact_config`. Built-in rules run first. The default adds no custom patterns. |
 
 Set it in `config/config.exs`:
 
@@ -496,18 +511,30 @@ config :mutagen_ex,
   ]
 ```
 
-Independently of `:redact`, **every** free-form text field that
-captures user-code-derived bytes is truncated at 4 KiB. When truncation
-occurs, the emitted string ends with `... <N bytes truncated>` where
-`N` is the byte count that was dropped. The cap is fixed in v1 and
-applies whether `:redact` is set or not.
+The default report contains repository source and structured test metadata.
+Treat it as sensitive as the source. Secrets committed in source can appear
+in the excerpts. Use `--no-source` to omit site source fields. Scope and
+test paths remain in the report, and site IDs still contain source paths.
+
+Default reports omit free-form host text such as exception messages and
+captured compiler or test stderr. Compile errors retain a fixed diagnostic,
+the mutator's confidence, and the exception type when available.
+`--include-host-output` adds the captured diagnostic bodies. Treat that
+report as sensitive as the test output too. Pattern redaction is best-effort.
+It covers common credentials and applies to structured strings such as test
+names and filter values. Logger events stay on stderr. Source excerpts
+keep tabs and newlines and strip other control characters.
+
+Emitted text bodies and source excerpts have a 4 KiB payload cap. Pattern
+redaction runs before the cap. The marker ` ... <N bytes truncated>`
+reports the exact byte count dropped after redaction.
 
 ## Exit codes
 
 | Code | Meaning |
 |---|---|
 | `0` | Pipeline ran to completion. This includes a run where every mutation survived — kill rate of 0.0 is a valid result, not a failure. |
-| non-zero | "Bad input" or unrecoverable error. Every non-zero exit also writes an error-JSON document to stdout (or `--json <path>`). The `reason` field names the abort: `:missing_scope`, `:invalid_timeout`, `:too_many_targets`, `:too_many_sites`, `:invalid_max_sites`, `:invalid_budget_ms`, `:no_tests_match`, `:baseline_red`, `:self_mutation_refused`, `:flag_not_supported_in_v1`, etc. |
+| `2` | Mutagen aborted and wrote an error document to the selected destination. The string field `abort_reason` names the failure, for example `"missing_scope"` or `"baseline_red"`. |
 
 `aborted: true` in the emitted JSON always co-occurs with a non-zero exit;
 `aborted: false` always co-occurs with exit 0.
@@ -735,11 +762,11 @@ regression test for this lives in
 
 ## Performance
 
-`mutagen_ex` ships a benchmark harness at
-`priv/helper_scripts/bench_ast_perf.exs`. It drives the full pipeline
-against `priv/helper_scripts/bench_fixtures/wrd25_200sites/` and
+The source checkout includes a benchmark harness at
+`scripts/helper_scripts/bench_ast_perf.exs`. It drives the full pipeline
+against `scripts/helper_scripts/bench_fixtures/wrd25_200sites/` and
 reports wall-clock, per-site time, peak `:erlang.memory/0`, and the
-SHA-256 of the emitted NDJSON. Run with `mix run priv/helper_scripts/
+SHA-256 of the emitted NDJSON. Run with `mix run scripts/helper_scripts/
 bench_ast_perf.exs`; pass `--baseline <path>` to capture a run for
 later comparison and `--compare <path>` to score a fresh run against a
 prior baseline.
