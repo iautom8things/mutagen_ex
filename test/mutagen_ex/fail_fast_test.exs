@@ -98,7 +98,7 @@ defmodule MutagenEx.FailFastTest do
 
     assert full["meta"]["fail_fast"] == false
     assert capped["meta"]["fail_fast"] == true
-    assert full["version"] == capped["version"] and capped["version"] == "1"
+    assert full["version"] == capped["version"] and capped["version"] == "2"
     assert verdicts(full) == verdicts(capped)
     assert survivor_ids(full) == survivor_ids(capped)
     assert Enum.map(verdicts(capped), &elem(&1, 1)) == ~w(killed killed killed survived)
@@ -214,12 +214,15 @@ defmodule MutagenEx.FailFastTest do
         test_filter: %MutagenEx.TestSelector.TestFilter{include: [], exclude: [], files: []},
         ast_cache: %{},
         sites: [],
-        scope_records: [],
+        scope_records: [
+          %MutagenEx.ScopeResolver.Scope{
+            file: @source,
+            line_range: 1..1,
+            module: FailFastFixture.Arithmetic
+          }
+        ],
         test_modules: [],
-        on_cache_built: fn _ ->
-          assert Application.fetch_env!(:ex_unit, :max_failures) == 1
-          raise "mutation phase interrupted"
-        end
+        code_server: __MODULE__.InterruptingCodeServer
       })
     end
 
@@ -316,7 +319,9 @@ defmodule MutagenEx.FailFastTest do
              Mix.Tasks.Mutagen.run(["--bogus"], %{io: __MODULE__.Capture})
 
     assert_receive {:mutagen_output, 2, output}
-    assert %{"version" => "1", "meta" => %{"fail_fast" => true}} = :json.decode(output)
+
+    assert %{"version" => "2", "meta" => %{"id_scheme" => "2", "fail_fast" => true}} =
+             :json.decode(output)
   end
 
   defp assert_host_settings do
@@ -383,6 +388,21 @@ defmodule MutagenEx.FailFastTest do
     Enum.zip_with(verdicts(full), verdicts(capped), fn {_, before}, {_, after_status} ->
       {before, after_status}
     end)
+  end
+
+  defmodule InterruptingCodeServer do
+    @behaviour MutagenEx.Test.CodeServerFacade
+
+    import ExUnit.Assertions
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def get_object_code(_module) do
+      assert Application.fetch_env!(:ex_unit, :max_failures) == 1
+      raise "mutation phase interrupted"
+    end
+
+    @impl MutagenEx.Test.CodeServerFacade
+    def load_binary(_module, _filename, _binary), do: {:error, :unexpected_load}
   end
 
   defmodule SlowFormatter do

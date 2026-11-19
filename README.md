@@ -581,7 +581,8 @@ enumerated in the [Exit codes](#exit-codes) section.
     "tool_version": "0.1.0",
     "elixir_version": "1.19.6",
     "otp_version": "28",
-    "exunit_seed": 0
+    "exunit_seed": 0,
+    "fail_fast": true
   },
   // Phases that never ran are null rather than empty objects.
   "scope": [],
