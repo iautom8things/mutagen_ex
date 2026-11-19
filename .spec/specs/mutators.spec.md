@@ -218,9 +218,12 @@ decisions:
 - id: mutagen.mutators.r12
   priority: must
   statement: |
-    Site IDs and group fingerprints use the same canonical encoding and
-    lowercase MD5. A site ID hashes its lexical identity tuple. A group
-    fingerprint hashes its list of normalized clause or statement ASTs.
+    Site IDs and group fingerprints use
+    `MutagenEx.Mutators.identity_hash/1` and
+    `MutagenEx.Mutators.identity_hash/2` with the same canonical encoding
+    and lowercase MD5. A site ID hashes its lexical identity tuple. A
+    group fingerprint hashes its list of normalized clause or statement
+    ASTs without materializing the normalized trees.
 ```
 
 ```spec-scenarios

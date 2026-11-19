@@ -194,9 +194,13 @@ decisions:
 - id: mutagen.mutation_enumeration.r12
   priority: must
   statement: |
-    A group's fingerprint is the lowercase MD5 of the canonical identity
+    `MutagenEx.MutationEnumerator.group_fingerprints/1` returns each
+    group's lowercase MD5 of the canonical identity
     encoding of its list of normalized clauses or statements in file walk
-    order. Planned entries carry the fingerprint of their existing ID
+    order. A nested module or definition contributes its boundary to the
+    outer group's AST and contributes its own sites to its own group.
+    Planned enumeration hashes only groups that own a planned site or
+    skip. Each planned entry carries the fingerprint of its existing ID
     group. Formatting, comments, blank lines, and edits outside the group
     preserve the fingerprint. For named definitions, matching fingerprints
     preserve the mapping from ID to clause occurrence and path within that
@@ -206,11 +210,16 @@ decisions:
 - id: mutagen.mutation_enumeration.r13
   priority: must
   statement: |
-    Planned enumeration selects sites whose inclusive span from `line`
-    through `end_line || line` overlaps a supplied changed-line range in
-    the same file. It ignores coverage and retains validator skips in the
-    skipped list with the same planned metadata. Enumeration without
-    planned mode keeps the coverage filter and result shape.
+    Planned enumeration selects sites whose inclusive source range
+    overlaps a supplied changed-line range in the same file. The source
+    range spans the line, closing, end and end-of-expression metadata in
+    the subtree. A subtree without positions uses its nearest positioned
+    ancestor's range. Changed lines accept positive, ascending inclusive
+    ranges or endpoint pairs. Malformed inputs raise `ArgumentError`.
+    Planning ignores coverage and retains validator skips with planned
+    metadata. `MutagenEx.MutationEnumerator.to_site/1` converts a planned
+    site into the corresponding runner site struct. Classic enumeration
+    keeps the coverage filter and result shape.
 
 - id: mutagen.mutation_enumeration.r14
   priority: must
@@ -222,17 +231,21 @@ decisions:
 - id: mutagen.mutation_enumeration.r15
   priority: must
   statement: |
-    From a file's planned entries, fingerprint scope keeps only entries
+    `MutagenEx.MutationEnumerator.fingerprint_scope/2` keeps only entries
     whose group is absent from the base source or has a different
-    fingerprint there. A new file scopes all its planned entries. A base
+    fingerprint there. It parses the base with `MutagenEx.AstCache.parse/2` and
+    hashes only keys present in the supplied entries. A new file scopes
+    all its planned entries. A base
     source that fails to parse scopes all the planned entries and returns
     a warning.
 
 - id: mutagen.mutation_enumeration.r16
   priority: must
   statement: |
-    Each planned runtime entry belongs to exactly one outcome bucket by
-    ID. Killed, survived, timed-out, skipped, and compile-error entries
+    `MutagenEx.MutationEnumerator.partition_planned_runtime_sites/2` puts
+    each planned runtime entry in exactly one bucket by ID and rejects
+    duplicate planned IDs with `ArgumentError`. Killed, survived,
+    timed-out, skipped, and compile-error entries
     are evaluated. Runner errors are not run. IDs absent from all run
     output are uncovered candidates pending the coverage decision.
 ```

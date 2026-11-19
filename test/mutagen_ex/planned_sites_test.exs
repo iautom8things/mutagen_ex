@@ -35,6 +35,9 @@ defmodule MutagenEx.PlannedSitesTest do
     assert Mutators.site_id(@file_path, identity, :arith) ==
              "#{@file_path}:#{Mutators.identity_hash(identity)}:arith"
 
+    quoted = parse("quote do: {x.field, x.field(), Mod.fun(), %{value: [1, 0]}}")
+    assert Mutators.identity_hash([quoted], :ast_list) == digest([quoted])
+
     for entry <- ast |> plan_ast() |> planned_entries() do
       assert entry.fingerprint ==
                Map.fetch!(MutationEnumerator.group_fingerprints(ast), entry.group_key)
@@ -161,6 +164,218 @@ defmodule MutagenEx.PlannedSitesTest do
              )
   end
 
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "a changed trailing result tuple is planned on its own line" do
+    source =
+      module_source("""
+      def target(x) do
+        y = x * 2
+        {:error, y}
+      end
+      """)
+
+    assert %{sites: [%{mutator: :result_tuple} = site]} = plan(source, [4..4])
+    base = String.replace(source, ":error", ":ok")
+    assert MutationEnumerator.fingerprint_scope([site], base) == {[site], []}
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "a changed with-body result tuple is planned without including the binding tuple" do
+    source =
+      module_source("""
+      def target(x) do
+        with {:ok, y} <- fetch(x) do
+          {:ok, y}
+        end
+      end
+      """)
+
+    assert [%{mutator: :result_tuple}] =
+             Enum.filter(plan(source, [4..4]).sites, &(&1.mutator == :result_tuple))
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "a change at the first stage plans the whole multiline pipeline" do
+    source =
+      module_source("""
+      def target(x) do
+        x
+        |> first()
+        |> second()
+      end
+      """)
+
+    assert %{sites: [%{mutator: :pipeline}]} = plan(source, [3..3])
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "bare literals in a multiline list use the nearest positioned ancestor's range" do
+    source =
+      module_source("""
+      def target(_x) do
+        [
+          1,
+          0
+        ]
+      end
+      """)
+
+    assert %{sites: [%{mutator: :literal}, %{mutator: :literal}]} = plan(source, [5..5])
+    assert %{sites: []} = plan(source, [8..8])
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "planning accepts diff endpoint pairs and validates the whole input at the boundary" do
+    ast = parse(module_source("def target(x), do: x + 1"))
+    cache = %{@file_path => ast}
+    scopes = [scope(@file_path, Sample, 1..3)]
+    enumerate = &MutationEnumerator.enumerate(cache, scopes, %{}, planned: &1)
+    assert enumerate.(%{@file_path => [{2, 2}]}) == enumerate.(%{@file_path => [2..2]})
+    assert %{sites: [_ | _]} = enumerate.(%{@file_path => [{2, 2}]})
+
+    for invalid <- [nil, [], 1..2, %{bad_key: [1..2]}, %{@file_path => {1, 2}}, %{"" => []}] do
+      assert_raise ArgumentError, ~r/:planned.*map/, fn -> enumerate.(invalid) end
+    end
+
+    for invalid <- [{0, 2}, {3, 1}, {1, :end}, 3..1//-1, 1..5//2, :wrong] do
+      assert_raise ArgumentError, ~r/:planned.*range/, fn ->
+        enumerate.(%{"lib/unselected.ex" => [invalid]})
+      end
+    end
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "planned sites convert to the exact runner structs" do
+    file = @file_path
+    ast = parse(module_source("def target(x), do: x + 1"))
+    scopes = [scope(file, Sample, 1..3)]
+    classic = MutationEnumerator.enumerate(%{file => ast}, scopes, %{file => MapSet.new(1..3)})
+
+    assert classic.sites == Enum.map(plan_ast(ast).sites, &MutationEnumerator.to_site/1)
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r13"
+  test "planning a whole cached file agrees with checking its individual spans" do
+    source = module_source("def target(x), do: {:ok, [x + 1, 0]}")
+    ast = parse(source)
+    scopes = [scope(@file_path, Sample, 1..3)]
+    opts = [planned: %{@file_path => [{1, 3}]}]
+
+    assert MutationEnumerator.enumerate(%{@file_path => {ast, source}}, scopes, %{}, opts) ==
+             MutationEnumerator.enumerate(%{@file_path => ast}, scopes, %{}, opts)
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "swapping clauses of one function changes its fingerprint" do
+    first = "def target(0), do: 1"
+    second = "def target(x), do: x + 1"
+    before = module_source(Enum.join([first, second], "\n"))
+    after_swap = module_source(Enum.join([second, first], "\n"))
+    refute fingerprint(before) == fingerprint(after_swap)
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "fuzzes matching fingerprints against generated body edits and checks IDs and paths" do
+    :rand.seed(:exsss, {980, 31, 47})
+
+    comparisons =
+      for _ <- 1..100 do
+        expressions =
+          for _ <- 1..:rand.uniform(5), do: Enum.random(["x + 1", "x - 0", "{x, 1, 1}"])
+
+        change = Enum.random(expressions ++ ["x * 0", "{1, x, 1}"])
+        edited = List.replace_at(expressions, :rand.uniform(length(expressions)) - 1, change)
+
+        source = fn expressions ->
+          module_source("def target(x), do: run(#{Enum.join(expressions, ", ")})")
+        end
+
+        before = source.(expressions)
+        after_edit = format(source.(edited), Enum.random([34, 55, 98]))
+        same? = fingerprint(before) == fingerprint(after_edit)
+
+        if same? do
+          assert id_paths(target_sites(before)) == id_paths(target_sites(after_edit))
+        end
+
+        same?
+      end
+
+    assert true in comparisons
+    assert false in comparisons
+  end
+
+  @tag spec: ["mutagen.mutation_enumeration.r12", "mutagen.mutation_enumeration.r15"]
+  test "only groups with planned sites or skips are hashed in the current and base ASTs" do
+    source = """
+    defmodule Sample do
+      def target(xs), do: Enum.map(xs, & &1)
+      def other(x), do: x * 1
+    end
+    """
+
+    {entries, hashes} = trace_group_hashes(fn -> planned_entries(plan(source, [2..2])) end)
+    assert [%{reason: :structurally_invalid, group_key: @group}] = entries
+    assert [clauses] = hashes
+    assert [{:def, _, [{:target, _, _} | _]}] = clauses
+
+    {{[], []}, base_hashes} =
+      trace_group_hashes(fn -> MutationEnumerator.fingerprint_scope(entries, source) end)
+
+    assert base_hashes == hashes
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r15"
+  test "the base fingerprint scope parses source through AstCache" do
+    source = module_source("def target(x), do: x + 1")
+    entries = plan(source).sites
+
+    assert {{[], []}, [[_file, ^source]]} =
+             trace_calls({MutagenEx.AstCache, :parse, 2}, fn ->
+               MutationEnumerator.fingerprint_scope(entries, source)
+             end)
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r12"
+  test "nested module and definition bodies belong to their own fingerprint groups" do
+    source = """
+    defmodule Sample do
+      if @enabled == 1 do
+        defmodule Inner do
+          def inner(x), do: x + 1
+        end
+
+        def target(x), do: x - 1
+      end
+    end
+    """
+
+    before = MutationEnumerator.group_fingerprints(parse(source))
+    nested_edit = String.replace(source, "x + 1", "x * 1")
+    both_edits = String.replace(nested_edit, "x - 1", "x / 1")
+
+    inner = {Sample.Inner, :inner, 1}
+    after_edit = MutationEnumerator.group_fingerprints(parse(both_edits))
+    refute before[inner] == after_edit[inner]
+    refute before[@group] == after_edit[@group]
+    assert Map.drop(before, [inner, @group]) == Map.drop(after_edit, [inner, @group])
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r14"
+  test "runtime classification uses syntax for compile-time calls and unquotes" do
+    plan =
+      plan(
+        module_source("""
+        def compile_time(x), do: x + 1
+        @limit compile_time(10)
+        def ast(x), do: quote(do: foo(unquote(x + 1)))
+        """)
+      )
+
+    assert %{runtime?: true} = Enum.find(plan.sites, &(&1.function == "Sample.compile_time/1"))
+    assert %{runtime?: false} = Enum.find(plan.sites, &(&1.function == "Sample.ast/1"))
+  end
+
   @tag spec: "mutagen.mutation_enumeration.r14"
   test "only named def and defp sites outside quotes are runtime sites" do
     for {body, expected} <- [
@@ -234,11 +449,11 @@ defmodule MutagenEx.PlannedSitesTest do
     assert Enum.all?(new_group, &(&1.group_key == {Sample, :new, 1}))
     assert MutationEnumerator.fingerprint_scope(new_group, base) == {new_group, []}
 
-    renamed = String.replace(base, "def target", "def renamed")
-    renamed_group = renamed |> plan([3..4]) |> planned_entries()
-    assert renamed_group != []
-    assert Enum.all?(renamed_group, &(&1.group_key == {Sample, :renamed, 1}))
-    assert MutationEnumerator.fingerprint_scope(renamed_group, base) == {renamed_group, []}
+    rename_base = module_source("def target(x \\\\ 1) do\n  x + 1\nend")
+    renamed = String.replace(rename_base, "def target", "def renamed")
+    renamed_group = renamed |> plan([2..2]) |> planned_entries()
+    assert [%{group_key: {Sample, :renamed, 1}, mutator: :literal}] = renamed_group
+    assert MutationEnumerator.fingerprint_scope(renamed_group, rename_base) == {renamed_group, []}
 
     assert MutationEnumerator.fingerprint_scope(changed, :absent) == {changed, []}
 
@@ -330,6 +545,58 @@ defmodule MutagenEx.PlannedSitesTest do
              uncovered_candidate: [missing],
              not_run: [error]
            }
+  end
+
+  @tag spec: "mutagen.mutation_enumeration.r16"
+  test "outcome partition rejects duplicate planned IDs" do
+    [first | _] = plan(module_source("def target(x), do: x + 1")).sites
+    output = %{results: [], skipped: [], compile_errors: []}
+
+    assert_raise ArgumentError, ~r/duplicate planned.*ID/, fn ->
+      MutationEnumerator.partition_planned_runtime_sites([first, first], output)
+    end
+  end
+
+  defp trace_group_hashes(fun) do
+    {result, calls} = trace_calls({Mutators, :identity_hash, 2}, fun)
+    {result, for([nodes, :ast_list] <- calls, do: nodes)}
+  end
+
+  defp trace_calls(mfa, fun) do
+    session = :trace.session_create(:planned_sites, self(), [])
+    :trace.function(session, mfa, true, [])
+
+    parent = self()
+    on_exit(fn -> :trace.session_destroy(session) end)
+
+    task =
+      Task.async(fn ->
+        :trace.process(session, self(), true, [:call])
+        result = fun.()
+        send(parent, {:groups_ready, self()})
+
+        receive do
+          :read_result -> result
+        end
+      end)
+
+    assert_receive {:groups_ready, pid} when pid == task.pid, 1_000
+    ref = :trace.delivered(session, task.pid)
+    hashes = receive_calls(task.pid, ref, [])
+    send(task.pid, :read_result)
+    {Task.await(task), hashes}
+  end
+
+  defp receive_calls(pid, ref, acc) do
+    receive do
+      {:trace, ^pid, :call, {_module, _function, args}} ->
+        receive_calls(pid, ref, [args | acc])
+
+      {:trace_delivered, ^pid, ^ref} ->
+        Enum.reverse(acc)
+    after
+      1_000 -> flunk("trace was not delivered")
+    end
   end
 
   defp module_source(body), do: "defmodule Sample do\n" <> body <> "\nend\n"
