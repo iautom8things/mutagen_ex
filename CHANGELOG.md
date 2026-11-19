@@ -71,8 +71,12 @@ file for traceability.
   cleans up state for another, skipping it can change later mutants'
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
-- `mix mutagen` requires `MIX_ENV=test` for both dependency and archive
-  installs so Mix loads test configuration and compiles test support.
+- **Breaking:** Select the test environment for `mix mutagen` via
+  `MIX_ENV=test`, an explicit custom test environment, or Mix's preferred
+  environment settings. An implicit non-test environment now aborts.
+- Mutagen runs host test-alias pre-steps before application startup. Use
+  `--no-test-alias` to skip them or `--boot-timeout-ms` to set the startup
+  deadline after compilation.
 
 - **Fewer equivalent `with_swap` mutations.** For independent clauses,
   the mutator skips swaps when one clause always matches by syntax, both
@@ -106,10 +110,12 @@ file for traceability.
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
 - The CLI loads the host's ExUnit helper once before running cited tests.
-  Ecto Sandbox ownership, Mox expectations, and helper filters work across
-  coverage, baseline, and repeated mutant runs.
+  It honors helper filters, runs after-suite callbacks once, and releases
+  ExUnit processes and their Sandbox owners after a mutant times out.
 - A host compile, application startup, or test helper failure produces the
   usual error JSON at the selected output path.
+- JSON reports redact common credential formats by default. If a report
+  file cannot be written safely, the task warns and writes to stdout.
 
 - **`guard_drop` mutations now run.** The enumerator validates the
   mutated node, but `guard_drop` rejected any node without its `when`
