@@ -119,6 +119,7 @@ defmodule MutagenEx.EndToEndTest do
     3. `coverage.covered_lines` → values replaced with the bitmap's
        byte length so the shape is asserted without bit-level drift.
     4. Remove `meta.timings_ms` before comparing.
+    5. Recursive: same rules applied to nested objects.
 
   Set `REGEN=1 mix test --only e2e_slow` to refresh every golden in
   place (mirrors `MutagenEx.JsonReporterGoldenTest`'s convention).

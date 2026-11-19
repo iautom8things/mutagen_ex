@@ -161,7 +161,6 @@ uses `binding()`, `dbg()` or `__ENV__`. It records skip reasons in
 | `bound_var_used_before_binding` | A variable-shaped name in the moved-first expression also appears as a binding in the now-later pattern. The check ignores module attributes and binary modifiers. |
 | `insufficient_refutable_patterns` | In an independent pair, either match uses an unguarded variable, a wildcard, or a literal pattern with an equal literal expression. |
 | `indistinguishable_failures` | In an independent pair, both expressions are the same literal or read the same variable. |
-| `else_ignores_failure` | An independent pair has a single unguarded variable or wildcard `else` arm whose body ignores the failure. |
 
 The RHS name check can skip a valid swap when the name has an outer binding
 or appears only inside a nested binder or quote. This includes names local
@@ -169,8 +168,9 @@ to `fn`, `case`, `for`, `receive`, `rescue`, nested `with`,
 `match?`, matches and `destructure`. The compiler resolves dependencies
 in guards, pins and binary sizes for kept swaps. Unexpanded macros can
 hide reads and bindings.
-The filters can miss evaluation-order bugs such as writes that run before
-a short circuit or a change in which exception is raised.
+An `else` arm does not affect validation. Even if it ignores the failure
+value, swapping the clauses can run side effects or raise an exception
+that the original order avoided.
 
 ## Self-mutation
 
@@ -570,8 +570,9 @@ the [per-site events](#ndjson-streaming---stream).
 `meta.timings_ms` measures elapsed milliseconds for boot, coverage,
 baseline and mutation. The total also includes work between phases such
 as enumeration, through report assembly. A phase that did not run shows
-zero. For a fixed environment and deterministic tests, `meta.timings_ms`
-is the only non-deterministic report field.
+zero. `meta.timings_ms` is the only report field whose values Mutagen
+itself makes non-deterministic. Captured host output can contain
+timestamps, process identifiers, and references.
 
 ### Successful run
 

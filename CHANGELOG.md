@@ -104,11 +104,11 @@ file for traceability.
   `--no-test-alias` to skip them or `--boot-timeout-ms` to set the startup
   deadline after compilation.
 
-- **Fewer equivalent `with_swap` mutations.** For independent clauses,
-  the mutator skips swaps when one clause always matches by syntax, both
-  failures have the same value by construction, or the sole `else` arm
-  matches an unguarded variable or wildcard and ignores the failure.
-  The report records each skip reason.
+- **`with_swap` validation.** For independent clauses, the mutator skips
+  swaps when one match always succeeds by syntax or the two right-hand
+  sides have the same value by construction. A catchall `else` can still
+  allow the swap to change which calls run. Those sites stay in the
+  report at low confidence.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock
@@ -135,16 +135,19 @@ file for traceability.
 
 ### Fixed
 
-- A reply completed after the deadline counts as a timeout. When fail-fast
+- **Late replies count as timeouts.** When fail-fast
   has already recorded a failure by the deadline, the mutant still counts
   as killed.
-- State-leak warnings name new process registrations, ETS tables and
-  persistent term keys. Logger module caches and Elixir compiler bookkeeping
-  no longer taint later results.
-- ExUnit only registers cases from cited files, so ordinary helper modules
-  in a test file no longer cause `__ex_unit__/0` errors.
-- Timed-out sites drain pending serial ExUnit registrations once.
-- `mix help mutagen` documents `--no-progress`.
+- **State-leak warning details.** The runner reports positive deltas
+  for process registrations, ETS table names and persistent term keys.
+  Same-name replacements, automatic Logger caches, and compiler
+  bookkeeping do not taint later results.
+- **ExUnit case registration.** Mutagen registers only ExUnit cases
+  from cited files. It preserves their parameterization and reuses the
+  case list across phases.
+- **Timeout cleanup.** Timed-out sites drain pending serial ExUnit
+  registrations once.
+- **Progress help.** `mix help mutagen` documents `--no-progress`.
 - **Baseline errors name every failing cited test.** Baseline runs
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
