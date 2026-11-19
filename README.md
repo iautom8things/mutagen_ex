@@ -34,13 +34,17 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   supplying it is a hard error, not a silent fallback. Humans pipe through
   `jq`. See [`.spec/decisions/no_pretty_output_v1.md`](.spec/decisions/no_pretty_output_v1.md).
 
-- **Content-addressed, stable mutation IDs across `mix format`.** Each
-  mutation's `id` is `{relative_file}:{ast_hash}:{mutator_name}`, where the
-  hash is taken over the *normalized AST* (line/column metadata stripped).
-  Re-running after `mix format` reflows the source produces byte-identical
-  IDs, so a judge can ask "did the same mutation survive last week?" and
-  get a meaningful answer. A naive `file:line:col` scheme cannot. See
-  [`.spec/decisions/content_addressed_ids.md`](.spec/decisions/content_addressed_ids.md).
+- **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
+  The hash includes the enclosing module, function name and declared arity,
+  the parsed expression with source positions and presentation metadata
+  removed, and its occurrence among identical expressions for the same
+  mutator. With the same Elixir/OTP version, formatting and unrelated edits
+  preserve IDs when those inputs stay the same. Inserting an identical
+  expression earlier in the same function shifts the later occurrences.
+  Sites outside functions count identical expressions across the file.
+  IDs and reports from earlier versions cannot be compared with version 2.
+  Require `version: "2"` and `meta.id_scheme: "2"` before comparing site IDs.
+  [Mutation ID scheme 2](.spec/decisions/mutation_id_scheme_2.md).
 
 - **Deterministic, serial-by-default execution.** Every phase — baseline,
   coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
@@ -176,14 +180,11 @@ shadow source from a fresh shell.
 
 Run that way against its own high-value modules — the mutator-registry
 (`mutators`), the scope resolver, and the JSON reporter — mutagen_ex's own
-test suite scores **46 of 79 mutants killed, aggregate kill rate 0.58.** The
-run is reproducible to the mutant (content-addressed IDs, serial seeded
-execution): two clean runs on unchanged source produce a byte-identical
-score. The number lands in the same 0.5-0.75 band as the cross-project study
-rather than at a self-congratulatory 0.9+, which is the point — the tool
-holds its own code to the same standard it holds everyone else's, and the
-33 survivors are a standing to-do list of mutation-detectable gaps in
-mutagen_ex's own tests. The harness and its assertions live in
+test suite killed **46 of 79 mutants (0.58)** in the earlier self-mutation run.
+With the same source and Elixir/OTP version, scheme 2 reproduces the site
+IDs. With the same tests, seed, and serial execution, the harness checks a
+kill-rate floor of 0.5. A surviving site's ID can stay the same even when
+edits elsewhere change its behavior. The harness and its assertions live in
 [`test/integration/self_mutation_test.exs`](test/integration/self_mutation_test.exs);
 run it with `mix test --include self_mutation`.
 
@@ -397,10 +398,10 @@ shape is byte-equal to the equivalent entry in the aggregate
 `"kind"` discriminator and the `"version"` literal:
 
 ```
-{"version":"1","kind":"start","total":42,"meta":{...}}
-{"version":"1","kind":"result","id":"...","status":"killed","mutator":"arith",...}
-{"version":"1","kind":"compile_error","id":"...","message":"..."}
-{"version":"1","kind":"end","aborted":false,"abort_reason":null,"kill_rate":0.81,...}
+{"version":"2","kind":"start","total":42,"meta":{"id_scheme":"2",...}}
+{"version":"2","kind":"result","id":"...","function":"MyApp.Counter.add/2","status":"killed","mutator":"arith",...}
+{"version":"2","kind":"compile_error","id":"...","message":"..."}
+{"version":"2","kind":"end","aborted":false,"abort_reason":null,"kill_rate":0.81,...}
 ```
 
 Per-site lines (`"result"` / `"compile_error"`) arrive in **input
@@ -512,8 +513,8 @@ output is plain JSON with no comments.)
 
 ```jsonc
 {
-  // Schema version of this document. Fixed to the literal "1" for v0.1.x.
-  "version": "1",
+  // Schema version of this document.
+  "version": "2",
 
   // false  → the pipeline ran to completion (exit code 0).
   // true   → the run was aborted before finishing (non-zero exit).
@@ -526,8 +527,9 @@ output is plain JSON with no comments.)
 
   // Environment + run parameters this document was produced under.
   "meta": {
+    "id_scheme": "2",
     "tool_version": "0.1.0",     // mutagen_ex version
-    "elixir_version": "1.19.5",
+    "elixir_version": "1.19.6",
     "otp_version": "28",
     "exunit_seed": 0             // the --seed value used for test ordering
   },
@@ -580,9 +582,9 @@ output is plain JSON with no comments.)
     // One entry per mutation that ran. Each describes the edit and verdict.
     "results": [
       {
-        // Stable, content-addressed id: file:hash:mutator. Survives
-        // `mix format` because it is keyed on AST content, not line number.
-        "id": "lib/lane_fixture/arith.ex:88475230:arith",
+        // Scheme 2 ID. The function field is null outside named definitions.
+        "id": "lib/lane_fixture/arith.ex:d423226c5a4987d1f47e4bfa5a4d9e79:arith",
+        "function": "LaneFixture.Arith.add/2",
         "file": "lib/lane_fixture/arith.ex",
         "line": 12,
         "column": 24,
@@ -596,7 +598,8 @@ output is plain JSON with no comments.)
         "warnings": { "count": 1 } // count of advisory warnings for this site
       },
       {
-        "id": "lib/lane_fixture/arith.ex:88723725:literal",
+        "id": "lib/lane_fixture/arith.ex:0b440673c09a0acc3932c4fe94b93662:literal",
+        "function": "LaneFixture.Arith.div_safe/2",
         "file": "lib/lane_fixture/arith.ex",
         "line": 18,
         "column": 29,
@@ -644,13 +647,14 @@ enumerated in the [Exit codes](#exit-codes) section.
 
 ```jsonc
 {
-  "version": "1",
+  "version": "2",
   "aborted": true,
   "abort_reason": "module_not_found",   // names which guard tripped
   "truncated": false,
   "meta": {
+    "id_scheme": "2",
     "tool_version": "0.1.0",
-    "elixir_version": "1.19.5",
+    "elixir_version": "1.19.6",
     "otp_version": "28",
     "exunit_seed": 0
   },
@@ -739,7 +743,7 @@ The behavioural contract for `mutagen_ex` lives in `.spec/`:
 - `.spec/specs/cli.spec.md` — `mix mutagen` command surface
 - `.spec/specs/mutation_pipeline.spec.md` — orchestration state machine
 - `.spec/specs/mutators.spec.md` — mutator catalog and predicates
-- `.spec/specs/json_schema.spec.md` — v1 output document shape
+- `.spec/specs/json_schema.spec.md` — version 2 output document shape
 - `.spec/specs/coverage.spec.md` — coverage phase
 - `.spec/specs/mutation_enumeration.spec.md` — site enumeration rules
 - `.spec/specs/scope_resolution.spec.md` — `--scope` resolution
