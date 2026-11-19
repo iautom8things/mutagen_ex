@@ -20,5 +20,3 @@ config :host_setup_fixture,
          pool_size: 2,
          queue_interval: 1_000
        ] ++ address
-
-config :logger, :default_handler, config: [type: :standard_error]

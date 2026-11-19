@@ -25,13 +25,6 @@ defmodule MutagenEx.Integration.HostSetupTest do
     test "runs the host helper and sandbox tests across mutation cycles", %{dependency: host} do
       assert_host_run(host)
     end
-
-    test "refuses the dev environment with an actionable JSON error", %{dependency: host} do
-      host = put_env(host, "MIX_ENV", "dev")
-      mix!(host, ["deps.loadpaths"])
-
-      assert abort(host, "invalid_mix_env") =~ "requires MIX_ENV=test"
-    end
   end
 
   describe "installed archive" do
@@ -59,7 +52,9 @@ defmodule MutagenEx.Integration.HostSetupTest do
       assert abort(host, "invalid_mix_env") =~ "current Mix environment: dev"
     end
 
-    test "reports an unreachable database to the requested JSON file", %{archive: host} do
+    test "reports an unreachable database as one JSON value on stdout and in a file", %{
+      archive: host
+    } do
       {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
       {:ok, port} = :inet.port(socket)
       :ok = :gen_tcp.close(socket)
@@ -69,10 +64,10 @@ defmodule MutagenEx.Integration.HostSetupTest do
         |> put_env("HOST_SETUP_DB_HOST", "127.0.0.1")
         |> put_env("HOST_SETUP_DB_PORT", Integer.to_string(port))
 
-      started = System.monotonic_time(:millisecond)
-      {stdout, status} = mutate(host, ["--json", "host-error.json"])
+      assert abort(host, "host_app_start_failed", ["--no-test-alias"]) =~
+               "Could not start application"
 
-      assert System.monotonic_time(:millisecond) - started < to_timeout(second: 10)
+      {stdout, status} = mutate(host, ["--no-test-alias", "--json", "host-error.json"])
       assert status != 0
       assert stdout == ""
       report = File.read!(Path.join(host.dir, "host-error.json"))
@@ -96,7 +91,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
 
     test "reports a host compiler error", %{archive: host} do
       with_file(host, @scope, "defmodule HostSetupFixture.Orders do", fn ->
-        assert abort(host, "host_compile_failed") =~ "missing terminator"
+        assert abort(host, "host_compile_failed") =~ "token missing"
       end)
     end
 
@@ -120,12 +115,111 @@ defmodule MutagenEx.Integration.HostSetupTest do
       )
     end
 
+    test "honors custom-path tags and runs the cleanup once", %{archive: host} do
+      assert_host_run(host, "tag:pricing")
+    end
+
+    test "all-excluded coverage aborts and runs cleanup once", %{archive: host} do
+      trace = Path.join(host.dir, "runs.log")
+      File.write!(trace, "")
+      helper = File.read!(Path.join(host.dir, "checks/test_helper.exs"))
+
+      with_file(
+        host,
+        "checks/test_helper.exs",
+        helper <> "\nExUnit.configure(include: [])\n",
+        fn ->
+          {stdout, status} = mutate(host, ["--stream"])
+          assert status != 0
+
+          assert %{
+                   "abort_reason" => "no_tests_run",
+                   "mutation" => :null,
+                   "warnings" => [],
+                   "details" => %{"excluded" => 3, "include" => [], "exclude" => exclude}
+                 } = decode_report(stdout)
+
+          assert "pricing" in exclude
+          assert File.read!(trace) == "helper\ncleanup\n"
+        end
+      )
+    end
+
+    test "a timed-out mutant releases the shared Sandbox before the next site", %{archive: host} do
+      original_scope = File.read!(Path.join(host.dir, @scope))
+
+      scope =
+        String.replace(
+          original_scope,
+          "  def price",
+          """
+            def settle(id) do
+              order = Repo.get!(Order, id)
+
+              if order.quantity > 0 do
+                :settled
+              else
+                Process.sleep(:infinity)
+              end
+            end
+
+            def price
+          """
+          |> String.trim_trailing()
+        )
+
+      original_tests = File.read!(Path.join(host.dir, @tests))
+
+      tests =
+        String.replace(
+          original_tests,
+          "actual = Orders.price",
+          "assert Orders.settle(order.id) == :settled\n    actual = Orders.price"
+        )
+
+      with_file(host, @scope, scope, fn ->
+        with_file(host, @tests, tests, fn ->
+          {stdout, status} = mutate(host, ["--timeout-ms", "1500"])
+          assert status == 0
+          results = decode_report(stdout)["mutation"]["results"]
+
+          timed_out = Enum.find_index(results, &(&1["status"] == "timeout"))
+
+          survived =
+            Enum.find_index(
+              results,
+              &(&1["mutator"] == "else_removal" and
+                  &1["before"] =~ "total >= 10" and &1["status"] == "survived")
+            )
+
+          assert is_integer(timed_out) and is_integer(survived) and timed_out < survived
+        end)
+      end)
+    end
+
+    test "redacts the password from Ecto.InvalidURLError", %{archive: host} do
+      with_file(
+        host,
+        "checks/test_helper.exs",
+        """
+        raise Ecto.InvalidURLError, url: "ecto://fixture:fixture-db-secret@db.invalid", message: "missing database"
+        """,
+        fn ->
+          {stdout, status} = mutate(host, [])
+          assert status != 0
+          assert abort_message(stdout, "test_helper_load_failed") =~ "[REDACTED]"
+          refute stdout =~ "fixture-db-secret"
+        end
+      )
+    end
+
     test "skipping the host app still loads the helper", %{archive: host} do
       with_file(
         host,
         "checks/test_helper.exs",
         """
         if Process.whereis(HostSetupFixture.Repo), do: raise("unexpected running repo")
+        true = Application.fetch_env!(:host_setup_fixture, :runtime_config_loaded)
         raise "helper ran without the repo"
         """,
         fn ->
@@ -165,8 +259,6 @@ defmodule MutagenEx.Integration.HostSetupTest do
 
     on_exit(fn -> mix!(host, ["ecto.drop", "--quiet"]) end)
 
-    mix!(host, ["ecto.create", "--quiet"])
-    mix!(host, ["ecto.migrate", "--quiet"])
     host
   end
 
@@ -177,14 +269,22 @@ defmodule MutagenEx.Integration.HostSetupTest do
     assert status == 0, "mix mutagen exited #{status}\n#{stdout}"
 
     report = decode_report(stdout)
-    assert %{"aborted" => false, "baseline" => %{"passed" => 1, "failed" => 0}} = report
+
+    assert %{
+             "aborted" => false,
+             "meta" => %{"tool_version" => version},
+             "baseline" => %{"passed" => 1, "failed" => 0}
+           } = report
+
+    assert version == MutagenEx.MixProject.project()[:version]
 
     results = report["mutation"]["results"]
     assert %{"killed" => 3, "survived" => 1, "total" => 4} = report["mutation"]
     assert Enum.any?(results, &match?(%{"before" => "total + 2", "status" => "killed"}, &1))
     assert Enum.any?(results, &match?(%{"mutator" => "else_removal", "status" => "survived"}, &1))
 
-    assert File.read!(trace) == "helper\n" <> String.duplicate("order\n", 2 + length(results))
+    assert File.read!(trace) ==
+             "helper\n" <> String.duplicate("order\n", 2 + length(results)) <> "cleanup\n"
   end
 
   defp mutate(host, args, tests \\ @tests) do

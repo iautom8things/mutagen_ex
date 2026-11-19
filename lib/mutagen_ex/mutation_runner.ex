@@ -749,6 +749,9 @@ defmodule MutagenEx.MutationRunner do
            settle_code_server!(site, cfg, outcome)
            outcome
          end) do
+      {:ok, {:error, {:ex_unit_run_failed, details}, _meta}} ->
+        {:abort, :ex_unit_run_failed, Map.put(details, :site_id, site.id)}
+
       {:ok, outcome} ->
         # `source_text` is threaded through here so the post-fold can
         # add it to the result map for the renderer's verbatim slice

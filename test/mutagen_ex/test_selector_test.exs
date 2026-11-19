@@ -50,6 +50,47 @@ defmodule MutagenEx.TestSelectorTest do
   # mutagen.test_selection.s1 — file-only target (r1)
   # ---------------------------------------------------------------------------
 
+  test "merges host filters without widening restrictive selectors" do
+    line = {:location, {"test/example_test.exs", 8}}
+    helper = [include: [:focus, :keep], exclude: [:slow, database: :off]]
+
+    cases = [
+      {:bare, [], [], helper, [:focus, :keep], [:slow, {:database, :off}]},
+      {:line, [line], [:test], helper, [line], [:test, :slow, {:database, :off}]},
+      {:tag, [:focus], [:test], helper, [:focus], [:test, :slow, {:database, :off}]},
+      {:mixed, [:focus, line], [], helper, [:focus, line, :keep], [:slow, {:database, :off}]},
+      {:empty, [], [], [], [], []},
+      {:duplicate, [:focus], [:test, :slow], helper, [:focus], [:test, :slow, {:database, :off}]}
+    ]
+
+    for {label, include, exclude, opts, expected_include, expected_exclude} <- cases do
+      filter = %TestFilter{files: ["test/example_test.exs"], include: include, exclude: exclude}
+      expected = %{filter | include: expected_include, exclude: expected_exclude}
+      assert TestSelector.merge_helper_filters(filter, opts) == expected, inspect(label)
+    end
+  end
+
+  @tag :tmp_dir
+  test "tag scans each configured test path", %{tmp_dir: dir} do
+    dirs = for name <- ["first", "second"], do: Path.join(dir, name)
+
+    files =
+      for root <- dirs do
+        File.mkdir_p!(root)
+        file = Path.join(root, "example_test.exs")
+
+        File.write!(
+          file,
+          "defmodule ExampleTest do\n  @tag :find_me\n  test \"found\", do: :ok\nend"
+        )
+
+        file
+      end
+
+    assert {:ok, %TestFilter{files: ^files, include: [:find_me], exclude: [:test]}} =
+             TestSelector.resolve("tag:find_me", test_paths: dirs)
+  end
+
   describe "resolve/2 — file target (mutagen.test_selection.s1, r1)" do
     @tag spec: "mutagen.test_selection.r1"
     test "file-only target returns include=[], exclude=[], files=[path]" do

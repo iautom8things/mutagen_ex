@@ -62,10 +62,9 @@ defmodule MutagenEx.CLI do
       readable progress bar / counter is never written to stderr.
       Default behaviour is to emit progress only when stderr is a TTY
       (`:io.getopts/0` reports `:terminal`).
-    * `--no-host-app` — preamble-only boolean consumed by
-      `Mix.Tasks.Mutagen.run/1` before this parser runs. It skips
-      `Mix.Task.run("app.start")` for self-test sandboxes and libraries
-      that intentionally want a minimal host boot.
+    * `--no-host-app` — skips starting the host OTP application.
+    * `--no-test-alias` — skips host test alias pre-steps.
+    * `--boot-timeout-ms <int>` — positive startup deadline, default 300000.
 
   ## Refused flags
 
@@ -101,6 +100,7 @@ defmodule MutagenEx.CLI do
           :missing_scope
           | :missing_tests
           | :invalid_timeout
+          | :invalid_boot_timeout
           | :invalid_seed
           | :invalid_max_concurrency
           | :flag_not_supported_in_v1
@@ -146,6 +146,7 @@ defmodule MutagenEx.CLI do
          :ok <- enforce_target_cap(scopes, :scope),
          :ok <- enforce_target_cap(tests, :tests),
          {:ok, timeout_ms} <- pick_timeout(parsed),
+         {:ok, boot_timeout_ms} <- pick_boot_timeout(parsed),
          {:ok, seed} <- pick_seed(parsed),
          {:ok, json_path} <- pick_json_path(parsed),
          {:ok, max_sites} <- pick_max_sites(parsed),
@@ -160,6 +161,9 @@ defmodule MutagenEx.CLI do
          tests: tests,
          timeout_ms: timeout_ms,
          fail_fast: Keyword.get(parsed, :fail_fast, true),
+         boot_timeout_ms: boot_timeout_ms,
+         host_app: Keyword.get(parsed, :host_app, true),
+         test_alias: Keyword.get(parsed, :test_alias, true),
          seed: seed,
          json_path: json_path,
          unsafe_json_outside_project: unsafe_outside_project,
@@ -198,6 +202,9 @@ defmodule MutagenEx.CLI do
     tests: :keep,
     timeout_ms: :integer,
     fail_fast: :boolean,
+    boot_timeout_ms: :integer,
+    host_app: :boolean,
+    test_alias: :boolean,
     seed: :integer,
     json: :string,
     unsafe_json_outside_project: :boolean,
@@ -232,6 +239,9 @@ defmodule MutagenEx.CLI do
       flag == "--timeout-ms" ->
         {:error, :invalid_timeout,
          %{flag: flag, value: value, message: "--timeout-ms requires a positive integer"}}
+
+      flag == "--boot-timeout-ms" ->
+        invalid_boot_timeout(value)
 
       flag == "--seed" ->
         {:error, :invalid_seed,
@@ -314,6 +324,22 @@ defmodule MutagenEx.CLI do
         {:error, :invalid_timeout,
          %{flag: "--timeout-ms", value: n, message: "--timeout-ms must be a positive integer"}}
     end
+  end
+
+  defp pick_boot_timeout(parsed) do
+    case Keyword.get(parsed, :boot_timeout_ms, 300_000) do
+      n when is_integer(n) and n > 0 -> {:ok, n}
+      value -> invalid_boot_timeout(value)
+    end
+  end
+
+  defp invalid_boot_timeout(value) do
+    {:error, :invalid_boot_timeout,
+     %{
+       flag: "--boot-timeout-ms",
+       value: value,
+       message: "--boot-timeout-ms requires a positive integer"
+     }}
   end
 
   defp pick_seed(parsed) do

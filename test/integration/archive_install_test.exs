@@ -123,14 +123,17 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
     relative_scope = Path.join(["lib", app_name, "calc.ex"])
     relative_tests = Path.join(["test", app_name, "calc_test.exs"])
 
-    {mutagen_out, mutagen_code} =
+    run = fn extra ->
       System.cmd(
         "mix",
-        ["mutagen", "--scope", relative_scope, "--tests", relative_tests],
+        ["mutagen", "--scope", relative_scope, "--tests", relative_tests] ++ extra,
         cd: tmp_dir,
         stderr_to_stdout: false,
         env: scoped_env(scratch_dir)
       )
+    end
+
+    {mutagen_out, mutagen_code} = run.([])
 
     assert mutagen_code == 0,
            """
@@ -159,6 +162,8 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
     assert is_map(decoded),
            "expected JSON object at top level, got: #{inspect(decoded)}"
+
+    assert decoded["meta"]["tool_version"] == version
 
     assert decoded["aborted"] == false,
            "expected aborted: false, got: #{inspect(decoded["aborted"])}\n" <>
@@ -208,6 +213,58 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
     assert String.ends_with?(report, "}\n")
     assert %{"aborted" => false, "mutation" => %{"completed" => completed}} = :json.decode(report)
     assert completed > 0
+
+    shadow = Path.join(tmp_dir, "lib/shadow.ex")
+
+    File.write!(shadow, """
+    defmodule MutagenEx.Pipeline.DefaultIo do
+      def emit(_, _, _), do: raise("host copy of the reporter")
+    end
+    """)
+
+    {shadow_out, 0} = run.([])
+    assert %{"aborted" => false} = :json.decode(shadow_out)
+    File.rm!(shadow)
+
+    File.write!(app_path, """
+    defmodule #{app_module} do
+      use Application
+      require Logger
+
+      @impl Application
+      def start(_, _) do
+        Logger.warning("password: fixture-startup-password")
+        Keyword.fetch!([password: "fixture-startup-password", api_key: "fixture-startup-key"], :endpoint)
+      end
+    end
+    """)
+
+    {failed, 2} = run.([])
+    assert %{"abort_reason" => "host_app_start_failed"} = :json.decode(failed)
+    refute failed =~ "fixture-startup-password"
+    refute failed =~ "fixture-startup-key"
+
+    File.write!(app_path, """
+    defmodule #{app_module} do
+      use Application
+      @impl Application
+      def start(_, _) do
+        File.write!("app-start-entered", "yes")
+        Process.sleep(:infinity)
+      end
+    end
+    """)
+
+    started = System.monotonic_time(:millisecond)
+    {timed_out, 2} = run.(["--boot-timeout-ms", "1000"])
+    assert System.monotonic_time(:millisecond) - started < to_timeout(second: 10)
+    assert File.read!(Path.join(tmp_dir, "app-start-entered")) == "yes"
+
+    assert %{
+             "abort_reason" => "host_setup_timeout",
+             "details" => %{"step" => "host_app_start_failed"}
+           } =
+             :json.decode(timed_out)
   end
 
   defp clean_env(scratch_dir) do

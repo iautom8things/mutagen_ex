@@ -185,18 +185,9 @@ defmodule MutagenEx.Baseline do
   defp run_exunit(cfg) do
     ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
-    try do
-      result = ex_unit.run()
-      {:ok, result}
-    rescue
-      e ->
-        {:error, :ex_unit_run_failed,
-         %{
-           message:
-             MutagenEx.JsonReporter.Sanitizer.clean(
-               "ExUnit.run/0 raised during baseline: #{Exception.message(e)}"
-             )
-         }}
+    with {:ok, stats} <- MutagenEx.Test.Suite.run(ex_unit, :baseline),
+         :ok <- MutagenEx.Test.Suite.require_tests(stats, cfg.test_filter, :baseline) do
+      {:ok, stats}
     end
   end
 
@@ -220,6 +211,7 @@ defmodule MutagenEx.Baseline do
          failed: failures,
          failures: failure_list,
          warnings: warnings,
+         suite_stats: exunit_result,
          message: "baseline: #{failures} test failure(s) before any mutation"
        }}
     else
@@ -228,7 +220,8 @@ defmodule MutagenEx.Baseline do
          passed: passed,
          failed: 0,
          failures: [],
-         warnings: warnings
+         warnings: warnings,
+         suite_stats: exunit_result
        }}
     end
   end
