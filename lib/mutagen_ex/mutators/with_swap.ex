@@ -28,7 +28,8 @@ defmodule MutagenEx.Mutators.WithSwap do
       with an identical literal expression.
     * `:indistinguishable_failures` if both expressions are the same
       literal or read the same variable.
-    * `:else_ignores_failure` if `else` consists of one `_ -> ...` arm.
+    * `:else_ignores_failure` if `else` consists of one unguarded variable
+      or wildcard arm and the body does not use the failure value.
 
   Unexpanded macros can hide reads, bindings and effects. The filters can
   miss swaps that only change side effects or exceptions, and kept swaps
@@ -206,7 +207,17 @@ defmodule MutagenEx.Mutators.WithSwap do
   end
 
   defp ignores_failure?(options) when is_list(options) do
-    match?([{:->, _, [[{:_, _, context}], _]}] when is_atom(context), Keyword.get(options, :else))
+    case Keyword.get(options, :else) do
+      [{:->, _, [[{:_, _, context}], _]}] when is_atom(context) ->
+        true
+
+      [{:->, _, [[{name, _, _} = pattern], body]}] ->
+        variable?(pattern) and
+          MapSet.disjoint?(names(body, :clause), MapSet.new([name, :__ENV__]))
+
+      _ ->
+        false
+    end
   end
 
   defp ignores_failure?(_), do: false

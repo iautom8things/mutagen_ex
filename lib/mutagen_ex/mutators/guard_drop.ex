@@ -38,6 +38,9 @@ defmodule MutagenEx.Mutators.GuardDrop do
   @impl true
   def name, do: :guard_drop
 
+  @impl MutagenEx.Mutators
+  def confidence, do: :low
+
   @impl true
   def match?({:when, _meta, [_head, _guard]}), do: true
   def match?({:when, _meta, args}) when is_list(args) and length(args) >= 2, do: true

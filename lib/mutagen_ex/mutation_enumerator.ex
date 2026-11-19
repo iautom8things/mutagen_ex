@@ -367,7 +367,24 @@ defmodule MutagenEx.MutationEnumerator do
   defp statement_arg({:__aliases__, _, parts}), do: Mutators.identity_node(parts)
   defp statement_arg(_), do: :_
 
-  defp walk_node(node, ambient, context, env, acc) do
+  # The slash and arity in a named capture are part of the reference.
+  defp walk_node(
+         {:/, _, [target, arity]} = node,
+         ambient,
+         %{parent: {:&, _, [_]}} = context,
+         env,
+         acc
+       )
+       when is_integer(arity) do
+    if function_target?(target),
+      do: acc,
+      else: walk_mutable_node(node, ambient, context, env, acc)
+  end
+
+  defp walk_node(node, ambient, context, env, acc),
+    do: walk_mutable_node(node, ambient, context, env, acc)
+
+  defp walk_mutable_node(node, ambient, context, env, acc) do
     env = enter_definition(node, env)
     acc = try_mutators(node, ambient, context, env, acc)
 
@@ -445,13 +462,9 @@ defmodule MutagenEx.MutationEnumerator do
   # via the Mix task.
   defp try_mutators(node, ambient, context, env, acc) do
     mutators =
-      if function_reference?(node, context) do
-        []
-      else
-        node
-        |> pre_filter_mutators(env.mutators, env.dispatch_mode)
-        |> Enum.filter(& &1.match?(node))
-      end
+      node
+      |> pre_filter_mutators(env.mutators, env.dispatch_mode)
+      |> Enum.filter(& &1.match?(node))
 
     case mutators do
       [] ->
@@ -472,15 +485,6 @@ defmodule MutagenEx.MutationEnumerator do
         end)
     end
   end
-
-  # `&fun/arity` and `&Mod.fun/arity` parse their reference as a `/` call.
-  # The reference names a function, so no mutator treats it as division.
-  # This follows the shapes Elixir's capture expansion accepts.
-  defp function_reference?({:/, _, [target, arity]}, %{parent: {:&, _, [_]}})
-       when is_integer(arity),
-       do: function_target?(target)
-
-  defp function_reference?(_node, _context), do: false
 
   defp function_target?({name, _meta, context}) when is_atom(name) and is_atom(context),
     do: true
