@@ -149,7 +149,8 @@ Top-level keys, all present in every variant unless noted:
     `status`),
     `before` (string — `Macro.to_string/1` of original AST),
     `before_source` (string, the verbatim slice of the cached source text
-      at the site's byte span from mutagen.mutation_enumeration.r11).
+      at the site's byte span from mutagen.mutation_enumeration.r11,
+      subject to the same output cleaning as the other source excerpts).
       Results without that span can use the AST start and the exclusive
       `end_line` and `end_column` from mutagen.mutation_enumeration.r8.
       If source or coordinates are unavailable, `before_source` reuses
