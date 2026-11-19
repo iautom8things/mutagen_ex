@@ -288,8 +288,8 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      # mutagen.json_schema.r1: version is the literal "1".
-      assert json["version"] == "1"
+      # mutagen.json_schema.r1: version is the literal "2".
+      assert json["version"] == "2"
 
       # mutagen.json_schema.r2: aborted: false on full success;
       # abort_reason is nil.
@@ -362,7 +362,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
 
       assert json["aborted"] == false,
              "expected non-aborted run; got JSON=#{inspect(json, limit: :infinity)}"
@@ -731,7 +731,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
 
       assert json["aborted"] == true,
              "expected aborted run; got JSON=#{inspect(json, limit: :infinity)}"
@@ -772,7 +772,7 @@ defmodule MutagenEx.EndToEndTest do
           "2000"
         ])
 
-      assert json["version"] == "1"
+      assert json["version"] == "2"
       assert json["aborted"] == false
       mutation = json["mutation"]
 

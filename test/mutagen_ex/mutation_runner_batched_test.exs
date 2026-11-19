@@ -56,7 +56,9 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
   use ExUnit.Case, async: false
 
   alias MutagenEx.AstCache
+  alias MutagenEx.MutationEnumerator
   alias MutagenEx.MutationEnumerator.Site
+  alias MutagenEx.ScopeResolver
   alias MutagenEx.MutationRunner
   alias MutagenEx.ScopeResolver.Scope
   alias MutagenEx.TestSelector.TestFilter
@@ -574,6 +576,47 @@ defmodule MutagenEx.MutationRunnerBatchedTest do
       for {_id, path} <- inner do
         assert is_list(path) and path != [],
                "expected non-empty descent path; got #{inspect(path)}"
+      end
+    end
+
+    @tag spec: ["mutagen.mutation_enumeration.r4", "mutagen.mutation_pipeline.r16"]
+    test "fixture sites have distinct IDs and all addressable nodes appear in the path index" do
+      files =
+        Path.wildcard("test/fixtures/**/*.{ex,exs}") ++
+          Path.wildcard("priv/helper_scripts/bench_fixtures/**/*.{ex,exs}")
+
+      assert files != []
+
+      for file <- files do
+        {:ok, ast_cache} = AstCache.load([file])
+        {:ok, {ast, source}} = AstCache.get(ast_cache, file)
+
+        # Scope resolution accepts .ex paths. The fixture corpus also has .exs sources.
+        scope_path = Path.rootname(file) <> ".ex"
+
+        assert {:ok, scopes} =
+                 ScopeResolver.resolve(scope_path, loader: fn ^scope_path -> source end)
+
+        scopes = Enum.map(scopes, &%{&1 | file: file})
+        covered = MapSet.new(1..length(String.split(source, "\n")))
+
+        %{sites: sites, skipped: skipped} =
+          MutationEnumerator.enumerate(%{file => ast}, scopes, %{file => covered})
+
+        ids = Enum.map(sites, & &1.id) ++ Enum.map(skipped, & &1.site_id)
+        assert length(ids) == MapSet.size(MapSet.new(ids)), "duplicate site IDs in #{file}"
+
+        # The path index only records 3-tuple nodes with their own coordinates.
+        indexed = for %{original_ast: {_, meta, _}, id: id} <- sites, is_list(meta), do: id
+
+        config =
+          base_cfg(ast, source, file, sites)
+          |> Map.put(:on_cache_built, fn cache -> throw({:index, cache}) end)
+
+        assert {:index, cache} = catch_throw(MutationRunner.run(config))
+        keys = cache |> Map.get(file, %{}) |> Map.keys()
+
+        assert Enum.sort(keys) == Enum.sort(indexed), "incomplete path index in #{file}"
       end
     end
 

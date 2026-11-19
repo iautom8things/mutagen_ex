@@ -26,7 +26,7 @@ performance) so long as the contract holds.
 
 ## Out of scope for this subject
 
-- The full enumerator walk (`walk_tree/6`) — stays in `mutation_enumerator.ex`
+- The full enumerator walk (`walk_tree/5`) — stays in `mutation_enumerator.ex`
   because only enumeration uses ambient-position threading.
 - Per-site path computation and bare-literal walking — stays in
   `mutation_runner.ex` because only the runner needs them.
@@ -64,10 +64,11 @@ decisions:
     `MutagenEx.Ast.find_module_body/2` takes an AST `t` and a module-name
     string `target_mod_str` and returns `{:ok, body_ast}` if a node
     `{:defmodule, meta, [alias_ast, [do: body_ast]]}` exists in `t` whose
-    lexical module name (including enclosing `defmodule` parents for nested
-    definitions) equals `target_mod_str`, comparing both `Elixir.*` and
+    lexical module name equals `target_mod_str`, comparing both `Elixir.*` and
     prefix-stripped forms. Otherwise it returns `:not_found`. The function
-    is total: it never raises, throws, or exits.
+    is total: it never raises, throws, or exits. A nested alias is qualified
+    under its parent. A literal atom or an alias starting with `Elixir.`
+    names an absolute module. A prefix of `__MODULE__.` uses the parent.
 
 - id: mutagen.ast.r3
   priority: must
@@ -80,9 +81,8 @@ decisions:
   priority: must
   statement: |
     The donor modules `MutagenEx.ScopeResolver`, `MutagenEx.MutationEnumerator`,
-    and `MutagenEx.MutationRunner` consume `MutagenEx.Ast.alias_to_module/1`
-    and `MutagenEx.Ast.find_module_body/2` exclusively after `.25.01` lands.
-    Each module's previous private duplicate is deleted. A grep for
+    and `MutagenEx.MutationRunner` use the shared qualification and module
+    lookup rules in `MutagenEx.Ast`. A grep for
     `defp alias_to_module` over `lib/mutagen_ex/` returns at most one hit
     (in `lib/mutagen_ex/ast.ex` if defined privately there; ideally zero
     because the canonical function is public).
