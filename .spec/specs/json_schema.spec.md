@@ -420,12 +420,17 @@ Top-level keys, all present in every variant unless noted:
       * the password in URL userinfo (`scheme://user:PASSWORD@host`);
       * the password in inspected `authority:` and `userinfo:` fields
         of a `%URI{}`;
-      * the value after the whole-word keys `password`, `passwd`,
-        `secret`, `token`, `api_key`, `apikey`, `authorization`,
-        `private_key`, or `secret_key_base` (any case, optionally
-        quoted) followed by `=>`, `:`, or `=`, whether the value is a
-        quoted string, a `Bearer` or `Basic` credential, or a bare
-        word;
+      * the value after a secret key (any case, optionally quoted)
+        followed by `=>`, `:`, or `=`, whether the value is a quoted
+        string, a `Bearer` or `Basic` credential, or a bare word. A
+        key is secret when one of its segments, split on `_` or `-`,
+        is `password`, `passwd`, `secret`, `token`, `apikey`, or
+        `authorization`, or when two adjacent segments are `api` and
+        `key` or `private` and `key`. So `DATABASE_PASSWORD`,
+        `db_password`, `api-token`, `secret_key_base`, and
+        `AWS_SECRET_ACCESS_KEY` are secret keys, while `tokens`,
+        `secretary`, and `primary_key` are not. The rule covers
+        keyword, map, environment assignment, and URL query shapes;
       * whole tokens that start with `ghp_`, `gho_`, `ghu_`, `ghs_`,
         `ghr_`, `github_pat_`, `xoxb-`, `xoxa-`, `xoxp-`, `xoxr-`,
         `xoxs-`, `sk_live_`, or `AKIA` followed by at least 12 token
@@ -438,8 +443,8 @@ Top-level keys, all present in every variant unless noted:
     `baseline.failures[].module` and `.name`, the module names in
     `mutation.state_drift_warning`, every `details` key and string leaf
     (r16), and the `tests.include` and `tests.exclude` renderings. A
-    `details` entry or `{key, value}` test filter whose key is one of the
-    secret keys above renders its value as `[REDACTED]` whatever the
+    `details` entry or `{key, value}` test filter whose key is a secret
+    key by the rule above renders its value as `[REDACTED]` whatever the
     value. Other `{key, value}` filters render as `"key:value"`, with
     atoms, strings, and numbers as text and other terms through
     `inspect/1`. `JsonStreamer` applies the same sanitizer to
@@ -632,6 +637,19 @@ Top-level keys, all present in every variant unless noted:
   then:
     - 'The JSON contains none of `p-one`, `p-two`, or `p-three`. `details.password` is `"[REDACTED]"`, and `tests.exclude` is `["foo:[:a]", "token:[REDACTED]"]`.'
     - 'The clean call returns `"password=[REDACTED] [REDACTED] example"`.'
+
+- id: mutagen.json_schema.s19
+  covers:
+    - mutagen.json_schema.r17
+  given:
+    - "The keys `DATABASE_PASSWORD`, `db_password`, `api-token`, `secret_key_base`, and `AWS_SECRET_ACCESS_KEY`, each in an inspected keyword list, an inspected map, an environment assignment, and a URL query."
+    - "An abort report with `details` `%{database_password: v}` and an exclude filter `{:\"api-token\", v}`."
+  when:
+    - "`Sanitizer.clean/1` cleans each message and `JsonReporter.emit_error/2` renders the report."
+  then:
+    - "Every value is `[REDACTED]`, and cleaning the result again changes nothing."
+    - "`tokens: 3, secretary: ann, primary_key: 7` comes back unchanged."
+    - "`details.database_password` is `\"[REDACTED]\"` and `tests.exclude` is `[\"api-token:[REDACTED]\"]`."
 ```
 
 ```spec-verification

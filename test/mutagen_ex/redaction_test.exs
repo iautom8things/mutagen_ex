@@ -25,6 +25,36 @@ defmodule MutagenEx.RedactionTest do
     end
   end
 
+  @tag spec: "mutagen.json_schema.r17"
+  test "redacts compound credential keys in keyword, map, env and query shapes" do
+    for key <- ~w(DATABASE_PASSWORD db_password api-token secret_key_base AWS_SECRET_ACCESS_KEY) do
+      for message <- [
+            inspect([{String.to_atom(key), "kw-value"}, pool: 10]),
+            inspect(%{key => "map-value"}),
+            "#{key}=env-value ./start",
+            "https://example.test/cb?#{key}=query-value&ok=1"
+          ] do
+        cleaned = Sanitizer.clean(message)
+        assert cleaned =~ "[REDACTED]", cleaned
+        refute cleaned =~ ~r/(kw|map|env|query)-value/, cleaned
+        assert Sanitizer.clean(cleaned) == cleaned
+      end
+    end
+
+    assert Sanitizer.clean("tokens: 3, secretary: ann, primary_key: 7") ==
+             "tokens: 3, secretary: ann, primary_key: 7"
+
+    report = %Report{
+      details: %{database_password: "detail-value"},
+      tests: %{include: [], exclude: ["api-token": "filter-value"], files: []}
+    }
+
+    {data, _code} = JsonReporter.emit_error(report, :boot_failed)
+    decoded = data |> IO.iodata_to_binary() |> :json.decode()
+    assert decoded["details"]["database_password"] == "[REDACTED]"
+    assert decoded["tests"]["exclude"] == ["api-token:[REDACTED]"]
+  end
+
   @tag spec: ["mutagen.json_schema.r11", "mutagen.json_schema.r17"]
   test "built-in redaction precedes configured patterns and truncation" do
     assert Sanitizer.clean("password=hunter2 custom example",

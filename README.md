@@ -483,7 +483,7 @@ path you write to is always the fully-canonical one.
 
 | Key | Purpose |
 |---|---|
-| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]` (no redaction). Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
+| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]`. Built-in patterns run first whatever this list holds. They redact URL passwords, common token prefixes, and the value after any key with a credential segment, such as `password`, `DATABASE_PASSWORD`, `api-token`, or `AWS_SECRET_ACCESS_KEY`. Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
 
 Set it in `config/config.exs`:
 
