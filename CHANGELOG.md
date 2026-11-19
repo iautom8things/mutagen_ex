@@ -11,6 +11,28 @@ file for traceability.
 
 ## [Unreleased]
 
+### Report safety
+
+- Default reports count host process losses and baseline failures by
+  module. Dynamic names and helper filter values require opt-in.
+- Mutagen writes the report before cleanup and gives cleanup the boot
+  timeout. Each coverage and baseline pass gets the greater of the boot
+  timeout and ten times the mutation timeout.
+
+- JSON and NDJSON omit host diagnostic text by default. Abort documents retain
+  a fixed hint, step, exception type, and location where available. Use
+  `--include-host-output` to include captured diagnostics with best-effort
+  credential redaction.
+- Source excerpts have a 4 KiB payload cap and omit control bytes.
+  `--no-source` omits source excerpts, file and function from site entries.
+  Compile errors include confidence and, with source enabled, the function.
+- Ordinary host I/O and Logger events go to stderr. JSON files use mode 0600.
+  AST-cache errors honor `--json`.
+- Coverage and baseline have independent deadlines. Cleanup callbacks
+  have a bounded runtime. Site timeouts preserve pre-existing host processes,
+  and the report names host process losses and taints later results.
+
+
 ### Added
 
 - **Mutator confidence.** Each aggregate mutation result and streaming
@@ -90,7 +112,7 @@ file for traceability.
   verdicts, and the kill rate are byte-for-byte identical before and after;
   only timing and some advisory diagnostic text changed. A benchmark
   harness for reproducing these numbers ships at
-  `priv/helper_scripts/bench_ast_perf.exs`.
+  `scripts/helper_scripts/bench_ast_perf.exs`.
 
 ### Removed
 
@@ -160,7 +182,7 @@ file for traceability.
   `... <N bytes truncated>` marker — so a runaway diagnostic can't bloat
   the report. A new opt-in `:redact` application config takes a list of
   regexes; every match in a reported field is replaced with `[REDACTED]`.
-  Redaction runs before truncation. Default is no redaction. Pair it with
+  Redaction runs before truncation. Default is no custom patterns. Pair it with
   `--json <path>` when archiving reports off the run host.
 
 - **`--json <path>` is path-safe.** The output path is canonicalised
@@ -290,7 +312,7 @@ Shipped with v0.1.0 and tracked for later releases:
   bench harness produced before vs. after the epic, and the byte-
   identity contract the refactor preserves.
 
-  *Bench harness* — `priv/helper_scripts/bench_ast_perf.exs` is no
+  *Bench harness* — `scripts/helper_scripts/bench_ast_perf.exs` is no
   longer a skeleton: it drives the real `Mix.Tasks.Mutagen.run/2`
   pipeline against the `wrd25_200sites` fixture (S1), captures
   wall-clock + `:erlang.memory/0` snapshots + SHA-256 of the emitted
@@ -322,7 +344,7 @@ Shipped with v0.1.0 and tracked for later releases:
   source slices, killed/survived verdicts, kill_rate — are
   byte-for-byte the same; the .25 refactor changes timing, not
   outcomes. The full per-commit document SHAs (advisory:
-  `mix run priv/helper_scripts/bench_ast_perf.exs` reproduces them):
+  `mix run scripts/helper_scripts/bench_ast_perf.exs` reproduces them):
 
   - before: `d878975d19112378f3598cb32c452c7c55b90b810156316335f13c9e5e8bee85`
   - after:  `46292518ccecca161161f278e3df58dc05d1031a47b9bff9ff7137af499b8b2a`
@@ -499,10 +521,10 @@ Shipped with v0.1.0 and tracked for later releases:
 ### Added
 
 - **wrd25 bench fixture** at
-  `priv/helper_scripts/bench_fixtures/wrd25_200sites/` — a small
+  `scripts/helper_scripts/bench_fixtures/wrd25_200sites/` — a small
   self-contained Mix project (5 modules + colocated tests) used by
   the `.25` AST-perf bench harness skeleton
-  (`priv/helper_scripts/bench_ast_perf.exs`, completed in S6) and
+  (`scripts/helper_scripts/bench_ast_perf.exs`, completed in S6) and
   by the determinism safety-net test
   (`test/mutagen_ex/determinism_test.exs`, re-targeted from the
   lane fixture). *(mutagen-wrd.25.2.)*
@@ -646,7 +668,7 @@ Shipped with v0.1.0 and tracked for later releases:
   Scenario 7 `@tag :skip` in `test/mutagen_ex/end_to_end_test.exs` was
   long blamed on a `:cover` + Ecto-style DSL interaction. The
   `mutagen-wrd.19` spike (direct reproduction in
-  `priv/helper_scripts/spike_19_repro.exs`) showed every macro-injected
+  `scripts/helper_scripts/spike_19_repro.exs`) showed every macro-injected
   callback — `__schema_kind__/0`, `field/2`-generated `name/0` and
   `age/0`, the `birthday/1` arithmetic helper, and the persisted
   `:lane_schema_kind` attribute — survives `:cover.compile_beam/1` ->

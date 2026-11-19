@@ -125,6 +125,11 @@ decisions:
     cannot widen a line or tag selection. In both cases the helpers'
     excludes are appended to `exclude`. Duplicates are dropped and order
     is kept. An empty option list returns the filter unchanged.
+
+    Report metadata distinguishes selectors from CLI targets and helper
+    options. Default reports preserve CLI selectors and omit helper
+    values. Helper tag keys appear when they occur as literal atoms in the
+    helper source.
 ```
 
 ```spec-scenarios

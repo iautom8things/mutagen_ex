@@ -77,29 +77,58 @@ defmodule MutagenEx.TestSelector do
     """
 
     @enforce_keys [:include, :exclude, :files]
-    defstruct include: [], exclude: [], files: []
+    defstruct include: [], exclude: [], files: [], report_filters: %{}
 
     @type filter :: atom() | {atom(), Regex.t() | String.Chars.t()} | ExUnit.Filters.location()
 
     @type t :: %__MODULE__{
             include: [filter()],
             exclude: [filter()],
-            files: [String.t()]
+            files: [String.t()],
+            report_filters: map()
           }
   end
 
   @doc "Applies helper filters while preserving restrictive tag and line targets."
-  @spec merge_helper_filters(TestFilter.t(), keyword()) :: TestFilter.t()
-  def merge_helper_filters(filter, []), do: filter
+  @spec merge_helper_filters(TestFilter.t(), keyword(), MapSet.t()) :: TestFilter.t()
+  def merge_helper_filters(filter, helper, literal_tags \\ MapSet.new())
+  def merge_helper_filters(filter, [], _literal_tags), do: filter
 
-  def merge_helper_filters(%TestFilter{} = filter, helper) do
+  def merge_helper_filters(%TestFilter{} = filter, helper, literal_tags) do
     helper_includes = if filter.exclude == [], do: List.wrap(helper[:include]), else: []
+    helper_excludes = List.wrap(helper[:exclude])
 
     %{
       filter
       | include: Enum.uniq(filter.include ++ helper_includes),
-        exclude: Enum.uniq(filter.exclude ++ List.wrap(helper[:exclude]))
+        exclude: Enum.uniq(filter.exclude ++ helper_excludes),
+        report_filters: %{
+          include: mark_helper_filters(filter.include, helper_includes, literal_tags),
+          exclude: mark_helper_filters(filter.exclude, helper_excludes, literal_tags)
+        }
     }
+  end
+
+  @doc false
+  def report_filters(filter, field) do
+    Map.get(Map.get(filter, :report_filters, %{}), field, Map.fetch!(filter, field))
+  end
+
+  defp mark_helper_filters(cli, helper, literal_tags) do
+    for entry <- Enum.uniq(cli ++ helper) do
+      if entry in cli do
+        entry
+      else
+        key =
+          case entry do
+            {key, _value} -> key
+            key -> key
+          end
+
+        verified = if MapSet.member?(literal_tags, key), do: key
+        {:helper_filter, verified, entry}
+      end
+    end
   end
 
   @type target :: String.t()
@@ -108,7 +137,6 @@ defmodule MutagenEx.TestSelector do
           | :invalid_target
           | :invalid_line
           | :file_not_found
-          | :tag_walk_failed
 
   @typedoc "Options accepted by `resolve/2`."
   @type option :: {:test_root, String.t()} | {:test_paths, [String.t()]}

@@ -1,6 +1,6 @@
 # Confirms the persisted-attribute observation independent of :cover.
 #
-# Run with: mix run priv/helper_scripts/spike_19_attrs.exs
+# Run with: mix run scripts/helper_scripts/spike_19_attrs.exs
 
 defmodule SpikeSchema do
   defmacro __using__(_) do

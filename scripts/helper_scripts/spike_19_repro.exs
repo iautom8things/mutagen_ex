@@ -2,7 +2,7 @@
 # :cover.compile_beam/1 against LaneFixture.EctoUser.
 #
 # Run from repo root with:
-#   mix run priv/helper_scripts/spike_19_repro.exs
+#   mix run scripts/helper_scripts/spike_19_repro.exs
 #
 # This bypasses the e2e pipeline: it pre-compiles the lane fixture into a
 # tmp ebin (mirroring end_to_end_test setup_all), takes a baseline snapshot

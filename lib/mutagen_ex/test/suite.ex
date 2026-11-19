@@ -1,21 +1,31 @@
 defmodule MutagenEx.Test.Suite do
   @moduledoc false
 
-  alias MutagenEx.JsonReporter
-  alias JsonReporter.Sanitizer
-
   def run(ex_unit, phase) do
     {:ok, ex_unit.run()}
   rescue
-    error -> failed(phase, "raised", Exception.message(error))
+    error ->
+      failed(
+        phase,
+        "raised",
+        Exception.message(error),
+        MutagenEx.Runtime.exception_facts(error, __STACKTRACE__)
+      )
   catch
     kind, reason ->
-      failed(phase, "caught #{kind}", Exception.format_banner(kind, reason, __STACKTRACE__))
+      facts = if is_atom(reason), do: %{reason: reason}, else: %{}
+
+      failed(
+        phase,
+        "caught #{kind}",
+        Exception.format_banner(kind, reason, __STACKTRACE__),
+        facts
+      )
   end
 
-  defp failed(phase, how, message) do
+  defp failed(phase, how, message, facts \\ %{}) do
     {:error, :ex_unit_run_failed,
-     %{message: Sanitizer.clean("ExUnit.run/0 #{how} during #{phase}: #{message}")}}
+     Map.merge(facts, %{phase: phase, message: "ExUnit.run/0 #{how} during #{phase}: #{message}"})}
   end
 
   def require_tests(%{total: total} = stats, filter, phase) do
@@ -31,8 +41,8 @@ defmodule MutagenEx.Test.Suite do
          phase: phase,
          excluded: excluded,
          skipped: skipped,
-         include: Enum.map(filter.include, &JsonReporter.filter_to_wire/1),
-         exclude: Enum.map(filter.exclude, &JsonReporter.filter_to_wire/1)
+         include: MutagenEx.TestSelector.report_filters(filter, :include),
+         exclude: MutagenEx.TestSelector.report_filters(filter, :exclude)
        }}
     end
   end
