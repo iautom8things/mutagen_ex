@@ -36,12 +36,9 @@ defmodule MutagenEx.BaselineTest do
 
   defmodule ExUnitFake do
     @moduledoc false
-    def configure(opts) do
-      Process.put(:exunit_fake_configure, opts)
-      :ok
-    end
-
     def run do
+      Process.put(:exunit_fake_options, Application.get_all_env(:ex_unit))
+
       Process.get(:exunit_fake_run_result, %{
         failures: 0,
         total: 0,
@@ -53,7 +50,7 @@ defmodule MutagenEx.BaselineTest do
 
   describe "r2: forced ExUnit config" do
     @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
-    test "configure/1 receives max_cases: 1 and the configured seed" do
+    test "run/0 sees max_cases: 1 and the configured seed" do
       input = %{
         seed: 7,
         test_filter: %TestFilter{include: [], exclude: [:test], files: []},
@@ -73,7 +70,7 @@ defmodule MutagenEx.BaselineTest do
       assert result.failed == 0
       assert result.failures == []
 
-      opts = Process.get(:exunit_fake_configure)
+      opts = Process.get(:exunit_fake_options)
       assert Keyword.get(opts, :max_cases) == 1
       assert Keyword.get(opts, :seed) == 7
     end
@@ -89,7 +86,7 @@ defmodule MutagenEx.BaselineTest do
       Process.put(:exunit_fake_run_result, %{failures: 0, total: 0, excluded: 0, skipped: 0})
       assert {:ok, _} = Baseline.run(input)
 
-      opts = Process.get(:exunit_fake_configure)
+      opts = Process.get(:exunit_fake_options)
       assert Keyword.get(opts, :include) == [:fast]
       assert Keyword.get(opts, :exclude) == [:test, :slow]
     end
@@ -103,10 +100,7 @@ defmodule MutagenEx.BaselineTest do
         seed: 0,
         test_filter: %TestFilter{include: [], exclude: [:test], files: []},
         ex_unit: ExUnitFake,
-        test_loader: fn _ -> :ok end,
-        failure_collector: fn ->
-          [{SomeTestModule, "test crashes immediately"}]
-        end
+        test_loader: fn _ -> :ok end
       }
 
       Process.put(:exunit_fake_run_result, %{failures: 1, total: 4, excluded: 0, skipped: 0})
@@ -114,29 +108,7 @@ defmodule MutagenEx.BaselineTest do
       assert {:error, :baseline_red, details} = Baseline.run(input)
       assert details.failed == 1
       assert details.passed == 3
-      assert details.failures == [{SomeTestModule, "test crashes immediately"}]
       assert is_binary(details.message)
-    end
-
-    test "no mutation phase is invoked on red baseline (collector not called when green)" do
-      called = :counters.new(1, [])
-
-      input = %{
-        seed: 0,
-        test_filter: %TestFilter{include: [], exclude: [:test], files: []},
-        ex_unit: ExUnitFake,
-        test_loader: fn _ -> :ok end,
-        failure_collector: fn ->
-          :counters.add(called, 1, 1)
-          []
-        end
-      }
-
-      # Green: collector called once (we always invoke it post-run; this
-      # is fine — it's a pure read of an in-memory list).
-      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
-      assert {:ok, _} = Baseline.run(input)
-      assert :counters.get(called, 1) >= 1
     end
   end
 

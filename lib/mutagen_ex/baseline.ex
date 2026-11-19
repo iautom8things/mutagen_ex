@@ -11,10 +11,9 @@ defmodule MutagenEx.Baseline do
       If any test fails, return `{:error, :baseline_red, %{failures:
       [{module, name}, ...], passed: int}}`. The orchestrator then routes
       the failure into the universal error-JSON shape.
-    * **r2.** Forces `ExUnit.configure(max_cases: 1, seed: cfg.seed)`
-      before the run. Detects `async: true` test modules in the cited
-      filter and surfaces them as warnings (so the JSON's `warnings`
-      array can be populated downstream).
+    * **r2.** Runs ExUnit serially with the configured seed and an
+      unbounded failure count. Detects `async: true` test modules in the
+      cited filter and includes warnings in the report.
 
   Baseline does NOT own:
 
@@ -119,11 +118,8 @@ defmodule MutagenEx.Baseline do
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
-         :ok <- configure_exunit(cfg),
-         :ok <- load_test_files(cfg),
-         :ok <- register_test_modules(cfg),
-         {:ok, exunit_result} <- run_exunit(cfg) do
-      classify(exunit_result, cfg)
+         :ok <- load_test_files(cfg) do
+      run_cited_tests(cfg)
     end
   end
 
@@ -131,17 +127,26 @@ defmodule MutagenEx.Baseline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp configure_exunit(cfg) do
-    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
+  defp run_cited_tests(cfg) do
+    failures = :ets.new(:baseline_failures, [:ordered_set, :public])
 
-    ex_unit.configure(
-      max_cases: 1,
-      seed: cfg.seed,
-      include: cfg.test_filter.include,
-      exclude: cfg.test_filter.exclude
-    )
+    try do
+      options =
+        MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
+        |> MutagenEx.Test.FailureFormatter.attach(fn _runner, test ->
+          :ets.insert(failures, {System.unique_integer([:monotonic]), {test.module, test.name}})
+        end)
 
-    :ok
+      :ok = register_test_modules(cfg)
+
+      with {:ok, result} <-
+             MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end) do
+        failure_list = for {_, failure} <- :ets.tab2list(failures), do: failure
+        classify(result, cfg, failure_list)
+      end
+    after
+      :ets.delete(failures)
+    end
   end
 
   defp load_test_files(cfg) do
@@ -174,13 +179,7 @@ defmodule MutagenEx.Baseline do
   # does per site.
   defp register_test_modules(cfg) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-    test_modules = Map.get(cfg, :test_modules, [])
-
-    Enum.each(test_modules, fn {mod, mod_cfg} ->
-      server.add_module(mod, mod_cfg)
-    end)
-
-    :ok
+    MutagenEx.Test.ExUnitServer.register_cited_modules(server, Map.get(cfg, :test_modules, []))
   end
 
   defp run_exunit(cfg) do
@@ -201,18 +200,7 @@ defmodule MutagenEx.Baseline do
     end
   end
 
-  # ExUnit.run/0 returns a map shape like
-  # `%{failures: int, total: int, excluded: int, skipped: int}`. The map
-  # is plain data — we don't get failure module/test detail from it, so
-  # the orchestrator may want to attach a richer failure list via an
-  # ExUnit formatter in future. For v1, the baseline failure detail is
-  # populated from the orchestrator-provided `:failure_collector` seam
-  # (defaults to a no-op that returns `[]`).
-  #
-  # The collector seam lets the orchestrator wire a real formatter (e.g.
-  # one that records `{module, test_name}` pairs) into the baseline phase
-  # without making Baseline itself a top-level ExUnit formatter.
-  defp classify(exunit_result, cfg) when is_map(exunit_result) do
+  defp classify(exunit_result, cfg, failure_list) when is_map(exunit_result) do
     failures = Map.get(exunit_result, :failures, 0)
     total = Map.get(exunit_result, :total, 0)
 
@@ -222,9 +210,6 @@ defmodule MutagenEx.Baseline do
         total - failures - Map.get(exunit_result, :excluded, 0) -
           Map.get(exunit_result, :skipped, 0)
       )
-
-    collector = Map.get(cfg, :failure_collector, fn -> [] end)
-    failure_list = collector.()
 
     warnings = async_warnings(cfg)
 
@@ -248,7 +233,7 @@ defmodule MutagenEx.Baseline do
     end
   end
 
-  defp classify(other, _cfg) do
+  defp classify(other, _cfg, _failures) do
     {:error, :ex_unit_run_failed,
      %{
        message: "ExUnit.run/0 returned an unexpected shape (#{inspect(other)})"

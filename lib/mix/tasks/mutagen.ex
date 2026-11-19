@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app]
+      mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. Emits a single JSON document to stdout (or `--json <path>`)
@@ -22,6 +22,23 @@ defmodule Mix.Tasks.Mutagen do
       `tag:<name>`. Repeat the flag to add more targets.
     * `--timeout-ms <int>` — wall-clock budget per mutation run, in
       milliseconds. Default `30000`. Must be a positive integer.
+    * `--no-fail-fast` runs the full cited suite for each mutant.
+      By default, the mutation phase
+      stops executing tests on the first failure. A failure recorded
+      before the deadline kills the mutant even if the full suite
+      would time out. Baseline and coverage have no failure cap.
+      The JSON field `meta.fail_fast` records the mode and defaults to
+      `true` on argument errors.
+      Survivor and kill equivalence assumes the tests run independently.
+      Tests that set up or clean up state for other tests depend on
+      ExUnit's ordering when the seed changes. Skipping one can change
+      later mutants' verdicts, warnings, and taint, even when a later
+      mutant runs every test. Use `--no-fail-fast` for these suites.
+
+      After cited files load, Mutagen sets the seed, serial execution,
+      failure cap and resolved filters. It keeps host formatters,
+      adds its own when collecting failures and restores the host
+      settings after each phase. Other host options stay active.
     * `--seed <int>` — ExUnit seed, propagated to every test-running phase.
       Default `0`. See Constraints.
     * `--json <path>` — write the final JSON document to `<path>` instead
@@ -973,6 +990,7 @@ defmodule Mix.Tasks.Mutagen do
     input = %{
       seed: seed,
       timeout_ms: timeout_ms,
+      fail_fast: config.fail_fast,
       budget_ms: budget_ms,
       test_filter: test_filter,
       ast_cache: ast_cache,
@@ -1033,8 +1051,8 @@ defmodule Mix.Tasks.Mutagen do
     }
   end
 
-  defp with_meta(%Report{} = r, %Config{seed: seed}) do
-    %Report{r | meta: Map.put(r.meta, :exunit_seed, seed)}
+  defp with_meta(%Report{} = r, %Config{seed: seed, fail_fast: fail_fast}) do
+    %Report{r | meta: Map.merge(r.meta, %{exunit_seed: seed, fail_fast: fail_fast})}
   end
 
   defp tool_version do

@@ -146,3 +146,8 @@ are unchanged.
   path may need to be revisited (e.g. with `code:delete/1` + reload, or
   with a peer-node sandbox per the bw mutagen-wrd.13 alternative
   resolution path 2).
+
+[Per-mutant fail-fast](per_mutant_fail_fast.md) amends the classification
+rule above. A reply completed after the deadline, including one returned
+in the grace window, no longer classifies the site. In fail-fast mode a
+failure recorded by the deadline classifies the site `:killed`.

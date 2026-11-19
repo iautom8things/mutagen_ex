@@ -5,17 +5,12 @@ lib_paths:
   - lib
 severities: {}
 overrides:
-  # The gate still reports these two known proof gaps at info level.
+  # The gate still reports this known proof gap at info level.
   - subject: mutagen.coverage
     requirement: mutagen.coverage.r7
     code: spec/requirement_unverified
     severity: info
     reason: Disk snapshots use injected collaborators and omit attributable temp writes. No combined real coverage and AST-cache disk test exists.
-  - subject: mutagen.mutation_pipeline
-    requirement: mutagen.mutation_pipeline.r4
-    code: spec/requirement_unverified
-    severity: info
-    reason: After the deadline a clean reply can still classify as completed. The timeout and taint defect remains open.
 
   # OTP callbacks, generated declarations and behaviour interfaces have no
   # statically attributable source call at the declaring file.
@@ -90,11 +85,11 @@ overrides:
   - file: lib/mutagen_ex/test/ex_unit_facade.ex
     code: change/uncovered_file
     severity: info
-    reason: Declares the ExUnit configure and run callbacks. The real baseline test uses the concrete wrapper.
+    reason: Declares the ExUnit run callback. The real baseline test uses the concrete wrapper.
   - file: lib/mutagen_ex/test/ex_unit_server_facade.ex
     code: change/uncovered_file
     severity: info
-    reason: Declares the registration callback. The baseline registration test invokes the concrete wrapper.
+    reason: Declares the registration and pending-module discard callbacks. The baseline registration test invokes the concrete wrapper.
   - file: lib/mutagen_ex/types.ex
     code: change/uncovered_file
     severity: info

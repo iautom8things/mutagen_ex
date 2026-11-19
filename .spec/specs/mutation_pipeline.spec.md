@@ -37,6 +37,7 @@ surface:
   - lib/mutagen_ex/application.ex
   - lib/mutagen_ex/test/code_server.ex
   - lib/mutagen_ex/test/code_server_facade.ex
+  - lib/mutagen_ex/test/failure_formatter.ex
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
@@ -45,6 +46,7 @@ decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
   - mutagen.decision.serial_execution_and_seed
+  - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.mutation_loop_private
   - mutagen.decision.self_mutation_refused
   - mutagen.decision.supervision_tree
@@ -62,17 +64,30 @@ decisions:
   statement: |
     `Baseline.run/1` executes the cited tests against unmutated code. If
     any test fails, the pipeline aborts with an error-shaped JSON whose
-    `abort_reason` is `:baseline_red` and whose `baseline.failures[]` names
-    each failing test (`{module, name}` pairs).
+    `abort_reason` is `:baseline_red`. `baseline.failures[]` names, as
+    `{module, name}` objects, every test ExUnit counted as failed: a
+    failed test, each test invalidated by a failed `setup_all`, and each
+    test of a module whose `setup_all` teardown failed. Each test appears
+    once, so the list length equals `baseline.failed`. The error
+    document's `details.failures` holds the same objects.
 
 - id: mutagen.mutation_pipeline.r2
   priority: must
   statement: |
-    Both `Baseline.run/1` and `MutationRunner.run/1` force
-    `ExUnit.configure(max_cases: 1, seed: config.seed)`. Tests declared
-    `async: true` are still run serially. If any cited test module was
-    declared `async: true`, a warning naming that module is added to the
-    JSON's `warnings` array.
+    `Baseline.run/1` and `MutationRunner.run/1` set ExUnit options after
+    the cited test files have loaded and keep them for their test runs:
+    `max_cases: 1`, `seed: config.seed`, `include` and `exclude` from
+    the resolved test filter, and `max_failures`. Baseline uses
+    `:infinity`. The mutation phase uses `1` when `fail_fast` is true
+    and `:infinity` when it is false (r20). The `formatters` list present
+    after loading is kept, and Mutagen appends its failure formatter in
+    baseline and in capped mutation runs. Options the phase does not set,
+    such as `:timeout`, keep their loaded values. When the phase returns,
+    raises, or stops at the budget, every key it set and `:trace` hold
+    their post-load values again, and a key that was unset before the
+    phase is unset again. Tests declared `async: true` are still run
+    serially. If any cited test module was declared `async: true`, a
+    warning naming that module is added to the JSON's `warnings` array.
 
 - id: mutagen.mutation_pipeline.r3
   priority: must
@@ -85,31 +100,40 @@ decisions:
 - id: mutagen.mutation_pipeline.r4
   priority: must
   statement: |
-    Per-mutation execution wraps `ExUnit.run/1` in a per-site task
+    Per-mutation execution wraps `ExUnit.run/0` in a per-site task
     spawned via `Task.Supervisor.async_nolink(MutagenEx.TaskSup, ...)`
-    that enforces `Config.timeout_ms`. When the timeout fires, the
-    task is cancelled via the two-phase path documented in
-    mutagen.decision.timeout_handling and
+    whose deadline is `Config.timeout_ms` after the spawn. A reply the
+    task completed by the deadline classifies the site per r5, and a task
+    that exits without a reply before the deadline classifies `:error`.
+    When the deadline passes first, the task is cancelled via the
+    two-phase path documented in mutagen.decision.timeout_handling and
     mutagen.decision.supervision_tree: a `Task.shutdown(task,
-    cancel_grace_ms)` mailbox-drain window first (default 100 ms),
-    followed by `Task.Supervisor.terminate_child(MutagenEx.TaskSup,
-    task.pid)` to escalate and update the supervisor's child table.
-    Both phases dispatch `Process.exit(_, :shutdown)`, which
-    propagates through the task's link tree to descendant processes.
-    The site is classified `:timeout` regardless of which phase
-    cleared the task, and the next iteration's classification record
-    carries `tainted_predecessors: true`. After a `:timeout` outcome
-    the runner calls `:code.purge/1` on the site's scoped modules
-    before restore, so a killed task cannot leave the Code.Server
-    holding an orphaned per-module load lock for the next site.
+    cancel_grace_ms)` window first (default 100 ms), followed by
+    `Task.Supervisor.terminate_child(MutagenEx.TaskSup, task.pid)` to
+    escalate and update the supervisor's child table. Both phases
+    dispatch `Process.exit(_, :shutdown)`, which propagates through
+    the task's link tree to descendant processes. A reply completed after
+    the deadline, including one returned during the grace window, never
+    classifies the site. The site is `:timeout`, except that in
+    fail-fast mode (r20) a test failure recorded at or before the
+    deadline makes it `:killed` with the warning `deadline exceeded
+    after a test failure`. A failure recorded after the deadline does
+    not count. In both cases the next site's result carries
+    `tainted_predecessors: true`, and the runner calls `:code.purge/1`
+    on the site's scoped modules before restore, so a killed task cannot
+    leave the Code.Server holding an orphaned per-module load lock for
+    the next site.
 
 - id: mutagen.mutation_pipeline.r5
   priority: must
   statement: |
     Per-mutation classification has exactly five outcomes:
-    `:killed` (at least one cited test failed),
-    `:survived` (all cited tests passed),
-    `:timeout` (timed out before classification),
+    `:killed` (a run completed by its deadline reported a failed test,
+    or a fail-fast run recorded a failure by its deadline; see r4),
+    `:survived` (a run completed by its deadline and all cited tests
+    passed),
+    `:timeout` (the deadline passed and r4 does not classify the site
+    `:killed`),
     `:compile_error` (Code.compile_quoted/1 raised on the swapped AST),
     `:error` (uncaught exception or unexpected return from the test runner).
     `:compile_error` outcomes are NOT counted in the kill-rate denominator;
@@ -202,6 +226,18 @@ decisions:
     that produces empty coverage data and zero downstream enumeration
     sites whenever two `mix mutagen` invocations in the same BEAM
     cite the same test file (mutagen-wrd.38).
+
+    Loading a test file also queues its modules in `ExUnit.Server`.
+    When `Baseline.run/1` or `CoverageRunner.run/1` receives a non-empty
+    `test_modules` list, it discards the queued registrations and then
+    registers each cited module once, so each cited module runs once per
+    phase whether that phase loaded its file or an earlier one did. An
+    empty list leaves the load registrations in place. In serial mode,
+    after a per-site run passes its deadline, `MutationLoop` empties the
+    pending registrations through the `ExUnitServerFacade`
+    `discard_pending_modules/0` callback before the next site registers
+    its modules. A runner cancelled before it consumed the registry
+    therefore cannot make the next site's `add_module/2` fail.
 
 - id: mutagen.mutation_pipeline.r11
   priority: must
@@ -364,10 +400,10 @@ decisions:
     fold observes an `{:exit, reason}` for a per-site outer task (a
     per-site worker killed or aborted out-of-band — e.g. the
     supervisor terminated it), `MutationRunner.run/1` does NOT restore
-    inside that fold branch. It halts the ordered stream with a
-    `{:outer_task_exit, reason, task_sup}` sentinel and runs cleanup in
-    the post-reduce step via `abort_after_outer_task_exit/3`, which
-    performs two strictly-ordered phases:
+    inside that fold branch. It halts the ordered stream with an
+    outer-task-exit sentinel and runs cleanup in the post-reduce step
+    via `abort_after_outer_task_exit/3`, which performs two
+    strictly-ordered phases:
       1. Tear down and drain every sibling per-site `Task.Supervisor`
          child: `Task.Supervisor.terminate_child/2` each live child of
          `task_sup`, then poll until the supervisor reports no children
@@ -392,6 +428,13 @@ decisions:
     restore on timeout), r15 (parallel dispatch + shared-global-state
     caveat), and
     [`mutagen.decision.parallel_experimental_gate`](../decisions/parallel_experimental_gate.md).
+
+    The same order holds when the budget (mutagen.cli.r13) or a site
+    abort halts a parallel run. The runner terminates and drains every
+    per-site task before it restores the scoped modules, and the
+    mutation phase restores its ExUnit options (r2) after that. If the
+    restore sweep after a budget halt fails, `run/1` aborts with
+    `:unrecoverable_restore_failure`.
 
 - id: mutagen.mutation_pipeline.r18
   priority: must
@@ -431,6 +474,25 @@ decisions:
     The value is the CLI default only — it does not change the timeout
     mechanism (r4) or any classification contract; callers still override it
     per run via `--timeout-ms`.
+
+- id: mutagen.mutation_pipeline.r20
+  priority: must
+  statement: |
+    `MutationRunner.run/1` takes a `fail_fast` boolean that defaults to
+    `true`. With `fail_fast: true`, each per-site ExUnit run uses
+    `max_failures: 1`, so ExUnit runs no further tests after the first
+    failed test, and a run without a failure executes every cited test.
+    With `fail_fast: false`, the cap is `:infinity` and every cited test
+    runs unless the deadline (r4) interrupts it. Baseline and coverage
+    always use `:infinity`. When the cited tests are deterministic and
+    do not depend on each other's side effects, both modes produce the
+    same ordered result IDs and statuses, except that a site whose full
+    run would pass its deadline after a test had failed is `:killed` in
+    fail-fast mode and `:timeout` without it. When a skipped test sets
+    up or cleans up state that a later site's tests rely on, fail-fast
+    can change that later site's verdict in either direction. Per
+    mutagen.decision.per_mutant_fail_fast this is an accepted caveat,
+    and `--no-fail-fast` (mutagen.cli.r17) runs the full suite.
 ```
 
 ```spec-scenarios
@@ -629,6 +691,63 @@ decisions:
   then:
     - "Under `max_concurrency: 3`, stderr contains the EXPERIMENTAL warning exactly once: it names `--max-concurrency > 1 is EXPERIMENTAL`, `incorrect kill/survive classification`, `corrupted coverage`, and the safe-path phrase `default, --max-concurrency 1`. A single-line count of the warning marker is `1` (one-time, not per-site across the 3 sites)."
     - "Under `max_concurrency: 1`, captured stderr is empty (`\"\"`): no EXPERIMENTAL warning is emitted."
+
+- id: mutagen.mutation_pipeline.s20
+  covers: [mutagen.mutation_pipeline.r20]
+  given:
+    - A fixture with four sites and three cited tests in two modules. The first three mutants each fail both tests of the first module. The fourth mutant fails no test.
+  when:
+    - The pipeline runs once with `--no-fail-fast` and once in the default mode.
+  then:
+    - "Both runs report the same ordered `{id, status}` list: three `killed` results followed by one `survived` result."
+    - In the default mode each killed run executes only the first test, with `max_failures` set to 1, and the surviving run executes all three tests.
+    - With `--no-fail-fast` every run executes all three tests with `max_failures` set to `:infinity`.
+
+- id: mutagen.mutation_pipeline.s21
+  covers: [mutagen.mutation_pipeline.r4]
+  given:
+    - A per-site deadline of 250 ms.
+    - In one fixture the first test fails and a later test sleeps 800 ms. In another the first test sleeps 800 ms before it fails. In a third the tests finish in time with a failure and an after-suite callback then sleeps 800 ms.
+    - A fake runner that returns a clean result, or records a failure, only after it receives the cancellation `:shutdown`.
+  when:
+    - Each site reaches its deadline.
+  then:
+    - In the first and third fixtures the failure recorded before the deadline gives `killed` in the default mode and `timeout` with `--no-fail-fast`. The kill carries the warning `deadline exceeded after a test failure`.
+    - The site whose first failure comes after the deadline is `timeout` in both modes.
+    - A clean reply or a failure produced during cancellation leaves the site `timeout`.
+    - "In every case the next result has `tainted_predecessors: true` and the scoped modules were purged."
+
+- id: mutagen.mutation_pipeline.s22
+  covers: [mutagen.mutation_pipeline.r2, mutagen.mutation_pipeline.r10]
+  given:
+    - "A cited test file that calls `ExUnit.configure/1` while it loads, setting `max_failures: 1`, `seed: 9`, `max_cases: 8`, a formatter list, include and exclude filters, and `timeout: 9_999`. Its module has two failing tests."
+  when:
+    - "`Baseline.run/1` loads the file cold, and later `CoverageRunner.run/1` loads it again after it was unrequired."
+  then:
+    - "Both tests run once in each phase with `max_failures: :infinity`, `seed: 0`, `max_cases: 1`, the resolved include and exclude, `timeout: 9_999`, and the host formatter list. Baseline adds Mutagen's failure formatter and coverage does not."
+    - Baseline reports two failures.
+    - After each phase the ExUnit environment holds the values the file set.
+
+- id: mutagen.mutation_pipeline.s23
+  covers: [mutagen.mutation_pipeline.r10]
+  given:
+    - A host formatter whose start blocks for 500 ms during the first mutant's run, with a per-site deadline of 150 ms and three sites.
+  when:
+    - The serial mutation phase runs in either fail-fast mode.
+  then:
+    - "The results are `timeout`, `killed`, `killed`, and the second result has `tainted_predecessors: true`."
+    - A bare `ExUnit.run/0` afterwards reports zero tests.
+
+- id: mutagen.mutation_pipeline.s24
+  covers: [mutagen.mutation_pipeline.r20]
+  given:
+    - A suite whose last module cleans up state that an earlier test sets, or restores state that an earlier test relaxes.
+  when:
+    - The pipeline runs with `--no-fail-fast` and in the default mode.
+  then:
+    - With the cleanup module, two sites that survive with `--no-fail-fast` are `killed` in the default mode, and the leftover state is still set afterwards.
+    - With the restore module, a site that `--no-fail-fast` kills survives in the default mode.
+    - Both runs report the same site IDs in the same order.
 ```
 
 ```spec-verification
@@ -638,6 +757,7 @@ decisions:
     - mutagen.mutation_pipeline.r1
     - mutagen.mutation_pipeline.r2
     - mutagen.mutation_pipeline.r3
+    - mutagen.mutation_pipeline.r4
     - mutagen.mutation_pipeline.r5
     - mutagen.mutation_pipeline.r6
     - mutagen.mutation_pipeline.r7
@@ -653,4 +773,5 @@ decisions:
     - mutagen.mutation_pipeline.r17
     - mutagen.mutation_pipeline.r18
     - mutagen.mutation_pipeline.r19
+    - mutagen.mutation_pipeline.r20
 ```
