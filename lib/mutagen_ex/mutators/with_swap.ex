@@ -8,16 +8,18 @@ defmodule MutagenEx.Mutators.WithSwap do
   `else` blocks stay in place.
 
   Only independent clauses qualify for the failure-priority filters below.
-  Clauses are dependent if their patterns bind a common name, either clause
-  reads a name bound by the other, or either clause uses lexical introspection
-  such as `binding()` or `__ENV__`.
+  Treat the clauses as dependent if a name bound by either pattern appears
+  anywhere in the other clause, or either clause uses lexical introspection
+  such as `binding()`, `dbg()` or `__ENV__`.
 
-  The node does not contain the enclosing bindings. To preserve the existing
-  RHS dependency check, a read in the moved-first expression of a name bound
-  by the moved-second pattern returns `{:skip, :bound_var_used_before_binding}`.
-  An outer binding can make that swap valid. Reads in pins, guards and binary
-  sizes can also use outer bindings, so those swaps are kept and the compiler
-  reports a compile error if the binding is missing.
+  For the existing use-before-bind check, a variable-shaped name in the
+  moved-first RHS that the moved-second pattern binds returns
+  `{:skip, :bound_var_used_before_binding}`. This name scan ignores module
+  attributes and binary modifiers. It can skip valid swaps when an outer
+  binding supplies the name or the occurrence is local to a nested
+  `fn`, case, for, receive, rescue, with, `match?`, match or destructure,
+  or just quoted data. The compiler resolves dependencies in pins, guards
+  and binary sizes when the swap is kept.
 
   For independent clauses, validation returns:
 
@@ -28,17 +30,15 @@ defmodule MutagenEx.Mutators.WithSwap do
       literal or read the same variable.
     * `:else_ignores_failure` if `else` consists of one `_ -> ...` arm.
 
-  The reference scan handles anonymous-function parameters, matches in blocks,
-  and quote boundaries. It approximates reads in other nested constructs and
-  does not expand macros, so a macro can hide a read, binding, or side effect.
-  Calls are opaque. The filters can miss swaps that only change side effects
-  or exceptions, and kept swaps can still be equivalent.
+  Unexpanded macros can hide reads, bindings and effects. The filters can
+  miss swaps that only change side effects or exceptions, and kept swaps
+  can still be equivalent.
   """
 
   @behaviour MutagenEx.Mutators
 
   alias MutagenEx.Mutators
-  alias MutagenEx.Mutators.WithSwap.References
+  @pseudo_variables [:_, :__MODULE__, :__CALLER__, :__ENV__, :__DIR__, :__STACKTRACE__]
 
   @impl Mutators
   def name, do: :with_swap
@@ -58,23 +58,19 @@ defmodule MutagenEx.Mutators.WithSwap do
 
   @impl Mutators
   def validate(
-        {:with, _, [{:<-, _, [first, first_expr]}, {:<-, _, [second, second_expr]} | rest]}
+        {:with, _,
+         [
+           {:<-, _, [first, first_expr]} = first_clause,
+           {:<-, _, [second, second_expr]} = second_clause | rest
+         ]}
       ) do
-    {first_bindings, first_pattern_reads} = References.pattern(first)
-    {second_bindings, second_pattern_reads} = References.pattern(second)
-    first_rhs_reads = References.expression(first_expr)
-    second_rhs_reads = References.expression(second_expr)
-    first_reads = MapSet.union(first_pattern_reads, first_rhs_reads)
-    second_reads = MapSet.union(second_pattern_reads, second_rhs_reads)
+    second_bindings = names(second, :bindings)
 
     cond do
-      not MapSet.disjoint?(second_bindings, first_rhs_reads) ->
+      not MapSet.disjoint?(second_bindings, names(first_expr, :rhs)) ->
         {:skip, :bound_var_used_before_binding}
 
-      not MapSet.disjoint?(first_bindings, second_bindings) or
-        not MapSet.disjoint?(first_bindings, second_reads) or
-        not MapSet.disjoint?(second_bindings, first_reads) or
-        :__ENV__ in first_reads or :__ENV__ in second_reads ->
+      dependent?(first_clause, second_clause, names(first, :bindings), second_bindings) ->
         :ok
 
       always_matches?(first, first_expr) or always_matches?(second, second_expr) ->
@@ -93,18 +89,80 @@ defmodule MutagenEx.Mutators.WithSwap do
 
   def validate(_), do: {:skip, :structurally_invalid}
 
+  defp dependent?(first, second, first_bindings, second_bindings) do
+    first_names = names(first, :clause)
+    second_names = names(second, :clause)
+
+    :__ENV__ in first_names or :__ENV__ in second_names or
+      not MapSet.disjoint?(first_bindings, second_names) or
+      not MapSet.disjoint?(second_bindings, first_names)
+  end
+
+  defp names(ast, mode) do
+    {_, names} =
+      Macro.prewalk(ast, MapSet.new(), fn
+        {:@, _, _}, names ->
+          {nil, names}
+
+        {:when, _, [pattern, _]}, names when mode == :bindings ->
+          {[pattern], names}
+
+        {:^, _, _}, names when mode == :bindings ->
+          {nil, names}
+
+        {:"::", _, [value, _]}, names when mode != :clause ->
+          {[value], names}
+
+        {name, _, context} = node, names
+        when is_atom(name) and is_atom(context) and name not in @pseudo_variables ->
+          {node, MapSet.put(names, name)}
+
+        node, names when mode == :clause ->
+          if introspects?(node), do: {node, MapSet.put(names, :__ENV__)}, else: {node, names}
+
+        node, names ->
+          {node, names}
+      end)
+
+    names
+  end
+
+  defp introspects?({:__ENV__, _, context}) when is_atom(context), do: true
+  defp introspects?({:binding, _, args}) when is_list(args), do: true
+  defp introspects?({:dbg, _, []}), do: true
+
+  defp introspects?({{:., _, [kernel, name]}, _, args}) do
+    case kernel do
+      Kernel ->
+        introspects?({name, [], args})
+
+      {:__aliases__, _, parts} when parts in [[:Kernel], [:"Elixir", :Kernel]] ->
+        introspects?({name, [], args})
+
+      _ ->
+        false
+    end
+  end
+
+  defp introspects?(_), do: false
+
   defp always_matches?({:_, _, context}, _expr) when is_atom(context), do: true
 
   defp always_matches?(pattern, expr) do
-    References.variable?(pattern) or same_literal?(pattern, expr)
+    variable?(pattern) or same_literal?(pattern, expr)
   end
 
   defp same_value?({name, _, context} = left, {name, _, context})
        when is_atom(name) and is_atom(context) do
-    References.variable?(left)
+    variable?(left)
   end
 
   defp same_value?(left, right), do: same_literal?(left, right)
+
+  defp variable?({name, _, context}) when is_atom(name) and is_atom(context),
+    do: name not in @pseudo_variables
+
+  defp variable?(_), do: false
 
   defp same_literal?(left, right) do
     Macro.quoted_literal?(left) and Macro.quoted_literal?(right) and
