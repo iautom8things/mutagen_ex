@@ -7,16 +7,9 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
   r10, r11.
 
-  ## Why
-
-  Stderr, exception messages, and `Macro.to_string/1` output flow
-  verbatim into `warnings`, `compile_errors[].message`, and the abort
-  detail block. Unbounded, they let a single mutated module spray
-  multi-MB of compiler diagnostics — including source slices that may
-  contain secrets — into a JSON report that, when written with the lax
-  `--json <path>` flag, becomes a file-system-resident artifact. The
-  sanitizer is the choke point that bounds these strings before they
-  hit the wire.
+  Compiler diagnostics and exception messages can include credentials or
+  large excerpts from host code. This module redacts and bounds those
+  messages before the reporter serializes them.
 
   ## Truncation (r10)
 
@@ -29,7 +22,8 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
 
   ## Redaction (r11)
 
-  Opt-in via application config:
+  Built-in patterns redact URL userinfo, common credential keys, and
+  token prefixes. Add patterns via application config:
 
       config :mutagen_ex, redact: [~r/AWS_SECRET[A-Z0-9_]+=\\S+/, "BEARER \\S+"]
 
@@ -38,7 +32,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   Redaction runs BEFORE truncation so the replacement does not push
   redacted bytes past the cap and then drop them as truncated text.
 
-  Default `redact:` is `[]` (no redaction).
+  The default extra pattern list is empty.
 
   ## API
 
@@ -96,7 +90,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   def byte_size_limit, do: @default_byte_size_limit
 
   @doc """
-  Redact (per application env `:redact`) then truncate (to 4 KiB).
+  Apply built-in and configured redactions, then truncate to 4 KiB.
   Returns the cleaned binary. Non-binary input is converted via
   `to_string/1` first; `nil` is returned unchanged so callers can chain
   with optional fields.
