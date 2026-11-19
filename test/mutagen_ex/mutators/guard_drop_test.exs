@@ -41,6 +41,7 @@ defmodule MutagenEx.Mutators.GuardDropTest do
 
   describe "validate/1" do
     @tag :validate
+    @tag spec: "mutagen.mutators.r11"
     test ":ok for the head or pattern that mutate/1 returns" do
       for source <- ["def f(x) when x > 0, do: x", "case y do 42 when true -> :ok end"] do
         [guarded] = guarded_nodes(source)
@@ -49,6 +50,7 @@ defmodule MutagenEx.Mutators.GuardDropTest do
     end
 
     @tag :validate
+    @tag spec: "mutagen.mutators.r11"
     test "skips a multi-parameter fn clause, whose guard mutate/1 cannot drop" do
       [guarded] = guarded_nodes("fn a, b when a > b -> a end")
 
@@ -75,6 +77,7 @@ defmodule MutagenEx.Mutators.GuardDropTest do
           end
         end
 
+        def positive, do: fn x when x > 0 -> x end
         def pick, do: fn a, b when a > b -> a end
       end
       """
@@ -85,7 +88,8 @@ defmodule MutagenEx.Mutators.GuardDropTest do
       assert Enum.map(sites, &{&1.line, Macro.to_string(&1.mutated_ast)}) == [
                {2, "only_positive(n)"},
                {3, "only_atoms(x)"},
-               {7, "n"}
+               {7, "n"},
+               {12, "x"}
              ]
 
       for site <- sites do

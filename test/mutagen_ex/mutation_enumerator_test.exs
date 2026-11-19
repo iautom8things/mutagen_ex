@@ -272,6 +272,40 @@ defmodule MutagenEx.MutationEnumeratorTest do
                s.mutator == :arith and s.file == "lib/mixed.ex"
              end)
     end
+
+    @tag spec: ["mutagen.mutators.r2", "mutagen.mutators.r9"]
+    test "with_swap failure-priority rejections are skipped under their site IDs" do
+      source = """
+      defmodule Noisy do
+        def unconditional(f, g), do: with(a <- f.(), :ok <- g.(), do: a)
+        def same_failure(x), do: with(:ok <- x, :error <- x, do: :done)
+        def ignored(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :done, else: (_ -> :error))
+        def kept(f, g), do: with(:ok <- f.(), :ok <- g.(), do: :done)
+      end
+      """
+
+      cache = ast_cache("lib/noisy.ex", source)
+      scopes = [scope("lib/noisy.ex", Noisy)]
+      covered = covered_lines("lib/noisy.ex", Enum.to_list(1..7))
+
+      result =
+        MutationEnumerator.enumerate(cache, scopes, covered,
+          mutators: [MutagenEx.Mutators.WithSwap]
+        )
+
+      assert [%{line: 5, function: "Noisy.kept/2"}] = result.sites
+
+      assert Enum.map(result.skipped, & &1.reason) == [
+               :insufficient_refutable_patterns,
+               :indistinguishable_failures,
+               :else_ignores_failure
+             ]
+
+      for skipped <- result.skipped do
+        assert skipped.site_id =~ ~r/^lib\/noisy\.ex:[0-9a-f]{32}:with_swap$/
+        refute skipped.site_id in Enum.map(result.sites, & &1.id)
+      end
+    end
   end
 
   describe "scenario s4 — multi-module file (mutagen.mutation_enumeration.r4)" do

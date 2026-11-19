@@ -537,6 +537,7 @@ defmodule MutagenEx.EndToEndTest do
   end
 
   describe "Scenario 3b: guarded.ex exercises the `guard_drop` mutator" do
+    @tag spec: "mutagen.mutators.r11"
     test "guard_drop sites kill or skip cleanly, never compile-error in results", _ctx do
       json =
         run_pipeline!([

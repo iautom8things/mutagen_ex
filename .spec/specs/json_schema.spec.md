@@ -56,6 +56,7 @@ decisions:
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.details_always_present
+  - mutagen.decision.mutator_confidence
   - mutagen.decision.ancora_migration
 ```
 
@@ -111,14 +112,14 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     The `mutation` block, when present, has these subfields:
-    `total` (int — enumerated-and-not-skipped sites),
-    `completed` (int — sites that ran to a classification),
+    `total` (int, the completed results `killed + survived + timeout +
+    error`; skipped and compile-error sites are not counted),
+    `completed` (int, equal to `total`),
     `killed` (int),
     `survived` (int),
     `timeout` (int),
     `compile_error` (int),
-    `kill_rate` (float — `killed / (total - compile_error)`, or `null` if
-    denominator is 0),
+    `kill_rate` (float, `killed / total`, or `null` when `total` is 0),
     `results` (array — one entry per completed site),
     `skipped` (array — one entry per `{:skip, reason}` site),
     `compile_errors` (array — one entry per `:compile_error` site),
@@ -137,6 +138,9 @@ Top-level keys, all present in every variant unless noted:
     `line` (int),
     `column` (int),
     `mutator` (string, snake_case name),
+    `confidence` (string, `"high"` or `"low"`: the rating
+    `MutagenEx.Mutators.confidence/1` returns for `mutator`, whatever the
+    `status`),
     `before` (string — `Macro.to_string/1` of original AST),
     `before_source` (string — verbatim source slice taken from
       the `source_text` the AST was parsed from (the `source_text`
@@ -306,20 +310,24 @@ Top-level keys, all present in every variant unless noted:
         `"end"`.
     The four kinds bracket the run:
       - `"start"` fires once at mutation-phase entry; carries `total`
-        (planned site count) and `meta` (`r2`'s meta block). That
-        `meta` equals the aggregate document's `meta`.
+        (planned site count, every enumerated site that was not skipped)
+        and `meta` (`r2`'s meta block). That `meta` equals the aggregate
+        document's `meta`.
       - `"result"` fires once per completed site (any of `killed`,
         `survived`, `timeout`, `error`); the line's wire shape MUST be
         byte-equal to the equivalent entry in the aggregate document's
-        `mutation.results[]` array (`r4`) plus the `"kind"` and
-        `"version"` discriminators.
+        `mutation.results[]` array (`r4`), including `function` and
+        `confidence`, plus the `"kind"` and `"version"` discriminators.
       - `"compile_error"` fires once per `:compile_error` site; the
         line's wire shape MUST be byte-equal to the equivalent entry
         in `mutation.compile_errors[]`.
       - `"end"` fires once at pipeline exit (success or abort);
         carries the aggregate counters (`total`, `completed`,
         `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
-        AND `aborted` + `abort_reason`.
+        AND `aborted` + `abort_reason`. Its `total` is the aggregate
+        `mutation.total` (`r3`), so it is lower than the start line's
+        planned `total` when sites fail to compile or a budget truncates
+        the run.
         It carries `meta.id_scheme` even when the run aborted before start.
     Per-site lines (`"result"` / `"compile_error"`) are emitted in
     input order — async_stream's `:ordered: true` plus the runner's
@@ -529,6 +537,18 @@ Top-level keys, all present in every variant unless noted:
   then:
     - "The decoded JSON's `details.message` is exactly 4096 bytes of payload followed by ` ... <6144 bytes truncated>`."
     - The sanitizer pipeline applied to abort-detail string leaves matches the sanitizer applied to `mutation.results[].warnings[]`.
+
+- id: mutagen.json_schema.s17
+  covers:
+    - mutagen.json_schema.r4
+    - mutagen.json_schema.r14
+  given:
+    - "Forty results: each of the ten registered mutators crossed with `killed`, `survived`, `timeout` and `error`."
+  when:
+    - "`JsonReporter.emit_report/1` renders the aggregate and `JsonStreamer.emit_result/2` streams each result."
+  then:
+    - "Every aggregate entry carries `confidence`: `\"low\"` for `with_swap` and `\"high\"` for the other nine mutators, for every status."
+    - "Each NDJSON result line equals its aggregate entry plus `kind` and `version`."
 ```
 
 ```spec-verification
