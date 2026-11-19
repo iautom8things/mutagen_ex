@@ -24,9 +24,8 @@ defmodule MutagenEx.Test.ExUnitFacade do
   @doc """
   Apply ExUnit configuration. Mirrors `ExUnit.configure/1`.
 
-  Production code passes a keyword list with at minimum `:max_cases` and
-  `:seed`. The runner additionally forwards `:include` and `:exclude`
-  from the resolved test filter.
+  Each phase sets `:max_cases`, `:max_failures`, and `:seed`, and forwards
+  `:include` and `:exclude` from the resolved test filter.
   """
   @callback configure(opts :: keyword()) :: any()
 

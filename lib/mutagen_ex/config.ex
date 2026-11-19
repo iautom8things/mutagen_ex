@@ -15,6 +15,7 @@ defmodule MutagenEx.Config do
   ticket's Out of Scope (intent) notes).
 
   Per `mutagen.cli.r3`, `timeout_ms` defaults to 30_000.
+  `fail_fast` defaults to `true` and applies to mutation runs.
   Per `mutagen.cli.r4`, `seed` defaults to 0.
   Per `mutagen.cli.r5`, `json_path` is `nil` when output should go to stdout.
   Per `mutagen.cli.r10`, `unsafe_json_outside_project` defaults to `false`.
@@ -47,6 +48,7 @@ defmodule MutagenEx.Config do
   defstruct scopes: [],
             tests: [],
             timeout_ms: 30_000,
+            fail_fast: true,
             seed: 0,
             json_path: nil,
             unsafe_json_outside_project: false,
@@ -60,6 +62,7 @@ defmodule MutagenEx.Config do
           scopes: [Types.scope_target()],
           tests: [Types.test_target()],
           timeout_ms: pos_integer(),
+          fail_fast: boolean(),
           seed: non_neg_integer(),
           json_path: Path.t() | nil,
           unsafe_json_outside_project: boolean(),
