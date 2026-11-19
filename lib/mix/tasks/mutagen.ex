@@ -95,7 +95,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## JSON Schema Pointer
 
-  The v1 output document is defined by-example via the golden fixtures
+  The version 2 output document is defined by-example via the golden fixtures
   committed at `test/mutagen_ex/golden/*.json`. Read these first:
 
     * `end_to_end_scenario_1_arith.json` — canonical successful run with
@@ -124,7 +124,11 @@ defmodule Mix.Tasks.Mutagen do
       IDs when the file path, enclosing definition, normalized expression,
       and occurrence among identical sites stay the same. Both JSON and
       NDJSON use report schema version `"2"`. IDs and reports from earlier
-      versions cannot be compared with version 2.
+      versions cannot be compared with version 2. Compare the schema, ID
+      scheme, and Elixir and OTP versions before comparing IDs. Formatter
+      migrations (`mix format --migrate`) can rewrite the syntax and change IDs.
+      When an identical expression is added earlier in a function, later IDs
+      can shift. Persist and compare `function` and `before_source` alongside IDs.
     * **`--no-json` is not supported in v1.** Pretty terminal output is
       deferred to v1.1 (see `mutagen.decision.no_pretty_output_v1`); use
       `jq` for now.

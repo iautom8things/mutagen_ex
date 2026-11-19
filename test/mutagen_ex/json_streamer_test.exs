@@ -110,7 +110,7 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["after"] == "1 - 2"
     end
 
-    @tag spec: "mutagen.json_schema.r4"
+    @tag spec: ["mutagen.json_schema.r4", "mutagen.json_schema.r14"]
     test "streamed results and aggregate entries have the same ID and enclosing function bytes" do
       for function <- ["Foo.bar/2", nil] do
         result = %{
@@ -209,6 +209,7 @@ defmodule MutagenEx.JsonStreamerTest do
 
       assert decoded["kind"] == "end"
       assert decoded["version"] == "2"
+      assert decoded["meta"]["id_scheme"] == "2"
       assert decoded["aborted"] == false
       assert decoded["abort_reason"] == :null
       assert decoded["killed"] == 3

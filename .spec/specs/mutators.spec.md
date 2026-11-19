@@ -68,6 +68,7 @@ surface:
   - lib/mutagen_ex/mutators/else_removal.ex
   - lib/mutagen_ex/mutators/guard_drop.ex
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.validate_predicates
   - mutagen.decision.ancora_migration
@@ -98,24 +99,20 @@ decisions:
 - id: mutagen.mutators.r3
   priority: must
   statement: |
-    Every mutation site has an ID of shape
-    `{relative_file}:{hash}:{mutator_name}`. The hash is the lowercase
-    hexadecimal MD5 of the deterministic external term encoding of
-    `{enclosing, node, ordinal}`. The file path is relative to the project
-    root and the mutator name is snake_case.
-    The normalized node preserves compiler metadata that can change the
-    meaning of valid code and drops source locations and presentation
-    metadata at every depth. The ordinal starts at zero and counts identical
-    normalized nodes with the same enclosing definition and mutator in
-    file walk order.
+    An ID has shape `{relative_file}:{hash}:{mutator_name}`. The lowercase
+    hexadecimal MD5 hashes the canonical encoding of the lexical identity,
+    normalized expression, and zero-based ordinal for equal keys and the same
+    mutator. A bare literal's expression also includes its normalized parent
+    and child index. Module-body sites group by module and statement head.
 
 - id: mutagen.mutators.r4
   priority: must
   statement: |
-    With the same Elixir/OTP version, a site's ID is stable across formatting
-    and unrelated edits that leave its file, enclosing module, function name
-    and arity, normalized AST, mutator, and ordinal unchanged. Changing the
-    enclosing function or the normalized expression changes the site's ID.
+    For each catalog mutator, inserting comments, blank lines, or a separately
+    named function above or below a function preserves the existing site's ID.
+    Reflowing the same source at different formatter line lengths also preserves
+    those IDs. Renaming the function or changing its mutation expression gives
+    the affected site a different ID.
 
 - id: mutagen.mutators.r5
   priority: must

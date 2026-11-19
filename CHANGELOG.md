@@ -48,6 +48,14 @@ file for traceability.
   site IDs. JSON and NDJSON identify the scheme in `meta.id_scheme` and
   include the enclosing function on each result. IDs and reports from
   earlier versions cannot be compared with version 2.
+- **Mutations now use their exact AST path.** Earlier reports could attribute
+  the verdict for the first of two identical bare literals to the other
+  site. This affected kill and survival verdicts and invalidates the earlier
+  README efficacy figures.
+  Tagged result tuple mutations now run and appear in reports.
+- **NDJSON source slices.** Streamed `before_source` uses the same verbatim
+  slice as the aggregate report when source coordinates are available.
+  Early abort lines include the report version and ID scheme.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock

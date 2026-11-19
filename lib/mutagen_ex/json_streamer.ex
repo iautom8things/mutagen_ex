@@ -16,7 +16,7 @@ defmodule MutagenEx.JsonStreamer do
       {"version":"2","kind":"start","total":42,"meta":{...}}
       {"version":"2","kind":"result","id":"...","status":"killed",...}
       {"version":"2","kind":"compile_error","id":"...","message":"..."}
-      {"version":"2","kind":"end","aborted":false,"abort_reason":null,
+      {"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,
        "kill_rate":0.81,...}
 
   `start` and `end` envelope lines bracket the run. Per-site `result`
@@ -76,7 +76,7 @@ defmodule MutagenEx.JsonStreamer do
   Emit the `end` envelope line.
 
   `report` is the final `%Report{}` the pipeline assembled. The line
-  carries the aggregate counters (`total`, `killed`, `survived`,
+  carries report metadata, including the ID scheme, and the counters (`total`, `killed`, `survived`,
   `timeout`, `compile_error`, `kill_rate`) AND the abort fields, so a
   consumer that only saw the stream can produce the same top-level
   summary without parsing the full aggregate document.
@@ -88,6 +88,7 @@ defmodule MutagenEx.JsonStreamer do
     summary = %{
       "version" => JsonReporter.schema_version(),
       "kind" => "end",
+      "meta" => JsonReporter.meta_to_wire(report.meta),
       "aborted" => report.aborted == true,
       "abort_reason" => report.abort_reason,
       "total" => Map.get(mutation, :total, 0),

@@ -144,15 +144,24 @@ defmodule MutagenEx.MutatorsTest do
       assert name == "arith"
     end
 
-    test "ID hash includes the definition, normalized node, and ordinal" do
-      ast = {:+, [], [{:a, [], nil}, {:b, [], nil}]}
-      identity = {{Example, :f, 2}, ast, 1}
+    test "canonical encoding pins representative scheme 2 IDs" do
+      file = "lib/example.ex"
+      enclosing = {Example, :f, 2}
+      arith = {:+, [], [{:a, [], nil}, {:b, [], nil}]}
+      literal = {1, {:+, [], [{:x, [], nil}, 1]}, 1}
 
-      [_file, hash, "arith"] =
-        Mutators.site_id("lib/example.ex", identity, :arith) |> String.split(":")
+      assert Mutators.site_id(file, {enclosing, arith, 1}, :arith) ==
+               "lib/example.ex:e7cd3fe37de939bf00c62b82fbe0b68c:arith"
 
-      assert Base.decode16!(hash, case: :lower) ==
-               :erlang.md5(:erlang.term_to_binary(identity, [:deterministic]))
+      assert Mutators.site_id(file, {enclosing, literal, 0}, :literal) ==
+               "lib/example.ex:7b17c3c93569ac2f070312595b6034f6:literal"
+
+      for map <- [%{2 => true, :z => {:ok, nil}}, Map.new([{:z, {:ok, nil}}, {2, true}])] do
+        payload = [:café, 1_000_000_000_000_000_000, -3.5, <<0, 255>>, map]
+
+        assert Mutators.site_id(file, {enclosing, payload, 0}, :literal) ==
+                 "lib/example.ex:26f17f3163e082e792efa0200ac7b6bc:literal"
+      end
     end
   end
 

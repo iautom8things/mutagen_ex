@@ -51,6 +51,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.details_always_present
@@ -313,6 +314,7 @@ Top-level keys, all present in every variant unless noted:
         carries the aggregate counters (`total`, `completed`,
         `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted` + `abort_reason`.
+        It carries `meta.id_scheme` even when the run aborted before start.
     Per-site lines (`"result"` / `"compile_error"`) are emitted in
     input order — async_stream's `:ordered: true` plus the runner's
     `:on_site_completed` sequential post-fold ensure a consumer

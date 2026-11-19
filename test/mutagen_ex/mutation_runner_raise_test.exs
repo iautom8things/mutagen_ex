@@ -181,6 +181,7 @@ defmodule MutagenEx.MutationRunnerRaiseTest do
     column = Keyword.get(opts, :column, 13)
 
     %Site{
+      path: [{:arg, 1}, {:elem, 0}, :right, {:arg, 1}, {:elem, 0}, :right],
       id: Keyword.get(opts, :id, "syn:1:arith"),
       file: file,
       line: line,

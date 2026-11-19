@@ -40,6 +40,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.timeout_handling
@@ -350,32 +351,11 @@ decisions:
 - id: mutagen.mutation_pipeline.r16
   priority: must
   statement: |
-    `MutationRunner.run/1` builds a per-file path index once before
-    the per-site loop begins (one `Macro.prewalk/2` per distinct file
-    in `cfg.sites`, regardless of site count) and uses
-    `apply_swap_at_path/3` — an `O(depth)` descent along the cached
-    path — to produce each site's mutated file AST. The per-file
-    path index is keyed by `site.id` (the content-addressed site ID
-    per mutagen.decision.mutation_id_scheme_2). Distinct indexed sites from
-    the enumerator keep distinct keys in the per-file path index.
-
-    Byte-identity contract: for every site, the mutated file AST
-    produced by the batched path is byte-for-byte identical to the
-    file AST that an unconditional per-site `Macro.prewalk/2` would
-    have produced (the legacy reference walker, preserved as a
-    fallback). The legacy reference path is invoked when the path
-    index lacks an entry for `site.id`, including bare integer and
-    boolean sites whose `original_ast` carries no metadata of its own.
-    Bare-literal sites resolve via the ambient-threading walker (`replace_bare_site/2`) that mirrors
-    `MutagenEx.MutationEnumerator.walk_tree/5`'s descent rules.
-
-    The pre-compute is internal to `MutationRunner` and is NOT a
-    public input — callers that pass a custom `cfg` without
-    `:mutated_ast_cache` retain the v1.0 swap semantics via the
-    fallback. The cache lives only for the duration of `run/1`.
-
-    Closes F16 (HIGH, F-PERF-02): whole-file `Macro.prewalk` per
-    site → one walk per file. *(mutagen-wrd.25.5.)*
+    The runner replaces the node at the enumerated AST path with the site's
+    mutated AST. The leaf must be strictly equal to the site's original AST.
+    An invalid path or a mismatched leaf produces a site-not-found warning
+    without compiling a mutant. The same rule applies to bare values and
+    two-tuples. All other AST nodes and metadata remain byte-identical.
 
 - id: mutagen.mutation_pipeline.r17
   priority: must
@@ -592,23 +572,20 @@ decisions:
 - id: mutagen.mutation_pipeline.s14
   covers: [mutagen.mutation_pipeline.r16]
   given:
-    - A `cfg.sites` list containing N 3-tuple sites against the same `cfg.ast_cache` file. Each site has distinct `{line, column, original_ast, mutated_ast}` so the byte-identity comparison is not trivially equal across sites.
+    - Two equal bare literals under the same parent on one source line.
   when:
-    - "`MutationRunner.run/1` executes the per-site swap for each site."
+    - The runner swaps the second site.
   then:
-    - "For every site, the mutated file AST handed to the compiler is byte-for-byte identical (Elixir term `==`) to the file AST that an unconditional per-site `Macro.prewalk/2` over the same `(file_ast, site)` input would have produced. Equality is asserted against an independent reference walker that mirrors `node_matches_site?/2` and `Macro.prewalk/2`'s descent."
-    - "The `Macro.prewalk` count over file ASTs during `run/1` does not exceed `length(distinct files in cfg.sites)` regardless of N (the pre-compute is one walk per file)."
+    - The first literal is unchanged and the second is replaced.
 
 - id: mutagen.mutation_pipeline.s15
   covers: [mutagen.mutation_pipeline.r16]
   given:
-    - "A bare-literal site (`%Site{original_ast: 1, mutated_ast: 0, mutator: :literal}`) whose `line`/`column` point at the parent operator/clause-head's coordinates (the enumerator's ambient-threading convention)."
+    - A path whose leaf differs from the original AST recorded on the site.
   when:
-    - "`MutationRunner.run/1` executes the per-site swap for that site."
+    - The runner attempts to apply the mutation.
   then:
-    - The site is NOT in the path index (the pre-compute deliberately skips bare literals because their `original_ast` carries no metadata).
-    - "The runner falls back to the ambient-threading walker (`replace_bare_site/2`) and produces a mutated file AST that places `mutated_ast` at the bare value's position."
-    - The legacy reference output (manual ambient walk) matches the runner's output byte-for-byte.
+    - It emits a site-not-found warning and skips compilation.
 
 - id: mutagen.mutation_pipeline.s16
   covers: [mutagen.mutation_pipeline.r6]
