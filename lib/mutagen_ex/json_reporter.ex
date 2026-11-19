@@ -48,13 +48,16 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   @default_byte_size_limit 4 * 1024
   @redact_replacement "[REDACTED]"
 
-  @secret_keys ~w(password passwd secret token api_key apikey authorization private_key secret_key_base)
-  @secret_key_pattern Enum.join(@secret_keys, "|")
+  # A key is secret when one of its snake, kebab or SCREAMING segments is a
+  # credential word: db_password, api-token, AWS_SECRET_ACCESS_KEY.
+  @secret_words ~w(password passwd secret token apikey api[_-]key authorization private[_-]key)
+  @secret_key_pattern "(?:[a-z0-9]*[_-])*(?:#{Enum.join(@secret_words, "|")})(?:[_-][a-z0-9]*)*"
+  @secret_key Regex.compile!("\\A#{@secret_key_pattern}\\z", "i")
   @credentials ~r{([a-z][a-z0-9+.-]*://[^/:@\s"'<>]+:)[^@\s"'<>]+(@)}i
   @uri_fields ~r{((?:authority|userinfo):\s*"[^:"\s]+:)[^@"\s]+}i
   @secret_pair Regex.compile!(
                  ~S'''
-                 ((?<![\w-])(?:#{keys})["']?\s*(?>=>|:|=)\s*)(?!\[REDACTED\](?:$|[\s&,}\]]))(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:bearer|basic)\s+[^\s&,}\]]+|[^\s&,}\]]+)
+                 ((?<![\w-])#{keys}["']?\s*(?>=>|:|=)\s*)(?!\[REDACTED\](?:$|[\s&,}\]]))(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|(?:bearer|basic)\s+[^\s&,}\]]+|[^\s&,}\]]+)
                  '''
                  |> String.trim()
                  |> String.replace(~S(#{keys}), @secret_key_pattern),
@@ -62,7 +65,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
                )
   @token_prefix ~r/\b(?:gh[pousr]_|github_pat_|xox[baprs]-|sk_live_|AKIA)[A-Za-z0-9_-]{12,}/
 
-  def secret_key?(key) when is_binary(key), do: String.downcase(key) in @secret_keys
+  def secret_key?(key) when is_binary(key), do: Regex.match?(@secret_key, key)
 
   def summary(message) do
     message
