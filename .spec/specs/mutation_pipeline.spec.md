@@ -68,12 +68,13 @@ decisions:
   statement: |
     `Baseline.run/1` executes the cited tests against unmutated code. If
     any test fails, the pipeline aborts with an error-shaped JSON whose
-    `abort_reason` is `:baseline_red`. `baseline.failures[]` names, as
-    `{module, name}` objects, every test ExUnit counted as failed: a
-    failed test, each test invalidated by a failed `setup_all`, and each
-    test of a module whose `setup_all` teardown failed. Each test appears
-    once, so the list length equals `baseline.failed`. The error
-    document's `details.failures` holds the same objects.
+    `abort_reason` is `:baseline_red`. The default `baseline.failures`
+    and `details.failures` list the test modules and their failure counts.
+    The counts include each test ExUnit invalidates through a setup or
+    teardown failure.
+    With --include-host-output each entry includes the module and test
+    name. No mutation runs when baseline is red.
+
 
 - id: mutagen.mutation_pipeline.r2
   priority: must
@@ -537,7 +538,7 @@ decisions:
     When the site's run ends any way other than a reply completed by its
     deadline (r4), that is on a timeout, a task exit, or an ExUnit failure
     per r21, the runner kills
-    only members absent from the pre-site process snapshot with
+    only new members descended from the site runner with
     `Process.exit(pid, :kill)` and waits for each
     `:DOWN`, repeating until no member remains, before `run/1` returns.
     With the real ExUnit backend and `max_concurrency == 1` it then calls
@@ -549,10 +550,19 @@ decisions:
 - id: mutagen.mutation_pipeline.r23
   priority: must
   statement: |
-    When a pre-existing registered process dies during a site, the report
-    names it. After a timeout it also checks application masters and their
-    root supervisors for death or replacement. Any such loss emits a
-    warning and leaves all later site verdicts tainted.
+    After a timeout or runner failure the report checks the prior registered
+    names and application roots. Any missing registration or changed root
+    emits a warning and leaves later site verdicts tainted. The default
+    report gives a count for lost names. Opted-in output includes names.
+
+- id: mutagen.mutation_pipeline.r24
+  priority: must
+  statement: |
+    On cancellation Mutagen reaps only new processes descended from its
+    site task. Other group members regain a live previous leader or the
+    pipeline leader. After a failed site, an existing name re-registered
+    to a live process does not taint later verdicts. Identical report
+    warnings appear once at the top level.
 ```
 
 ```spec-scenarios
@@ -564,7 +574,7 @@ decisions:
     - "`Baseline.run/1` executes."
   then:
     - The pipeline halts.
-    - "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains an entry naming the failing test."
+    - "The JSON has `aborted: true`, `abort_reason: \"baseline_red\"`, and `baseline.failures` contains the failing module and its failure count."
     - No mutation phase runs.
 
 - id: mutagen.mutation_pipeline.s2
@@ -866,4 +876,5 @@ decisions:
     - mutagen.mutation_pipeline.r21
     - mutagen.mutation_pipeline.r22
     - mutagen.mutation_pipeline.r23
+    - mutagen.mutation_pipeline.r24
 ```

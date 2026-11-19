@@ -21,6 +21,33 @@ defmodule MutagenEx.Pipeline.DefaultIoTest do
     assert Bitwise.band(File.stat!(file).mode, 0o777) == 0o600
   end
 
+  @tag spec: "mutagen.cli.r30"
+  test "the VM user proxy sends reads and geometry to the original device" do
+    owner = self()
+
+    user =
+      spawn(fn ->
+        for {operation, answer} <- [
+              {{:get_line, :unicode, ""}, "fixture\n"},
+              {{:get_geometry, :columns}, 80}
+            ] do
+          receive do
+            {:io_request, from, ref, ^operation} ->
+              send(owner, operation)
+              send(from, {:io_reply, ref, answer})
+          end
+        end
+      end)
+
+    {:ok, stderr} = StringIO.open("")
+    proxy = DefaultIo.route_device(user, stderr)
+    assert IO.gets(proxy, "prompt> ") == "fixture\n"
+    assert :io.columns(proxy) == {:ok, 80}
+    IO.write(proxy, "example")
+    assert StringIO.contents(stderr) == {"", "prompt> example"}
+    send(proxy, :stop)
+  end
+
   # The sink calls System.halt/1. Run it in an isolated VM so a regression
   # cannot halt ExUnit before it reports the result.
   defp run_sink(emit, document, config) do

@@ -196,11 +196,7 @@ defmodule MutagenEx.FailFastTest do
              "failed" => 2,
              "passed" => 1,
              "failures" => [
-               %{"module" => "FailFastFixture.EarlyTest", "name" => "test exact arithmetic"},
-               %{
-                 "module" => "FailFastFixture.EarlyTest",
-                 "name" => "test checks arithmetic again"
-               }
+               %{"module" => "FailFastFixture.EarlyTest", "count" => 2}
              ]
            }
 

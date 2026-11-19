@@ -271,7 +271,7 @@ defmodule MutagenEx.Integration.HostSetupTest do
     end
   end
 
-  @tag spec: ["mutagen.cli.r26", "mutagen.json_schema.r19"]
+  @tag spec: ["mutagen.cli.r26", "mutagen.json_schema.r19", "mutagen.json_schema.r22"]
   test "default artifacts keep host canaries out and ordinary host I/O off stdout", %{
     archive: host
   } do
@@ -282,7 +282,17 @@ defmodule MutagenEx.Integration.HostSetupTest do
       |> put_env("FIXTURE_REPORT_CANARY", canary)
       |> put_env("DATABASE_URL", "ecto://:#{canary}@fake.invalid/db")
 
-    tests = File.read!(Path.join(host.dir, @tests))
+    helper = "checks/test_helper.exs"
+    original_helper = File.read!(Path.join(host.dir, helper))
+
+    tests =
+      host.dir
+      |> Path.join(@tests)
+      |> File.read!()
+      |> String.replace(
+        ~s|test "prices an order above the surcharge threshold"|,
+        ~S|test "generated #{System.fetch_env!("FIXTURE_REPORT_CANARY")} case"|
+      )
 
     tests =
       String.replace(
@@ -330,14 +340,74 @@ defmodule MutagenEx.Integration.HostSetupTest do
         assert {"", 2} = mutate(host, ["--stream", "--json", "safety.ndjson"])
         report = host |> read_stream_report("safety.ndjson", canary) |> List.last()
         assert report["abort_reason"] == "baseline_red"
-        assert [%{"module" => _, "name" => _}] = report["baseline"]["failures"]
+
+        assert report["baseline"]["failures"] == [
+                 %{"module" => "HostSetupFixture.OrdersTest", "count" => 1}
+               ]
+
+        assert report["details"]["failures"] == report["baseline"]["failures"]
+
+        {opted_in, 2} = mutate(host, ["--include-host-output"])
+        assert [%{"name" => name}] = decode_report(opted_in)["baseline"]["failures"]
+        assert name =~ canary
         refute Map.has_key?(report["details"], "message")
       after
         File.rm!(failure)
       end
     end)
 
-    helper = "checks/test_helper.exs"
+    filters = ~S"""
+
+    value = System.fetch_env!("FIXTURE_REPORT_CANARY")
+    exclude = [String.to_atom("tag_" <> value), region: {:tenant, value}, note: value]
+    ExUnit.configure(
+      exclude: ExUnit.configuration()[:exclude] ++ exclude,
+      include: ExUnit.configuration()[:include] ++ [audience: value]
+    )
+    """
+
+    with_file(host, helper, original_helper <> filters, fn ->
+      assert {"", 0} = mutate(host, ["--stream", "--json", "safety.ndjson"])
+      report = host |> read_stream_report("safety.ndjson", canary) |> List.last()
+      assert Enum.all?(~w(region note) ++ ["host tag"], &(&1 in report["tests"]["exclude"]))
+      assert "audience" in report["tests"]["include"]
+
+      with_file(
+        host,
+        helper,
+        original_helper <>
+          filters <>
+          "\nExUnit.configure(include: [audience: value], exclude: [:pricing | ExUnit.configuration()[:exclude]])",
+        fn ->
+          assert {"", 2} = mutate(host, ["--stream", "--json", "safety.ndjson"])
+          [report] = read_stream_report(host, "safety.ndjson", canary)
+          assert report["abort_reason"] == "no_tests_run"
+          assert "region" in report["details"]["exclude"]
+          assert "audience" in report["details"]["include"]
+        end
+      )
+    end)
+
+    for {source, field, expected} <- [
+          {~S|throw(String.to_atom("throw_" <> System.fetch_env!("FIXTURE_REPORT_CANARY")))|,
+           "reason", "host_reason"},
+          {~S|exit(String.to_atom("exit_" <> System.fetch_env!("FIXTURE_REPORT_CANARY")))|,
+           "reason", "host_reason"},
+          {~S"""
+           module = Module.concat(HostSetupFixture, System.fetch_env!("FIXTURE_REPORT_CANARY"))
+           Module.create(module, quote(do: defexception(message: "fixture")), Macro.Env.location(__ENV__))
+           raise module
+           """, "exception", "host exception"}
+        ] do
+      with_file(host, helper, source, fn ->
+        assert {"", 2} = mutate(host, ["--stream", "--json", "safety.ndjson"])
+        [report] = read_stream_report(host, "safety.ndjson", canary)
+        assert report["abort_reason"] == "test_helper_load_failed"
+        assert report["details"][field] == expected
+      end)
+    end
+
+    assert_mutation_canary(host, canary, original_helper)
 
     with_file(
       host,
@@ -376,19 +446,124 @@ defmodule MutagenEx.Integration.HostSetupTest do
     with_file(
       host,
       config,
-      runtime_config <> ~S|raise "startup failed: " <> System.fetch_env!("FIXTURE_REPORT_CANARY")|,
+      runtime_config <>
+        ~S|raise CompileError, file: System.fetch_env!("FIXTURE_REPORT_CANARY"), line: 77, description: "startup failed"|,
       fn ->
         assert {"", 2} = mutate(host, ["--stream", "--json", "safety.ndjson"])
         [report] = read_stream_report(host, "safety.ndjson", canary)
 
         assert %{
                  "abort_reason" => "host_app_start_failed",
-                 "details" => %{"step" => "runtime_config"}
+                 "details" => %{
+                   "step" => "runtime_config",
+                   "exception" => "CompileError",
+                   "file" => ^config,
+                   "line" => 4
+                 }
                } = report
 
         refute Map.has_key?(report["details"], "message")
       end
     )
+  end
+
+  defp assert_mutation_canary(host, canary, original_helper) do
+    pricing = "lib/host_setup_fixture/pricing.ex"
+
+    macro_code = ~S"""
+
+    defmodule HostSetupFixture.CanaryMacro do
+      defmacro keep_add({:+, _, _} = operation), do: operation
+
+      defmacro keep_add(_operation) do
+        name = Module.concat(HostSetupFixture, System.fetch_env!("FIXTURE_REPORT_CANARY"))
+        unless Code.ensure_loaded?(name) do
+          Module.create(name, quote(do: defexception(message: "fixture")), Macro.Env.location(__ENV__))
+        end
+        raise name
+      end
+    end
+    """
+
+    scope =
+      host.dir
+      |> Path.join(@scope)
+      |> File.read!()
+      |> String.replace(
+        "  def price",
+        ~S"""
+          require HostSetupFixture.CanaryMacro
+
+          def reap_probe(n) do
+            if n > 0 do
+              :ok
+            else
+              name = String.to_atom("host_" <> System.fetch_env!("FIXTURE_REPORT_CANARY"))
+              if pid = Process.whereis(name), do: Process.exit(pid, :kill)
+              Process.sleep(:infinity)
+            end
+          end
+
+          def price
+        """
+        |> String.trim_trailing()
+      )
+      |> String.replace("total + 2", "HostSetupFixture.CanaryMacro.keep_add(total + 2)")
+
+    tests =
+      host.dir
+      |> Path.join(@tests)
+      |> File.read!()
+      |> String.replace(
+        "actual = Orders.price",
+        "assert :ok = Orders.reap_probe(order.quantity)\n    actual = Orders.price"
+      )
+
+    helper =
+      original_helper <>
+        ~S"""
+
+        name = String.to_atom("host_" <> System.fetch_env!("FIXTURE_REPORT_CANARY"))
+        Process.register(spawn(fn -> Process.sleep(:infinity) end), name)
+        """
+
+    with_file(host, pricing, File.read!(Path.join(host.dir, pricing)) <> macro_code, fn ->
+      with_file(host, @scope, scope, fn ->
+        with_file(host, @tests, tests, fn ->
+          with_file(host, "checks/test_helper.exs", helper, fn ->
+            assert {"", 0} =
+                     mutate(host, ["--stream", "--json", "safety.ndjson", "--timeout-ms", "1200"])
+
+            lines = read_stream_report(host, "safety.ndjson", canary)
+            assert "host_process_died: 1 registered process" in List.last(lines)["warnings"]
+
+            assert Enum.any?(
+                     lines,
+                     &match?(%{"kind" => "compile_error", "exception" => "host exception"}, &1)
+                   )
+          end)
+        end)
+      end)
+    end)
+  end
+
+  @tag spec: "mutagen.cli.r30"
+  test "a helper cannot replace the loaded sanitizer", %{archive: host} do
+    helper = "checks/test_helper.exs"
+
+    shadow = """
+    defmodule MutagenEx.JsonReporter.Sanitizer do
+      def clean(value), do: value
+    end
+    ExUnit.start(autorun: false)
+    """
+
+    with_file(host, helper, shadow, fn ->
+      assert {"", 2} = mutate(host, ["--json", "shadow.json"])
+      report = host.dir |> Path.join("shadow.json") |> File.read!() |> decode_report()
+      assert report["abort_reason"] == "runtime_load_failed"
+      assert report["details"]["module"] == "MutagenEx.JsonReporter.Sanitizer"
+    end)
   end
 
   @tag spec: "mutagen.cli.r25"
@@ -437,41 +612,43 @@ defmodule MutagenEx.Integration.HostSetupTest do
         )
 
       with_file(host, @tests, blocking, fn ->
-        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "5000"])
-        assert decode_report(stdout)["abort_reason"] == "#{phase}_timeout"
+        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "5000", "--timeout-ms", "600"])
+        report = decode_report(stdout)
+        assert report["abort_reason"] == "#{phase}_timeout"
+        assert report["details"]["limit"] == 6000
+        assert report["details"]["hint"] =~ "--timeout-ms"
+        assert report["details"]["hint"] =~ "--boot-timeout-ms"
       end)
     end
 
     helper = "checks/test_helper.exs"
 
-    with_file(
-      host,
-      helper,
-      "ExUnit.start(autorun: false)\nExUnit.after_suite(fn _ -> Process.sleep(:infinity) end)\n" <>
-        File.read!(Path.join(host.dir, helper)),
-      fn ->
-        assert {stdout, 0} = mutate(host, [])
-        assert decode_report(stdout)["aborted"] == false
-        assert stdout =~ "after_suite_timeout"
-      end
-    )
+    cleanup = ~S"""
+    ExUnit.start(autorun: false)
+    ExUnit.after_suite(fn _ ->
+      report = :json.decode(File.read!("cleanup.json"))
+      Process.sleep(1200)
+      File.write!("cleanup-observed", report["abort_reason"] |> inspect())
+    end)
+    """
 
-    with_file(
-      host,
-      helper,
-      """
-      ExUnit.start(autorun: false)
-      ExUnit.after_suite(fn _ -> Process.sleep(:infinity) end)
-      Process.sleep(:infinity)
-      """,
-      fn ->
-        assert {stdout, 2} = mutate(host, ["--boot-timeout-ms", "5000"])
-        report = decode_report(stdout)
-        assert report["abort_reason"] == "host_setup_timeout"
-        assert report["details"]["step"] == "test_helper"
-        assert stdout =~ "after_suite_timeout"
-      end
-    )
+    original = File.read!(Path.join(host.dir, helper))
+    observed = Path.join(host.dir, "cleanup-observed")
+
+    with_file(host, helper, cleanup <> original, fn ->
+      assert {"", 0} = mutate(host, ["--json", "cleanup.json", "--boot-timeout-ms", "5000"])
+      assert File.read!(observed) == ":null"
+    end)
+
+    File.rm!(observed)
+
+    with_file(host, helper, cleanup <> "\nProcess.sleep(:infinity)", fn ->
+      assert {"", 2} = mutate(host, ["--json", "cleanup.json", "--boot-timeout-ms", "5000"])
+      report = host.dir |> Path.join("cleanup.json") |> File.read!() |> decode_report()
+      assert report["abort_reason"] == "host_setup_timeout"
+      assert report["details"]["step"] == "test_helper"
+      assert File.read!(observed) == inspect("host_setup_timeout")
+    end)
   end
 
   defp read_stream_report(host, path, canary) do

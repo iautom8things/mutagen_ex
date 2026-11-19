@@ -66,8 +66,11 @@ defmodule MutagenEx.TestSelectorTest do
 
     for {label, include, exclude, opts, expected_include, expected_exclude} <- cases do
       filter = %TestFilter{files: ["test/example_test.exs"], include: include, exclude: exclude}
-      expected = %{filter | include: expected_include, exclude: expected_exclude}
-      assert TestSelector.merge_helper_filters(filter, opts) == expected, inspect(label)
+      merged = TestSelector.merge_helper_filters(filter, opts)
+
+      assert {merged.include, merged.exclude, merged.files} ==
+               {expected_include, expected_exclude, filter.files},
+             inspect(label)
     end
   end
 

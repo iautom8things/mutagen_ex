@@ -599,7 +599,7 @@ defmodule MutagenEx.MutationRunner do
            results: Enum.reverse(acc.results),
            compile_errors: Enum.reverse(acc.compile_errors),
            state_drift_warning: acc.state_drift_warning,
-           warnings: Enum.reverse(acc.warnings),
+           warnings: acc.warnings |> Enum.reverse() |> Enum.uniq(),
            truncated: Map.get(acc, :truncated, false)
          }}
 
@@ -718,8 +718,7 @@ defmodule MutagenEx.MutationRunner do
             # — surface it instead of swallowing (bw mutagen-wrd.17 / F27).
             case restore(site.file, cfg) do
               :ok ->
-                warnings = MutagenEx.Test.RunGroup.host_warnings(cfg.host_snapshot, false)
-                {:compile_error, site, message, warnings}
+                {:compile_error, site, message}
 
               {:error, restore_msg} ->
                 {:abort, :unrecoverable_restore_failure,
@@ -757,8 +756,9 @@ defmodule MutagenEx.MutationRunner do
            settle_code_server!(site, cfg, outcome)
            outcome
          end) do
-      {:ok, {:error, {:ex_unit_run_failed, details}, _meta}} ->
-        {:abort, :ex_unit_run_failed, Map.put(details, :site_id, site.id)}
+      {:ok, {:error, {:ex_unit_run_failed, details}, meta}} ->
+        {:abort, :ex_unit_run_failed,
+         Map.merge(details, %{site_id: site.id, host_warnings: meta.host_warnings})}
 
       {:ok, outcome} ->
         # `source_text` is threaded through here so the post-fold can
@@ -846,7 +846,7 @@ defmodule MutagenEx.MutationRunner do
   end
 
   defp fold_task_outcome(
-         {:compile_error, site, details, host_warnings},
+         {:compile_error, site, details},
          _cfg,
          acc,
          on_site_completed
@@ -866,14 +866,7 @@ defmodule MutagenEx.MutationRunner do
 
     _ = on_site_completed.({:compile_error, entry})
 
-    {:cont,
-     %{
-       acc
-       | compile_errors: [entry | acc.compile_errors],
-         warnings: host_warnings ++ acc.warnings,
-         host_warnings: Enum.uniq(acc.host_warnings ++ host_warnings),
-         tainted: acc.tainted or host_warnings != []
-     }}
+    {:cont, %{acc | compile_errors: [entry | acc.compile_errors]}}
   end
 
   defp fold_task_outcome({:ast_miss, site}, _cfg, acc, _on_site_completed) do

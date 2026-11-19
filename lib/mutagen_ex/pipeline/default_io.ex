@@ -6,8 +6,12 @@ defmodule MutagenEx.Pipeline.DefaultIo do
   alias MutagenEx.{Config, JsonPath}
 
   @impl MutagenEx.Pipeline.IoFacade
-  def emit(iodata, exit_code, config) do
+  def emit(iodata, exit_code, config), do: emit(iodata, exit_code, config, fn -> :ok end)
+
+  @doc false
+  def emit(iodata, exit_code, config, cleanup) do
     write(iodata, config)
+    cleanup.()
     System.halt(exit_code)
   end
 
@@ -44,7 +48,7 @@ defmodule MutagenEx.Pipeline.DefaultIo do
     stdout = Process.group_leader()
     user = Process.whereis(:user)
     stderr = Process.whereis(:standard_error)
-    proxy = MutagenEx.Test.RunGroup.start(stderr)
+    proxy = route_device(user, stderr)
     Process.unregister(:user)
     Process.register(proxy, :user)
     Process.put(:mutagen_report_device, stdout)
@@ -63,6 +67,60 @@ defmodule MutagenEx.Pipeline.DefaultIo do
       send(proxy, :stop)
     end
   end
+
+  @doc false
+  def route_device(user, stderr) do
+    spawn_link(fn -> forward_requests(user, stderr) end)
+  end
+
+  defp forward_requests(user, stderr) do
+    receive do
+      {:io_request, from, reply, {:requests, requests}} ->
+        proxy = self()
+
+        spawn(fn ->
+          result =
+            Enum.reduce_while(requests, :ok, fn request, _ ->
+              case :io.request(proxy, request) do
+                {:error, _} = error -> {:halt, error}
+                value -> {:cont, value}
+              end
+            end)
+
+          send(from, {:io_reply, reply, result})
+        end)
+
+        forward_requests(user, stderr)
+
+      {:io_request, from, reply, request} ->
+        {device, request} = route_request(request, user, stderr)
+        send(device, {:io_request, from, reply, request})
+        forward_requests(user, stderr)
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp route_request(request, user, stderr) when is_tuple(request) do
+    case Tuple.to_list(request) do
+      [operation, encoding, prompt | args]
+      when operation in [:get_line, :get_chars, :get_until] ->
+        IO.write(stderr, prompt)
+        {user, List.to_tuple([operation, encoding, "" | args])}
+
+      [operation | _] when operation in [:get_password, :get_geometry, :setopts] ->
+        {user, request}
+
+      _ ->
+        {stderr, request}
+    end
+  end
+
+  defp route_request(request, user, _) when request in [:getopts, :get_password],
+    do: {user, request}
+
+  defp route_request(request, _, stderr), do: {stderr, request}
 
   defp move_group(from, to) do
     for pid <- Process.list(),

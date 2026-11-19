@@ -263,30 +263,29 @@ Whole-file targets honor helper includes and excludes. An explicit tag or
 line target takes precedence when narrowing the test set. A coverage or
 baseline pass that executes no tests aborts with `no_tests_run`. Helper
 formatters run on every pass. A formatter that writes a file may overwrite
-it after each mutant. ExUnit `after_suite` callbacks share a cleanup
-deadline of one second or `--boot-timeout-ms`, whichever is lower.
-Mutagen emits the report with an `after_suite_timeout` warning if cleanup
-takes too long. A callback error before the deadline aborts a successful
-run. An earlier abort keeps its reason.
+it after each mutant. Mutagen writes the final report before running
+ExUnit `after_suite` callbacks. Cleanup has its own `--boot-timeout-ms`
+deadline. Cleanup errors and timeouts go to stderr and leave the
+report and exit code unchanged.
 
-`--boot-timeout-ms` bounds runtime configuration, the alias pre-steps,
-application startup, and helper evaluation. Coverage and baseline each
-get a separate deadline of the same length. The default is 300000 ms.
-Compilation happens before the startup timer. The mutation budget starts
-after baseline. If a boot timeout kills an alias step, an OS process it
-started can outlive the BEAM. Use your CI job's process cleanup for such
-steps. A helper that calls `System.halt/1` ends the BEAM before reporting.
+`--boot-timeout-ms` bounds runtime configuration, alias pre-steps,
+application startup, and helper evaluation after compilation. Coverage
+and baseline each get the greater of `--boot-timeout-ms` and ten times
+`--timeout-ms`. The mutation budget starts after baseline. An OS process
+started by a test-alias command can outlive a boot timeout. A helper that
+calls `System.halt/1` ends the BEAM before reporting.
 
 Abort documents include a fixed hint and, where available, the step,
 exception type, file and line. Host diagnostics go to stderr. Do not
 publish stderr as a CI artifact. Abort documents repeat this warning in
 `details.note`.
 
-Use `--json PATH` for CI artifact uploads. The file keeps report data
-separate from output written directly to fd 1 by native code or subprocesses
-and from Mix output before the task starts. Mutagen writes the file with
-mode 0600. If it cannot safely write the file, it warns on stderr and
-writes the report to stdout.
+The supported CI mode is `--json PATH`. Native fd 1 writes, including
+`:erlang.display/1` and direct subprocess output, bypass the VM I/O
+routing and can corrupt stdout. Mix can also write to stdout before the
+task starts. Mutagen writes the file with mode 0600. If it cannot safely
+write the file, it warns on stderr and falls back to stdout.
+
 
 ## Entrypoints
 
@@ -513,21 +512,28 @@ config :mutagen_ex,
 
 The default report contains repository source and structured test metadata.
 Treat it as sensitive as the source. Secrets committed in source can appear
-in the excerpts. Use `--no-source` to omit site source fields. Scope and
-test paths remain in the report, and site IDs still contain source paths.
+in excerpts. `--no-source` omits site excerpts, file, function, and the
+fixed compiler diagnostic. Scope and test paths, coverage paths, skipped
+paths, module names, and site IDs still appear. Each site ID contains a
+path and an unkeyed MD5 hash of the normalized source AST. A reader can
+guess a low-entropy literal and check the hash offline.
 
-Default reports omit free-form host text such as exception messages and
-captured compiler or test stderr. Compile errors retain a fixed diagnostic,
-the mutator's confidence, and the exception type when available.
-`--include-host-output` adds the captured diagnostic bodies. Treat that
-report as sensitive as the test output too. Pattern redaction is best-effort.
-It covers common credentials and applies to structured strings such as test
-names and filter values. Logger events stay on stderr. Source excerpts
-keep tabs and newlines and strip other control characters.
+Default reports keep failure counts by module, literal helper tag keys,
+and counts of lost registered processes. Compiled project exception names
+count as repository text. Dynamic exception names, test names, helper
+filter values, host process names, and diagnostic bodies require
+`--include-host-output`. Logger and cleanup output stay on stderr.
 
-Emitted text bodies and source excerpts have a 4 KiB payload cap. Pattern
-redaction runs before the cap. The marker ` ... <N bytes truncated>`
-reports the exact byte count dropped after redaction.
+Treat an opted-in report as sensitive as the test output. Pattern
+redaction is best-effort. It covers known credential shapes and can miss
+plain values, prose, and encodings. It examines at most 64 KiB per field.
+A regex execution error replaces the entire field with
+`[REDACTED: redaction failed]`.
+
+Emitted text bodies and source excerpts have a 4 KiB payload cap.
+Source excerpts preserve tabs and newlines and remove other control
+characters and Unicode format characters. A truncation marker reports
+bytes dropped by the input and output caps.
 
 ## Exit codes
 

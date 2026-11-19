@@ -443,16 +443,12 @@ decisions:
     `trace`, to its value before the phase. Formatters the helper
     configures therefore run on every pass.
 
-    Mutagen removes the `ExUnit.after_suite/1` callbacks registered
-    during host setup from ExUnit's configuration before the first pass,
-    so no pass runs them. It then calls each callback exactly once, in
-    the order ExUnit itself would, when the run ends: after the last pass
-    of a completed run with the baseline pass's ExUnit counts, after the
-    abort of an aborted run, and on a host setup failure with zero counts.
-    Callbacks within the cleanup deadline run even when an earlier one fails. On a run that
-    otherwise succeeded, a callback that raises, throws, or exits turns
-    the result into an abort with `abort_reason: "after_suite_failed"`;
-    on a run that already aborted, the original `abort_reason` stays.
+    Mutagen removes the ExUnit.after_suite callbacks from ExUnit's
+    configuration before running the passes. It writes the final report
+    before starting cleanup. Cleanup receives the last completed suite
+    counts or zero counts if none completed. Cleanup errors and timeouts
+    go to stderr and leave the report and exit code unchanged.
+
 
 - id: mutagen.cli.r21
   priority: must
@@ -465,8 +461,7 @@ decisions:
     The deadline starts after host compilation and covers runtime
     configuration, test alias pre-steps, host application start,
     `:mutagen_ex` start, and helper evaluation (r14 step 3). When it
-    passes, Mutagen kills the boot process, runs the after-suite callbacks
-    registered so far (r20), and aborts with
+    passes, Mutagen kills the boot process and aborts with
     `abort_reason: "host_setup_timeout"`. `details.limit` gives the
     deadline in milliseconds and `details.step` names the step that was
     running, for example `"test_helper"` while a helper
@@ -532,10 +527,9 @@ decisions:
 - id: mutagen.cli.r27
   priority: must
   statement: |
-    Coverage and baseline each have a deadline equal to --boot-timeout-ms.
-    After-suite callbacks share a deadline capped at one second. On timeout
-    the task emits the already-built report with a warning. An already-aborted
-    run retains its reason.
+    Coverage and baseline each have a deadline of max(boot timeout, ten
+    times the mutation timeout). After-suite callbacks run after the report
+    is written and share a separate boot timeout.
 
 - id: mutagen.cli.r28
   priority: must
@@ -550,6 +544,13 @@ decisions:
     persisted checkout credentials, and reads the Elixir and OTP versions
     from .tool-versions in both jobs.
 
+
+- id: mutagen.cli.r30
+  priority: must
+  statement: |
+    The rerouted VM user device sends input and geometry requests to the
+    original device. A report module redefined by a helper produces a
+    runtime_load_failed report before installing the configured patterns.
 ```
 
 ```spec-scenarios
@@ -986,7 +987,7 @@ decisions:
   then:
     - "Every pass runs with `:integration` excluded, Mutagen's seed, and `max_cases: 1`."
     - The callback ran exactly once, after the last mutation pass, with the baseline pass's counts.
-    - "If the callback raises, the document has `aborted: true`, `abort_reason: \"after_suite_failed\"`, and the completed `mutation` block."
+    - "If the callback raises, stderr carries the failure and the already-written report retains the original verdict."
 
 - id: mutagen.cli.s20b
   covers: [mutagen.cli.r20]
@@ -1080,4 +1081,5 @@ decisions:
     - mutagen.cli.r27
     - mutagen.cli.r28
     - mutagen.cli.r29
+    - mutagen.cli.r30
 ```

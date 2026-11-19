@@ -41,8 +41,8 @@ defmodule MutagenEx.Test.Suite do
          phase: phase,
          excluded: excluded,
          skipped: skipped,
-         include: filter.include,
-         exclude: filter.exclude
+         include: MutagenEx.TestSelector.report_filters(filter, :include),
+         exclude: MutagenEx.TestSelector.report_filters(filter, :exclude)
        }}
     end
   end

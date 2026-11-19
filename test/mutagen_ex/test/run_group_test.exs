@@ -60,15 +60,21 @@ defmodule MutagenEx.Test.RunGroupTest do
 
       member =
         spawn(fn ->
+          receive do
+            :start -> :ok
+          end
+
           Process.group_leader(self(), group)
           IO.write("forwarded")
           send(parent, {:child, spawn(fn -> Process.sleep(:infinity) end)})
           Process.sleep(:infinity)
         end)
 
+      tracker = RunGroup.track(group, member)
+      send(member, :start)
       assert_receive {:child, child}
       assert StringIO.contents(device) == {"", "forwarded"}
-      assert :ok = RunGroup.stop(group, :reap)
+      assert :ok = RunGroup.stop(group, :reap, %{}, tracker)
       refute Process.alive?(member)
       refute Process.alive?(child)
     end
@@ -165,6 +171,76 @@ defmodule MutagenEx.Test.RunGroupTest do
              MutationLoop.run(%{site_input() | timeout_ms: 100})
 
     assert {:host_supervisor_changed, Atom.to_string(app)} in warnings
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r24"
+  test "a child spawned by a reassigned host server survives a site timeout" do
+    server = start_supervised!({Agent, fn -> :ok end})
+    {:group_leader, original} = Process.info(server, :group_leader)
+    owner = self()
+
+    :persistent_term.put(
+      {__MODULE__, :site},
+      {owner,
+       fn ->
+         Process.group_leader(server, Process.group_leader())
+         child = Agent.get(server, fn _ -> spawn_link(fn -> Process.sleep(:infinity) end) end)
+         send(owner, {:host_child, child})
+         Process.sleep(:infinity)
+       end}
+    )
+
+    assert {:timeout, %{host_warnings: []}} = MutationLoop.run(%{site_input() | timeout_ms: 100})
+    assert_received {:host_child, child}
+    on_exit(fn -> if Process.alive?(child), do: Process.exit(child, :kill) end)
+    assert Process.alive?(server)
+    assert Process.alive?(child)
+    assert Process.info(child, :group_leader) == {:group_leader, original}
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r24"
+  test "restart under the same name does not report a host loss" do
+    name = :mutagen_run_group_restart_fixture
+    old = spawn(fn -> Process.sleep(:infinity) end)
+    Process.register(old, name)
+    owner = self()
+    manager = start_supervised!({Agent, fn -> nil end})
+
+    :persistent_term.put(
+      {__MODULE__, :site},
+      {owner,
+       fn ->
+         ref = Process.monitor(old)
+         Process.exit(old, :kill)
+
+         receive do
+           {:DOWN, ^ref, :process, ^old, :killed} -> :ok
+         end
+
+         replacement =
+           Agent.get(manager, fn _ -> spawn_link(fn -> Process.sleep(:infinity) end) end)
+
+         Process.register(replacement, name)
+         send(owner, {:restarted, replacement})
+         Process.sleep(:infinity)
+       end}
+    )
+
+    assert {:timeout, %{host_warnings: []}} = MutationLoop.run(%{site_input() | timeout_ms: 100})
+    assert_received {:restarted, replacement}
+    assert Process.whereis(name) == replacement
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r24"
+  test "restoring a dead group leader falls back to the pipeline device" do
+    dead = spawn(fn -> :ok end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+    fallback = Process.group_leader()
+    pid = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(pid, :kill) end)
+    assert :ok = RunGroup.restore_leader(pid, dead, fallback)
+    assert Process.info(pid, :group_leader) == {:group_leader, fallback}
   end
 
   defp site_input do

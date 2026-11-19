@@ -360,7 +360,7 @@ defmodule MutagenEx.BaselineTest do
       }
 
       assert {:error, :test_file_load_failed, details} = Baseline.run(input)
-      assert details.file == "nope.exs"
+      assert details.file == Path.relative_to_cwd(__ENV__.file)
     end
   end
 end

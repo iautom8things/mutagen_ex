@@ -763,7 +763,7 @@ defmodule MutagenEx.JsonReporterTest do
       decoded = decode(iodata)
       assert decoded["abort_reason"] == "baseline_red"
       assert decoded["baseline"]["failed"] == 1
-      assert [%{"module" => "FooTest", "name" => "fails"}] = decoded["baseline"]["failures"]
+      assert [%{"module" => "FooTest", "count" => 1}] = decoded["baseline"]["failures"]
     end
 
     @tag :exit_codes

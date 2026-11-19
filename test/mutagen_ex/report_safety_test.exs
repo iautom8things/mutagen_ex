@@ -66,7 +66,7 @@ defmodule MutagenEx.ReportSafetyTest do
       details: %{
         message: warning,
         step: :test_helper,
-        exception: "RuntimeError",
+        exception: RuntimeError,
         file: "test/test_helper.exs",
         line: 3
       },
@@ -113,6 +113,12 @@ defmodule MutagenEx.ReportSafetyTest do
 
     values = [
       "redis://:#{fake}@cache/0",
+      "root:#{fake}@cache:5432/db",
+      "--password #{fake}",
+      "password(#{fake})",
+      "secrets: #{fake}",
+      "passwords: [~c\"#{fake}\"]",
+      "tokens: %{value: #{fake}}",
       "https://#{fake}@git.example/repo",
       "postgres://root:one@two@#{fake}@db/path",
       ~s(%URI{authority: "root:#{fake}@db", userinfo: "root:#{fake}"}),
@@ -195,8 +201,11 @@ defmodule MutagenEx.ReportSafetyTest do
   end
 
   @tag spec: "mutagen.json_schema.r17"
+  @tag timeout: to_timeout(second: 5)
   test "redaction handles a megabyte of adversarial text within 750 ms" do
     for line <- [
+          String.duplicate("eyJaaaaaaaa-", 87_382),
+          String.duplicate("a.", 524_288) <> " postgres://root:ZZTailFixture@db/path",
           String.duplicate("a://b:", 174_763),
           "password: \"" <> String.duplicate("a\\", 524_288),
           String.duplicate("a_", 524_288) <> "token=fixture"
@@ -248,7 +257,7 @@ defmodule MutagenEx.ReportSafetyTest do
       ]
       |> Enum.concat()
       |> Enum.uniq()
-      |> Kernel.--(~w(compile_error not_snapshotted restore_failed))
+      |> Kernel.--(~w(after_suite_failed compile_error not_snapshotted restore_failed))
       |> Enum.sort()
 
     assert declared == emitted

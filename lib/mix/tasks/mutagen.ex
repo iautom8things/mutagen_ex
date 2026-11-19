@@ -21,9 +21,9 @@ defmodule Mix.Tasks.Mutagen do
   `:test_paths` entry with ExUnit autorun disabled.
 
   Coverage, baseline, and each mutant use the helper's ExUnit options.
-  Formatters run on each pass. After-suite callbacks share a deadline of
-  one second or the boot timeout, whichever is lower. A timeout leaves the
-  report intact and adds a warning. A call to `System.halt/1` in the helper
+  Formatters run on each pass. The report is written before after-suite
+  callbacks run. Cleanup has its own boot timeout, and cleanup errors
+  and timeouts go to stderr. A call to `System.halt/1` in the helper
   prevents reporting.
 
   The default report contains source excerpts and structured facts. Host
@@ -44,10 +44,12 @@ defmodule Mix.Tasks.Mutagen do
       mutations. One of: a test file path, a `file:line` reference, or
       `tag:<name>`. Repeat the flag to add more targets.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
-      compilation and a separate deadline of the same length for coverage
-      and baseline. Default `300000`. Must be a positive integer.
+      compilation and the separate cleanup deadline after reporting. Each
+      coverage and baseline pass gets the greater of this timeout and
+      ten times `--timeout-ms`. Default `300000`.
     * `--no-source` omits site source excerpts, file and function from
-      aggregate and stream results and compile errors.
+      aggregate and stream results and compile errors. Scope, test and
+      coverage paths, module names and source-derived IDs remain.
     * `--include-host-output` includes captured compiler and test stderr
       and abort messages after best-effort redaction and truncation.
     * `--no-test-alias` skips the host test alias pre-steps. Mutagen ignores
@@ -318,6 +320,7 @@ defmodule Mix.Tasks.Mutagen do
     MutagenEx.JsonReporter.Report,
     MutagenEx.JsonStreamer,
     MutagenEx.JsonReporter.Redactor,
+    MutagenEx.JsonReporter.Provenance,
     MutagenEx.Mutators,
     MutagenEx.Pipeline.DefaultIo,
     MutagenEx.JsonReporter.Sanitizer,
@@ -341,6 +344,11 @@ defmodule Mix.Tasks.Mutagen do
           {:cont, :ok}
 
         {:error, reason} ->
+          # Restore the tool code where possible so a late redefinition
+          # cannot prevent the runtime-load error from being serialized.
+          if reason == :not_purged and :code.soft_purge(module),
+            do: :code.load_abs(to_charlist(beam))
+
           message =
             "mutagen_ex could not load #{inspect(module)} from #{tool_ebin} " <>
               "(#{inspect(reason)}). Reinstall mutagen_ex."
@@ -438,9 +446,25 @@ defmodule Mix.Tasks.Mutagen do
       {:host, _preloaded} ->
         MutagenEx.Pipeline.DefaultIo.with_report_device(fn ->
           Runtime.route_default_logger()
-          MutagenEx.JsonReporter.Sanitizer.with_patterns([], pipeline)
+          previous = Process.put(MutagenEx.JsonReporter.Sanitizer, [])
+
+          try do
+            pipeline.()
+          after
+            if previous,
+              do: Process.put(MutagenEx.JsonReporter.Sanitizer, previous),
+              else: Process.delete(MutagenEx.JsonReporter.Sanitizer)
+          end
         end)
     end
+  end
+
+  defp emit_result({:cleanup, result, state}, dispatch, stdout) do
+    emit_result(
+      result,
+      Map.put(dispatch, :cleanup, fn -> finish_suite(result, state) end),
+      stdout
+    )
   end
 
   defp emit_result({:ok, report, config}, dispatch, stdout) do
@@ -582,25 +606,27 @@ defmodule Mix.Tasks.Mutagen do
         command: Enum.join(["MIX_ENV=test mix mutagen" | Enum.map(argv, &shell_arg/1)], " ")
       )
 
-    case {boot, preload_report_modules()} do
-      {{:ok, state}, :ok} ->
+    case {preload_report_modules(), boot} do
+      {:ok, {:ok, state}} ->
         install_redact_patterns(state)
         report = add_warnings(report, state.warnings)
+        {:cleanup, do_pipeline(config, report, dispatch, output, state), state}
 
-        config
-        |> do_pipeline(report, dispatch, output, state)
-        |> finish_suite(state)
-
-      {{:ok, state}, {:error, reason, details}} ->
-        install_redact_patterns(state)
-        finish_suite({:abort, report, %{config | stream: false}, reason, details}, state)
-
-      {{:error, reason, details, state}, _preloaded} ->
+      {:ok, {:error, reason, details, state}} ->
         install_redact_patterns(state)
         report = add_warnings(report, state.warnings)
-        finish_suite({:abort, report, %{config | stream: false}, reason, details}, state)
+        {:cleanup, {:abort, report, %{config | stream: false}, reason, details}, state}
 
-      {{:error, reason, details}, _preloaded} ->
+      {{:error, reason, details}, boot} ->
+        abort = {:abort, report, %{config | stream: false}, reason, details}
+
+        case boot do
+          {:ok, state} -> {:cleanup, abort, state}
+          {:error, _, _, state} -> {:cleanup, abort, state}
+          _ -> abort
+        end
+
+      {:ok, {:error, reason, details}} ->
         {:abort, report, %{config | stream: false}, reason, details}
     end
   end
@@ -624,19 +650,10 @@ defmodule Mix.Tasks.Mutagen do
       (report.baseline || report.coverage || %{})[:suite_stats] ||
         Runtime.empty_suite()
 
-    case {Runtime.finish(state, stats), result} do
-      {:timeout, _} ->
-        put_elem(
-          result,
-          1,
-          add_warnings(report, ["after_suite_timeout: cleanup exceeded its deadline"])
-        )
-
-      {{:error, reason, details}, {:ok, report, config}} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :after_suite)}
-
-      _ ->
-        result
+    case Runtime.finish(state, stats) do
+      :timeout -> IO.puts(:stderr, "warning: after_suite_timeout (#{state.cleanup_timeout} ms)")
+      {:error, _, _} -> IO.puts(:stderr, "warning: after_suite_failed")
+      :ok -> :ok
     end
   end
 
@@ -644,7 +661,12 @@ defmodule Mix.Tasks.Mutagen do
     with {:ok, scope_records} <- phase_scope(config, dispatch, report1),
          report2 = %Report{report1 | scope: scope_records},
          {:ok, test_filter} <- phase_tests(config, dispatch, report2, state.test_paths),
-         test_filter = MutagenEx.TestSelector.merge_helper_filters(test_filter, state.exunit),
+         test_filter =
+           MutagenEx.TestSelector.merge_helper_filters(
+             test_filter,
+             state.exunit,
+             Map.get(state, :helper_tags, MapSet.new())
+           ),
          report3 = %Report{report2 | tests: test_filter_to_wire(test_filter)},
          {:ok, ast_cache} <-
            phase_ast_cache(config, scope_records, test_filter, dispatch, report3),
@@ -945,7 +967,7 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp run_suite_phase(%{worker: _}, config, phase, fun) do
-    timeout = config.boot_timeout_ms
+    timeout = max(config.boot_timeout_ms, 10 * config.timeout_ms)
 
     case Runtime.with_deadline(timeout, fun) do
       {:ok, result} ->
@@ -1073,7 +1095,10 @@ defmodule Mix.Tasks.Mutagen do
         {:ok, result}
 
       {:error, reason, details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :mutation)}
+        {warnings, details} = Map.pop(details, :host_warnings, [])
+
+        {:abort, add_warnings(report, warnings), config, reason,
+         Map.put_new(details, :step, :mutation)}
     end
   end
 
@@ -1132,7 +1157,11 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp test_filter_to_wire(%MutagenEx.TestSelector.TestFilter{} = f) do
-    %{include: f.include, exclude: f.exclude, files: f.files}
+    %{
+      include: MutagenEx.TestSelector.report_filters(f, :include),
+      exclude: MutagenEx.TestSelector.report_filters(f, :exclude),
+      files: f.files
+    }
   end
 
   defp test_filter_to_wire(other), do: other
@@ -1428,8 +1457,7 @@ defmodule Mix.Tasks.Mutagen do
     mod = Map.fetch!(dispatch, :reporter_ok)
     {iodata, code} = mod.emit_report(report)
 
-    io_mod = Map.fetch!(dispatch, :io)
-    io_mod.emit(iodata, code, config)
+    emit_document(iodata, code, config, dispatch)
     :ok
   end
 
@@ -1443,11 +1471,16 @@ defmodule Mix.Tasks.Mutagen do
     report = %Report{report | details: details}
     {iodata, code} = mod.emit_error(report, reason)
 
-    io_mod = Map.fetch!(dispatch, :io)
-    io_mod.emit(iodata, code, config)
+    emit_document(iodata, code, config, dispatch)
 
     {:aborted, reason, %Report{report | aborted: true, abort_reason: Atom.to_string(reason)}}
   end
+
+  defp emit_document(iodata, code, config, %{cleanup: cleanup}) do
+    MutagenEx.Pipeline.DefaultIo.emit(iodata, code, config, cleanup)
+  end
+
+  defp emit_document(iodata, code, config, %{io: io_mod}), do: io_mod.emit(iodata, code, config)
 
   # ---------------------------------------------------------------------------
   # Defaults

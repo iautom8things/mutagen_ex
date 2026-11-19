@@ -3,11 +3,10 @@ defmodule MutagenEx.Runtime do
   Prepares a host Mix project and its ExUnit environment for an in-process run.
   """
 
-  alias MutagenEx.JsonReporter.Redactor
+  alias MutagenEx.JsonReporter.{Provenance, Redactor}
 
   @tool_version Mix.Project.config()[:version]
   @boot_timeout_ms 300_000
-  @cleanup_timeout_ms 1_000
   @stderr_note "Stderr may carry unredacted host output. Do not publish it as a CI artifact."
 
   def tool_version, do: @tool_version
@@ -112,7 +111,8 @@ defmodule MutagenEx.Runtime do
       callbacks: [],
       patterns: [],
       warnings: [],
-      cleanup_timeout: min(timeout, @cleanup_timeout_ms)
+      helper_tags: MapSet.new(),
+      cleanup_timeout: timeout
     }
 
     await_boot(pid, monitor, ref, deadline, timeout, :runtime_config, session)
@@ -132,7 +132,7 @@ defmodule MutagenEx.Runtime do
       {^ref, :phase, next} ->
         await_boot(pid, monitor, ref, deadline, timeout, next, session)
 
-      {^ref, key, value} when key in [:patterns, :warnings] ->
+      {^ref, key, value} when key in [:patterns, :warnings, :helper_tags] ->
         await_boot(pid, monitor, ref, deadline, timeout, phase, Map.replace!(session, key, value))
 
       {^ref, :ok, worker, callbacks} ->
@@ -173,7 +173,10 @@ defmodule MutagenEx.Runtime do
          :ok <- boot_step(set_phase, :test_alias, fn -> run_test_alias(opts, notify) end),
          :ok <- boot_step(set_phase, :host_app, fn -> maybe_start_host_app(opts) end),
          :ok <- boot_step(set_phase, :mutagen_runtime, &start_mutagen/0) do
-      boot_step(set_phase, :test_helper, &load_test_helpers/0)
+      boot_step(set_phase, :test_helper, fn ->
+        notify.(:helper_tags, literal_helper_tags())
+        load_test_helpers()
+      end)
     end
   end
 
@@ -220,18 +223,15 @@ defmodule MutagenEx.Runtime do
     details = put_exception_facts(details, kind, value, stack)
 
     if helper,
-      do: {:error, reason, Map.merge(details, helper_location(helper, value, stack))},
+      do: {:error, reason, Map.merge(details, helper_location(helper, stack))},
       else: {:error, reason, details}
   end
 
   @doc false
-  def exception_facts(%module{} = error, stack) do
-    details = %{exception: inspect(module)}
-
-    case error_location(error) ++
-           for({_, _, _, meta} <- stack, meta[:file], do: {to_string(meta[:file]), meta[:line]}) do
-      [{file, line} | _] -> Map.merge(details, %{file: file, line: line})
-      [] -> details
+  def exception_facts(%module{}, stack) do
+    case Provenance.stack_locations(stack) do
+      [{file, line} | _] -> %{exception: module, file: file, line: line}
+      [] -> %{exception: module}
     end
   end
 
@@ -246,12 +246,11 @@ defmodule MutagenEx.Runtime do
 
   # The line comes from the helper's own frame. A failure raised in a file
   # the helper evaluated, such as a seeds script, is reported as the origin.
-  defp helper_location(helper, value, stack) do
+  defp helper_location(helper, stack) do
     in_helper? = fn {file, _line} -> Path.expand(file) == Path.expand(helper) end
 
     {inner, from_helper} =
-      (error_location(value) ++
-         for({_, _, _, meta} <- stack, meta[:file], do: {to_string(meta[:file]), meta[:line]}))
+      Provenance.stack_locations(stack)
       |> Enum.split_while(&(not in_helper?.(&1)))
 
     location =
@@ -268,11 +267,6 @@ defmodule MutagenEx.Runtime do
         location
     end
   end
-
-  defp error_location(%{file: file, line: line}) when is_binary(file) and is_integer(line),
-    do: [{file, line}]
-
-  defp error_location(_value), do: []
 
   defp short_message(:host_app_start_failed, "Could not start application " <> rest) do
     [app | _] = String.split(rest, ":", parts: 2)
@@ -414,6 +408,23 @@ defmodule MutagenEx.Runtime do
     end
   end
 
+  defp literal_helper_tags do
+    Enum.reduce(test_paths(), MapSet.new(), fn path, acc ->
+      with {:ok, source} <- File.read(Path.join(path, "test_helper.exs")),
+           {:ok, ast} <- Code.string_to_quoted(source) do
+        {_, tags} =
+          Macro.prewalk(ast, acc, fn
+            atom, tags when is_atom(atom) -> {atom, MapSet.put(tags, atom)}
+            node, tags -> {node, tags}
+          end)
+
+        tags
+      else
+        _ -> acc
+      end
+    end)
+  end
+
   defp load_test_helpers do
     ExUnit.start(autorun: false)
     shell = Mix.shell()
@@ -462,7 +473,7 @@ defmodule MutagenEx.Runtime do
 
   @doc "Runs the session's after-suite callbacks and releases its boot worker."
   def finish(%{worker: worker, callbacks: callbacks} = session, stats) do
-    case with_deadline(Map.get(session, :cleanup_timeout, @cleanup_timeout_ms), fn ->
+    case with_deadline(Map.get(session, :cleanup_timeout, @boot_timeout_ms), fn ->
            run_callbacks(callbacks, stats)
          end) do
       {:ok, result} -> result
