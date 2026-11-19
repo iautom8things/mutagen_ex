@@ -41,7 +41,7 @@ defmodule MutagenEx.Mutators.Dispatch do
   across runs (`mutagen.mutation_enumeration.r1` and the technical
   red-team determinism finding called out in the decision file).
 
-  Concretely: `Dispatch` builds the result by filtering
+  Concretely: `Dispatch` builds the table by filtering
   `Mutators.all/0` — it never re-orders. The equivalence test
   (`test/mutagen_ex/head_atom_dispatch_test.exs`) locks both the
   correctness property (same mutators get tried per node) AND the
@@ -61,8 +61,8 @@ defmodule MutagenEx.Mutators.Dispatch do
   # node regardless of head.
   #
   # The values in this table do not need to be in `Mutators.all/0` order;
-  # ordering is enforced post-filter by `mutators_for_node/1` which
-  # intersects against `Mutators.all/0`. Listing each mutator's heads
+  # the compiled table below intersects against `Mutators.all/0`.
+  # Listing each mutator's heads
   # alongside its module keeps the table readable as a single map.
   @table %{
     # Arith: numeric binary ops.
@@ -125,6 +125,12 @@ defmodule MutagenEx.Mutators.Dispatch do
     Mutators.ResultTuple
   ]
 
+  @catalog Mutators.all()
+  @default Enum.filter(@catalog, &(&1 in @any_mutators))
+  @candidates Map.new(@table, fn {head, mutators} ->
+                {head, Enum.filter(@catalog, &(&1 in mutators or &1 in @any_mutators))}
+              end)
+
   @doc """
   Returns the sub-sequence of `MutagenEx.Mutators.all/0` whose `match?/1`
   could possibly match `node`, preserving `Mutators.all/0` order.
@@ -149,22 +155,8 @@ defmodule MutagenEx.Mutators.Dispatch do
   representative AST nodes.
   """
   @spec mutators_for_node(Macro.t()) :: [module()]
-  def mutators_for_node(node) do
-    candidates = candidates_set(node)
-    Enum.filter(Mutators.all(), &MapSet.member?(candidates, &1))
-  end
+  def mutators_for_node({head, _meta, _args}) when is_atom(head),
+    do: Map.get(@candidates, head, @default)
 
-  # Build the set of mutator modules potentially relevant for `node`:
-  # always include `@any_mutators`, and for 3-tuple nodes also include
-  # the head-keyed entries (if any).
-  defp candidates_set({head, _meta, _args}) when is_atom(head) do
-    head_specific = Map.get(@table, head, [])
-    MapSet.new(@any_mutators ++ head_specific)
-  end
-
-  defp candidates_set(_other) do
-    # Not a 3-tuple — bare scalar literals, 2-tuples, lists, atoms, etc.
-    # No head atom to key on; only the `:any` mutators are candidates.
-    MapSet.new(@any_mutators)
-  end
+  def mutators_for_node(_other), do: @default
 end
