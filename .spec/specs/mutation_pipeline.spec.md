@@ -570,7 +570,9 @@ decisions:
     Automatic case discovery for coverage, baseline and mutation selects
     loaded modules from the cited test files whose bytecode exports
     `__ex_unit__/0`. Ordinary helper modules in those files are never
-    registered as cases.
+    registered as cases. Cases declared in source retain their declaration
+    order within each cited file. Loaded cases without a matching
+    declaration follow in module name order.
 ```
 
 ```spec-scenarios

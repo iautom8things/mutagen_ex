@@ -16,7 +16,8 @@ defmodule MutagenEx.TestModuleDiscovery do
   @doc """
   Return loaded modules whose compile source is a cited path and that
   export `__ex_unit__/0`. Call after requiring the files. Entries follow
-  the caller's file order, with modules in each file sorted by name.
+  the caller's file order, then declaration order within each file.
+  Cases without a source declaration follow in module name order.
   """
   @spec discover([Path.t()]) :: [entry()]
   def discover([]), do: []
@@ -37,9 +38,25 @@ defmodule MutagenEx.TestModuleDiscovery do
     |> Enum.map(fn file -> file |> Path.expand() |> String.to_charlist() end)
     |> Enum.uniq()
     |> Enum.flat_map(fn file ->
-      for module <- Enum.sort(Map.get(by_source, file, [])) do
+      for module <- in_declaration_order(Map.get(by_source, file, []), file) do
         {module, %{async?: false, group: nil, parameterize: nil}}
       end
     end)
   end
+
+  defp in_declaration_order([_, _ | _] = modules, file) do
+    with {:ok, source} <- File.read(file),
+         {:ok, ast} <- Code.string_to_quoted(source) do
+      declared =
+        for {module, _, _} <- MutagenEx.Ast.module_blocks(ast), module in modules, uniq: true do
+          module
+        end
+
+      declared ++ Enum.sort(modules -- declared)
+    else
+      _ -> Enum.sort(modules)
+    end
+  end
+
+  defp in_declaration_order(modules, _file), do: modules
 end
