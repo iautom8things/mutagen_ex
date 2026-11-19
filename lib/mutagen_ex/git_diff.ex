@@ -671,7 +671,7 @@ defmodule MutagenEx.GitDiff do
     })
   end
 
-  defp report_path(path), do: Regex.replace(~r/\p{Cc}/u, String.replace_invalid(path), "")
+  defp report_path(path), do: Regex.replace(~r/[\p{Cc}\p{Cf}]/u, String.replace_invalid(path), "")
 
   defp git_context(opts) do
     cd = Keyword.get_lazy(opts, :cd, &File.cwd!/0)

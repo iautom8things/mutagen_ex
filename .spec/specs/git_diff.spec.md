@@ -130,8 +130,9 @@ decisions:
     Every Git call has a configurable deadline, defaulting to 30 seconds.
     A timeout attempts to terminate the Git process group and returns :timeout
     as its cause even if the signal cannot be sent. In that case the details
-    say the child may still run. Paths in hints and details omit control
-    characters.
+    say the child may still run. Paths in hints and details omit control and
+    Unicode format characters. The safe.directory command is omitted when
+    the displayed path differs from the original.
     Git diagnostics are captured and are absent from the tool's stderr and
     returned error details.
 ```
