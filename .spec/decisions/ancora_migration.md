@@ -27,18 +27,23 @@ proof for a requirement without an assertion for that requirement.
 
 Use Hex Ancora `~> 1.3` in dev and test with `runtime: false`. Keep the
 package file list and the dependency-free Mix archive. CI checks the corpus
-and the diff in a full clone. Pull requests use the target branch ref.
-Pushes use the event's previous SHA. A new branch push uses the remote
-default branch. Local checks default to `origin/main`.
+and the diff in a full clone, using the pinned toolchain and a cache keyed
+by the tool versions and lock. Pull requests use the first parent of the
+checked-out test merge. Pushes use the event's previous SHA when available,
+and otherwise the merge base with the remote default branch. An explicit
+`--base` compares against the supplied commit. Local checks without it
+default to `origin/main` as the target.
 
 ### Prior decision clauses
 
 | Clause in the previous decision | Disposition |
 | --- | --- |
 | Make machine checks required in dev and test | Retain the local gate and add it to CI. |
+| Keep required tooling in the agent guide | The guide names Ancora and its validation and diff checks. |
 | Given/when/then arrays and active status | Retain both. |
 | Command targets and execution flags | Remove all 66 command entries. Literal requirement tags link ExUnit proof. ExUnit runs independently. |
 | Hand-authored API boundaries and deferred deeper tiers | Remove the nine API boundary lists. Ancora derives production calls from tagged tests. There are no deferred binding tiers or generated state. |
+| Keep the optional `mix spec.cover.test` instrumentation unused | Remove it along with the retired tooling. Ancora scans source and ExUnit runs the proof separately. |
 | Keep existing decisions | Retain all decisions. Record this replacement in the old decision's frontmatter and append historical clarifications where the old branch guard is discussed. |
 | Start with soft severities | Use Ancora's defaults except for any exact exceptions recorded below. Preserve append-only enforcement and check new requirements for tags. |
 | Keep falsifiable, repo-resident behavioral specs | Retain every requirement and scenario. Expand the golden fixture directory to exact files. |
@@ -68,15 +73,19 @@ entries named 99. Only `mutagen.cli.r8` appeared solely under
 for it. The old gate ran suites and did not check assertion-level
 coverage. The base had zero literal requirement tags.
 
-Ancora now has anchored ExUnit assertions for 96 of 100 requirements.
-The migration carried forward existing evidence for 86 and added or
-strengthened proof for ten:
+Ancora now has tagged ExUnit assertions for 98 of 100 requirements.
+Most tags bind production calls. AST r4 tags the ExUnit source scan
+replacing the retired private-helper grep. CLI r9 tags the documentation
+assertions for the required help sections and caveats. The migration
+added or strengthened evidence for the following requirements:
 
 - CLI r2 now asserts that missing `--tests` produces a non-zero code and a
   decoded error document. CLI r4 and pipeline r2 now assert that the
   mutation phase sets the caller's seed and `max_cases: 1`.
-- CLI r5 now checks both output destinations and the terminal newline in
-  the archive integration test. The parse tests anchor the requirement.
+- CLI r5 now checks both output destinations and the terminal newline.
+  The tagged archive integration exercises the full command. The focused
+  test invokes `DefaultIo.emit/3` in an isolated VM because the sink calls
+  `System.halt/1`.
 - CLI r13 and schema r13 have a new assertion for the budget and its wire
   shape. CLI r13 already had parser and runner evidence.
 - Schema r12 now counts the rendering calls for the fallback and slice
@@ -88,18 +97,22 @@ strengthened proof for ten:
 - Scope resolution r6 and test selection r4 now exercise real input files
   that fail if the production resolver evaluates them.
 
-CLI r13 had substantial evidence in the base. Its count is in the 86
-carried-forward requirements. The new wire assertion is counted under
-schema r13.
-
-Four enabled legacy claims have no tagged proof. Each remains in the corpus:
+Two enabled legacy claims have no tagged proof. Both remain in the corpus.
+Each has a requirement-specific `spec/requirement_unverified: info`
+override with its reason. Ancora still reports the gap.
 
 | Requirement | Evidence and gap |
 | --- | --- |
-| `mutagen.ast.r4` | An ExUnit source scan replaces the negative grep, with a nonempty file set and whole helper names. This checks private duplicates. The donor call sites use different AST helpers and the negative check does not prove the delegation clause. The scan has no production call to anchor. |
-| `mutagen.cli.r9` | ExUnit checks the Mix task docs for the named sections and caveats. The old `mix help mutagen` checked exit status. Help uses Mix's documentation lookup, outside a direct call to the Mutagen task. |
 | `mutagen.coverage.r7` | The base spike exercises OTP cover and compilation directly. The existing runner test compares disk contents with injected collaborators. There is no combined test of real coverage, AST loading, and attributable temp writes. |
-| `mutagen.mutation_pipeline.r4` | The production timeout tests cover escalation, purge and taint. The graceful-cancel test expects `:survived` when the task returns a clean result during shutdown. The requirement says both cancellation paths classify as `:timeout`. Resolve that discrepancy in a behavior change. |
+| `mutagen.mutation_pipeline.r4` | Open defect. After `Task.yield/2` times out, the grace-window code accepts a clean reply and the escalation path can accept a reply racing `terminate_child/2`. The requirement and timeout decision call for `:timeout` on both cancellation paths. The graceful-cancel test currently asserts `:survived` even though its name describes a timeout. |
+
+R4's late reply can produce a `:survived` or `:killed` result after the
+deadline. It undercounts timeouts and can inflate the kill rate. It also
+skips the purge step and leaves subsequent results without the required
+taint marker. The supervision decision describes a grace window to drain
+replies sent before the deadline. This migration leaves the defect and
+its existing tests for a separate behavior change.
+[Timeout handling](timeout_handling.md), [supervision tree](supervision_tree.md)
 
 CLI r14 and r16 retain their fresh-shell integration tests. The tags
 are on in-process tests of the preamble and repair branches. The two C1/C2
@@ -113,9 +126,10 @@ derive their calls.
 The base had no tagged tests. Primary growth in AST, CLI, coverage,
 enumeration, pipeline, mutators, scope resolution, and test selection
 records the first observations of existing functions. Each subject has
-one temporary `derived/growth: info` override with its reason. Remove these
-overrides once the comparison base contains this tagged suite. Keep the
-default warning for future test-call additions. A commit trailer would
+one temporary `derived/growth: info` override with its reason. On 2026-11-19
+we scheduled removal in the first commit after the migration lands on
+the target branch. Keep the default warning for future test-call additions.
+A commit trailer would
 disappear on squash merge.
 
 The base JSON schema subject used a directory in its owned paths and
@@ -128,3 +142,21 @@ modules needed to assert the behavior. There is no library diff, and no
 drift, shrink, or uncovered library file was reported. Borrowed-tag info
 records the first tags on existing rules. Unresolved-call info comes
 from test seams such as `apply/3` and variable-module dispatch.
+
+### Library-file probe
+
+Appending a comment to each of the 56 tracked library files in a scratch
+clone originally produced 36 uncovered-file warnings. Direct proof now
+reaches 16 more files. JSON path and sink tests cover output and path rules.
+The mutator properties name each callback they execute. The progress,
+test-module discovery, bytecode, coverage and baseline tests reach their
+production modules and wrappers.
+
+The remaining 20 files have exact `change/uncovered_file: info`
+exceptions. Seventeen declare behaviour callbacks. `application.ex` is
+entered through OTP app boot. `config.ex` builds a struct at compile time
+and `types.ex` declares typespecs. Ancora computes file coverage from
+source-defined calls. These exceptions keep the findings visible while
+the concrete modules and observed calls keep their normal checks.
+The repeat probe changed all 56 library files and passed with zero
+unexcepted uncovered files and 20 informational exceptions.

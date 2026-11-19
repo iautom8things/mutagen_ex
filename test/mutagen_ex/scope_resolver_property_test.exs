@@ -176,7 +176,6 @@ defmodule MutagenEx.ScopeResolverPropertyTest do
       end
     end
 
-    @tag spec: "mutagen.scope_resolution.r6"
     test "no on-disk side effects across all random inputs" do
       # Snapshot cover state before/after rather than asserting the global
       # :cover_server singleton is absent. This test is async; a concurrent

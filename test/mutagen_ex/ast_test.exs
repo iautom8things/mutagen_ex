@@ -16,6 +16,7 @@ defmodule MutagenEx.AstTest do
 
   alias MutagenEx.Ast
 
+  @tag spec: "mutagen.ast.r4"
   test "AST helpers have no private duplicates outside their canonical owner" do
     assert Ancora.SourceScan.scan(
              dirs_or_globs: ["lib/mutagen_ex/**/*.ex"],

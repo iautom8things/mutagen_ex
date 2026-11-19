@@ -88,7 +88,7 @@ defmodule MutagenEx.BeamCacheTest do
 
   # Compile a quoted AST while suppressing stderr (silences the
   # "redefining module" warning Elixir emits on a re-define cycle).
-  # Returns the raw `Code.compile_quoted/1` result so callers can
+  # Returns the compiler facade's raw result so callers can
   # pattern-match the `[{module, binary}, ...]` shape.
   defp compile_silently(ast) do
     ref = make_ref()
@@ -96,7 +96,7 @@ defmodule MutagenEx.BeamCacheTest do
 
     _io =
       ExUnit.CaptureIO.capture_io(:stderr, fn ->
-        result = Code.compile_quoted(ast)
+        result = MutagenEx.Test.Compiler.compile_quoted(ast, "beam_cache_fixture.ex")
         send(parent, {ref, result})
       end)
 
@@ -349,7 +349,9 @@ defmodule MutagenEx.BeamCacheTest do
         # lands on our temp file.
         :code.purge(victim)
         :code.delete(victim)
-        {:module, ^victim} = :code.load_file(victim)
+
+        assert {:module, ^victim} =
+                 MutagenEx.Test.CodeServer.load_binary(victim, beam_filename, original_binary)
 
         original_md5 = apply(victim, :module_info, [:md5])
         assert apply(victim, :answer, []) == :original

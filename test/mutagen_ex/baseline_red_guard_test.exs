@@ -100,9 +100,9 @@ defmodule MutagenEx.BaselineRedGuardTest do
         # Register the red module and consume it with a nested
         # `ExUnit.run/0`, mirroring how the coverage phase drains
         # `ExUnit.Server` before baseline ever runs.
-        ExUnit.configure(include: [@fixture_tag], exclude: [:test])
-        ExUnit.Server.add_module(@red_module, @module_cfg)
-        drain = ExUnit.run()
+        MutagenEx.Test.ExUnit.configure(include: [@fixture_tag], exclude: [:test])
+        MutagenEx.Test.ExUnitServer.add_module(@red_module, @module_cfg)
+        drain = MutagenEx.Test.ExUnit.run()
 
         # ---- Step 2: production baseline ---------------------------------
         # `Baseline.run/1` with the production default seams. The

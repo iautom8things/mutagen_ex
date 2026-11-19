@@ -37,6 +37,7 @@ surface:
   - lib/mutagen_ex/application.ex
   - lib/mutagen_ex/test/code_server.ex
   - lib/mutagen_ex/test/code_server_facade.ex
+  - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
   - mutagen.decision.in_process_pipeline
