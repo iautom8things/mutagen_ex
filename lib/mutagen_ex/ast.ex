@@ -2,26 +2,11 @@ defmodule MutagenEx.Ast do
   @moduledoc """
   Canonical shared AST helpers for the mutagen pipeline.
 
-  Owns the three helpers that were previously duplicated across
-  `MutagenEx.ScopeResolver`, `MutagenEx.MutationEnumerator`, and
-  `MutagenEx.MutationRunner`:
-
-    * `alias_to_module/1`
-    * `find_module_body/2`
-    * `node_line/1`
+  Resolves source module and definition names and extracts
+  positions for the scope resolver, enumerator, and runner.
 
   Implements the behavioural contract in
   [`mutagen.ast`](../../.spec/specs/ast.spec.md).
-
-  The lift is deliberately narrow: only helpers used by 2+ donor modules
-  move here. Caller-specific helpers (`compute_end_position/1`,
-  `walk_bare/N`, `node_line_range/1`, etc.) stay in their donor modules
-  because only one caller uses them and they bake in caller-specific
-  policy (e.g. ambient-position threading for the enumerator).
-
-  Every function in this module is **pure**: takes AST, returns AST or
-  a tagged result. No process state, no I/O, no side effects. That keeps
-  the module trivially testable and lets callers compose freely.
 
   ## Atom safety
 
@@ -108,59 +93,214 @@ defmodule MutagenEx.Ast do
   form round-trips through `==` correctly. See module doc for the
   atom-table-DOS context.
 
-  Walks `ast` with `Macro.prewalk/3`; returns the first match in
-  depth-first source order.
+  Returns the first unquoted declaration in depth-first source order.
+  Named protocols and statically resolvable implementations participate.
   """
   @spec find_module_body(ast, String.t()) :: {:ok, ast} | :not_found
   def find_module_body(ast, target_mod_str) when is_binary(target_mod_str) do
-    find_module_body(ast, target_mod_str, nil)
+    Enum.find_value(module_blocks(ast), :not_found, fn {module, _node, body} ->
+      if module_string_matches?(module, target_mod_str), do: {:ok, body}
+    end)
   end
 
-  defp find_module_body({:defmodule, _meta, [alias_ast, [do: body]]}, target_mod_str, parent) do
-    case qualify_module(alias_ast, parent) do
+  @doc false
+  def module_blocks(ast) do
+    for {node, modules, body, _path} <- declarations(ast), module <- modules do
+      {module, node, body}
+    end
+  end
+
+  @doc false
+  def module_index(ast) do
+    Map.new(declarations(ast), fn {node, modules, body, path} ->
+      {node, {modules, body, path}}
+    end)
+  end
+
+  defp declarations(ast) do
+    ast |> collect_modules(nil, %{}, []) |> Enum.reverse()
+  end
+
+  defp collect_modules({:quote, _, _}, _parent, _aliases, acc), do: acc
+
+  defp collect_modules({:__block__, _, expressions}, parent, aliases, acc)
+       when is_list(expressions) do
+    {_, acc} =
+      Enum.reduce(expressions, {aliases, acc}, fn expression, {aliases, acc} ->
+        acc = collect_modules(expression, parent, aliases, acc)
+        {extend_aliases(expression, parent, aliases), acc}
+      end)
+
+    acc
+  end
+
+  defp collect_modules({kind, _, [name | options]} = node, parent, aliases, acc)
+       when kind in [:defmodule, :defprotocol, :defimpl] do
+    case do_block(options) do
+      {body, arg, index} ->
+        modules = module_names(kind, name, options, parent, aliases)
+        acc = [{node, modules, body, [{:arg, arg}, {:elem, index}, :right]} | acc]
+        collect_modules(body, single_module(modules), aliases, acc)
+
       nil ->
-        find_module_body(body, target_mod_str, parent)
-
-      mod_atom ->
-        if module_string_matches?(mod_atom, target_mod_str) do
-          {:ok, body}
-        else
-          find_module_body(body, target_mod_str, mod_atom)
-        end
+        acc
     end
   end
 
-  defp find_module_body({left, right}, target_mod_str, parent) do
-    case find_module_body(left, target_mod_str, parent) do
-      :not_found -> find_module_body(right, target_mod_str, parent)
-      {:ok, _body} = found -> found
+  defp collect_modules(tuple, parent, aliases, acc) when is_tuple(tuple),
+    do: collect_modules(Tuple.to_list(tuple), parent, aliases, acc)
+
+  defp collect_modules([head | tail], parent, aliases, acc) do
+    acc = collect_modules(head, parent, aliases, acc)
+    collect_modules(tail, parent, aliases, acc)
+  end
+
+  defp collect_modules(_other, _parent, _aliases, acc), do: acc
+
+  @doc false
+  def single_module([module]), do: module
+  def single_module(_), do: nil
+
+  defp extend_aliases({kind, _, [{:__aliases__, _, [first | _]} | _]}, parent, aliases)
+       when kind in [:defmodule, :defprotocol] and is_atom(first) and first != Elixir and
+              not is_nil(parent) do
+    Map.put(aliases, first, Module.concat(parent, first))
+  end
+
+  defp extend_aliases({:alias, _, [{{:., _, [prefix, :{}]}, _, names}]}, parent, aliases)
+       when is_list(names) do
+    case reference_module(prefix, parent, aliases) do
+      nil ->
+        aliases
+
+      module ->
+        Enum.reduce(names, aliases, fn
+          {:__aliases__, _, parts} = name, aliases ->
+            if Enum.all?(parts, &is_atom/1) do
+              Map.put(aliases, alias_leaf(name), Module.concat([module | parts]))
+            else
+              aliases
+            end
+
+          _, aliases ->
+            aliases
+        end)
     end
   end
 
-  defp find_module_body(tuple, target_mod_str, parent) when is_tuple(tuple) do
-    tuple
-    |> Tuple.to_list()
-    |> find_module_body(target_mod_str, parent)
+  defp extend_aliases({:alias, _, [name | options]}, parent, aliases) do
+    leaf = options |> option(:as, name) |> alias_leaf()
+    module = reference_module(name, parent, aliases)
+
+    if leaf && module, do: Map.put(aliases, leaf, module), else: aliases
   end
 
-  defp find_module_body([head | tail], target_mod_str, parent) do
-    case find_module_body(head, target_mod_str, parent) do
-      :not_found -> find_module_body(tail, target_mod_str, parent)
-      {:ok, _body} = found -> found
+  defp extend_aliases(_node, _parent, aliases), do: aliases
+
+  defp alias_leaf({:__aliases__, _, parts}) when is_list(parts), do: List.last(parts)
+  defp alias_leaf(_), do: nil
+
+  defp do_block(options) do
+    options
+    |> Enum.with_index(1)
+    |> Enum.find_value(fn
+      {keywords, arg} when is_list(keywords) ->
+        keywords
+        |> Enum.with_index()
+        |> Enum.find_value(fn
+          {{:do, body}, index} -> {body, arg, index}
+          _ -> nil
+        end)
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp module_names(:defimpl, protocol, options, parent, aliases) do
+    target = option(options, :for, parent)
+    module = reference_module(protocol, parent, aliases)
+
+    with true <- valid_module?(module),
+         [_ | _] = types <-
+           Enum.map(List.wrap(target), &reference_module(&1, parent, aliases)),
+         true <- Enum.all?(types, &valid_module?/1) do
+      Enum.map(types, &Module.concat(module, &1))
+    else
+      _ -> []
     end
   end
 
-  defp find_module_body([], _target_mod_str, _parent), do: :not_found
-  defp find_module_body(_literal, _target_mod_str, _parent), do: :not_found
+  defp module_names(_kind, name, _options, parent, _aliases) do
+    module = declared_module(name, parent)
+    if valid_module?(module), do: [module], else: []
+  end
 
-  defp qualify_module(alias_ast, nil), do: alias_to_module(alias_ast)
+  defp option(options, key, default) do
+    Enum.find_value(options, default, fn
+      list when is_list(list) -> Keyword.get(list, key)
+      _ -> nil
+    end)
+  end
 
-  defp qualify_module(alias_ast, parent) when is_atom(parent) do
-    case alias_to_module(alias_ast) do
+  defp valid_module?(value), do: is_atom(value) and value not in [nil, true, false]
+
+  defp reference_module({:__MODULE__, _, _}, parent, _aliases), do: parent
+
+  defp reference_module({:__aliases__, _, [{:__MODULE__, _, _} | _]} = name, parent, _aliases),
+    do: declared_module(name, parent)
+
+  defp reference_module({:__aliases__, _, [Elixir | _]} = name, _parent, _aliases),
+    do: alias_to_module(name)
+
+  defp reference_module({:__aliases__, _, [first | rest]} = name, _parent, aliases) do
+    case Map.fetch(aliases, first) do
+      {:ok, module} ->
+        if Enum.all?(rest, &is_atom/1), do: Module.concat([module | rest])
+
+      :error ->
+        alias_to_module(name)
+    end
+  end
+
+  defp reference_module(name, _parent, _aliases), do: alias_to_module(name)
+
+  @doc false
+  def declared_module({:__aliases__, _, [Elixir | _]} = name, _parent),
+    do: alias_to_module(name)
+
+  def declared_module({:__aliases__, _, [{:__MODULE__, _, _} | parts]}, parent)
+      when is_atom(parent) and not is_nil(parent) do
+    if Enum.all?(parts, &is_atom/1), do: Module.concat([parent | parts])
+  end
+
+  def declared_module({:__aliases__, _, _} = name, parent) when not is_nil(parent) do
+    case alias_to_module(name) do
       nil -> nil
-      mod when is_atom(mod) -> Module.concat(parent, mod)
+      module -> Module.concat(parent, module)
     end
   end
+
+  def declared_module(name, _parent), do: alias_to_module(name)
+
+  @doc false
+  def definition_head({kind, _, [head | _]})
+      when kind in [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp],
+      do: head
+
+  def definition_head(_), do: nil
+
+  @doc false
+  def definition_signature(node), do: head_signature(definition_head(node))
+
+  defp head_signature({:when, _, [head | _]}), do: head_signature(head)
+  defp head_signature({:unquote, _, _}), do: nil
+
+  defp head_signature({name, _, args}) when is_atom(name) and is_list(args),
+    do: {name, length(args)}
+
+  defp head_signature({name, _, nil}) when is_atom(name), do: {name, 0}
+  defp head_signature(_), do: nil
 
   # Compare an AST-derived module atom against a `target_mod_str` per
   # the contract in the @doc. The AST atom's `Atom.to_string/1` form is

@@ -239,6 +239,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     file = "synthetic/foo_#{id}.ex"
 
     %Site{
+      path: [{:arg, 1}, {:elem, 0}, :right, {:arg, 1}, {:elem, 0}, :right],
       id: id,
       file: file,
       line: line,

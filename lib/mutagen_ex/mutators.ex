@@ -22,14 +22,9 @@ defmodule MutagenEx.Mutators do
 
   ## Site IDs
 
-  `site_id/3` produces the content-addressed mutation ID per
-  `mutagen.mutators.r3` and `mutagen.decision.content_addressed_ids`:
-
-      "#{relative_file}:#{:erlang.phash2(normalized_ast)}:#{mutator_name}"
-
-  Normalization strips `:line`, `:column`, `:end_line`, and `:end_column` from
-  every metadata keyword in the AST before hashing. This is what makes IDs
-  stable across `mix format` (`mutagen.mutators.r4`).
+  `site_id/3` hashes the enclosing definition, normalized node, and
+  occurrence ordinal. The enumerator supplies that identity in file walk
+  order. See `mutagen.decision.mutation_id_scheme_2`.
 
   ## Out of scope here
 
@@ -91,40 +86,76 @@ defmodule MutagenEx.Mutators do
     Enum.find(@mutators, &(&1.name() == name))
   end
 
-  @doc ~S"""
-  Computes the content-addressed site ID for a mutation site.
+  @doc "Builds a scheme 2 ID from a project-relative path and a normalized identity."
+  @spec site_id(String.t(), {tuple() | nil, ast_node(), non_neg_integer()}, mutator_name()) ::
+          String.t()
+  def site_id(relative_file, {enclosing, node, ordinal}, mutator_name) do
+    hash =
+      {enclosing, node, ordinal}
+      |> encode_identity()
+      |> :erlang.md5()
+      |> Base.encode16(case: :lower)
 
-  Format: `"#{relative_file}:#{ast_hash}:#{mutator_name}"`, where `ast_hash`
-  is `:erlang.phash2/2` of `node` after stripping positional metadata
-  (`:line`, `:column`, `:end_line`, `:end_column`).
-
-  Per `mutagen.mutators.r3` the file path is relative to the project root;
-  callers are responsible for passing a relative path (this function does no
-  path normalisation of its own). Per `mutagen.mutators.r4` the hash is
-  invariant under `mix format` because positional metadata is stripped before
-  hashing.
-  """
-  @spec site_id(String.t(), ast_node, mutator_name()) :: String.t()
-  def site_id(relative_file, node, mutator_name)
-      when is_binary(relative_file) and is_atom(mutator_name) do
-    "#{relative_file}:#{ast_hash(node)}:#{mutator_name}"
+    "#{relative_file}:#{hash}:#{mutator_name}"
   end
 
-  @doc """
-  Returns `:erlang.phash2/2` of `node` after positional metadata is stripped.
+  # Each tag identifies its type. A scalar length counts bytes, and a
+  # container length counts elements. Map keys sort by their encoded bytes.
+  defp encode_identity(value) when is_atom(value), do: scalar(?a, Atom.to_string(value))
+  defp encode_identity(value) when is_integer(value), do: scalar(?i, Integer.to_string(value))
+  defp encode_identity(value) when is_float(value), do: scalar(?f, <<value::float-64>>)
+  defp encode_identity(value) when is_binary(value), do: scalar(?b, value)
 
-  Exposed as a public helper so the enumerator and tests can compute the
-  hash directly without rebuilding a site ID.
-  """
-  @spec ast_hash(ast_node) :: non_neg_integer()
-  def ast_hash(node) do
-    :erlang.phash2(normalize(node))
+  defp encode_identity(value) when is_list(value),
+    do: [frame(?l, length(value)) | Enum.map(value, &encode_identity/1)]
+
+  defp encode_identity(value) when is_tuple(value),
+    do: [frame(?t, tuple_size(value)) | Enum.map(Tuple.to_list(value), &encode_identity/1)]
+
+  defp encode_identity(value) when is_map(value) do
+    ordered =
+      value
+      |> Enum.map(fn {key, item} -> {IO.iodata_to_binary(encode_identity(key)), item} end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    [
+      frame(?m, map_size(value))
+      | Enum.map(ordered, fn {key, item} -> [key, encode_identity(item)] end)
+    ]
   end
+
+  defp scalar(tag, bytes), do: [frame(tag, byte_size(bytes)), bytes]
+  defp frame(tag, size), do: [tag, Integer.to_string(size), ?:]
+
+  @doc false
+  @spec identity_node(ast_node()) :: ast_node()
+  def identity_node(ast) do
+    Macro.prewalk(ast, fn
+      {form, meta, args} when is_list(meta) ->
+        {form, identity_metadata(form, meta), args}
+
+      other ->
+        other
+    end)
+  end
+
+  # Dynamic receivers use this parser flag to distinguish map field access.
+  defp identity_metadata({:., _, [receiver, _name]}, meta) do
+    if module_receiver?(receiver), do: [], else: Keyword.take(meta, [:no_parens])
+  end
+
+  defp identity_metadata(_form, _meta), do: []
+
+  defp module_receiver?({:__aliases__, _, _}), do: true
+  defp module_receiver?({:__MODULE__, _, context}) when is_atom(context), do: true
+
+  defp module_receiver?(receiver),
+    do: is_atom(receiver) and not is_nil(receiver) and not is_boolean(receiver)
 
   @doc """
   Strips `:line`, `:column`, `:end_line`, and `:end_column` from every
-  metadata keyword in an AST. Other metadata (e.g. `:context`) is preserved
-  per `mutagen.decision.content_addressed_ids`.
+  metadata keyword in an AST. This comparison helper preserves all other
+  metadata for mutator validation.
 
   Walks the entire tree, including children inside metadata-bearing tuples
   and inside lists/tuples of further AST nodes.

@@ -30,6 +30,7 @@ summary: Resolves --scope targets to {file, line_range, module} records over par
 surface:
   - lib/mutagen_ex/scope_resolver.ex
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.adoption_polish_efficacy
   - mutagen.decision.ancora_migration
@@ -55,8 +56,9 @@ decisions:
   priority: must
   statement: |
     A scope target of shape `Module.Name.function/arity` resolves to exactly
-    one record whose `line_range` covers only the matching `def`,
-    `defp`, `defmacro`, or `defmacrop` clause(s). Arity is required: a target
+    one record with the matched name and arity and a `line_range` spanning
+    its clauses. Named guards are eligible. Quoted and dynamically named
+    definitions do not match a literal MFA. Arity is required: a target
     like `Module.Name.function` without `/arity` returns an error with
     `reason: :arity_required`.
 
@@ -125,7 +127,8 @@ decisions:
 - id: mutagen.scope_resolution.r10
   priority: must
   statement: |
-    Nested `defmodule` blocks resolve under their fully qualified module
+    Files and symbolic targets use project-root-relative normalized paths.
+    Static protocols and implementations resolve as modules. Nested `defmodule` blocks resolve under their fully qualified module
     atoms. For a file whose source nests `defmodule Inner` inside
     `defmodule Outer`, file-shaped resolution returns one record per block
     with `module` atoms `Outer` and `Outer.Inner` (never the unqualified
@@ -134,7 +137,9 @@ decisions:
     (`Outer.Inner`); the unqualified inner name (`Inner`) does not match and
     returns `reason: :module_not_found`. This mirrors the AST-layer
     nested-module qualification carve-out (mutagen.ast.r2 /
-    mutagen.mutation_enumeration.r4) at the resolver boundary.
+    mutagen.mutation_enumeration.r4) at the resolver boundary. A nested
+    declaration with an absolute alias (`Elixir.Other`) or a literal atom
+    uses that module directly. `__MODULE__.Inner` resolves to `Outer.Inner`.
 ```
 
 ```spec-scenarios

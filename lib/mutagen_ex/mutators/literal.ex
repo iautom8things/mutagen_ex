@@ -35,19 +35,15 @@ defmodule MutagenEx.Mutators.Literal do
        attach token / line / column info to the literal directly. The
        enumerator's `node_line/1` extracts the line from the wrapper's
        `meta`; an unwrapped match would lose that line and the enumerator
-       would drop the site (`is_nil(line) -> acc` at
-       `mutation_enumerator.ex:224`).
+       would drop the site when no parent supplies a line.
 
   Both shapes match; mutating a `__block__`-wrapped literal preserves the
   wrapper (and therefore the line/column metadata) so the rewritten AST is
   also a 3-tuple the enumerator can attribute to a source line.
 
-  Hashing-stability invariant: `MutagenEx.Mutators.normalize/1` strips
-  `:line`, `:column`, `:end_line`, `:end_column` from every metadata
-  keyword before `:erlang.phash2`. The `__block__` wrapper around a
-  literal therefore hashes to the same value across reformatting; the
-  bare-value and wrapped-value shapes intentionally hash differently
-  because they are distinct AST nodes per Elixir's own equality.
+  Site identity keeps the distinction between a bare literal and a
+  `__block__` wrapper. Position and token metadata on the wrapper are
+  ignored by mutation ID scheme 2.
   """
 
   @behaviour MutagenEx.Mutators

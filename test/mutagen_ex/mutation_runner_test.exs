@@ -340,6 +340,7 @@ defmodule MutagenEx.MutationRunnerTest do
       )
 
     %Site{
+      path: [{:arg, 1}, {:elem, 0}, :right, {:arg, 1}, {:elem, 0}, :right],
       id: id,
       file: file,
       line: line,
@@ -1298,6 +1299,7 @@ defmodule MutagenEx.MutationRunnerTest do
         {_, meta, args} = add_node
 
         site = %Site{
+          path: [{:arg, 1}, {:elem, 0}, :right, {:arg, 1}, {:elem, 0}, :right],
           id: "real:1:arith",
           file: "synth_real.ex",
           line: Keyword.get(meta, :line),

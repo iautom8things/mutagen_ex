@@ -158,6 +158,7 @@ defmodule MutagenEx.Test.FacadesTest do
       file = "synthetic/foo.ex"
 
       site = %Site{
+        path: [{:arg, 1}, {:elem, 0}, :right, {:arg, 1}, {:elem, 0}, :right],
         id: "syn:1:arith",
         file: file,
         line: 2,

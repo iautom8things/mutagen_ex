@@ -3,7 +3,7 @@ defmodule MutagenEx.JsonStreamer do
   Per-site NDJSON line emitter for `mix mutagen --stream`.
 
   Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
-  r10 (NDJSON line shape, byte-equal to the equivalent entry in the
+  r14 (NDJSON line shape, byte-equal to the equivalent entry in the
   final aggregate document's `mutation.results` / `mutation.compile_errors`).
 
   Each line is a JSON object terminated by a single `\\n`. The wire
@@ -13,10 +13,10 @@ defmodule MutagenEx.JsonStreamer do
   `version` literal the aggregate uses. Consumers parsing line-by-line
   can route on `kind`:
 
-      {"version":"1","kind":"start","total":42,"meta":{...}}
-      {"version":"1","kind":"result","id":"...","status":"killed",...}
-      {"version":"1","kind":"compile_error","id":"...","message":"..."}
-      {"version":"1","kind":"end","aborted":false,"abort_reason":null,
+      {"version":"2","kind":"start","total":42,"meta":{...}}
+      {"version":"2","kind":"result","id":"...","status":"killed",...}
+      {"version":"2","kind":"compile_error","id":"...","message":"..."}
+      {"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,
        "kill_rate":0.81,...}
 
   `start` and `end` envelope lines bracket the run. Per-site `result`
@@ -27,9 +27,8 @@ defmodule MutagenEx.JsonStreamer do
   holds for the concatenated NDJSON stream too.
   """
 
+  alias MutagenEx.JsonReporter
   alias MutagenEx.JsonReporter.Report
-
-  @schema_version "1"
 
   @typedoc "I/O sink. Any iolist-accepting function or a device."
   @type sink :: (iodata() -> any()) | IO.device()
@@ -44,23 +43,25 @@ defmodule MutagenEx.JsonStreamer do
   @spec emit_start(sink(), pos_integer() | non_neg_integer(), map()) :: :ok
   def emit_start(sink, total, meta) do
     write_line(sink, %{
-      "version" => @schema_version,
+      "version" => JsonReporter.schema_version(),
       "kind" => "start",
       "total" => total,
-      "meta" => meta_to_wire(meta)
+      "meta" => JsonReporter.meta_to_wire(meta)
     })
   end
 
   @doc """
   Emit a per-site `result` line (`status` ∈ killed/survived/timeout/error).
 
-  `result_map` is the same shape the runner pushes through
-  `:on_site_completed` — see
-  `MutagenEx.MutationRunner.run/1`'s `t:site_result/0`.
+  Accepts a rendered result or the raw result from the runner.
   """
   @spec emit_result(sink(), map()) :: :ok
   def emit_result(sink, %{} = result_map) do
-    write_line(sink, Map.put(result_to_wire(result_map), "kind", "result"))
+    result_map
+    |> render_result()
+    |> JsonReporter.result_to_wire()
+    |> Map.merge(%{"version" => JsonReporter.schema_version(), "kind" => "result"})
+    |> then(&write_line(sink, &1))
   end
 
   @doc """
@@ -75,7 +76,7 @@ defmodule MutagenEx.JsonStreamer do
   Emit the `end` envelope line.
 
   `report` is the final `%Report{}` the pipeline assembled. The line
-  carries the aggregate counters (`total`, `killed`, `survived`,
+  carries report metadata, including the ID scheme, and the counters (`total`, `killed`, `survived`,
   `timeout`, `compile_error`, `kill_rate`) AND the abort fields, so a
   consumer that only saw the stream can produce the same top-level
   summary without parsing the full aggregate document.
@@ -85,8 +86,9 @@ defmodule MutagenEx.JsonStreamer do
     mutation = report.mutation || %{}
 
     summary = %{
-      "version" => @schema_version,
+      "version" => JsonReporter.schema_version(),
       "kind" => "end",
+      "meta" => JsonReporter.meta_to_wire(report.meta),
       "aborted" => report.aborted == true,
       "abort_reason" => report.abort_reason,
       "total" => Map.get(mutation, :total, 0),
@@ -105,43 +107,18 @@ defmodule MutagenEx.JsonStreamer do
   # Wire shape (shared with JsonReporter)
   # ---------------------------------------------------------------------------
 
-  defp meta_to_wire(nil), do: %{}
+  defp render_result(%{before_source: _} = result), do: result
 
-  defp meta_to_wire(meta) when is_map(meta) do
-    %{
-      "tool_version" => Map.get(meta, :tool_version),
-      "elixir_version" => Map.get(meta, :elixir_version),
-      "otp_version" => Map.get(meta, :otp_version),
-      "exunit_seed" => Map.get(meta, :exunit_seed)
-    }
+  defp render_result(%{original_ast: ast, mutated_ast: mutated} = result) do
+    before = Macro.to_string(ast)
+    Map.merge(result, %{before: before, before_source: before, after: Macro.to_string(mutated)})
   end
 
-  defp result_to_wire(%{} = r) do
-    %{
-      "version" => @schema_version,
-      "id" => Map.fetch!(r, :id),
-      "file" => to_string(Map.fetch!(r, :file)),
-      "line" => Map.fetch!(r, :line),
-      "column" => Map.fetch!(r, :column),
-      "mutator" => Atom.to_string(Map.fetch!(r, :mutator)),
-      "before" => before_string(r),
-      "before_source" => before_string(r),
-      "after" => after_string(r),
-      "status" => Atom.to_string(Map.fetch!(r, :status)),
-      "tainted_predecessors" => Map.get(r, :tainted_predecessors, false) == true,
-      "warnings" => Map.get(r, :warnings, [])
-    }
-  end
-
-  defp before_string(%{original_ast: ast}), do: Macro.to_string(ast)
-  defp before_string(%{before: text}) when is_binary(text), do: text
-
-  defp after_string(%{mutated_ast: ast}), do: Macro.to_string(ast)
-  defp after_string(%{after: text}) when is_binary(text), do: text
+  defp render_result(%{before: before} = result), do: Map.put(result, :before_source, before)
 
   defp compile_error_to_wire(%{} = entry) do
     %{
-      "version" => @schema_version,
+      "version" => JsonReporter.schema_version(),
       "id" => Map.fetch!(entry, :id),
       "file" => to_string(Map.fetch!(entry, :file)),
       "line" => Map.fetch!(entry, :line),

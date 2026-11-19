@@ -1,4 +1,4 @@
-# mutagen.json_schema — stable v1 output contract
+# mutagen.json_schema — version 2 output contract
 
 The single artifact every `mix mutagen` run emits. The verifier judge LLM and
 every CI integration parse this document, so the schema is the most stable
@@ -28,7 +28,7 @@ The schema is documented here exhaustively; golden fixtures in
 id: mutagen.json_schema
 kind: integration
 status: active
-summary: Stable v1 JSON output schema for success, partial, and error runs.
+summary: Version 2 JSON output schema for success, partial, and error runs.
 surface:
   - lib/mutagen_ex/json_reporter.ex
   - lib/mutagen_ex/json_streamer.ex
@@ -51,18 +51,19 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
-  - mutagen.decision.content_addressed_ids
+  - mutagen.decision.mutation_id_scheme_2
   - mutagen.decision.details_always_present
   - mutagen.decision.ancora_migration
 ```
 
-## Schema (v1)
+## Schema (version 2)
 
 Top-level keys, all present in every variant unless noted:
 
-- `version`: literal string `"1"`.
-- `meta`: `{tool_version, elixir_version, otp_version, exunit_seed}`.
+- `version`: literal string `"2"`.
+- `meta`: `{tool_version, elixir_version, otp_version, exunit_seed, id_scheme}`.
 - `scope`: array of resolved scope records.
 - `tests`: resolved test filter (the `{include, exclude, files}` triple).
 - `baseline`: `{passed: int, failed: int, failures: [{module, name}]}` or
@@ -86,9 +87,11 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r1
   priority: must
   statement: |
-    `version` field equals the literal string `"1"`. Any future schema
-    change that removes a field or alters semantics increments this; v1 is
-    the only value `mutagen_ex` ever emits before such a change.
+    `version` field equals the literal string `"2"`. Any future schema
+    change that removes a field or alters semantics increments this.
+    Every aggregate document and NDJSON start line carries
+    `meta.id_scheme: "2"`.
+    IDs and reports from earlier versions cannot be compared with version 2.
 
 - id: mutagen.json_schema.r2
   priority: must
@@ -121,8 +124,10 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     Each `mutation.results[i]` entry has:
-    `id` (string of shape `{file}:{ast_hash}:{mutator}` per
-    mutagen.decision.content_addressed_ids),
+    `id` (string of shape `{file}:{hash}:{mutator}` per
+    mutagen.decision.mutation_id_scheme_2),
+    `function` (string `Mod.fun/arity` for the enclosing definition, or null
+    outside a function, with the same encoding in NDJSON result lines),
     `file` (string, relative path),
     `line` (int),
     `column` (int),
@@ -290,7 +295,7 @@ Top-level keys, all present in every variant unless noted:
     is absent, the configured file when `--json <path>` is set).
     Every line terminates with exactly one `\n` and is independently
     parseable by `:json.decode/1`. Every line carries:
-      - `"version"` — the same literal `"1"` the aggregate document
+      - `"version"` — the same literal `"2"` the aggregate document
         emits (`r1`).
       - `"kind"` — one of `"start"`, `"result"`, `"compile_error"`,
         `"end"`.
@@ -309,6 +314,7 @@ Top-level keys, all present in every variant unless noted:
         carries the aggregate counters (`total`, `completed`,
         `killed`, `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted` + `abort_reason`.
+        It carries `meta.id_scheme` even when the run aborted before start.
     Per-site lines (`"result"` / `"compile_error"`) are emitted in
     input order — async_stream's `:ordered: true` plus the runner's
     `:on_site_completed` sequential post-fold ensure a consumer
@@ -361,12 +367,6 @@ Top-level keys, all present in every variant unless noted:
     pipeline before emission. Map values may nest one layer deep
     (e.g. `failures: [...]` from baseline-red details).
 
-    The `details` envelope is additive to the v1 schema. Consumers
-    parsing v1 documents prior to this requirement see no `details`
-    field at all; after this requirement the key is always present.
-    Per the schema-evolution policy in this subject's intent
-    (`adding fields is allowed`), `version` stays at `"1"`.
-
     Decision: mutagen.decision.details_always_present.
 
     Counter-example (pre-fix): a downstream user's `mix mutagen` aborts
@@ -389,7 +389,7 @@ Top-level keys, all present in every variant unless noted:
   when:
     - "`JsonReporter.emit_report/1` is called with the resulting report."
   then:
-    - "The document has `version: \"1\"`, `aborted: false`, `abort_reason: null`."
+    - "The document has `version: \"2\"`, `aborted: false`, `abort_reason: null`."
     - "`mutation.total == 10`, `mutation.killed == 9`, `mutation.survived == 1`, `mutation.kill_rate == 0.9`."
 
 - id: mutagen.json_schema.s2
@@ -412,7 +412,7 @@ Top-level keys, all present in every variant unless noted:
   when:
     - The error path emits the document.
   then:
-    - "`version: \"1\"`, `aborted: true`, `abort_reason: \"missing_scope\"`."
+    - "`version: \"2\"`, `aborted: true`, `abort_reason: \"missing_scope\"`."
     - "`baseline`, `coverage`, `mutation` are all `null`."
     - "`meta` is populated (we know our tool/elixir/otp version even on early error)."
 
