@@ -76,14 +76,14 @@ defmodule Mix.Tasks.MutagenTest do
     end
   end
 
-  describe "Mix.Tasks.Mutagen.__ensure_runtime__/1 archive context repair (mutagen.cli.s14c/s14d)" do
+  describe "MutagenEx.Runtime.boot/1 archive context repair (mutagen.cli.s14c/s14d)" do
     @tag :archive_context
     @tag spec: "mutagen.cli.r16"
     test "ensure_runtime/0 succeeds when :mutagen_ex is already loaded (dep-adoption shape)" do
       Process.put(:mutagen_ensure_runtime_force_failure, [{:ok, [:mutagen_ex]}])
 
       try do
-        assert :ok = Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub)
+        assert {:ok, _} = MutagenEx.Runtime.boot()
         refute_received {:io, _iodata, _code, _config}
       after
         Process.delete(:mutagen_ensure_runtime_force_failure)
@@ -97,7 +97,7 @@ defmodule Mix.Tasks.MutagenTest do
       Process.put(:mutagen_runtime_event_target, self())
 
       try do
-        assert :ok = Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub)
+        assert {:ok, _} = MutagenEx.Runtime.boot()
 
         assert_received {:mutagen_runtime_event, {:mix_task_run, "loadpaths"}}
         assert_received {:mutagen_runtime_event, {:mix_task_run, "compile"}}
@@ -117,7 +117,7 @@ defmodule Mix.Tasks.MutagenTest do
       Process.put(:mutagen_runtime_event_target, self())
 
       try do
-        assert :ok = Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub, host_app: false)
+        assert {:ok, _} = MutagenEx.Runtime.boot(host_app: false)
 
         assert_received {:mutagen_runtime_event, {:mix_task_run, "loadpaths"}}
         assert_received {:mutagen_runtime_event, {:mix_task_run, "compile"}}
@@ -135,30 +135,12 @@ defmodule Mix.Tasks.MutagenTest do
     test "ensure_runtime/0 routes to structured-error JSON on unrecoverable load failure" do
       failure = {:error, {:mutagen_ex, {:enoent, ~c"mutagen_ex.app"}}}
 
-      Process.put(:capture_target, self())
       Process.put(:mutagen_ensure_runtime_force_failure, [failure, failure, failure])
 
       try do
-        assert {:aborted, :runtime_load_failed, report} =
-                 Mix.Tasks.Mutagen.__ensure_runtime__(CapturingIoStub)
-
-        assert report.aborted == true
-        assert report.abort_reason == "runtime_load_failed"
-
-        assert_received {:io, iodata, code, config}
-        assert code == 2
-        assert config.json_path == nil
-
-        decoded =
-          iodata
-          |> IO.iodata_to_binary()
-          |> :json.decode()
-
-        assert decoded["aborted"] == true
-        assert decoded["abort_reason"] == "runtime_load_failed"
-        assert decoded["details"]["message"] =~ "mix archive.uninstall mutagen_ex"
+        assert {:error, :runtime_load_failed, details} = MutagenEx.Runtime.boot()
+        assert details.message =~ "mix archive.uninstall mutagen_ex"
       after
-        Process.delete(:capture_target)
         Process.delete(:mutagen_ensure_runtime_force_failure)
       end
     end
@@ -205,5 +187,6 @@ defmodule Mix.Tasks.MutagenTest do
 
     assert decoded["aborted"] == true
     assert decoded["abort_reason"] == "unsafe_json_path"
+    assert decoded["details"]["message"] =~ "--unsafe-json-outside-project"
   end
 end

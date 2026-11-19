@@ -8,6 +8,15 @@ defmodule HostSetupFixture.MixProject do
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
       test_paths: ["checks"],
+      aliases: [
+        test: [
+          "ecto.create --quiet",
+          "ecto.migrate --quiet",
+          &prepare_alias/1,
+          "host_setup.prepare",
+          "test"
+        ]
+      ],
       deps: deps()
     ]
   end
@@ -15,6 +24,8 @@ defmodule HostSetupFixture.MixProject do
   def application do
     [mod: {HostSetupFixture.Application, []}]
   end
+
+  defp prepare_alias([]), do: Application.put_env(:host_setup_fixture, :alias_function, :ready)
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
