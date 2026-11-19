@@ -28,6 +28,7 @@ defmodule MutagenEx.Mutators.WithSwapTest do
   end
 
   describe "mutate/1" do
+    @tag spec: "mutagen.mutators.r9"
     test "swaps the first two <- clauses, preserving the do block" do
       ast = Code.string_to_quoted!("with {:ok, a} <- f(), {:ok, b} <- g(), do: a + b")
       mutated = WithSwap.mutate(ast)
@@ -42,6 +43,8 @@ defmodule MutagenEx.Mutators.WithSwapTest do
   end
 
   describe "validate/1" do
+    @describetag spec: "mutagen.mutators.r9"
+
     @tag :validate
     test "{:skip, :bound_var_used_before_binding} when swapped expr references newly-second-bound var (scenario s2)" do
       ast = Code.string_to_quoted!("with {:ok, a} <- f(), {:ok, b} <- g(a), do: a + b")

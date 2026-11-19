@@ -79,6 +79,7 @@ defmodule MutagenEx.JsonStreamerTest do
   describe "result line" do
     @describetag spec: "mutagen.json_schema.r14"
 
+    @tag spec: ["mutagen.json_schema.r4", "mutagen.mutators.r10"]
     test "every catalog mutator has the same confidence in aggregate results and NDJSON" do
       confidences = %{
         arith: :high,
