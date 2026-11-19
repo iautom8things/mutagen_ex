@@ -34,13 +34,21 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   supplying it is a hard error, not a silent fallback. Humans pipe through
   `jq`. See [`.spec/decisions/no_pretty_output_v1.md`](.spec/decisions/no_pretty_output_v1.md).
 
-- **Content-addressed, stable mutation IDs across `mix format`.** Each
-  mutation's `id` is `{relative_file}:{ast_hash}:{mutator_name}`, where the
-  hash is taken over the *normalized AST* (line/column metadata stripped).
-  Re-running after `mix format` reflows the source produces byte-identical
-  IDs, so a judge can ask "did the same mutation survive last week?" and
-  get a meaningful answer. A naive `file:line:col` scheme cannot. See
-  [`.spec/decisions/content_addressed_ids.md`](.spec/decisions/content_addressed_ids.md).
+- **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
+  The hash includes the enclosing module, function name and declared arity,
+  the parsed expression with source positions and presentation metadata
+  removed, and its occurrence among identical expressions for the same mutator.
+  Bare literal IDs also include the parent expression and child position.
+  Module-body sites count occurrences by module and statement head.
+  Formatting preserves IDs across whitespace and line reflow. Formatter
+  migrations (`mix format --migrate`) can rewrite syntax and change IDs.
+  Adding an identical expression earlier in a function can shift later IDs
+  and transfer an old ID to a different occurrence. Persist and compare
+  `function` and `before_source` alongside IDs. Require `version: "2"`,
+  `meta.id_scheme: "2"`, and matching `meta.elixir_version` and
+  `meta.otp_version` before comparing. IDs and reports from earlier
+  versions cannot be compared with version 2.
+  [Mutation ID scheme 2](.spec/decisions/mutation_site_paths.md).
 
 - **Deterministic, serial-by-default execution.** Every phase — baseline,
   coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
@@ -117,122 +125,13 @@ fault classes that only show up in Elixir code. Treat the standard-operator
 names above as the vocabulary a reviewer (human or LLM judge) already knows;
 treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
 
-## Efficacy on real codebases
+## Self-mutation
 
-The argument above is only worth anything if mutagen_ex actually surfaces
-real test gaps on real code — not just on a synthetic fixture. It does. Two
-empirical studies back this up.
-
-**Self-study (the library's own tests).** Across 22 closed tickets in
-mutagen_ex's own history — each carrying a human verifier's written claim
-that the tests covered the implementation — we ran `mix mutagen` against the
-module under test and compared the kill rate to the verifier's verdict.
-**160 mutation sites, aggregate kill rate 0.75.** mutagen_ex found concrete,
-fixable test gaps in **8 of the 22 tickets** — gaps an experienced reviewer
-had already approved by hand. A secondary signal held up too: tickets where
-a reviewer had raised any rigor concern came back weaker (kill rate 0.68)
-than clean first-try approvals (0.75), which in turn were weaker than
-tickets that had been bounced and re-implemented (0.88). Human review
-carries information, but routinely misses the *specific* mutation-detectable
-gap.
-
-**Cross-project study (other people's code).** Using the `mix archive.install`
-adoption path (so the target repos stayed untouched), mutagen_ex was run
-against three additional Elixir codebases written by different teams: a
-stdlib-only library, a Phoenix/Ecto knowledge-graph application, and a
-Phoenix LiveView admin application. A fourth, ETL-heavy Phoenix app was
-surveyed but had too thin a verified-ticket history to study.
-
-| Codebase shape | Mutation sites | Aggregate kill rate |
-|---|---:|---:|
-| Stdlib-only library (self-study) | 160 | 0.75 |
-| Phoenix/Ecto knowledge-graph + MCP app | 153 | 0.67 |
-| Phoenix LiveView admin app | 218 | 0.70 |
-
-The headline result is the **convergence**: three codebases of radically
-different shape, test discipline, and authorship landed within ~10 points of
-each other. mutagen_ex is measuring a property of test rigor that is roughly
-invariant across Elixir codebase shape — strong calibration evidence. The
-small spread is itself informative: pure functional libraries (narrow units,
-easy to test thoroughly) score highest, and Phoenix apps — whose
-happy-path, boundary-implicit tests are inherently weaker at killing
-per-branch mutations — sit a few points below. **If you run mutagen_ex
-against a Phoenix app, expect an aggregate kill rate in the 0.65-0.75 band,
-not 0.85+;** a merge-gate threshold calibrated for a pure library will
-false-positive on every app.
-
-### Dogfood: mutagen_ex on its own source
-
-A mutation tester that can't report a score on its own code has a credibility
-gap. mutagen_ex has a real reason it can't do this directly — the runner
-shares a BEAM with the tests it cites, so mutating its own running modules
-would corrupt the runner mid-flight, and it *refuses* to try (see
-[`self_mutation_refused`](.spec/decisions/self_mutation_refused.md)). The
-honest way around that refusal is the same external-process path a downstream
-user takes: copy mutagen_ex's own source into a throwaway Mix project under a
-rewritten namespace (so the `MutagenEx.` self-guard no longer matches), wire
-the real `mutagen_ex` in as a dependency, and drive `mix mutagen` against the
-shadow source from a fresh shell.
-
-Run that way against its own high-value modules — the mutator-registry
-(`mutators`), the scope resolver, and the JSON reporter — mutagen_ex's own
-test suite scores **46 of 79 mutants killed, aggregate kill rate 0.58.** The
-run is reproducible to the mutant (content-addressed IDs, serial seeded
-execution): two clean runs on unchanged source produce a byte-identical
-score. The number lands in the same 0.5-0.75 band as the cross-project study
-rather than at a self-congratulatory 0.9+, which is the point — the tool
-holds its own code to the same standard it holds everyone else's, and the
-33 survivors are a standing to-do list of mutation-detectable gaps in
-mutagen_ex's own tests. The harness and its assertions live in
-[`test/integration/self_mutation_test.exs`](test/integration/self_mutation_test.exs);
-run it with `mix test --include self_mutation`.
-
-### Representative survivors
-
-Aggregate numbers are abstract; the survivors are the point. Two concrete
-findings from the cross-project study:
-
-- **A config-diff module in the admin app scored a kill rate of 0.00 —
-  *every* mutation survived.** It was a clean, first-try verifier approval.
-  Whatever its tests were asserting, it was not the module's actual
-  behaviour: nothing the test does would catch a meaningful behavioural
-  change. That is the entire pitch of mutation testing made concrete in a
-  single number, on production code a human had already signed off.
-
-- **A controller action whose `{:error, changeset}` arm a verifier had
-  *explicitly* flagged as uncovered** went through a bounce-and-redo cycle;
-  the final approval comment named the gap and claimed it was addressed.
-  mutagen_ex scored the surrounding module at kill rate 0.89 — strong — with
-  exactly one residual survivor: a mutation on the precise line the verifier
-  had pointed at. The redo cleaned up the neighbourhood and missed the named
-  arm. A reviewer pointed at a gap, the implementer claimed to fix it, and
-  mutagen_ex showed the gap was still there.
-
-### Caveats, surfaced honestly
-
-- **Aggregate kill rate is a lower bound on test quality.** Equivalent
-  mutants (behaviourally identical to the original) count as survivors and
-  need human disposition; they deflate the score without representing a real
-  gap.
-- **Coverage gating means structural code goes silent.** Ecto DSL,
-  `defmodule`-only files, and `match?`-on-tuple code report zero sites —
-  that is mutagen_ex saying it has nothing to mutate, not a gap.
-- **Phoenix/Ecto apps currently need the host OTP application started before
-  tests run.** The archive-install runtime starts only `:mutagen_ex` itself,
-  which suits stdlib-only libraries but not apps whose tests need `Repo`,
-  `Mox`, `PubSub`, or supervised GenServers up first. This is a known,
-  fixable adoption gap (a small runtime-preamble change), not a property of
-  the mutation engine — and it was worked around in ~12 lines in one of the
-  studied apps.
-- **HEEx / LiveView templates are out of scope.** The mutator catalog does
-  not target templates, so template-heavy code reports no sites.
-
-The one-sentence version, for stakeholders:
-
-> In a four-project comparative study spanning a library, two Phoenix apps,
-> and one project too young to study, mutagen_ex found concrete test gaps in
-> approved code in every project that produced data — at kill rates that
-> converged within ~10 points despite radically different codebase shape.
+The repository tests mutation runs against the mutator registry, scope
+resolver, and JSON reporter. The harness copies those modules under a
+separate namespace in a temporary Mix project and runs `mix mutagen`
+from a fresh shell. Run it with `mix test --include self_mutation`.
+[Self-mutation test](test/integration/self_mutation_test.exs).
 
 ## Install
 
@@ -397,10 +296,10 @@ shape is byte-equal to the equivalent entry in the aggregate
 `"kind"` discriminator and the `"version"` literal:
 
 ```
-{"version":"1","kind":"start","total":42,"meta":{...}}
-{"version":"1","kind":"result","id":"...","status":"killed","mutator":"arith",...}
-{"version":"1","kind":"compile_error","id":"...","message":"..."}
-{"version":"1","kind":"end","aborted":false,"abort_reason":null,"kill_rate":0.81,...}
+{"version":"2","kind":"start","total":42,"meta":{"id_scheme":"2",...}}
+{"version":"2","kind":"result","id":"...","function":"MyApp.Counter.add/2","status":"killed","mutator":"arith",...}
+{"version":"2","kind":"compile_error","id":"...","message":"..."}
+{"version":"2","kind":"end","meta":{"id_scheme":"2",...},"aborted":false,"abort_reason":null,"kill_rate":0.81,...}
 ```
 
 Per-site lines (`"result"` / `"compile_error"`) arrive in **input
@@ -512,8 +411,8 @@ output is plain JSON with no comments.)
 
 ```jsonc
 {
-  // Schema version of this document. Fixed to the literal "1" for v0.1.x.
-  "version": "1",
+  // Schema version of this document.
+  "version": "2",
 
   // false  → the pipeline ran to completion (exit code 0).
   // true   → the run was aborted before finishing (non-zero exit).
@@ -526,8 +425,9 @@ output is plain JSON with no comments.)
 
   // Environment + run parameters this document was produced under.
   "meta": {
+    "id_scheme": "2",
     "tool_version": "0.1.0",     // mutagen_ex version
-    "elixir_version": "1.19.5",
+    "elixir_version": "1.19.6",
     "otp_version": "28",
     "exunit_seed": 0             // the --seed value used for test ordering
   },
@@ -580,9 +480,9 @@ output is plain JSON with no comments.)
     // One entry per mutation that ran. Each describes the edit and verdict.
     "results": [
       {
-        // Stable, content-addressed id: file:hash:mutator. Survives
-        // `mix format` because it is keyed on AST content, not line number.
-        "id": "lib/lane_fixture/arith.ex:88475230:arith",
+        // Scheme 2 ID. The function field is null outside named definitions.
+        "id": "lib/lane_fixture/arith.ex:f7fc9974f882553f6b11c5428b0baac6:arith",
+        "function": "LaneFixture.Arith.add/2",
         "file": "lib/lane_fixture/arith.ex",
         "line": 12,
         "column": 24,
@@ -596,7 +496,8 @@ output is plain JSON with no comments.)
         "warnings": { "count": 1 } // count of advisory warnings for this site
       },
       {
-        "id": "lib/lane_fixture/arith.ex:88723725:literal",
+        "id": "lib/lane_fixture/arith.ex:d821575fe16fe3710afb032918744e6b:literal",
+        "function": "LaneFixture.Arith.div_safe/2",
         "file": "lib/lane_fixture/arith.ex",
         "line": 18,
         "column": 29,
@@ -644,13 +545,14 @@ enumerated in the [Exit codes](#exit-codes) section.
 
 ```jsonc
 {
-  "version": "1",
+  "version": "2",
   "aborted": true,
   "abort_reason": "module_not_found",   // names which guard tripped
   "truncated": false,
   "meta": {
+    "id_scheme": "2",
     "tool_version": "0.1.0",
-    "elixir_version": "1.19.5",
+    "elixir_version": "1.19.6",
     "otp_version": "28",
     "exunit_seed": 0
   },
@@ -739,7 +641,7 @@ The behavioural contract for `mutagen_ex` lives in `.spec/`:
 - `.spec/specs/cli.spec.md` — `mix mutagen` command surface
 - `.spec/specs/mutation_pipeline.spec.md` — orchestration state machine
 - `.spec/specs/mutators.spec.md` — mutator catalog and predicates
-- `.spec/specs/json_schema.spec.md` — v1 output document shape
+- `.spec/specs/json_schema.spec.md` — version 2 output document shape
 - `.spec/specs/coverage.spec.md` — coverage phase
 - `.spec/specs/mutation_enumeration.spec.md` — site enumeration rules
 - `.spec/specs/scope_resolution.spec.md` — `--scope` resolution

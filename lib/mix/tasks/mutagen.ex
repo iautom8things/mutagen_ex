@@ -95,7 +95,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## JSON Schema Pointer
 
-  The v1 output document is defined by-example via the golden fixtures
+  The version 2 output document is defined by-example via the golden fixtures
   committed at `test/mutagen_ex/golden/*.json`. Read these first:
 
     * `end_to_end_scenario_1_arith.json` — canonical successful run with
@@ -120,9 +120,15 @@ defmodule Mix.Tasks.Mutagen do
     * **Equivalent mutants.** Some mutations are semantically equivalent
       to the original; they survive every test by definition. This is a
       known limit of mutation testing, not a tool bug.
-    * **`mix format` does not affect mutation IDs.** IDs are content-addressed
-      against the parsed AST, not the source bytes (see
-      `mutagen.decision.content_addressed_ids`).
+    * **Mutation IDs use scheme 2.** Formatting and unrelated edits preserve
+      IDs when the file path, enclosing definition, normalized expression,
+      and occurrence among identical sites stay the same. Both JSON and
+      NDJSON use report schema version `"2"`. IDs and reports from earlier
+      versions cannot be compared with version 2. Compare the schema, ID
+      scheme, and Elixir and OTP versions before comparing IDs. Formatter
+      migrations (`mix format --migrate`) can rewrite the syntax and change IDs.
+      When an identical expression is added earlier in a function, later IDs
+      can shift. Persist and compare `function` and `before_source` alongside IDs.
     * **`--no-json` is not supported in v1.** Pretty terminal output is
       deferred to v1.1 (see `mutagen.decision.no_pretty_output_v1`); use
       `jq` for now.
@@ -932,8 +938,11 @@ defmodule Mix.Tasks.Mutagen do
     stream_fn =
       if config.stream do
         fn
-          {:result, result_map} -> MutagenEx.JsonStreamer.emit_result(site_sink, result_map)
-          {:compile_error, entry} -> MutagenEx.JsonStreamer.emit_compile_error(site_sink, entry)
+          {:result, result_map} ->
+            MutagenEx.JsonStreamer.emit_result(site_sink, render_result(result_map))
+
+          {:compile_error, entry} ->
+            MutagenEx.JsonStreamer.emit_compile_error(site_sink, entry)
         end
       else
         fn _ -> :ok end
@@ -1126,6 +1135,7 @@ defmodule Mix.Tasks.Mutagen do
 
     %{
       id: r.id,
+      function: Map.get(r, :function),
       file: r.file,
       line: r.line,
       column: r.column,
@@ -1134,8 +1144,8 @@ defmodule Mix.Tasks.Mutagen do
       before_source: before_source,
       after: Macro.to_string(r.mutated_ast),
       status: r.status,
-      tainted_predecessors: r.tainted_predecessors,
-      warnings: r.warnings
+      tainted_predecessors: Map.get(r, :tainted_predecessors, false),
+      warnings: Map.get(r, :warnings, [])
     }
   end
 

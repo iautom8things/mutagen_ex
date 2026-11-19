@@ -423,7 +423,10 @@ defmodule MutagenEx.ScopeResolverTest do
 
       File.write!(file, source)
 
-      assert {:ok, [%Scope{file: ^file, module: ScopeResolverNoEvalFixture, line_range: 3..5}]} =
+      relative = Path.relative_to(file, File.cwd!())
+
+      assert {:ok,
+              [%Scope{file: ^relative, module: ScopeResolverNoEvalFixture, line_range: 3..5}]} =
                ScopeResolver.resolve(file)
 
       assert File.read!(file) == source

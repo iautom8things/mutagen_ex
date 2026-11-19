@@ -1,6 +1,6 @@
 defmodule MutagenEx.JsonReporter.Sanitizer do
   @moduledoc """
-  Truncation + redaction of free-form text that flows into the v1 JSON
+  Truncation + redaction of free-form text that flows into the version 2 JSON
   document (warnings, compile-error messages, abort-detail messages, and
   any other string field that captures user-code-derived bytes).
 
@@ -199,7 +199,7 @@ defmodule MutagenEx.JsonReporter.Report do
   In-memory shape the pipeline assembles before the JSON reporter
   serialises it.
 
-  The struct mirrors the v1 schema documented in
+  The struct mirrors the version 2 schema documented in
   [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md). Every
   field is `nil`-able except `version` (which is implicit in the reporter)
   and `warnings` / `aborted` (which default to empty/false). Per `r5`,
@@ -209,7 +209,7 @@ defmodule MutagenEx.JsonReporter.Report do
 
   ## Field-by-field
 
-    * `:meta` — `%{tool_version, elixir_version, otp_version, exunit_seed}`.
+    * `:meta` — run metadata. The reporter adds `id_scheme` on the wire.
       Always populated by the orchestrator before any phase runs (`r5`).
     * `:scope` — list of resolved `%MutagenEx.ScopeResolver.Scope{}`
       records or anything with `:file`, `:line_range`, `:module`. Empty
@@ -263,7 +263,7 @@ end
 
 defmodule MutagenEx.JsonReporter do
   @moduledoc """
-  Single owner of the v1 JSON output document for `mix mutagen`.
+  Single owner of the version 2 JSON output document for `mix mutagen`.
 
   Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
   r1-r9. Decision: [`mutagen.decision.json_reporter_owns_error`](../../.spec/decisions/json_reporter_owns_error.md).
@@ -310,7 +310,11 @@ defmodule MutagenEx.JsonReporter do
   @behaviour MutagenEx.Pipeline.ReporterOkFacade
   @behaviour MutagenEx.Pipeline.ReporterErrorFacade
 
-  @schema_version "1"
+  @schema_version "2"
+  @id_scheme "2"
+
+  @doc false
+  def schema_version, do: @schema_version
 
   @typedoc """
   Atom-shaped reason for any non-zero exit. Matches the vocabulary in
@@ -401,8 +405,6 @@ defmodule MutagenEx.JsonReporter do
     [iodata, ?\n]
   end
 
-  # Schema r1 fixes `version` to the literal "1". The wire-shape builder
-  # is the canonical place that string lives.
   defp to_wire(%Report{} = r) do
     %{
       "version" => @schema_version,
@@ -448,10 +450,12 @@ defmodule MutagenEx.JsonReporter do
 
   # `meta` is always populated even on early errors (r5: "we know our
   # tool/elixir/otp version even on early error").
-  defp meta_to_wire(nil), do: %{}
+  @doc false
+  def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme}
 
-  defp meta_to_wire(meta) when is_map(meta) do
+  def meta_to_wire(meta) when is_map(meta) do
     %{
+      "id_scheme" => @id_scheme,
       "tool_version" => Map.get(meta, :tool_version),
       "elixir_version" => Map.get(meta, :elixir_version),
       "otp_version" => Map.get(meta, :otp_version),
@@ -549,9 +553,11 @@ defmodule MutagenEx.JsonReporter do
     }
   end
 
-  defp result_to_wire(%{} = result) do
+  @doc false
+  def result_to_wire(%{} = result) do
     %{
       "id" => Map.fetch!(result, :id),
+      "function" => Map.get(result, :function),
       "file" => to_string(Map.fetch!(result, :file)),
       "line" => Map.fetch!(result, :line),
       "column" => Map.fetch!(result, :column),
