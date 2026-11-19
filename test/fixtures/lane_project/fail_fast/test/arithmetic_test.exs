@@ -10,7 +10,7 @@ defmodule FailFastFixture.EarlyTest do
 
     if scenario == :before_failure do
       Probe.record({:async, async})
-      if Arithmetic.first(2, 3) != 5, do: Process.sleep(800)
+      if Arithmetic.first(2, 3) != 5, do: Process.sleep(:infinity)
     end
 
     if scenario == :budget and Arithmetic.first(2, 3) != 5, do: Process.sleep(50)
