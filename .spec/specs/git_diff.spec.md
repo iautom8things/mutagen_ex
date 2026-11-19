@@ -45,14 +45,22 @@ decisions:
     pure renames. Whitespace and non-ASCII bytes in Git paths are preserved.
     Absolute paths and paths with a parent traversal segment are rejected.
     Roots and base-file paths are relative to the resolved working directory.
-    The reader requires a Git working tree outside a submodule. Each component
-    of a configured diff root must be a real directory without a .git entry.
-    Invalid components report their path and type. An unchanged symlinked
-    root and a root that changes during the diff have distinct causes.
+    The reader requires a Git working tree outside a submodule. A Git
+    directory below another Git directory's modules directory also
+    identifies a submodule, as does a gitlink in an enclosing checkout that
+    matches the checkout path after case folding and NFC normalization. A
+    project directory reached through a symlink inside the checkout is
+    rejected with a distinct cause. In a nested project, so is a tracked
+    symlink that resolves to the project directory or one of its ancestors
+    within the checkout. Each component of a configured diff root must be a
+    real directory without a .git entry. Invalid components report their
+    path and type. An unchanged symlinked root and a root that changes
+    during the diff have distinct causes.
     Matching normalizes tracked paths and roots to NFC. It also folds case
-    when core.ignorecase is true or a case-flipped root is the same disk
-    directory. Results retain the tracked spelling. The gate must use those
-    keys as returned and treat a non-empty skipped list as incomplete.
+    when core.ignorecase is true or when the checkout's .git entry and its
+    uppercase spelling name the same file. Results retain the tracked
+    spelling. The gate must use those keys as returned and treat a non-empty
+    skipped list as incomplete, naming each reason and path.
 
 - id: mutagen.git_diff.r3
   priority: must
@@ -109,7 +117,9 @@ decisions:
   statement: |
     Git enforces ownership checks using the standard global safe.directory
     configuration. Dubious ownership has a distinct cause and a hint with the
-    resolved checkout and the command to authorize it explicitly.
+    resolved checkout and the command to authorize it explicitly. Dubious
+    ownership of an enclosing checkout also fails the read, and its hint
+    names that checkout.
     Every Git call has a configurable deadline, defaulting to 30 seconds.
     A timeout attempts to terminate the Git process group and returns :timeout
     as its cause even if the signal cannot be sent. In that case the details
