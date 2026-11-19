@@ -32,9 +32,7 @@ surface:
 decisions:
   - mutagen.decision.scope_syntax_simplified
   - mutagen.decision.adoption_polish_efficacy
-realized_by:
-  api_boundary:
-    - "MutagenEx.ScopeResolver"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -277,45 +275,17 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.scope_resolution.v1
-  covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2, mutagen.scope_resolution.r3, mutagen.scope_resolution.r5, mutagen.scope_resolution.r10]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs
-  execute: true
-
-- id: mutagen.scope_resolution.v2
-  covers: [mutagen.scope_resolution.r3, mutagen.scope_resolution.r4]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs --only error_cases
-  execute: true
-
-- id: mutagen.scope_resolution.v3
-  covers: [mutagen.scope_resolution.r1, mutagen.scope_resolution.r2]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_property_test.exs
-  execute: true
-
-- id: mutagen.scope_resolution.v4
-  covers: [mutagen.scope_resolution.r8]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs --only atom_safety
-  execute: true
-
-- id: mutagen.scope_resolution.v5
-  covers: [mutagen.scope_resolution.r9]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs --only wildcard_determinism
-  execute: true
-
-- id: mutagen.scope_resolution.v6
-  covers: [mutagen.scope_resolution.r6]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs
-  execute: true
-
-- id: mutagen.scope_resolution.v7
-  covers: [mutagen.scope_resolution.r7]
-  kind: command
-  target: mix test test/mutagen_ex/scope_resolver_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex
+  covers:
+    - mutagen.scope_resolution.r1
+    - mutagen.scope_resolution.r2
+    - mutagen.scope_resolution.r3
+    - mutagen.scope_resolution.r4
+    - mutagen.scope_resolution.r5
+    - mutagen.scope_resolution.r6
+    - mutagen.scope_resolution.r7
+    - mutagen.scope_resolution.r8
+    - mutagen.scope_resolution.r9
+    - mutagen.scope_resolution.r10
 ```

@@ -1,8 +1,8 @@
-# mutagen_ex — Specled Specs
+# mutagen_ex specs with Ancora
 
 This directory is the source of truth for **behavioral invariants** of
 `mutagen_ex` (the `mix mutagen` mutation-testing tool). Implementation lives in
-`lib/`; specs describe what the implementation must guarantee.
+`lib/`. Specs describe what the implementation must guarantee.
 
 ## Layout
 
@@ -16,42 +16,46 @@ This directory is the source of truth for **behavioral invariants** of
 
 ## Subjects (`.spec/specs/*.spec.md`)
 
-Each subject file has prose at the top describing intent, then three machine-
-readable fenced blocks:
+Each subject file has prose describing its intent and YAML fenced blocks:
 
-1. **`spec-meta`** — `id`, `kind` (`module` / `workflow` / `policy` /
-   `integration`), `status` (`draft` / `accepted` / `deprecated`), `summary`,
-   `surface` (file globs this subject covers), `decisions` (list of decision
-   IDs this subject defers to).
-2. **`spec-requirements`** — Behavioral invariants stated as falsifiable rules.
-   Priority is `must` (system is broken without this) or `should` (strong
-   expectation). Every requirement has a stable `id`.
-3. **`spec-scenarios`** — Given/When/Then scenarios that demonstrate or refute
-   a requirement. Each scenario `covers:` one or more requirement IDs.
-4. **`spec-verification`** — Stubs naming the test or check that would prove a
-   requirement holds. `execute: false` means the test does not yet exist.
+1. `spec-meta` identifies the subject and records its kind, status, summary,
+   owned files, and decision IDs. Use `active` for a current subject. List
+   exact repo-relative files in `surface:`. The list determines which
+   derived changes are primary.
+2. `spec-requirements` contains falsifiable statements with stable IDs and
+   `must` or `should` priority.
+3. `spec-scenarios` gives concrete cases. Each scenario names one or more
+   requirement IDs in `covers:` and uses arrays for `given:`, `when:`, and
+   `then:`.
+
+Ancora derives bindings from literal ExUnit `spec:` tags and the production
+calls those tests make. Tag requirement IDs. Tags also work without a
+`spec-verification` block. If you add one, use `kind: tagged_tests`, a test
+path in `target:`, and requirement IDs in `covers:`.
 
 ## Decisions (`.spec/decisions/*.md`)
 
-ADR-format markdown with frontmatter (`id`, `status`, `date`, `affects`) and
-three sections: **Context**, **Decision**, **Consequences**. Subjects in
-`specs/` reference decisions via the `decisions:` field in `spec-meta`.
+Decisions use YAML frontmatter with `id`, `status`, `date`, and `affects`.
+They have Context, Decision, and Consequences sections. Subjects link back
+through `decisions:` in `spec-meta`. For a replacement, add a decision with
+`supersedes:` and update only the old decision's supersession metadata.
 
-## Verification command
+## Verification
 
-The project verification command is:
-
-```
+```sh
+mix spec.validate --strict
+mix spec.check --base HEAD
+target=hardening/epic
+mix spec.check --base "$(git merge-base HEAD "$target")"
 mix test
 ```
 
-This compiles the project (`mix test` runs the compile step) and exercises the
-test suite, including the spec-verification stubs once they are wired up.
-Stricter pre-merge check:
-
-```
-mix compile --warnings-as-errors && mix test
-```
+The first command checks the corpus. An explicit `--base` compares the
+working tree directly with that commit. Use `HEAD` to check uncommitted
+edits and compute the merge base to check a feature against its target
+branch. Run the tests separately. See [the agent guide](AGENTS.md) for
+the pre-merge gate and [the migration decision](decisions/ancora_migration.md)
+for inherited proof gaps.
 
 ## Conventions
 
@@ -62,9 +66,8 @@ mix compile --warnings-as-errors && mix test
   natural in the specs.
 - Decision IDs use `mutagen.decision.<short_name>` for the same reason.
 - Requirements within a subject use `<subject_id>.r<n>` (e.g.
-  `mutagen.cli.r1`). Scenarios use `<subject_id>.s<n>`. Verification stubs use
-  `<subject_id>.v<n>`. Stable IDs let other documents reference invariants
-  without quoting the prose.
+  `mutagen.cli.r1`). Scenarios use `<subject_id>.s<n>`. Stable IDs let
+  other documents reference invariants without quoting the prose.
 - A requirement is **falsifiable** when you can describe a concrete state in
   which it would be false. Implementation details (e.g. "uses `:cover`") are
   not falsifiable; behavioral statements (e.g. "after a coverage run, calling

@@ -22,9 +22,8 @@ defmodule MutagenEx.CLITest do
   Plus `OptionParser` edge cases: repeated `--scope`, negative integers in
   `--timeout-ms`, unknown flag, missing path for `--json`.
 
-  Covers spec-verification stubs `mutagen.cli.v1`, `mutagen.cli.v2`,
-  `mutagen.cli.v4`. The `v4` (`mix help mutagen`) stub is exercised by
-  asserting `Mix.Tasks.Mutagen.@moduledoc` contains every required section.
+  The help tests check that `Mix.Tasks.Mutagen.@moduledoc` includes the
+  sections and caveats required by `mutagen.cli.r9`.
   """
 
   use ExUnit.Case, async: true
@@ -33,6 +32,7 @@ defmodule MutagenEx.CLITest do
   alias MutagenEx.Config
 
   describe "parse/1 — successful flag combinations (mutagen.cli.s1, s3)" do
+    @tag spec: ["mutagen.cli.r1", "mutagen.cli.r2"]
     test "single --scope and --tests populate the Config" do
       assert {:ok, %Config{} = config} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -50,6 +50,7 @@ defmodule MutagenEx.CLITest do
     # now refuses it at parse time. The repeated-accumulation behaviour s3
     # demonstrates is still tested below using a non-self MFA target.
 
+    @tag spec: "mutagen.cli.r1"
     test "repeated --scope (non-self) accumulates without overwriting (s3 behaviour)" do
       assert {:ok, %Config{scopes: scopes, tests: tests}} =
                CLI.parse([
@@ -65,6 +66,7 @@ defmodule MutagenEx.CLITest do
       assert tests == ["tag:fast"]
     end
 
+    @tag spec: "mutagen.cli.r2"
     test "repeated --tests accumulates targets in user-supplied order" do
       assert {:ok, %Config{tests: tests}} =
                CLI.parse([
@@ -83,6 +85,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --timeout-ms (mutagen.cli.r3, s4)" do
+    @describetag spec: "mutagen.cli.r3"
+
     test "positive integer is stored on Config" do
       assert {:ok, %Config{timeout_ms: 10_000}} =
                CLI.parse([
@@ -95,6 +99,7 @@ defmodule MutagenEx.CLITest do
                ])
     end
 
+    @tag spec: "mutagen.mutation_pipeline.r19"
     test "default is 30000 when flag absent" do
       assert {:ok, %Config{timeout_ms: 30_000}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -147,6 +152,7 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --seed (mutagen.cli.r4, s5)" do
+    @tag spec: "mutagen.cli.r4"
     test "integer value lands on Config.seed" do
       assert {:ok, %Config{seed: 42}} =
                CLI.parse([
@@ -159,6 +165,7 @@ defmodule MutagenEx.CLITest do
                ])
     end
 
+    @tag spec: "mutagen.cli.r4"
     test "default seed is 0 when flag absent" do
       assert {:ok, %Config{seed: 0}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -197,6 +204,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --json path safety (mutagen.cli.r10, s10a, s10b)" do
+    @describetag spec: "mutagen.cli.r10"
+
     test "path with `..` is rejected at parse time as :unsafe_json_path (s10a)" do
       assert {:error, :unsafe_json_path, details} =
                CLI.parse([
@@ -262,6 +271,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --unsafe-json-outside-project (mutagen.cli.r10)" do
+    @describetag spec: "mutagen.cli.r10"
+
     test "flag absent leaves Config.unsafe_json_outside_project at false" do
       assert {:ok, %Config{unsafe_json_outside_project: false}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -381,6 +392,7 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — missing required flags (mutagen.cli.s2)" do
+    @tag spec: "mutagen.cli.r1"
     test "missing --scope yields :missing_scope (s2)" do
       assert {:error, :missing_scope, details} =
                CLI.parse(["--tests", "test/foo_test.exs"])
@@ -388,6 +400,7 @@ defmodule MutagenEx.CLITest do
       assert is_binary(details.message)
     end
 
+    @tag spec: "mutagen.cli.r2"
     test "missing --tests yields :missing_tests" do
       assert {:error, :missing_tests, details} =
                CLI.parse(["--scope", "lib/foo.ex"])
@@ -401,6 +414,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --no-json refusal (mutagen.cli.r7, s8)" do
+    @describetag spec: "mutagen.cli.r7"
+
     test "--no-json present yields :flag_not_supported_in_v1 (s8)" do
       assert {:error, :flag_not_supported_in_v1, details} =
                CLI.parse([
@@ -423,6 +438,7 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — self-mutation refusal (mutagen.cli.r8, s9)" do
+    @tag spec: "mutagen.cli.r8"
     test "--scope MutagenEx.MutationRunner yields :self_mutation_refused (s9)" do
       assert {:error, :self_mutation_refused, details} =
                CLI.parse([
@@ -435,6 +451,7 @@ defmodule MutagenEx.CLITest do
       assert details.target == "MutagenEx.MutationRunner"
     end
 
+    @tag spec: "mutagen.cli.r8"
     test "--scope MutagenEx.Foo.bar/1 (MFA shape) is refused" do
       assert {:error, :self_mutation_refused, _} =
                CLI.parse([
@@ -445,6 +462,7 @@ defmodule MutagenEx.CLITest do
                ])
     end
 
+    @tag spec: "mutagen.cli.r8"
     test "--scope Mix.Tasks.Mutagen is refused" do
       assert {:error, :self_mutation_refused, _} =
                CLI.parse([
@@ -480,6 +498,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — tag:NAME charset gate (mutagen.cli.r11, s11, s12)" do
+    @describetag spec: "mutagen.cli.r11"
+
     @describetag :tag_charset
 
     test "tag:slow is accepted (canonical lowercase atom name, s12)" do
@@ -623,6 +643,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --scope/--tests repetition cap (mutagen.cli.r12)" do
+    @describetag spec: "mutagen.cli.r12"
+
     # The cap is structural: parse refuses BEFORE any filesystem touch.
     # 100 is allowed; 101 is refused. We don't bother varying the count
     # — boundary + over-boundary is enough to falsify a "no cap" or
@@ -676,6 +698,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --max-sites (mutagen.cli.r12)" do
+    @describetag spec: "mutagen.cli.r12"
+
     test "default --max-sites is 10_000" do
       assert {:ok, %Config{max_sites: 10_000}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -735,6 +759,8 @@ defmodule MutagenEx.CLITest do
   end
 
   describe "parse/1 — --budget-ms (mutagen.cli.r13)" do
+    @describetag spec: "mutagen.cli.r13"
+
     test "absent flag leaves Config.budget_ms == nil (unbounded)" do
       assert {:ok, %Config{budget_ms: nil}} =
                CLI.parse(["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"])
@@ -835,6 +861,7 @@ defmodule MutagenEx.CLITest do
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r7"
     test "--no-json invokes the reporter with :flag_not_supported_in_v1 (s8 dispatch path)" do
       this = self()
 
@@ -855,6 +882,7 @@ defmodule MutagenEx.CLITest do
     end
 
     @tag :exit_codes
+    @tag spec: "mutagen.cli.r8"
     test "self-mutation refusal invokes the reporter with :self_mutation_refused (s9 dispatch path)" do
       this = self()
 
@@ -904,6 +932,7 @@ defmodule MutagenEx.CLITest do
     end
 
     @tag :exit_codes
+    @tag spec: ["mutagen.cli.r10", "mutagen.cli.r15"]
     test "parse-time `..` traversal emits abort JSON (s10a)" do
       dispatch = %{
         scope: __MODULE__.PhaseStubs.Scope,
@@ -925,7 +954,7 @@ defmodule MutagenEx.CLITest do
                  dispatch
                )
 
-      assert_received {:io, iodata, code, _config}
+      assert_received {:io, iodata, code, nil}
       assert code != 0
 
       decoded =
@@ -938,10 +967,12 @@ defmodule MutagenEx.CLITest do
     end
   end
 
-  describe "Mix.Tasks.Mutagen.@moduledoc (mutagen.cli.r9, v4)" do
+  describe "Mix.Tasks.Mutagen.@moduledoc (mutagen.cli.r9)" do
+    @describetag spec: "mutagen.cli.r9"
+
     # `mix help mutagen` renders @moduledoc. Asserting that every required
     # section heading is present in the moduledoc is the unit-test analogue
-    # of the v4 verification stub.
+    # for the help contract.
     setup do
       {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} = Code.fetch_docs(Mix.Tasks.Mutagen)
       {:ok, moduledoc: moduledoc}

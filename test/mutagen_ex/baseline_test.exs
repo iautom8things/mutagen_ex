@@ -52,6 +52,7 @@ defmodule MutagenEx.BaselineTest do
   end
 
   describe "r2: forced ExUnit config" do
+    @tag spec: ["mutagen.cli.r4", "mutagen.mutation_pipeline.r2"]
     test "configure/1 receives max_cases: 1 and the configured seed" do
       input = %{
         seed: 7,
@@ -95,6 +96,8 @@ defmodule MutagenEx.BaselineTest do
   end
 
   describe "r1: baseline red aborts (s1)" do
+    @describetag spec: "mutagen.mutation_pipeline.r1"
+
     test "returns :baseline_red when ExUnit reports failures" do
       input = %{
         seed: 0,
@@ -138,6 +141,8 @@ defmodule MutagenEx.BaselineTest do
   end
 
   describe "r2 (warning): async: true test modules" do
+    @describetag spec: "mutagen.mutation_pipeline.r2"
+
     setup do
       tmp =
         Path.join(
@@ -215,6 +220,7 @@ defmodule MutagenEx.BaselineTest do
     end
     """
 
+    @tag spec: "mutagen.coverage.r9"
     test "s9b: cache hit — async warning surfaces without reading the file from disk" do
       # The test_filter cites a virtual path that DOES NOT exist on the
       # real filesystem. If detect_async_modules ever falls through to
@@ -246,6 +252,7 @@ defmodule MutagenEx.BaselineTest do
       assert Enum.any?(result.warnings, &(&1 =~ "async_module"))
     end
 
+    @tag spec: "mutagen.coverage.r9"
     test "s9b: cache hit with async: false — no warning, and still no disk read" do
       virtual_file = "virtual_paths/cached_serial_test.exs"
       refute File.exists?(virtual_file)
@@ -270,6 +277,7 @@ defmodule MutagenEx.BaselineTest do
       refute Enum.any?(result.warnings, &(&1 =~ "Mutagen.Baseline.CachedSerialFixtureTest"))
     end
 
+    @tag spec: "mutagen.coverage.r9"
     test "s9c: cache miss — falls back to File.read/1 + parse" do
       tmp =
         Path.join(

@@ -15,17 +15,65 @@ defmodule Mix.Tasks.MutagenRenderTest do
       slice when end positions are available; otherwise falls back to
       aliasing `before`.
 
-  Why `:erts_debug.same/2` (and not `:erlang.trace`): `Macro.to_string`
-  is implemented in Elixir and the trace mechanism does not reliably
-  catch every dispatch on the optimised release build. Reference
-  equality, however, is a direct falsifiability test of the
-  "compute-once, alias-into-both" contract — two separate
-  `Macro.to_string/1` calls on the same AST return equal but
-  non-same binaries; a single call aliased into both fields returns
-  the same reference.
+  Reference equality checks that the fallback reuses the rendered binary.
+  A process-scoped trace checks the render call count for both paths.
   """
 
   use ExUnit.Case, async: true
+
+  @tag spec: "mutagen.json_schema.r12"
+  test "rendering each site calls Macro.to_string/1 twice on both paths" do
+    [fallback] = sample_results(1)
+
+    source = "a  +  1"
+
+    sliced =
+      Map.merge(fallback, %{
+        original_ast: Code.string_to_quoted!(source, columns: true),
+        end_line: 1,
+        end_column: byte_size(source) + 1,
+        source_text: source
+      })
+
+    parent = self()
+
+    worker =
+      Task.async(fn ->
+        receive do
+          :render ->
+            fallback_result = Mix.Tasks.Mutagen.__render_result__(fallback)
+            slice_result = Mix.Tasks.Mutagen.__render_result__(sliced)
+            send(parent, {:rendered, fallback_result, slice_result})
+        end
+
+        receive do
+          :finish -> :ok
+        end
+      end)
+
+    session = :trace.session_create(:render_calls, self(), [])
+    pid = worker.pid
+
+    try do
+      assert :trace.function(session, {Macro, :to_string, 1}, true, []) == 1
+      assert :trace.process(session, pid, true, [:call, :arity]) == 1
+      send(pid, :render)
+      assert_receive {:rendered, %{before_source: "a + 1"}, %{before_source: "a  +  1"}}, 1_000
+
+      delivery = :trace.delivered(session, pid)
+      assert_receive {:trace_delivered, ^pid, ^delivery}, 1_000
+
+      for _ <- 1..4 do
+        assert_received {:trace, ^pid, :call, {Macro, :to_string, 1}}
+      end
+
+      refute_received {:trace, ^pid, :call, {Macro, :to_string, 1}}
+    after
+      :trace.session_destroy(session)
+      send(pid, :finish)
+      Task.await(worker)
+    end
+  end
 
   # --------------------------------------------------------------------
   # r12 fallback path: legacy callers (no end_line/end_column/source_text)
@@ -42,6 +90,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
       end
     end
 
+    @tag spec: "mutagen.json_schema.r4"
     test "before and before_source share the SAME binary reference (fallback path)" do
       # Sample results omit `end_line`/`end_column`/`source_text`, so
       # the renderer takes the fallback path and aliases the single
@@ -81,6 +130,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
                "Macro.to_string/1 calls (different ASTs); they cannot share a reference"
     end
 
+    @tag spec: "mutagen.json_schema.r4"
     test "fallback also triggers when end_line is present but source_text is nil" do
       # Defensive: a runner that thread end positions but no
       # source_text (e.g. legacy cache) should still produce a valid
@@ -98,6 +148,8 @@ defmodule Mix.Tasks.MutagenRenderTest do
   # --------------------------------------------------------------------
 
   describe "r4 slice: before_source is a verbatim source slice when end positions are available" do
+    @describetag spec: "mutagen.json_schema.r4"
+
     test "3-tuple arith site on a single line slices the exact source bytes" do
       # Mirrors the canonical `a + b` shape from
       # `test/fixtures/lane_project/lib/lane_fixture/arith.ex` line 12:
@@ -354,6 +406,7 @@ defmodule Mix.Tasks.MutagenRenderTest do
   # --------------------------------------------------------------------
 
   describe "end-to-end r4 + r8: real arith.ex parse → enumerate → render" do
+    @tag spec: "mutagen.json_schema.r4"
     test "before_source for the `a + b` site equals the hand-cut source slice" do
       source =
         File.read!(

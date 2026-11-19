@@ -14,6 +14,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
   @project_root Path.expand("../..", __DIR__)
 
+  @tag spec: "mutagen.cli.r5"
   test "fresh-shell `mix mutagen` succeeds when mutagen_ex is installed as an archive" do
     version = MutagenEx.MixProject.project()[:version]
     archive_filename = "mutagen_ex-#{version}.ez"
@@ -180,6 +181,33 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
 
     assert mutation["completed"] > 0,
            "expected at least one mutation to have executed, not just been enumerated"
+
+    assert String.ends_with?(mutagen_out, json_line <> "\n")
+
+    {file_run_out, file_run_code} =
+      System.cmd(
+        "mix",
+        [
+          "mutagen",
+          "--scope",
+          relative_scope,
+          "--tests",
+          relative_tests,
+          "--json",
+          "report.json"
+        ],
+        cd: tmp_dir,
+        stderr_to_stdout: false,
+        env: scoped_env(scratch_dir)
+      )
+
+    assert file_run_code == 0, file_run_out
+    refute Enum.any?(String.split(file_run_out, "\n"), &json_parses?/1)
+
+    report = File.read!(Path.join(tmp_dir, "report.json"))
+    assert String.ends_with?(report, "}\n")
+    assert %{"aborted" => false, "mutation" => %{"completed" => completed}} = :json.decode(report)
+    assert completed > 0
   end
 
   defp clean_env(scratch_dir) do

@@ -70,19 +70,7 @@ surface:
 decisions:
   - mutagen.decision.content_addressed_ids
   - mutagen.decision.validate_predicates
-realized_by:
-  api_boundary:
-    - "MutagenEx.Mutators"
-    - "MutagenEx.Mutators.Arith"
-    - "MutagenEx.Mutators.Compare"
-    - "MutagenEx.Mutators.Boolean"
-    - "MutagenEx.Mutators.Literal"
-    - "MutagenEx.Mutators.WithSwap"
-    - "MutagenEx.Mutators.CaseDrop"
-    - "MutagenEx.Mutators.Pipeline"
-    - "MutagenEx.Mutators.ResultTuple"
-    - "MutagenEx.Mutators.ElseRemoval"
-    - "MutagenEx.Mutators.GuardDrop"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -286,33 +274,15 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.mutators.v1
-  covers: [mutagen.mutators.r1, mutagen.mutators.r2, mutagen.mutators.r7]
-  kind: command
-  target: mix test test/mutagen_ex/mutators_test.exs
-  execute: true
-
-- id: mutagen.mutators.v2
-  covers: [mutagen.mutators.r3, mutagen.mutators.r4]
-  kind: command
-  target: mix test test/mutagen_ex/mutators/id_stability_test.exs
-  execute: true
-
-- id: mutagen.mutators.v3
-  covers: [mutagen.mutators.r5, mutagen.mutators.r6]
-  kind: command
-  target: mix test test/mutagen_ex/mutators_property_test.exs
-  execute: true
-
-- id: mutagen.mutators.v4
-  covers: [mutagen.mutators.r2]
-  kind: command
-  target: mix test test/mutagen_ex/mutators/ --only validate
-  execute: true
-
-- id: mutagen.mutators.v5
-  covers: [mutagen.mutators.r8]
-  kind: command
-  target: mix test test/mutagen_ex/mutators/case_drop_classification_test.exs
-  execute: true
+- kind: tagged_tests
+  target: test/mutagen_ex
+  covers:
+    - mutagen.mutators.r1
+    - mutagen.mutators.r2
+    - mutagen.mutators.r3
+    - mutagen.mutators.r4
+    - mutagen.mutators.r5
+    - mutagen.mutators.r6
+    - mutagen.mutators.r7
+    - mutagen.mutators.r8
 ```

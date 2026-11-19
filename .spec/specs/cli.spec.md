@@ -30,6 +30,8 @@ surface:
   - lib/mix/tasks/mutagen.ex
   - lib/mutagen_ex/cli.ex
   - lib/mutagen_ex/config.ex
+  - lib/mutagen_ex/json_path.ex
+  - lib/mutagen_ex/pipeline/default_io.ex
   - lib/mutagen_ex/types.ex
 decisions:
   - mutagen.decision.serial_execution_and_seed
@@ -38,12 +40,7 @@ decisions:
   - mutagen.decision.self_mutation_refused
   - mutagen.decision.preamble_in_run1_only
   - mutagen.decision.adoption_polish_efficacy
-realized_by:
-  api_boundary:
-    - "Mix.Tasks.Mutagen"
-    - "MutagenEx.CLI"
-    - "MutagenEx.Config"
-    - "MutagenEx.Types"
+  - mutagen.decision.ancora_migration
 ```
 
 ```spec-requirements
@@ -692,69 +689,23 @@ realized_by:
 ```
 
 ```spec-verification
-- id: mutagen.cli.v1
-  covers: [mutagen.cli.r1, mutagen.cli.r2, mutagen.cli.r3, mutagen.cli.r4, mutagen.cli.r5]
-  kind: command
-  target: mix test test/mutagen_ex/cli_test.exs
-  execute: true
-
-- id: mutagen.cli.v2
-  covers: [mutagen.cli.r6, mutagen.cli.r7]
-  kind: command
-  target: mix test test/mutagen_ex/cli_test.exs --only exit_codes
-  execute: true
-
-- id: mutagen.cli.v3
-  covers: [mutagen.cli.r8]
-  kind: command
-  target: mix test test/mutagen_ex/end_to_end_test.exs --only self_mutation
-  execute: false
-
-- id: mutagen.cli.v4
-  covers: [mutagen.cli.r9]
-  kind: command
-  target: mix help mutagen
-  execute: true
-
-- id: mutagen.cli.v5
-  covers: [mutagen.cli.r10]
-  kind: command
-  target: mix test test/mutagen_ex/json_path_test.exs test/mutagen_ex/cli_test.exs
-  execute: true
-
-- id: mutagen.cli.v6
-  covers: [mutagen.cli.r11]
-  kind: command
-  target: mix test test/mutagen_ex/cli_test.exs --only tag_charset
-  execute: true
-
-- id: mutagen.cli.v7
-  covers: [mutagen.cli.r12]
-  kind: command
-  target: mix test test/mutagen_ex/cli_test.exs test/mutagen_ex/mutation_enumerator_test.exs
-  execute: true
-
-- id: mutagen.cli.v8
-  covers: [mutagen.cli.r13]
-  kind: command
-  target: mix test test/mutagen_ex/mutation_runner_test.exs test/mutagen_ex/cli_test.exs
-  execute: true
-
-- id: mutagen.cli.v9
-  covers: [mutagen.cli.r14]
-  kind: command
-  target: mix test test/integration/downstream_adoption_test.exs --include downstream_integration
-  execute: true
-
-- id: mutagen.cli.v10
-  covers: [mutagen.cli.r15]
-  kind: command
-  target: mix test test/mix/tasks/mutagen_test.exs --only unsafe_json_path
-  execute: true
-
-- id: mutagen.cli.v11
-  covers: [mutagen.cli.r16]
-  kind: command
-  target: mix test test/integration/archive_install_test.exs --include archive_integration
-  execute: true
+- kind: tagged_tests
+  target: test
+  covers:
+    - mutagen.cli.r1
+    - mutagen.cli.r2
+    - mutagen.cli.r3
+    - mutagen.cli.r4
+    - mutagen.cli.r5
+    - mutagen.cli.r6
+    - mutagen.cli.r7
+    - mutagen.cli.r8
+    - mutagen.cli.r9
+    - mutagen.cli.r10
+    - mutagen.cli.r11
+    - mutagen.cli.r12
+    - mutagen.cli.r13
+    - mutagen.cli.r14
+    - mutagen.cli.r15
+    - mutagen.cli.r16
 ```
