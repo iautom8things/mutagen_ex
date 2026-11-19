@@ -14,9 +14,26 @@ jobs:
   build:
     name: Compile, test, format
     runs-on: ubuntu-latest
-    # The whole job runs in ~1.5 min; this bounds a runaway/hung test so it
-    # fails with a clear timeout instead of an ambiguous external cancellation.
+    # Bound the unit, archive, and Postgres integration runs.
     timeout-minutes: 10
+
+    env:
+      HOST_SETUP_DB_HOST: 127.0.0.1
+      HOST_SETUP_DB_USER: postgres
+      HOST_SETUP_DB_PASSWORD: postgres
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout

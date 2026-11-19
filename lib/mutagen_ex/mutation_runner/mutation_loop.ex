@@ -196,46 +196,70 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     # `Task.Supervisor.async_nolink/2` accepts both.
     task_sup = Map.get(input, :task_sup, MutagenEx.TaskSup)
 
+    destination = Process.group_leader()
+    group = MutagenEx.Test.RunGroup.start(destination)
+
     task =
       Task.Supervisor.async_nolink(task_sup, fn ->
+        Process.group_leader(self(), group)
         Enum.each(test_modules, fn {mod, cfg} -> server.add_module(mod, cfg) end)
-        result = run_exunit(ex_unit)
+        result = MutagenEx.Test.Suite.run(ex_unit, :mutation)
         {System.monotonic_time(), result}
       end)
 
     deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
 
-    result =
-      case Task.yield(task, timeout) do
-        {:ok, {finished_at, result}} when finished_at <= deadline ->
-          {result, :n_a}
+    try do
+      result =
+        case Task.yield(task, timeout) do
+          {:ok, {finished_at, result}} when finished_at <= deadline ->
+            {site_result(result), :n_a}
 
-        {:ok, _late_reply} ->
-          timeout_result(input, server, failures, task.pid, deadline, :n_a)
-
-        nil ->
-          cancel_mode = cancel_on_timeout(task, grace, task_sup)
-          timeout_result(input, server, failures, task.pid, deadline, cancel_mode)
-
-        {:exit, reason} ->
-          if System.monotonic_time() <= deadline do
-            {{:error, {:task_exited, reason}}, :n_a}
-          else
+          {:ok, _late_reply} ->
             timeout_result(input, server, failures, task.pid, deadline, :n_a)
-          end
-      end
 
-    if failures, do: :ets.delete(failures, task.pid)
-    result
+          nil ->
+            cancel_mode = cancel_on_timeout(task, grace, task_sup)
+            timeout_result(input, server, failures, task.pid, deadline, cancel_mode)
+
+          {:exit, reason} ->
+            if System.monotonic_time() <= deadline do
+              {{:error, {:task_exited, reason}}, :n_a}
+            else
+              timeout_result(input, server, failures, task.pid, deadline, :n_a)
+            end
+        end
+
+      if failures, do: :ets.delete(failures, task.pid)
+      finish_group(result, group, destination, input, ex_unit, server)
+    catch
+      kind, reason ->
+        MutagenEx.Test.RunGroup.stop(group, :reap)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
   end
 
-  defp run_exunit(ex_unit) do
-    {:ok, ex_unit.run()}
-  rescue
-    e -> {:error, {:run_raised, Exception.message(e)}}
-  catch
-    kind, value -> {:error, {:run_caught, kind, value}}
+  defp finish_group({{:ok, _}, _} = completed, group, destination, _input, _ex_unit, _server) do
+    MutagenEx.Test.RunGroup.stop(group, {:release, destination})
+    completed
   end
+
+  defp finish_group(unsuccessful, group, _destination, input, ex_unit, server) do
+    # ExUnit's test and module workers are monitored, so killing the
+    # runner leaves them alive. They inherit its group leader on spawn.
+    MutagenEx.Test.RunGroup.stop(group, :reap)
+
+    if ex_unit == MutagenEx.Test.ExUnit and Map.get(input, :serial?, true) do
+      server.discard_pending_modules()
+    end
+
+    unsuccessful
+  end
+
+  defp site_result({:error, :ex_unit_run_failed, details}),
+    do: {:error, {:ex_unit_run_failed, details}}
+
+  defp site_result(result), do: result
 
   defp timeout_result(input, server, failures, runner, deadline, cancel_mode) do
     if Map.get(input, :serial?, true), do: server.discard_pending_modules()

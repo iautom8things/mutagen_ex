@@ -225,12 +225,55 @@ From any project, verify the task is available and run it against a target:
 
 ```bash
 mix help mutagen
-mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
+MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
 ```
 
-The `mix.exs` install above remains the recommended posture for projects
-that want `mutagen_ex` pinned per repo for CI and SOC-style traceability.
-The archive install is additive: suitable for ad-hoc local use, not for CI.
+Pin the archive version or dependency version in CI.
+
+## Host test setup
+
+Run `MIX_ENV=test mix mutagen` with either install method. This loads
+`config/test.exs` and compiles test support. Explicit environments such as
+`MIX_ENV=ci` are allowed when the host configures them for tests. A host
+can also set `def cli, do: [preferred_envs: [mutagen: :test]]` in `mix.exs`.
+Mix may print dependency discovery output before the task runs. Use
+`MIX_QUIET=1` for a dependency install when parsing stdout directly.
+The task routes the default console Logger handler and ExUnit output to
+stderr.
+
+After compiling, the task loads runtime config and runs the host `test`
+alias entries before the `test` task. A Phoenix alias can create and migrate
+the test database there. If the alias lacks those steps or you use
+`--no-test-alias`, create and migrate the test database before invoking
+mutagen. Pass `MIX_TEST_PARTITION` if your configuration uses it to select
+a database.
+
+The task starts the host application and requires `test_helper.exs` once
+from each configured `:test_paths` entry, with ExUnit autorun disabled. The
+default is `test/test_helper.exs` when `test/` exists. Run from the app that
+owns the tests in an umbrella project. `--no-host-app` or
+`MUTAGEN_NO_HOST_APP=1` skips application startup and still loads runtime
+config and the helper.
+
+Coverage, baseline, and every mutant use the helper's ExUnit options.
+Whole-file targets honor helper includes and excludes. An explicit tag or
+line target takes precedence when narrowing the test set. A coverage or
+baseline pass that executes no tests aborts with `no_tests_run`. Helper
+formatters run on every pass. A formatter that writes a file may overwrite
+it after each mutant. ExUnit `after_suite` callbacks run once when mutagen
+finishes, including on a reported abort.
+
+`--boot-timeout-ms` bounds runtime configuration, the alias pre-steps,
+application startup, and helper evaluation. The default is 300000 ms.
+Compilation happens before that timer starts. If the helper calls
+`System.halt/1`, it terminates the BEAM immediately and prevents reporting.
+
+Startup errors use the usual report destination. `details.message` gives a
+short redacted summary. Stderr carries the full diagnostic and the host's
+own output, and neither is redacted. Do not publish stderr as a CI
+artifact. Every document from a host setup failure repeats this warning in
+`details.note`. If the task cannot safely write to `--json PATH`, it
+warns on stderr and writes the document to stdout.
 
 ## Entrypoints
 
@@ -269,9 +312,8 @@ For each `--scope` target, mutagen_ex:
 Tests run **serially** in every phase. The run is single-process: there is
 no worker pool, no shelled-out subprocess.
 
-`mix mutagen` does not write to disk. Mutations are applied in memory via
-`Code.compile_quoted/2`; the original module is restored from the cached
-AST after every site. The byte-identity contract is asserted across
+Mutagen applies changes in memory via `Code.compile_quoted/2` and restores
+the original module after every site. The byte-identity contract covers
 `lib/`, `_build/`, `cover/`, host project config (`mix.exs`, `mix.lock`,
 `.formatter.exs`), and tmp entries with the `mutagen_ex_` prefix — see
 `mutagen.mutation_pipeline.r11` and `mutagen.coverage.r7`.
@@ -280,13 +322,13 @@ AST after every site. The byte-identity contract is asserted across
 
 ```bash
 # Single file scope, single test file
-mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
+MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
 
 # Module scope, tag-cited tests, custom per-mutation budget
-mix mutagen --scope MyApp.Foo --tests tag:fast --timeout-ms 10000
+MIX_ENV=test mix mutagen --scope MyApp.Foo --tests tag:fast --timeout-ms 10000
 
 # Function scope, deterministic seed, redirected output
-mix mutagen --scope MyApp.Foo.bar/1 \
+MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
             --tests test/foo_test.exs \
             --seed 42 \
             --json out/mutagen.json
@@ -298,6 +340,9 @@ mix mutagen --scope MyApp.Foo.bar/1 \
 |---|---|
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required. Repeatable; each occurrence accumulates. Cap: 100 occurrences. |
 | `--tests <target>` | Which tests judge the mutations. A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Required. Repeatable. Cap: 100 occurrences. |
+| `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
+| `--no-test-alias` | Skip entries in the host's test alias before the test task. |
+| `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
 | `--timeout-ms <int>` | Wall-clock budget per mutation run. Default `30000`. Must be positive. Phoenix/Ecto-style apps often need the larger default because setup and supplemental tests can make a single mutation cycle exceed five seconds. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
@@ -439,7 +484,7 @@ path you write to is always the fully-canonical one.
 
 | Key | Purpose |
 |---|---|
-| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]` (no redaction). Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
+| `:redact` | A list of `%Regex{}` values or binary regex sources. Every match in stderr captured during mutation runs, exception messages, and source slices that flow into `mutation.results[].warnings[]`, `mutation.compile_errors[].message`, and abort-detail message fields is replaced with the literal string `[REDACTED]`. Default `[]`. Built-in patterns run first whatever this list holds. They redact URL passwords, common token prefixes, and the value after any key with a credential segment, such as `password`, `DATABASE_PASSWORD`, `api-token`, or `AWS_SECRET_ACCESS_KEY`. Pair with `--json <path>` whenever JSON reports are archived outside the run host. |
 
 Set it in `config/config.exs`:
 
@@ -736,13 +781,21 @@ No third-party dependencies. Elixir `~> 1.19`, stdlib only.
 
 ### Test suite gates
 
-The default `mix test` run excludes two tag families to keep wall-clock
-under ~60s for the smoke gate:
+The default `mix test` run excludes subprocess integration tests, the
+end-to-end fixture runs, and the coverage spikes.
 
 | Tag | What it covers | How to run |
 |---|---|---|
 | `:e2e_slow` | Full `mix mutagen` pipeline against the lane fixture; takes minutes per scenario. | `mix test --only e2e_slow` |
 | `:spike` | C1/C2 integration spikes under `test/mutagen_ex/integration/` — ~500 cover lifecycles per default run. These are the gating decision artifact for the in-process pipeline (`mutagen.decision.in_process_pipeline`); they must stay runnable, just not on every default invocation. | `mix test --only spike` |
+| `:host_setup_integration` | Real Postgres Sandbox and Mox through a path dependency and an installed archive. | `mix test --only host_setup_integration test/integration/host_setup_test.exs` |
+
+`mix test.integration` includes the Postgres fixture. It defaults to the
+`/tmp` Unix socket, port `5432`, and the current OS user. Set
+`HOST_SETUP_DB_HOST`, `HOST_SETUP_DB_PORT`, `HOST_SETUP_DB_USER`,
+`HOST_SETUP_DB_PASSWORD`, or `HOST_SETUP_DB_NAME` to override those settings.
+The fixture adds a unique suffix to its database name and drops the database
+after the run. Its database user needs permission to create databases.
 
 The C2 spike accepts `MUTAGEN_SPIKE_ITERATIONS=<n>` to override the loop
 count. Default is `10`; the original gating run used `100`:

@@ -13,17 +13,11 @@ defmodule MutagenEx.MixProject do
       package: package(),
       aliases: aliases(),
       docs: docs(),
-      # Lane fixture (test/fixtures/lane_project/**) is a self-contained
-      # mini-mix-project; its `_test.exs` files exist only to be cited by
-      # `mix mutagen --tests` from the end-to-end test driver, never run
-      # directly by the parent project's `mix test`. Without this ignore,
-      # the parent's loader picks up the fixture's `*_test.exs` files and
-      # fails because the fixture modules (`LaneFixture.*`) aren't on the
-      # parent's compile graph.
+      # Each fixture project has its own compile graph and test runner.
       test_load_filters: [
         fn path ->
           String.ends_with?(path, "_test.exs") and
-            not String.starts_with?(path, "test/fixtures/lane_project/")
+            not String.starts_with?(path, "test/fixtures/")
         end
       ],
       test_ignore_filters: [
@@ -84,7 +78,7 @@ defmodule MutagenEx.MixProject do
   defp aliases do
     [
       "test.integration":
-        "test --include downstream_integration --include archive_integration --include stream_integration --include self_mutation test/integration"
+        "test --include downstream_integration --include archive_integration --include stream_integration --include host_setup_integration --include self_mutation test/integration"
     ]
   end
 

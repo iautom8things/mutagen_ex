@@ -38,10 +38,13 @@ defmodule MutagenEx.BaselineTest do
     @moduledoc false
     def run do
       Process.put(:exunit_fake_options, Application.get_all_env(:ex_unit))
+      Process.get(:baseline_fake_suite, &default_result/0).()
+    end
 
+    defp default_result do
       Process.get(:exunit_fake_run_result, %{
         failures: 0,
-        total: 0,
+        total: 1,
         excluded: 0,
         skipped: 0
       })
@@ -83,13 +86,34 @@ defmodule MutagenEx.BaselineTest do
         test_loader: fn _ -> :ok end
       }
 
-      Process.put(:exunit_fake_run_result, %{failures: 0, total: 0, excluded: 0, skipped: 0})
+      Process.put(:exunit_fake_run_result, %{failures: 0, total: 1, excluded: 0, skipped: 0})
       assert {:ok, _} = Baseline.run(input)
 
       opts = Process.get(:exunit_fake_options)
       assert Keyword.get(opts, :include) == [:fast]
       assert Keyword.get(opts, :exclude) == [:test, :slow]
     end
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r21"
+  test "baseline catches ExUnit exits and throws and rejects a suite with no tests executed" do
+    input = %{
+      seed: 0,
+      test_filter: %TestFilter{files: [], include: [], exclude: [:load]},
+      ex_unit: ExUnitFake,
+      test_loader: fn _ -> :ok end
+    }
+
+    for {kind, fun} <- [exit: fn -> exit(:broken) end, throw: fn -> throw(:broken) end] do
+      Process.put(:baseline_fake_suite, fun)
+      assert {:error, :ex_unit_run_failed, %{message: message}} = Baseline.run(input)
+      assert message =~ "caught #{kind} during baseline"
+    end
+
+    Process.put(:baseline_fake_suite, fn -> %{total: 2, excluded: 1, skipped: 1, failures: 0} end)
+
+    assert {:error, :no_tests_run, %{phase: :baseline, excluded: 1, exclude: ["load"]}} =
+             Baseline.run(input)
   end
 
   describe "r1: baseline red aborts (s1)" do

@@ -124,7 +124,7 @@ defmodule MutagenEx.JsonStreamer do
       "line" => Map.fetch!(entry, :line),
       "column" => Map.fetch!(entry, :column),
       "mutator" => Atom.to_string(Map.fetch!(entry, :mutator)),
-      "message" => Map.fetch!(entry, :message)
+      "message" => MutagenEx.JsonReporter.Sanitizer.clean(Map.fetch!(entry, :message))
     }
   end
 

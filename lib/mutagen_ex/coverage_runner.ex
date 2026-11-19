@@ -8,10 +8,10 @@ defmodule MutagenEx.CoverageRunner do
 
   ## Lifecycle invariants
 
-    * **r1 — refuse if cover already running.** If
-      `Process.whereis(:cover_server)` returns a non-nil pid before we
-      start, the runner aborts with `{:error, :cover_already_running, ...}`
-      without calling `:cover.compile_*` or `ExUnit.run/0`.
+    * **r1 — refuse another coverage session.** The runner can replace
+      an empty Cover server. If it owns compiled or imported modules,
+      the runner returns `{:error, :cover_already_running, ...}` before
+      instrumenting scope modules or running ExUnit.
     * **r2 — cover stopped after return.** Whether `run/1` succeeds or
       errors, `:cover.stop/0` is invoked at least once. The call is wrapped
       in `try/rescue` so repeated stops are idempotent.
@@ -152,7 +152,7 @@ defmodule MutagenEx.CoverageRunner do
                "MutagenEx.TaskSup is the documented singleton owner of " <>
                ":cover_server and ExUnit.Server during a MutagenEx mutation " <>
                "cycle; a competing session is refused to prevent state " <>
-               "corruption. See .spec/decisions/supervision_tree.md."
+               "corruption. Check for mix test --cover or a test helper that compiles modules with :cover."
          }}
 
       false ->
@@ -186,12 +186,13 @@ defmodule MutagenEx.CoverageRunner do
     with :ok <- ensure_cover_loadable(cfg),
          :ok <- start_cover(cfg),
          {:ok, instrumented} <- cover_compile_modules(cfg),
-         {:ok, _exunit_result} <- run_cited_tests(cfg),
+         {:ok, stats} <- run_cited_tests(cfg),
          {:ok, covered} <- gather_covered_lines(cfg, instrumented) do
       {:ok,
        %{
          covered_lines: covered,
-         instrumented_modules: instrumented
+         instrumented_modules: instrumented,
+         suite_stats: stats
        }}
     end
   end
@@ -203,7 +204,19 @@ defmodule MutagenEx.CoverageRunner do
   defp cover_already_running?(_cfg) do
     case Process.whereis(:cover_server) do
       nil -> false
-      pid when is_pid(pid) -> true
+      pid when is_pid(pid) -> not stop_empty_cover(pid)
+    end
+  end
+
+  defp stop_empty_cover(pid) do
+    # Avoid a request to an unrelated process registered under this name.
+    with ^pid <- :ets.info(:cover_internal_mapping_table, :owner),
+         [] <- MutagenEx.Test.Cover.modules(),
+         [] <- MutagenEx.Test.Cover.imported_modules() do
+      :ok = MutagenEx.Test.Cover.stop()
+      true
+    else
+      _ -> false
     end
   end
 
@@ -403,15 +416,9 @@ defmodule MutagenEx.CoverageRunner do
   defp run_exunit(cfg) do
     ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
 
-    try do
-      result = ex_unit.run()
-      {:ok, result}
-    rescue
-      e ->
-        {:error, :ex_unit_run_failed,
-         %{
-           message: "ExUnit.run/0 raised during coverage: #{Exception.message(e)}"
-         }}
+    with {:ok, stats} <- MutagenEx.Test.Suite.run(ex_unit, :coverage),
+         :ok <- MutagenEx.Test.Suite.require_tests(stats, cfg.test_filter, :coverage) do
+      {:ok, stats}
     end
   end
 

@@ -33,12 +33,14 @@ summary: One-shot :cover run plus AST + source-text caching for downstream phase
 surface:
   - lib/mutagen_ex/coverage_runner.ex
   - lib/mutagen_ex/ast_cache.ex
+  - lib/mutagen_ex/test/suite.ex
 decisions:
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
   - mutagen.decision.supervision_tree
   - mutagen.decision.ancora_migration
+  - mutagen.decision.host_test_setup
 ```
 
 ```spec-requirements
@@ -46,12 +48,17 @@ decisions:
   priority: must
   statement: |
     `CoverageRunner.run/1` checks for an already-running `:cover` server
-    before starting. If `Process.whereis(:cover_server)` returns a pid, the
-    run aborts with a structured error
-    `{:error, :cover_already_running, %{message: msg}}` whose `msg` names
-    `MutagenEx.TaskSup` as the documented singleton owner during a MutagenEx
-    mutation cycle and points to `.spec/decisions/supervision_tree.md`. The
-    pipeline halts and emits the error-shaped JSON.
+    before starting. If `Process.whereis(:cover_server)` returns the pid
+    that owns OTP cover's `:cover_internal_mapping_table` and that server
+    reports no cover-compiled and no imported modules, the runner stops it
+    and proceeds. This is the empty server a test helper library can start.
+    Any other registered `:cover_server` aborts the run with a structured
+    error `{:error, :cover_already_running, %{message: msg}}` before any
+    scope module is instrumented or ExUnit runs. `msg` names
+    `MutagenEx.TaskSup` as the documented singleton owner during a
+    MutagenEx mutation cycle and names `mix test --cover` or a test helper
+    that compiles modules with `:cover` as likely sources. The pipeline
+    halts and emits the error-shaped JSON.
 
 - id: mutagen.coverage.r2
   priority: must
@@ -192,6 +199,22 @@ decisions:
     look files up by path via `AstCache.get/2`. On `:error` (cache
     miss) consumers fall back to a per-file `File.read/1` + parse
     path as a safety net and log the miss; they do NOT halt.
+
+- id: mutagen.coverage.r11
+  priority: must
+  statement: |
+    The coverage pass must execute at least one test. When ExUnit's result
+    has a `total` no greater than `excluded + skipped` and no failures,
+    `CoverageRunner.run/1` returns `{:error, :no_tests_run, details}`
+    instead of coverage data. `details` holds `phase: :coverage`, the
+    `excluded` and `skipped` counts, and the effective `include` and
+    `exclude` filters rendered as in the report's `tests` block
+    (mutagen.json_schema.r17). The pipeline aborts with
+    `abort_reason: "no_tests_run"` before the baseline phase. A raise,
+    throw, or exit out of `ExUnit.run/0` returns
+    `{:error, :ex_unit_run_failed, %{message: msg}}`, where `msg` names the
+    coverage phase and how the run ended and is sanitized per
+    mutagen.json_schema.r10 and r17.
 ```
 
 ```spec-scenarios
@@ -202,7 +225,17 @@ decisions:
   when:
     - "`CoverageRunner.run/1` is invoked."
   then:
-    - "The run returns `{:error, :cover_already_running}` immediately. No `:cover.compile_*` call is made."
+    - "The server has cover-compiled at least one module."
+    - "The run returns `{:error, :cover_already_running, %{message: msg}}` immediately. No `:cover.compile_*` call is made."
+
+- id: mutagen.coverage.s1b
+  covers: [mutagen.coverage.r1]
+  given:
+    - "A test helper started OTP cover with `:cover.start/0` and compiled no modules."
+  when:
+    - "`CoverageRunner.run/1` is invoked."
+  then:
+    - "The empty server is stopped, the run returns `{:ok, _}`, and the original cover pid is no longer alive."
 
 - id: mutagen.coverage.s2
   covers: [mutagen.coverage.r2]
@@ -302,6 +335,16 @@ decisions:
     - "The runner reaches `ExUnit.run/0`."
   then:
     - "The seam recorded one `add_module(Some.CitedTest, cfg)` call BEFORE `ExUnit.run/0` was invoked. With `test_modules: []` (the default), the seam records zero calls."
+
+- id: mutagen.coverage.s11
+  covers: [mutagen.coverage.r11]
+  given:
+    - "The host helper excludes `:pricing`, and every cited test carries `@tag :pricing`."
+  when:
+    - "`CoverageRunner.run/1` runs ExUnit and every test is excluded."
+  then:
+    - "The run returns `{:error, :no_tests_run, %{phase: :coverage, excluded: n, ...}}` with `\"pricing\"` in `exclude`."
+    - "The document has `abort_reason: \"no_tests_run\"`, `baseline: null`, and `mutation: null`."
 ```
 
 ```spec-verification
@@ -317,4 +360,5 @@ decisions:
     - mutagen.coverage.r8
     - mutagen.coverage.r9
     - mutagen.coverage.r10
+    - mutagen.coverage.r11
 ```
