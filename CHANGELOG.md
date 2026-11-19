@@ -104,6 +104,13 @@ file for traceability.
   with an unbounded failure count even if the host config sets an
   ExUnit failure cap.
 
+- **`guard_drop` mutations now run.** The enumerator validates the
+  mutated node, but `guard_drop` rejected any node without its `when`
+  wrapper, so every guard site landed in `mutation.skipped` as
+  `structurally_invalid`. Guarded function, `case` and `fn` clauses now
+  produce killed, survived or timeout results. A multi-parameter `fn`
+  clause guard stays skipped, because no single-node edit can drop it.
+
 - **Function captures are no longer mutated as division.** The `/` in
   `&fun/1` and `&Mod.fun/2` names a function, but `arith` swapped it for
   `*`, which could never compile. Division inside a capture body, such as
