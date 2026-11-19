@@ -95,7 +95,7 @@ defmodule MutagenEx.JsonStreamer do
       "kind" => "end",
       "meta" => JsonReporter.meta_to_wire(report.meta),
       "aborted" => report.aborted == true,
-      "abort_reason" => report.abort_reason,
+      "abort_reason" => JsonReporter.abort_reason_to_wire(report.abort_reason),
       "truncated" => report.truncated == true,
       "total" => Map.get(mutation, :total, 0),
       "completed" => Map.get(mutation, :completed, 0),

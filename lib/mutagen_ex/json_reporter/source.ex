@@ -15,35 +15,80 @@ defmodule MutagenEx.JsonReporter.Source do
   end
 
   defp build_index(source, file, key) do
-    options = [
-      columns: true,
-      token_metadata: true,
-      emit_warnings: false,
-      literal_encoder: &wrap_literal/2,
-      preserve_comments: fn line, column, tokens, _, _ ->
-        case tokens do
-          [previous | _] ->
-            Process.put(
-              key,
-              Map.put_new(Process.get(key), token_position(previous), {line, column})
-            )
+    options = [columns: true, token_metadata: true, emit_warnings: false]
 
-          [] ->
-            :ok
-        end
-      end
-    ]
-
-    # Code.string_to_quoted/2 uses these same compiler entry points. We
-    # also need the token boundaries to retain the spelling of literals.
-    with {:ok, tokens} <-
-           :elixir.string_to_tokens(String.to_charlist(source), 1, 1, file, options),
-         {:ok, ast} <- :elixir.tokens_to_quoted(tokens, file, options) do
-      offsets = byte_offsets(source)
-      ranges = token_ranges(tokens, byte_size(source), source, offsets, Process.get(key), %{})
+    # Tokenize a coordinate-only copy so the compiler recognizes quoted
+    # regions and interpolation without a second string lexer here.
+    with {:ok, tokens, coordinates} <- tokenize_with_coordinates(source, file, options, key),
+         {:ok, ast} <-
+           :elixir.tokens_to_quoted(tokens, file, [literal_encoder: &wrap_literal/2] ++ options),
+         context = %{source: source, offsets: byte_offsets(source), comments: Process.get(key)},
+         {:ok, ranges} <- token_ranges(tokens, coordinates, byte_size(source), context, %{}) do
       {ast, ranges}
     else
       _ -> nil
+    end
+  end
+
+  defp tokenize_with_coordinates(source, file, options, key) do
+    case split_graphemes(source) do
+      ^source ->
+        with {:ok, tokens} <- tokenize(source, file, options, key), do: {:ok, tokens, tokens}
+
+      coordinate_source ->
+        coordinate_options = [static_atoms_encoder: fn name, _ -> {:ok, name} end] ++ options
+
+        with {:ok, coordinates} <- tokenize(coordinate_source, file, coordinate_options, key),
+             {:ok, tokens} <-
+               :elixir.string_to_tokens(String.to_charlist(source), 1, 1, file, options) do
+          {:ok, tokens, coordinates}
+        end
+    end
+  end
+
+  defp tokenize(source, file, options, key) do
+    preserve_comments = fn line, column, tokens, _, _ ->
+      case tokens do
+        [previous | _] ->
+          Process.put(
+            key,
+            Map.put_new(Process.get(key), token_position(previous), {line, column})
+          )
+
+        [] ->
+          :ok
+      end
+    end
+
+    :elixir.string_to_tokens(
+      String.to_charlist(source),
+      1,
+      1,
+      file,
+      [preserve_comments: preserve_comments] ++ options
+    )
+  end
+
+  defp split_graphemes(source) do
+    if Regex.match?(~r/[^\x00-\x7f]/, source) do
+      for grapheme <- String.graphemes(source), into: "", do: split_grapheme(grapheme)
+    else
+      source
+    end
+  end
+
+  defp split_grapheme(<<_point::utf8>> = single), do: single
+  defp split_grapheme("\r\n"), do: "\r\n"
+
+  # Preserve ASCII syntax and the case of identifier starts. Each
+  # replacement occupies one code point in the original byte index.
+  defp split_grapheme(grapheme) do
+    for <<point::utf8 <- grapheme>>, into: "" do
+      cond do
+        point < 128 -> <<point>>
+        Regex.match?(~r/^[\p{Lu}\p{Lt}]$/u, <<point::utf8>>) -> "X"
+        true -> "x"
+      end
     end
   end
 
@@ -139,30 +184,65 @@ defmodule MutagenEx.JsonReporter.Source do
     |> then(fn {offsets, line, column, byte} -> Map.put(offsets, {line, column}, byte) end)
   end
 
-  defp token_ranges(tokens, stop, source, offsets, comments, ranges) do
-    Enum.reduce(Enum.reverse(tokens), {stop, ranges}, fn token, {stop, ranges} ->
-      pos = token_position(token)
-      start = Map.fetch!(offsets, pos)
-      limit = Map.get(offsets, Map.get(comments, pos), stop) |> min(stop)
+  defp token_ranges(tokens, coordinates, stop, context, ranges)
+       when length(tokens) == length(coordinates) do
+    tokens
+    |> Enum.reverse()
+    |> Enum.zip(Enum.reverse(coordinates))
+    |> Enum.reduce_while({:ok, stop, ranges}, fn {token, coordinate}, {:ok, stop, ranges} ->
+      {line, _} = position = token_position(token)
+      coordinate_position = token_position(coordinate)
 
-      ranges =
-        if start < limit do
-          text = binary_part(source, start, limit - start)
-          Map.put(ranges, pos, {start, start + byte_size(String.trim_trailing(text))})
-        else
-          ranges
-        end
-
-      ranges =
-        for {_open, {line, column, _}, inner} <- interpolation_parts(token), reduce: ranges do
-          acc ->
-            stop = Map.fetch!(offsets, {line, column})
-            token_ranges(inner, stop, source, offsets, comments, acc)
-        end
-
-      {start, ranges}
+      with true <- elem(token, 0) == elem(coordinate, 0) and elem(coordinate_position, 0) == line,
+           {:ok, start} <- Map.fetch(context.offsets, coordinate_position),
+           token_ranges =
+             put_range(ranges, position, coordinate_position, start, stop, context),
+           {:ok, ranges} <- add_interpolations(token, coordinate, context, token_ranges) do
+        {:cont, {:ok, start, ranges}}
+      else
+        _ -> {:halt, :error}
+      end
     end)
-    |> elem(1)
+    |> case do
+      {:ok, _, ranges} -> {:ok, ranges}
+      :error -> :error
+    end
+  end
+
+  defp token_ranges(_, _, _, _, _), do: :error
+
+  defp put_range(ranges, position, coordinate, start, stop, context) do
+    limit = Map.get(context.offsets, Map.get(context.comments, coordinate), stop) |> min(stop)
+
+    if start < limit do
+      text = binary_part(context.source, start, limit - start)
+      Map.put(ranges, position, {start, start + byte_size(String.trim_trailing(text))})
+    else
+      ranges
+    end
+  end
+
+  defp add_interpolations(token, coordinate, context, ranges) do
+    inner_tokens = for {_, _, tokens} <- interpolation_parts(token), do: tokens
+
+    inner_coordinates =
+      for {_, {line, column, _}, tokens} <- interpolation_parts(coordinate),
+          do: {{line, column}, tokens}
+
+    if length(inner_tokens) == length(inner_coordinates) do
+      inner_tokens
+      |> Enum.zip(inner_coordinates)
+      |> Enum.reduce_while({:ok, ranges}, fn {tokens, {stop, coordinates}}, {:ok, ranges} ->
+        with {:ok, stop} <- Map.fetch(context.offsets, stop),
+             {:ok, ranges} <- token_ranges(tokens, coordinates, stop, context, ranges) do
+          {:cont, {:ok, ranges}}
+        else
+          _ -> {:halt, :error}
+        end
+      end)
+    else
+      :error
+    end
   end
 
   defp interpolation_parts({kind, _, parts})

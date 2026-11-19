@@ -83,6 +83,40 @@ defmodule MutagenEx.JsonReporterRenderTest do
     end
   end
 
+  @tag spec: "mutagen.json_schema.r27"
+  test "a trailing comment at EOF is outside the source span" do
+    source = "a + b # trailing comment"
+    assert {0, 5} = source |> Source.index("sample.ex") |> Source.span([])
+  end
+
+  @tag spec: "mutagen.json_schema.r21"
+  test "invalid slices and slices of a different expression reuse the rendered AST" do
+    [result] = sample_results(1)
+
+    for source <- ["a - 1", "a + (", <<255, 32, ?a, ?+, ?1>>] do
+      result =
+        Map.merge(result, %{
+          source_text: source,
+          source_span: {0, byte_size(source)}
+        })
+
+      rendered = JsonReporter.render_result(result)
+      assert rendered.before_source == "a + 1"
+      assert :erts_debug.same(rendered.before, rendered.before_source)
+    end
+
+    legacy =
+      Map.merge(result, %{
+        original_ast: Code.string_to_quoted!("a + 1", columns: true),
+        source_text: "a - 1",
+        end_line: 1,
+        end_column: 6
+      })
+
+    rendered = JsonReporter.render_result(legacy)
+    assert :erts_debug.same(rendered.before, rendered.before_source)
+  end
+
   defp without_metadata(ast) do
     Macro.prewalk(ast, fn
       {form, meta, args} when is_list(meta) -> {form, [], args}

@@ -174,8 +174,8 @@ that the original order avoided.
 
 ### How much to trust a survivor
 
-A blind measurement at one commit covered ten files from two private
-Phoenix applications. A seeded script selected the files. They included
+A blind measurement at a pre-release commit of this series covered ten
+files from two private Phoenix applications. A seeded script selected the files. They included
 two contexts, two controllers, LiveViews, and plain modules. A reviewer
 judged each survivor after seeing only the code change and the test file.
 
@@ -224,8 +224,8 @@ from a fresh shell. Run it with `mix test --include self_mutation`.
 
 ## Install
 
-`mutagen_ex` is a development-time Mix task. It requires Erlang/OTP 27 or
-later. To install it as a dependency, add it to your `mix.exs`.
+`mutagen_ex` is a development-time Mix task. It requires Elixir 1.18.0
+or later and Erlang/OTP 27 or later. To install it as a dependency, add it to your `mix.exs`.
 
 ```elixir
 def deps do
@@ -259,6 +259,9 @@ From the `mutagen_ex` repo root, build the archive:
 ```bash
 mix archive.build
 ```
+
+Build the archive on the oldest OTP release that will run it. An older
+VM can reject BEAM files from a newer OTP release before Mutagen starts.
 
 Then install the generated archive:
 
@@ -661,6 +664,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `unrecognised_target` | The scope target has an unsupported format. |
 | `unrecoverable_restore_failure` | Mutagen could not restore the original module. |
 | `unsafe_json_path` | The report path failed validation. |
+| `unsupported_elixir_version` | The Elixir release is below 1.18.0. |
 | `unsupported_otp_version` | The Erlang/OTP release is below 27. |
 
 ## JSON output
@@ -926,8 +930,7 @@ order drains `ExUnit.Server` (each `ExUnit.run/0` consumes the server's
 registered-module list) and `Code.require_file/1` is one-shot per path.
 Both the coverage and baseline phases explicitly re-register each cited
 module with `ExUnit.Server.add_module/2` before their own `ExUnit.run/0`
-(mutagen-wrd.37 / mutagen-wrd.38), so baseline sees the cited modules in
-the registry and reports real failures. The production-condition
+so baseline sees the cited modules in the registry and reports real failures. The production-condition
 regression test for this lives in
 `test/mutagen_ex/baseline_red_guard_test.exs` (it drives the real
 `ExUnit.Server`, not a fake), with end-to-end coverage in
@@ -940,12 +943,14 @@ regression test for this lives in
 
 ## Known limitations
 
-1. **`:case_drop` on a guarded recursive-base-case classifies
-   `:killed`, not `:timeout`.** Documented behavior (per
-   `mutagen-wrd.14`): when the dropped clause is the only non-recursing
-   branch, the surviving recursive clause's guard rejects the base
-   value and the BEAM raises `CaseClauseError`. The mutator catalog
-   reflects this; the classification is intentional, not a bug.
+- A `:case_drop` mutation can remove the only base case of a guarded
+  recursive function. If the remaining guard rejects the base value,
+  the BEAM raises `CaseClauseError`. The report classifies the site
+  as `killed`.
+- Mutagen reaps timed-out work spawned by the site runner. Work a test
+  starts through a host-owned supervisor, such as
+  `Task.Supervisor.async_nolink/2` or `DynamicSupervisor.start_child/2`,
+  can outlive the timeout. The host supervisor owns those children.
 
 ## Performance
 
@@ -991,8 +996,8 @@ mix compile --warnings-as-errors
 mix test
 ```
 
-No third-party dependencies. Requires Elixir `~> 1.19` and Erlang/OTP 27
-or later for `:json` and trace sessions.
+No third-party dependencies. Requires Elixir 1.18.0 or later for ExUnit
+case registration and Erlang/OTP 27 or later for JSON and trace sessions.
 
 ### Test suite gates
 

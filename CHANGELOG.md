@@ -42,6 +42,12 @@ file for traceability.
 - The README publishes the anonymized survivor measurement and the
   follow-up across other test files. CI gating remains advisory.
 
+- Source positions preserve expressions on lines with multi-codepoint
+  graphemes in quoted text. The reporter checks the slice against the
+  original AST before using it.
+- The CLI requires Elixir 1.18.0 or later and reports unsupported runtimes
+  before starting the host. The README lists every registered abort reason.
+
 ### Report safety
 
 - Default reports count host process losses and baseline failures by
@@ -441,13 +447,10 @@ Shipped with v0.1.0 and tracked for later releases:
   - `MutagenEx.Ast` helper lift: canonical `alias_to_module/1`,
     `find_module_body/2`, `node_line/1`
   - `AstCache.load/2` categorised input + Baseline cache consumer
-
   - `MutagenEx.Mutators.Dispatch` head-atom table + enumerator
     pre-filter
   - Batched grouped-by-file prewalk for the per-site AST swap
-
   - `MutagenEx.BeamCache` per-run ETS + binary-swap restore
-
   - Bench harness, memory test, this CHANGELOG entry
 
 - **BeamCache per-run ETS + binary-swap restore.**

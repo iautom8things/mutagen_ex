@@ -15,6 +15,7 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
   @project_root Path.expand("../..", __DIR__)
 
   @tag spec: [
+         "mutagen.cli.r32",
          "mutagen.cli.r5",
          "mutagen.cli.r16",
          "mutagen.cli.r19",
@@ -49,6 +50,11 @@ defmodule MutagenEx.Integration.ArchiveInstallTest do
            "expected `Mix.Task.run(\"archive.build\")` to create #{archive_path}"
 
     {:ok, packaged_paths} = :zip.list_dir(String.to_charlist(archive_path))
+
+    refute Enum.any?(packaged_paths, fn
+             {:zip_file, name, _, _, _, _} -> Path.basename(to_string(name)) == ".elixir"
+             _ -> false
+           end)
 
     refute Enum.any?(packaged_paths, fn
              {:zip_file, name, _, _, _, _} -> to_string(name) =~ "/helper_scripts/"

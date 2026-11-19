@@ -562,6 +562,16 @@ decisions:
     On OTP releases older than 27, the CLI stops before host setup and
     writes one startup error document with
     `abort_reason: "unsupported_otp_version"` to the selected destination.
+    Encoding this document does not call OTP's `:json` module.
+
+- id: mutagen.cli.r32
+  priority: must
+  statement: |
+    The Mix project and CLI require Elixir 1.18.0 or later. An older Elixir
+    runtime stops before host setup and writes a startup error document with
+    `abort_reason: "unsupported_elixir_version"` to the selected destination.
+    The project's archive allows Mix to load the task so it can report
+    this error itself.
 ```
 
 ```spec-scenarios
@@ -1094,4 +1104,5 @@ decisions:
     - mutagen.cli.r29
     - mutagen.cli.r30
     - mutagen.cli.r31
+    - mutagen.cli.r32
 ```

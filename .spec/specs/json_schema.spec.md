@@ -153,7 +153,7 @@ Top-level keys, all present in every variant unless noted:
       subject to the same output cleaning as the other source excerpts).
       Results without that span can use the AST start and the exclusive
       `end_line` and `end_column` from mutagen.mutation_enumeration.r8.
-      If source or coordinates are unavailable, `before_source` reuses
+      If source or a verified slice is unavailable, `before_source` reuses
       the same binary as `before` (same reference under `:erts_debug.same/2`).
     `after` (string — `Macro.to_string/1` of swapped AST),
     `status` (one of: `"killed"`, `"survived"`, `"timeout"`, `"error"`),
@@ -421,16 +421,18 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r20
   priority: must
   statement: |
-    The abort_reason type in JsonReporter lists the reportable reason atoms.
-    The abort reason tables in this spec and README match that vocabulary.
-    A report abort emits the matching string and returns exit code 2.
+    The reporter maintains the abort reason vocabulary and a fixed hint for
+    every reason. The README and schema tables match the reporter's list.
+    Test builds reject unregistered abort reasons, including values passed
+    through variables. A registered abort emits its string and exit code 2.
 
 - id: mutagen.json_schema.r21
   priority: must
   statement: |
-    When a binary operator has a literal left operand and the parser does not
-    record the start of that operand, before_source uses the rendered AST
-    instead of emitting a slice starting at the operator.
+    The reporter reparses each candidate excerpt and compares the AST with
+    the site's original AST after removing metadata. If the slice is missing,
+    invalid, or describes a different expression, before_source reuses
+    the rendered original AST.
 
 - id: mutagen.json_schema.r22
   priority: must
@@ -479,8 +481,10 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     For sites enumerated from source, `before_source` is the original text
-    of the expression, including receivers of remote calls, anonymous calls
-    and field access. The aggregate and stream use the same renderer.
+    of the expression when the span can be verified under r21. This includes
+    call receivers, field access, and expressions beside or within quoted
+    text containing multi-codepoint graphemes. The aggregate and stream use
+    the same renderer.
 ```
 
 ```spec-scenarios
@@ -579,15 +583,16 @@ Top-level keys, all present in every variant unless noted:
   covers:
     - mutagen.json_schema.r12
     - mutagen.json_schema.r4
+    - mutagen.json_schema.r21
   given:
     - A `%Report{}` fixture with N completed-mutation results.
-    - "Some results carry `end_line`/`end_column` and `source_text` (slice path); others carry `end_line: nil` (fallback path)."
+    - Some results carry a valid byte span or legacy coordinates into cached source, and some spans select a different expression.
   when:
-    - "`mutation_to_report/2` renders the wire-shape map."
+    - JsonReporter renders the results.
   then:
-    - For every result on the FALLBACK path (`end_line == nil`), the rendered `before` and `before_source` fields share the SAME binary reference (`:erts_debug.same/2` returns true) — the `Macro.to_string(original_ast)` output is aliased into both.
-    - For every result on the SLICE path (`end_line` non-nil), the rendered `before_source` is a verbatim slice of `source_text` by `{line, column, end_line, end_column}` and matches a hand-cut source slice byte-for-byte.
-    - The total `Macro.to_string/1` invocation count over the render pass is AT MOST `2 * N` regardless of how the N results split between slice and fallback (the slice path uses byte indexing, not `Macro.to_string`).
+    - A slice that parses to the original expression matches the hand-cut source bytes.
+    - Missing or invalid slices share the rendered original AST binary with before.
+    - The renderer calls Macro.to_string/1 at most twice per result.
 
 - id: mutagen.json_schema.s16a
   covers:
@@ -845,4 +850,5 @@ exception names. Pattern redaction is best-effort.
 | `unrecognised_target` |
 | `unrecoverable_restore_failure` |
 | `unsafe_json_path` |
+| `unsupported_elixir_version` |
 | `unsupported_otp_version` |
