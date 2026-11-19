@@ -13,6 +13,12 @@ file for traceability.
 
 ### Added
 
+- **Mutator confidence.** Each aggregate mutation result and streaming
+  result line carries `"confidence": "high"` or `"confidence": "low"`.
+  CI gates can filter survivors by confidence. The field is part of report
+  schema version `"2"`. `with_swap` is rated low and all other mutators
+  default to high.
+
 - **Parallel mutation dispatch (`--max-concurrency`).** The mutation phase
   can now run per-site work in parallel. The default stays `1` (fully
   serial, identical to v0.1.0) because the in-process pipeline shares
@@ -65,6 +71,11 @@ file for traceability.
   cleans up state for another, skipping it can change later mutants'
   verdicts, warnings, and taint. These suites already depend on the
   ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
+
+- **Fewer `with_swap` survivors with equivalent behavior.** The swap now
+  requires two potentially failing leading matches. It skips pairs with
+  the same failure value by construction and pairs whose only `else` arm
+  ignores the failure with a wildcard. The report records each skip reason.
 
 - **Faster mutation runs.** A round of AST and bytecode-handling work made
   the mutation pipeline measurably faster — roughly a 1.66× wall-clock

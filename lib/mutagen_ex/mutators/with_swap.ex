@@ -34,6 +34,9 @@ defmodule MutagenEx.Mutators.WithSwap do
   def name, do: :with_swap
 
   @impl Mutators
+  def confidence, do: :low
+
+  @impl Mutators
   def match?({:with, _, [{:<-, _, [_, _]}, {:<-, _, [_, _]} | _]}), do: true
 
   def match?(_), do: false
