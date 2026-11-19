@@ -4,152 +4,125 @@ defmodule MutagenEx.Mutators.WithSwap do
 
   Per `mutagen.mutators` catalog entry 5.
 
-  ## AST shape
+  The two arrows must lead the `with`. Later clauses and the `do` and
+  `else` blocks stay in place.
 
-  Elixir parses `with C1 <- E1, C2 <- E2, do: body` as
+  Validation looks for a change in which failed match reaches the caller
+  or `else` block. It checks these rules in order:
 
-      {:with, meta, [c1_clause, c2_clause, [do: body]]}
+    * `:bound_var_used_before_binding` if the moved clause's expression,
+      guard or pin references a binding introduced by the clause now after it.
+    * `:insufficient_refutable_patterns` if either arrow always matches
+      by syntax. This covers unguarded variables and wildcards, and literal
+      patterns with a syntactically identical literal expression.
+    * `:indistinguishable_failures` if both expressions are the same
+      quoted literal or the same variable untouched by either pattern.
+    * `:else_ignores_failure` if `else` consists of one `_ -> ...` arm.
 
-  where each `cN_clause` is `{:<-, meta, [pattern, expression]}`. Plain
-  expression clauses (no arrow, used as boolean filters) are also legal
-  AST children but are not the swap target.
-
-  ## Swap
-
-  We swap the first two consecutive `<-` clauses (positions 0 and 1 of the
-  clause list). Non-`<-` filters between them are not the catalog's
-  responsibility in v1.
-
-  ## Validation
-
-  `validate/1` checks for the most common no-op / structural problems:
-
-    * `:bound_var_used_before_binding` — when after the swap, the second
-      clause's expression references a variable that the first clause's
-      pattern (now in second position) used to bind. Covers scenario
-      `mutagen.mutators.s2`.
-    * `:structurally_invalid` — the swap is not actually a `with` node with
-      two leading `<-` clauses.
-
-  This is an over-approximation: real escape analysis would require name
-  resolution across the file. The simple "free variable in second
-  expression, bound by second clause's pattern" check catches the common
-  case in s2 without false negatives on it.
+  Other pairs with two potentially failing matches are kept. Guards and
+  pins can fail. Calls are opaque, even when they have identical syntax.
+  This heuristic can miss changes in side effects, exceptions, or variable
+  rebinding caused by reordering. A kept pair can still return the same
+  failure at runtime or rarely fail both checks on the same input.
   """
 
   @behaviour MutagenEx.Mutators
 
-  @impl true
+  alias MutagenEx.Mutators
+
+  @impl Mutators
   def name, do: :with_swap
 
-  @impl true
-  def match?({:with, _meta, clauses}) when is_list(clauses) do
-    case extract_arrow_pair(clauses) do
-      {_first, _second, _rest} -> true
-      :error -> false
-    end
-  end
+  @impl Mutators
+  def match?({:with, _, [{:<-, _, [_, _]}, {:<-, _, [_, _]} | _]}), do: true
 
   def match?(_), do: false
 
-  @impl true
-  def mutate({:with, meta, clauses}) do
-    {first, second, rest_before_do} = extract_arrow_pair_strict(clauses)
-    # rest_before_do is the keyword list `[do: ...]` (and possibly `:else`) at the tail.
-    {:with, meta, [second, first | rest_before_do]}
+  @impl Mutators
+  def mutate({:with, meta, [{:<-, _, [_, _]} = first, {:<-, _, [_, _]} = second | rest]}) do
+    {:with, meta, [second, first | rest]}
   end
 
-  @impl true
-  def validate({:with, _meta, clauses}) when is_list(clauses) do
-    case clauses do
-      [
-        {:<-, _, [_first_pattern, first_expr]},
-        {:<-, _, [second_pattern, _second_expr]} | _rest
-      ] ->
-        # After the swap, the (newly) first clause's *expression* runs before
-        # the (newly) second clause's *pattern* has bound its variables. If
-        # any name appears free in the first expression AND is bound by the
-        # second pattern, the swap moved the use-before-bind.
-        bound_by_second = pattern_vars(second_pattern)
-        free_in_first_expr = free_vars(first_expr)
+  @impl Mutators
+  def validate(
+        {:with, _, [{:<-, _, [first, first_expr]}, {:<-, _, [second, second_expr]} | rest]}
+      ) do
+    {first_bindings, first_refs} = pattern_vars(first)
+    {second_bindings, _second_refs} = pattern_vars(second)
+    first_refs = MapSet.union(first_refs, free_vars(first_expr))
 
-        if MapSet.disjoint?(bound_by_second, free_in_first_expr) do
-          :ok
-        else
-          {:skip, :bound_var_used_before_binding}
-        end
+    cond do
+      not MapSet.disjoint?(second_bindings, first_refs) ->
+        {:skip, :bound_var_used_before_binding}
 
-      _ ->
-        {:skip, :structurally_invalid}
+      always_matches?(first, first_expr) or always_matches?(second, second_expr) ->
+        {:skip, :insufficient_refutable_patterns}
+
+      same_value?(first_expr, second_expr, MapSet.union(first_bindings, second_bindings)) ->
+        {:skip, :indistinguishable_failures}
+
+      ignores_failure?(List.last(rest)) ->
+        {:skip, :else_ignores_failure}
+
+      true ->
+        :ok
     end
   end
 
   def validate(_), do: {:skip, :structurally_invalid}
 
-  # --- helpers ---
-
-  defp extract_arrow_pair(clauses) do
-    case extract_arrow_pair_strict_safe(clauses) do
-      {:ok, triple} -> triple
-      :error -> :error
-    end
+  defp always_matches?({name, _, context}, _expr) when is_atom(name) and is_atom(context) do
+    not reserved_name?(name)
   end
 
-  defp extract_arrow_pair_strict(clauses) do
-    {:ok, triple} = extract_arrow_pair_strict_safe(clauses)
-    triple
+  defp always_matches?(pattern, expr), do: same_literal?(pattern, expr)
+
+  defp same_value?({name, _, context}, {name, _, context}, bindings)
+       when is_atom(name) and is_atom(context) do
+    not reserved_name?(name) and not MapSet.member?(bindings, name)
   end
 
-  defp extract_arrow_pair_strict_safe([
-         {:<-, _, [_, _]} = first,
-         {:<-, _, [_, _]} = second
-         | rest
-       ]) do
-    {:ok, {first, second, rest}}
+  defp same_value?(left, right, _bindings), do: same_literal?(left, right)
+
+  defp same_literal?(left, right) do
+    Macro.quoted_literal?(left) and Mutators.normalize(left) === Mutators.normalize(right)
   end
 
-  defp extract_arrow_pair_strict_safe(_), do: :error
+  defp ignores_failure?(options) when is_list(options) do
+    match?([{:->, _, [[{:_, _, context}], _]}] when is_atom(context), Keyword.get(options, :else))
+  end
 
-  # Variables introduced by a pattern (`{:ok, a}` binds `a`, `_x` binds nothing).
+  defp ignores_failure?(_), do: false
+
+  defp pattern_vars({:when, _, [pattern, guard]}) do
+    {bindings, pins} = pattern_vars(pattern)
+    {bindings, MapSet.union(pins, MapSet.difference(free_vars(guard), bindings))}
+  end
+
   defp pattern_vars(pattern) do
-    pattern
-    |> collect_vars()
-    |> Enum.reject(&underscore?/1)
-    |> MapSet.new()
-  end
-
-  # Variables referenced (not pattern-bound) by an expression. Over-approximates
-  # by treating every `{name, _, ctx}` where `name` is an atom and `args` is an
-  # atom (i.e. a bare variable reference) as a free variable. Function calls
-  # like `f()` have `args` as a list, not an atom — they are not treated as
-  # variable references.
-  defp free_vars(expr) do
-    expr
-    |> collect_vars()
-    |> Enum.reject(&underscore?/1)
-    |> MapSet.new()
-  end
-
-  defp collect_vars(ast) do
-    {_ast, acc} =
-      Macro.prewalk(ast, [], fn
-        {name, _meta, ctx} = node, acc when is_atom(name) and is_atom(ctx) ->
-          # Bare variable reference. Skip kernel pseudo-vars like `__MODULE__`.
-          if reserved_name?(name) do
-            {node, acc}
-          else
-            {node, [name | acc]}
-          end
-
-        node, acc ->
-          {node, acc}
+    {unpinned, pins} =
+      Macro.prewalk(pattern, MapSet.new(), fn
+        {:^, _, [var]}, pins -> {nil, MapSet.union(pins, free_vars(var))}
+        node, pins -> {node, pins}
       end)
 
-    acc
+    {free_vars(unpinned), pins}
   end
 
-  defp underscore?(name) do
-    name == :_ or String.starts_with?(Atom.to_string(name), "_")
+  # Approximate references without resolving scopes inside expressions.
+  defp free_vars(expr) do
+    {_ast, vars} =
+      Macro.prewalk(expr, MapSet.new(), fn
+        {name, _meta, ctx} = node, vars when is_atom(name) and is_atom(ctx) ->
+          if name == :_ or reserved_name?(name),
+            do: {node, vars},
+            else: {node, MapSet.put(vars, name)}
+
+        node, vars ->
+          {node, vars}
+      end)
+
+    vars
   end
 
   @reserved [
