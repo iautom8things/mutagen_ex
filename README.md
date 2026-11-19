@@ -273,16 +273,25 @@ and `mix mutagen --scope file.ex:Module` are both **explicitly rejected**
 By default, a mutant is killed when ExUnit records a test failure before
 the per-mutant deadline. This includes a mutant whose full suite would
 time out in a later test. If the deadline arrives before any failure,
-the mutant is classified as a timeout. Surviving mutants, baseline,
-and coverage run the full cited suite. Use `--no-fail-fast` for full
-per-mutant runs and the historical timeout verdicts. JSON reports the
-selected mode as `meta.fail_fast`.
+the mutant is classified as a timeout. Baseline and coverage have no
+failure cap. JSON reports the mode as `meta.fail_fast` and reports
+`true` if argument parsing fails before a mode is available.
 
-ExUnit can still run teardown and a later module's `setup_all` in an
-already-started async group after the first failure. Per-mutant
-`warnings` and `tainted_predecessors` can differ between modes because
-skipped tests may emit stderr or affect shared state. A shorter mutation
-phase can complete more sites within the same `--budget-ms`.
+Fail-fast preserves survivors and existing kills when tests run
+independently. If one test sets up or cleans up state for another, a
+failed run can skip that test and change the next mutant's verdict, even
+if the next mutant runs every test. These suites already depend on
+ExUnit's test ordering when the seed changes. Use `--no-fail-fast` to
+run the full suite per mutant. Skipped tests can also change per-mutant
+`warnings` and `tainted_predecessors`. A shorter mutation phase can
+complete more sites within the same `--budget-ms`.
+
+Mutagen sets the seed, serial execution, and the failure cap after test
+files load. Each phase keeps the loaded host formatters and adds its
+own failure formatter when needed. Other host options, such as test
+timeouts and log capture, stay active. The resolved test filter supplies
+include and exclude for each phase. Mutagen restores the host settings
+after each phase.
 
 ## Parallel mode, streaming, and progress
 

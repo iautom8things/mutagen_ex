@@ -23,19 +23,17 @@ defmodule MutagenEx.Test.FacadesTest do
   facade exists to provide.
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   describe "MutagenEx.Test.ExUnit (default ExUnitFacade impl)" do
     test "declares the behaviour" do
       assert MutagenEx.Test.ExUnitFacade in behaviours(MutagenEx.Test.ExUnit)
     end
 
-    test "exports configure/1 and run/0 (the documented callbacks)" do
+    test "exports run/0" do
       callbacks = MapSet.new(MutagenEx.Test.ExUnitFacade.behaviour_info(:callbacks))
-      assert MapSet.member?(callbacks, {:configure, 1})
       assert MapSet.member?(callbacks, {:run, 0})
 
-      assert exports?(MutagenEx.Test.ExUnit, :configure, 1)
       assert exports?(MutagenEx.Test.ExUnit, :run, 0)
     end
   end
@@ -45,11 +43,13 @@ defmodule MutagenEx.Test.FacadesTest do
       assert MutagenEx.Test.ExUnitServerFacade in behaviours(MutagenEx.Test.ExUnitServer)
     end
 
-    test "exports add_module/2" do
+    test "exports add_module/2 and discard_pending_modules/0" do
       callbacks = MapSet.new(MutagenEx.Test.ExUnitServerFacade.behaviour_info(:callbacks))
       assert MapSet.member?(callbacks, {:add_module, 2})
 
       assert exports?(MutagenEx.Test.ExUnitServer, :add_module, 2)
+      assert MapSet.member?(callbacks, {:discard_pending_modules, 0})
+      assert exports?(MutagenEx.Test.ExUnitServer, :discard_pending_modules, 0)
     end
   end
 
@@ -204,15 +204,15 @@ defmodule MutagenEx.Test.FacadesTest do
       @behaviour MutagenEx.Test.ExUnitFacade
 
       @impl MutagenEx.Test.ExUnitFacade
-      def configure(_), do: :ok
-
-      @impl MutagenEx.Test.ExUnitFacade
       def run, do: %{failures: 0, total: 1, excluded: 0, skipped: 0}
     end
 
     defmodule NoopExUnitServer do
       @moduledoc false
       @behaviour MutagenEx.Test.ExUnitServerFacade
+
+      @impl MutagenEx.Test.ExUnitServerFacade
+      def discard_pending_modules, do: :ok
 
       @impl MutagenEx.Test.ExUnitServerFacade
       def add_module(_, _), do: :ok

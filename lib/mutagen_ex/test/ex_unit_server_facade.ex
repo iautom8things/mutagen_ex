@@ -22,4 +22,7 @@ defmodule MutagenEx.Test.ExUnitServerFacade do
     %{async?: false, group: nil, parameterize: nil}
   """
   @callback add_module(module :: module(), cfg :: map()) :: any()
+
+  @doc "Empty pending registrations without running tests."
+  @callback discard_pending_modules() :: :ok
 end

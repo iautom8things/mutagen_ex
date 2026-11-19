@@ -1,9 +1,11 @@
 defmodule MutagenEx.FailFastTest do
   use ExUnit.Case, async: false
 
-  alias MutagenEx.Test.ExUnitServer
+  alias MutagenEx.TestModuleDiscovery
+  alias MutagenEx.TestSelector.TestFilter
 
-  @fixture Path.expand("../fixtures/lane_project/fail_fast", __DIR__)
+  @fixtures Path.expand("../fixtures/lane_project", __DIR__)
+  @fixture Path.join(@fixtures, "fail_fast")
   @source "lib/arithmetic.ex"
   @tests "test/arithmetic_test.exs"
   @test_steps [:first, :same_module_tail, :next_module_tail]
@@ -31,34 +33,31 @@ defmodule MutagenEx.FailFastTest do
   end
 
   setup_all do
+    compile_fixture(@fixture, @source)
+    :ok
+  end
+
+  defp compile_fixture(root, source) do
     ebin = Path.join(System.tmp_dir!(), "fail_fast_#{System.unique_integer([:positive])}")
     File.mkdir_p!(ebin)
     Code.append_path(ebin)
-
-    File.cd!(@fixture, fn ->
-      compiler_options = Code.compiler_options()
-
-      try do
-        Code.compiler_options(debug_info: true)
-
-        assert {:ok, _, _} =
-                 Kernel.ParallelCompiler.compile_to_path([@source], ebin,
-                   return_diagnostics: true
-                 )
-      after
-        Code.compiler_options(compiler_options)
-      end
-
-      Code.require_file(@tests)
-      ExUnitServer.discard_pending_modules()
-    end)
+    compiler_options = Code.compiler_options()
 
     on_exit(fn ->
       Code.delete_path(ebin)
       File.rm_rf!(ebin)
     end)
 
-    :ok
+    try do
+      Code.compiler_options(debug_info: true)
+
+      File.cd!(root, fn ->
+        assert {:ok, _, _} =
+                 Kernel.ParallelCompiler.compile_to_path([source], ebin, return_diagnostics: true)
+      end)
+    after
+      Code.compiler_options(compiler_options)
+    end
   end
 
   setup %{scenario: scenario} do
@@ -70,7 +69,14 @@ defmodule MutagenEx.FailFastTest do
     })
 
     # Both a finite cap and custom formatters must survive all pipeline exits.
-    ExUnit.configure(max_failures: 2, formatters: [])
+    ExUnit.configure(
+      max_failures: 2,
+      formatters: [],
+      trace: false,
+      slowest: 0,
+      slowest_modules: 0
+    )
+
     ExUnit.after_suite(&after_suite/1)
 
     on_exit(fn ->
@@ -87,8 +93,8 @@ defmodule MutagenEx.FailFastTest do
   @moduletag scenario: :normal
 
   test "three consecutive kills stop early and the next survivor runs the full suite" do
-    {full, full_traces, full_ms} = run_pipeline(["--no-fail-fast"])
-    {capped, capped_traces, capped_ms} = run_pipeline([])
+    {full, full_traces, _} = run_pipeline(["--no-fail-fast"])
+    {capped, capped_traces, _} = run_pipeline([])
 
     assert full["meta"]["fail_fast"] == false
     assert capped["meta"]["fail_fast"] == true
@@ -114,16 +120,21 @@ defmodule MutagenEx.FailFastTest do
              ExUnit.CaptureIO.with_io(:stderr, fn ->
                ExUnit.CaptureIO.with_io(fn -> ExUnit.run() end)
              end)
+  end
 
-    if System.get_env("MUTAGEN_FAIL_FAST_TIMING") do
-      IO.puts("Mutation phase, full suite: #{full_ms} ms. Fail-fast: #{capped_ms} ms.")
-    end
+  @tag :fail_fast_benchmark
+  @tag scenario: :benchmark
+  test "time mutation with a 100 ms trailing test" do
+    {full, _, full_ms} = run_pipeline(["--no-fail-fast"])
+    {capped, _, capped_ms} = run_pipeline([])
+    assert verdicts(full) == verdicts(capped)
+    IO.puts("Mutation phase, full suite: #{full_ms} ms. Fail-fast: #{capped_ms} ms.")
   end
 
   @tag scenario: :after_failure
   test "a failed test followed by a slow test changes only timeout to killed" do
-    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "600"])
-    {full, full_traces, _} = run_pipeline(["--timeout-ms", "600", "--no-fail-fast"])
+    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "250"])
+    {full, full_traces, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
 
     assert [{id, "timeout"} | rest] = verdicts(full)
     assert [{^id, "killed"} | ^rest] = verdicts(capped)
@@ -134,8 +145,8 @@ defmodule MutagenEx.FailFastTest do
 
   @tag scenario: :before_failure
   test "a deadline before any recorded failure stays a timeout in both modes" do
-    {capped, traces, _} = run_pipeline(["--timeout-ms", "600"])
-    {full, _, _} = run_pipeline(["--timeout-ms", "600", "--no-fail-fast"])
+    {capped, traces, _} = run_pipeline(["--timeout-ms", "250"])
+    {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
 
     assert [{_, "timeout"}, {_, "killed"}, {_, "killed"}, {_, "survived"}] = verdicts(capped)
     assert verdicts(full) == verdicts(capped)
@@ -144,8 +155,8 @@ defmodule MutagenEx.FailFastTest do
 
   @tag scenario: :slow_cleanup
   test "a failure recorded before the deadline is a kill even if suite cleanup takes longer" do
-    {capped, _, _} = run_pipeline(["--timeout-ms", "600"])
-    {full, _, _} = run_pipeline(["--timeout-ms", "600", "--no-fail-fast"])
+    {capped, _, _} = run_pipeline(["--timeout-ms", "250"])
+    {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
 
     assert [{id, "timeout"} | rest] = verdicts(full)
     assert [{^id, "killed"} | ^rest] = verdicts(capped)
@@ -187,6 +198,7 @@ defmodule MutagenEx.FailFastTest do
              ]
            }
 
+    assert report["details"]["failures"] == report["baseline"]["failures"]
     assert 5 in report["coverage"]["covered_lines"][@source]
     phase = test_steps(:infinity) ++ [{:stats, %{failures: 2, total: 3, excluded: 0, skipped: 0}}]
     assert Probe.drain() == phase ++ phase
@@ -198,7 +210,7 @@ defmodule MutagenEx.FailFastTest do
     assert_raise RuntimeError, "mutation phase interrupted", fn ->
       MutagenEx.MutationRunner.run(%{
         seed: 0,
-        timeout_ms: 600,
+        timeout_ms: 250,
         test_filter: %MutagenEx.TestSelector.TestFilter{include: [], exclude: [], files: []},
         ast_cache: %{},
         sites: [],
@@ -214,13 +226,189 @@ defmodule MutagenEx.FailFastTest do
     assert Map.new(Application.get_all_env(:ex_unit)) == before
   end
 
+  test "skipping another test's cleanup can kill later mutants that would survive" do
+    fixture = fixture("fail_fast_state", "calc")
+    on_exit(fn -> Application.delete_env(:fail_fast_state, :flag) end)
+
+    full = run_fixture(fixture, ["--no-fail-fast"])
+    refute Application.get_env(:fail_fast_state, :flag)
+    capped = run_fixture(fixture, [])
+
+    assert verdict_changes(full, capped) == [
+             {"killed", "killed"},
+             {"survived", "killed"},
+             {"survived", "killed"}
+           ]
+
+    assert Application.get_env(:fail_fast_state, :flag)
+  end
+
+  test "skipping another test's cleanup can let a later mutant survive" do
+    fixture = fixture("fail_fast_cleanup", "calc")
+    Application.put_env(:fail_fast_cleanup, :strict, true)
+    on_exit(fn -> Application.delete_env(:fail_fast_cleanup, :strict) end)
+
+    full = run_fixture(fixture, ["--no-fail-fast"])
+    assert Application.get_env(:fail_fast_cleanup, :strict)
+    capped = run_fixture(fixture, [])
+
+    assert [{"killed", "killed"}, {"killed", "survived"} | _] = verdict_changes(full, capped)
+  end
+
+  test "a formatter startup timeout drains ExUnit registrations for the next mutant" do
+    fixture = fixture("fail_fast_drain", "num")
+    ExUnit.configure(formatters: [__MODULE__.SlowFormatter])
+
+    for mode <- [[], ["--no-fail-fast"]] do
+      counter = :counters.new(1, [])
+      ExUnit.configure(fail_fast_formatter_counter: counter)
+
+      report = run_fixture(fixture, ["--timeout-ms", "150" | mode])
+      assert Enum.map(verdicts(report), &elem(&1, 1)) == ~w(timeout killed killed)
+      assert Enum.at(report["mutation"]["results"], 1)["tainted_predecessors"]
+      assert :counters.get(counter, 1) == 5
+      assert %{total: 0, failures: 0} = ExUnit.run()
+    end
+  end
+
+  test "cold baseline records invalid tests and failed module teardown" do
+    root = Path.join(@fixtures, "fail_fast_baseline")
+    cfg = baseline_config(root, "test/shapes_test.exs")
+
+    assert {:error, :baseline_red, %{failed: 4, passed: 1, failures: failures}} =
+             MutagenEx.Baseline.run(cfg)
+
+    assert Enum.sort(failures) == [
+             {FailFastBaseline.PlainTest, :"test d fails"},
+             {FailFastBaseline.SetupAllTest, :"test a"},
+             {FailFastBaseline.SetupAllTest, :"test b"},
+             {FailFastBaseline.TeardownTest, :"test c"}
+           ]
+  end
+
+  test "file configuration cannot override the phase options and survives afterward" do
+    root = Path.join(@fixtures, "fail_fast_host")
+    file = Path.join(root, "test/red_a_test.exs")
+    cfg = baseline_config(root, "test/red_a_test.exs")
+
+    {baseline, _io} = ExUnit.CaptureIO.with_io(fn -> MutagenEx.Baseline.run(cfg) end)
+    assert {:error, :baseline_red, %{failed: 2, failures: [_, _]}} = baseline
+    assert_host_settings()
+    assert_run_settings(true)
+
+    Code.unrequire_files([file])
+    :code.purge(FailFastHost.RedATest)
+    :code.delete(FailFastHost.RedATest)
+    on_exit(fn -> Code.unrequire_files([file]) end)
+
+    {coverage, _io} =
+      ExUnit.CaptureIO.with_io(fn ->
+        MutagenEx.CoverageRunner.run(Map.put(cfg, :in_scope_modules, []))
+      end)
+
+    assert {:ok, _} = coverage
+    assert_host_settings()
+    assert_run_settings(false)
+  end
+
+  test "early CLI errors still report the default mode" do
+    assert {:aborted, :unknown_flag, _} =
+             Mix.Tasks.Mutagen.run(["--bogus"], %{io: __MODULE__.Capture})
+
+    assert_receive {:mutagen_output, 2, output}
+    assert %{"version" => "1", "meta" => %{"fail_fast" => true}} = :json.decode(output)
+  end
+
+  defp assert_host_settings do
+    assert %{
+             max_failures: 1,
+             seed: 9,
+             max_cases: 8,
+             formatters: [ExUnit.CLIFormatter],
+             include: [:host_only],
+             exclude: [:test],
+             timeout: 9_999
+           } =
+             Map.new(Application.get_all_env(:ex_unit))
+  end
+
+  defp assert_run_settings(collect_failures?) do
+    assert [{:host_options, first}, {:host_options, second}, {:stats, %{total: 2, failures: 2}}] =
+             Probe.drain()
+
+    assert first == second
+
+    assert %{
+             max_failures: :infinity,
+             seed: 0,
+             max_cases: 1,
+             include: [],
+             exclude: [],
+             timeout: 9_999
+           } = first
+
+    assert MutagenEx.Test.FailureFormatter in first.formatters == collect_failures?
+    assert ExUnit.CLIFormatter in first.formatters
+  end
+
+  defp baseline_config(root, tests) do
+    file = Path.join(root, tests)
+
+    %{
+      seed: 0,
+      test_filter: %TestFilter{files: [file], include: [], exclude: []},
+      test_modules: TestModuleDiscovery.discover([file])
+    }
+  end
+
+  defp fixture(name, basename) do
+    root = Path.join(@fixtures, name)
+    source = "lib/#{basename}.ex"
+    tests = "test/#{basename}_test.exs"
+    compile_fixture(root, source)
+    {root, source, tests}
+  end
+
+  defp run_fixture(fixture, extra) do
+    {output, nil, nil} = invoke(extra, 0, fixture, %{})
+    report = :json.decode(output)
+    assert report["aborted"] == false
+    assert report["mutation"]["compile_errors"] == []
+    report
+  end
+
+  defp verdict_changes(full, capped) do
+    assert Enum.map(verdicts(full), &elem(&1, 0)) == Enum.map(verdicts(capped), &elem(&1, 0))
+
+    Enum.zip_with(verdicts(full), verdicts(capped), fn {_, before}, {_, after_status} ->
+      {before, after_status}
+    end)
+  end
+
+  defmodule SlowFormatter do
+    use GenServer
+
+    @impl GenServer
+    def init(opts) do
+      counter = Keyword.fetch!(opts, :fail_fast_formatter_counter)
+
+      :counters.add(counter, 1, 1)
+      if :counters.get(counter, 1) == 3, do: Process.sleep(500)
+
+      {:ok, nil}
+    end
+
+    @impl GenServer
+    def handle_cast(_, state), do: {:noreply, state}
+  end
+
   defp after_suite(stats) do
     if Process.whereis(Probe) do
       Probe.record({:stats, stats})
 
       if Probe.scenario() == :slow_cleanup and
            apply(FailFastFixture.Arithmetic, :first, [2, 3]) != 5 do
-        Process.sleep(1500)
+        Process.sleep(800)
       end
     end
   end
@@ -238,15 +426,19 @@ defmodule MutagenEx.FailFastTest do
   end
 
   defp invoke(extra, exit_code) do
+    invoke(extra, exit_code, {@fixture, @source, @tests}, %{mutation: __MODULE__.TraceMutation})
+  end
+
+  defp invoke(extra, exit_code, {root, source, tests}, dispatch) do
     before = Map.new(Application.get_all_env(:ex_unit))
-    args = ["--scope", @source, "--tests", @tests, "--no-progress" | extra]
-    dispatch = %{io: __MODULE__.Capture, mutation: __MODULE__.TraceMutation}
+    args = ["--scope", source, "--tests", tests, "--no-progress" | extra]
+    dispatch = Map.put(dispatch, :io, __MODULE__.Capture)
     Process.delete(:fail_fast_run)
 
     {{_result, stream}, _stderr} =
       ExUnit.CaptureIO.with_io(:stderr, fn ->
         ExUnit.CaptureIO.with_io(fn ->
-          File.cd!(@fixture, fn -> Mix.Tasks.Mutagen.run(args, dispatch) end)
+          File.cd!(root, fn -> Mix.Tasks.Mutagen.run(args, dispatch) end)
         end)
       end)
 

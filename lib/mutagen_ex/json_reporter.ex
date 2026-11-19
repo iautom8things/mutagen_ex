@@ -424,7 +424,12 @@ defmodule MutagenEx.JsonReporter do
   end
 
   defp details_to_wire(nil), do: %{}
-  defp details_to_wire(%{} = details), do: detail_value_to_wire(details)
+
+  defp details_to_wire(%{} = details) do
+    details
+    |> Map.replace_lazy(:failures, fn failures -> Enum.map(failures, &failure_to_wire/1) end)
+    |> detail_value_to_wire()
+  end
 
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
@@ -452,21 +457,17 @@ defmodule MutagenEx.JsonReporter do
   # `meta` is always populated even on early errors (r5: "we know our
   # tool/elixir/otp version even on early error").
   @doc false
-  def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme}
+  def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme, "fail_fast" => true}
 
   def meta_to_wire(meta) when is_map(meta) do
-    wire = %{
+    %{
       "id_scheme" => @id_scheme,
       "tool_version" => Map.get(meta, :tool_version),
       "elixir_version" => Map.get(meta, :elixir_version),
       "otp_version" => Map.get(meta, :otp_version),
-      "exunit_seed" => Map.get(meta, :exunit_seed)
+      "exunit_seed" => Map.get(meta, :exunit_seed),
+      "fail_fast" => Map.get(meta, :fail_fast, true)
     }
-
-    case meta do
-      %{fail_fast: fail_fast} -> Map.put(wire, "fail_fast", fail_fast)
-      %{} -> wire
-    end
   end
 
   defp scope_to_wire(nil), do: []

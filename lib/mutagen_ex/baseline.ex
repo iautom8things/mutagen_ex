@@ -117,8 +117,9 @@ defmodule MutagenEx.Baseline do
   @impl MutagenEx.Pipeline.BaselineFacade
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
-    with {:ok, cfg} <- normalise(input) do
-      collect_failures(cfg)
+    with {:ok, cfg} <- normalise(input),
+         :ok <- load_test_files(cfg) do
+      run_cited_tests(cfg)
     end
   end
 
@@ -126,35 +127,26 @@ defmodule MutagenEx.Baseline do
   # Pipeline steps
   # ---------------------------------------------------------------------------
 
-  defp collect_failures(%{failure_collector: _} = cfg), do: run_cited_tests(cfg, [])
-
-  defp collect_failures(cfg) do
+  defp run_cited_tests(cfg) do
     failures = :ets.new(:baseline_failures, [:ordered_set, :public])
 
     try do
-      formatter_options =
-        MutagenEx.Test.FailureFormatter.options(fn _runner, test ->
+      options =
+        MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
+        |> MutagenEx.Test.FailureFormatter.attach(fn _runner, test ->
           :ets.insert(failures, {System.unique_integer([:monotonic]), {test.module, test.name}})
         end)
 
-      collector = fn -> for {_, name} <- :ets.tab2list(failures), do: name end
-      run_cited_tests(Map.put(cfg, :failure_collector, collector), formatter_options)
+      :ok = register_test_modules(cfg)
+
+      with {:ok, result} <-
+             MutagenEx.Test.ExUnit.with_options(options, fn -> run_exunit(cfg) end) do
+        failure_list = for {_, failure} <- :ets.tab2list(failures), do: failure
+        classify(result, cfg, failure_list)
+      end
     after
       :ets.delete(failures)
     end
-  end
-
-  defp run_cited_tests(cfg, formatter_options) do
-    ex_unit = Map.get(cfg, :ex_unit, MutagenEx.Test.ExUnit)
-    options = MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
-
-    MutagenEx.Test.ExUnit.with_options(ex_unit, options ++ formatter_options, fn ->
-      with :ok <- load_test_files(cfg),
-           :ok <- register_test_modules(cfg),
-           {:ok, result} <- run_exunit(cfg) do
-        classify(result, cfg)
-      end
-    end)
   end
 
   defp load_test_files(cfg) do
@@ -187,13 +179,7 @@ defmodule MutagenEx.Baseline do
   # does per site.
   defp register_test_modules(cfg) do
     server = Map.get(cfg, :ex_unit_server, MutagenEx.Test.ExUnitServer)
-    test_modules = Map.get(cfg, :test_modules, [])
-
-    Enum.each(test_modules, fn {mod, mod_cfg} ->
-      server.add_module(mod, mod_cfg)
-    end)
-
-    :ok
+    MutagenEx.Test.ExUnitServer.register_cited_modules(server, Map.get(cfg, :test_modules, []))
   end
 
   defp run_exunit(cfg) do
@@ -214,7 +200,7 @@ defmodule MutagenEx.Baseline do
     end
   end
 
-  defp classify(exunit_result, cfg) when is_map(exunit_result) do
+  defp classify(exunit_result, cfg, failure_list) when is_map(exunit_result) do
     failures = Map.get(exunit_result, :failures, 0)
     total = Map.get(exunit_result, :total, 0)
 
@@ -224,8 +210,6 @@ defmodule MutagenEx.Baseline do
         total - failures - Map.get(exunit_result, :excluded, 0) -
           Map.get(exunit_result, :skipped, 0)
       )
-
-    failure_list = cfg.failure_collector.()
 
     warnings = async_warnings(cfg)
 
@@ -249,7 +233,7 @@ defmodule MutagenEx.Baseline do
     end
   end
 
-  defp classify(other, _cfg) do
+  defp classify(other, _cfg, _failures) do
     {:error, :ex_unit_run_failed,
      %{
        message: "ExUnit.run/0 returned an unexpected shape (#{inspect(other)})"

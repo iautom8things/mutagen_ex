@@ -51,8 +51,6 @@ defmodule MutagenEx.MutationRunnerParallelTest do
     def set_outcome(outcome, sleep_ms \\ 0),
       do: Agent.update(@agent, fn s -> %{s | outcome: outcome, sleep_ms: sleep_ms} end)
 
-    def configure(_opts), do: :ok
-
     def run do
       {outcome, sleep_ms} =
         Agent.get(@agent, fn s -> {s.outcome, s.sleep_ms} end)
@@ -64,6 +62,8 @@ defmodule MutagenEx.MutationRunnerParallelTest do
 
   defmodule ExUnitServerStub do
     @moduledoc false
+    def discard_pending_modules, do: :ok
+
     def add_module(_mod, _cfg), do: :ok
   end
 

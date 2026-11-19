@@ -7,7 +7,7 @@ defmodule FailFastFixture.EarlyTest do
   test "exact arithmetic" do
     scenario = Probe.record_test(:first)
     if scenario == :red, do: flunk("first baseline failure")
-    if scenario == :before_failure and Arithmetic.first(2, 3) != 5, do: Process.sleep(1500)
+    if scenario == :before_failure and Arithmetic.first(2, 3) != 5, do: Process.sleep(800)
     if scenario == :budget and Arithmetic.first(2, 3) != 5, do: Process.sleep(50)
     assert_original_arithmetic()
   end
@@ -36,8 +36,10 @@ defmodule FailFastFixture.TailTest do
     assert is_number(Arithmetic.loose(2, 3))
 
     if scenario == :after_failure and Arithmetic.first(2, 3) != 5 do
-      Process.sleep(1500)
-    else
+      Process.sleep(800)
+    end
+
+    if scenario == :benchmark do
       Process.sleep(100)
     end
   end

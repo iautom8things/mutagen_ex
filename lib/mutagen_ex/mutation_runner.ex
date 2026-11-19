@@ -278,7 +278,7 @@ defmodule MutagenEx.MutationRunner do
   # ---------------------------------------------------------------------------
 
   defp run_with_exunit(%{fail_fast: false} = cfg) do
-    run_configured(cfg, :infinity, [])
+    run_configured(cfg, ExUnitFacade.options(cfg.seed, cfg.test_filter, :infinity))
   end
 
   defp run_with_exunit(cfg) do
@@ -286,21 +286,19 @@ defmodule MutagenEx.MutationRunner do
 
     try do
       options =
-        FailureFormatter.options(fn runner, _test ->
+        ExUnitFacade.options(cfg.seed, cfg.test_filter, 1)
+        |> FailureFormatter.attach(fn runner, _test ->
           :ets.insert_new(failures, {runner, System.monotonic_time()})
         end)
 
-      run_configured(Map.put(cfg, :failure_times, failures), 1, options)
+      run_configured(Map.put(cfg, :failure_times, failures), options)
     after
       :ets.delete(failures)
     end
   end
 
-  defp run_configured(cfg, max_failures, formatter_options) do
-    ex_unit = Map.get(cfg, :ex_unit, ExUnitFacade)
-    options = ExUnitFacade.options(cfg.seed, cfg.test_filter, max_failures)
-
-    ExUnitFacade.with_options(ex_unit, options ++ formatter_options, fn ->
+  defp run_configured(cfg, options) do
+    ExUnitFacade.with_options(options, fn ->
       drift = compute_state_drift_warnings(cfg)
       run_with_beam_cache(cfg, drift)
     end)

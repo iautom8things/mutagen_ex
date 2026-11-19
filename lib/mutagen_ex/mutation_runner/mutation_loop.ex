@@ -198,58 +198,48 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
     task =
       Task.Supervisor.async_nolink(task_sup, fn ->
-        # Re-register every cited test module so ExUnit.run/0 picks them
-        # up. The shape `%{async?: false, group: nil, parameterize: nil}`
-        # is what the S2 spike validated against Elixir 1.19.5/OTP 28; if
-        # ExUnit's internal config struct ever changes, this is the line
-        # to update — and the spike will catch the regression.
-        Enum.each(test_modules, fn {mod, cfg} ->
-          server.add_module(mod, cfg)
-        end)
-
-        try do
-          {:ok, ex_unit.run()}
-        rescue
-          e ->
-            {:error, {:run_raised, Exception.message(e)}}
-        catch
-          kind, value ->
-            {:error, {:run_caught, kind, value}}
-        end
+        Enum.each(test_modules, fn {mod, cfg} -> server.add_module(mod, cfg) end)
+        result = run_exunit(ex_unit)
+        {System.monotonic_time(), result}
       end)
 
     deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
 
     result =
       case Task.yield(task, timeout) do
-        {:ok, {:ok, result}} ->
-          {{:ok, result}, :n_a}
+        {:ok, {finished_at, result}} when finished_at <= deadline ->
+          {result, :n_a}
 
-        {:ok, {:error, reason}} ->
-          {{:error, reason}, :n_a}
+        {:ok, _late_reply} ->
+          timeout_result(input, server, failures, task.pid, deadline, :n_a)
 
         nil ->
-          recorded? = failure_before_deadline?(failures, task.pid, deadline)
-
-          case cancel_on_timeout(task, grace, task_sup) do
-            {:timeout, cancel_mode} ->
-              if Map.get(input, :serial?, false) and ex_unit == MutagenEx.Test.ExUnit and
-                   server == ExUnitServer do
-                ExUnitServer.discard_pending_modules()
-              end
-
-              {{:timeout, recorded?}, cancel_mode}
-
-            completed ->
-              completed
-          end
+          cancel_mode = cancel_on_timeout(task, grace, task_sup)
+          timeout_result(input, server, failures, task.pid, deadline, cancel_mode)
 
         {:exit, reason} ->
-          {{:error, {:task_exited, reason}}, :n_a}
+          if System.monotonic_time() <= deadline do
+            {{:error, {:task_exited, reason}}, :n_a}
+          else
+            timeout_result(input, server, failures, task.pid, deadline, :n_a)
+          end
       end
 
     if failures, do: :ets.delete(failures, task.pid)
     result
+  end
+
+  defp run_exunit(ex_unit) do
+    {:ok, ex_unit.run()}
+  rescue
+    e -> {:error, {:run_raised, Exception.message(e)}}
+  catch
+    kind, value -> {:error, {:run_caught, kind, value}}
+  end
+
+  defp timeout_result(input, server, failures, runner, deadline, cancel_mode) do
+    if Map.get(input, :serial?, true), do: server.discard_pending_modules()
+    {{:timeout, failure_before_deadline?(failures, runner, deadline)}, cancel_mode}
   end
 
   defp failure_before_deadline?(nil, _runner, _deadline), do: false
@@ -261,95 +251,22 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     end
   end
 
-  # Two-phase cancellation. Phase 1 is `Task.shutdown(task, grace_ms)`,
-  # which dispatches `Process.exit(pid, :shutdown)` — a trappable signal
-  # that lets a task in a normal `receive` (or one that traps exits)
-  # finish unwinding. If phase 1 produced a result we still classify
-  # against the original outcome: a task that returned `{:ok, result}`
-  # during the grace window is honored as `:completed`; a task that
-  # returned `{:error, reason}` is `:error`; an exit with a non-normal
-  # reason or no result means the task is still occupying the runner's
-  # wall-clock budget — escalate via the supervisor.
-  #
-  # Phase 2, `Task.Supervisor.terminate_child/2`, is the last-resort
-  # escape for tasks that did not exit in the grace window. Routing
-  # through the supervisor (rather than `Task.shutdown(:brutal_kill)`)
-  # is what propagates `:shutdown` through the task's link tree to
-  # reap descendants — see `mutagen.decision.supervision_tree`.
+  # Shutdown serves only to reap the overdue task. Its reply cannot supply a verdict.
   defp cancel_on_timeout(task, grace_ms, task_sup) when grace_ms > 0 do
     case Task.shutdown(task, grace_ms) do
-      {:ok, {:ok, result}} ->
-        # Task happened to finish during the grace window AND returned
-        # a clean result. Classify it as completed; the timeout did
-        # not actually need to fire.
-        {{:ok, result}, :graceful}
-
-      {:ok, {:error, reason}} ->
-        # Task finished during the grace window but the inner body
-        # raised/caught. Same classification path as the no-timeout
-        # error branch above.
-        {{:error, reason}, :graceful}
-
-      nil ->
-        # Grace window expired and `Task.shutdown/2` decided NOT to
-        # escalate internally (rare with traps off; common with the
-        # normal `Process.sleep`-style tasks that are killed by the
-        # initial `:shutdown` signal). The result was lost. Escalate
-        # explicitly through the supervisor for completeness — its
-        # behaviour on an already-dead task is `{:error, :not_found}`
-        # which `brutal_shutdown/2` treats as `:timeout`.
-        brutal_shutdown(task, task_sup)
-
-      {:exit, :killed} ->
-        # `Task.shutdown(task, grace_ms)` internally escalates to
-        # `Process.exit(pid, :kill)` after the grace window if the
-        # task is still running AND was trapping exits (e.g. it
-        # ignored the `:shutdown` signal). The task is already
-        # cleared; no second escalation is needed. From the
-        # cancellation taxonomy's perspective this IS the brutal
-        # path — the cooperative phase ran out the clock and
-        # `Task.shutdown` itself did the kill — so cancel_mode is
-        # `:brutal`. Flush the monitor explicitly so the stale
-        # `:DOWN` Task.shutdown produced does not survive into the
-        # next site's mailbox.
-        Process.demonitor(task.ref, [:flush])
-        {:timeout, :brutal}
-
-      {:exit, _other_reason} ->
-        # Task exited during grace for some other reason (e.g. a
-        # raise that the task didn't rescue). Treat as timeout —
-        # the wall-clock budget elapsed regardless of the exit
-        # path.
-        Process.demonitor(task.ref, [:flush])
-        {:timeout, :brutal}
+      nil -> brutal_shutdown(task, task_sup)
+      {:exit, :killed} -> :brutal
+      _ -> :graceful
     end
   end
 
-  defp cancel_on_timeout(task, _grace_ms, task_sup) do
-    # grace_ms == 0 ⇒ skip the cooperative phase entirely. Preserved as
-    # an escape hatch for tests that deliberately exercise the
-    # supervised-kill path.
-    brutal_shutdown(task, task_sup)
-  end
+  defp cancel_on_timeout(task, _grace_ms, task_sup), do: brutal_shutdown(task, task_sup)
 
-  # Phase-2 escalation. Capture any racing result the task may have
-  # produced between the grace window expiring and our `terminate_child`
-  # call (preserving the `pre_kill_result = Task.yield(task, 0)` shape
-  # of the original two-phase cancel), then route the kill through the
-  # supervisor so `:shutdown` propagates through the link tree, and
-  # finally flush the monitor so the stale `:DOWN` the dying task is
-  # about to emit does not accumulate in the runner's mailbox across
-  # timeout sites.
   defp brutal_shutdown(task, task_sup) do
-    pre_kill_result = Task.yield(task, 0)
     _ = Task.Supervisor.terminate_child(task_sup, task.pid)
+    _ = Task.yield(task, 0)
     Process.demonitor(task.ref, [:flush])
-
-    case pre_kill_result do
-      {:ok, {:ok, result}} -> {{:ok, result}, :brutal}
-      {:ok, {:error, reason}} -> {{:error, reason}, :brutal}
-      _ -> {:timeout, :brutal}
-    end
+    :brutal
   end
 
   # ---- stderr capture ----
