@@ -94,9 +94,11 @@ defmodule MutagenEx.MixProject do
       groups_for_modules: [
         Mutators: [~r/^MutagenEx\.Mutators/],
         "Pipeline Facades": [~r/^MutagenEx\.Pipeline/],
+        "Test Facades": [~r/^MutagenEx\.Test\..*Facade$/],
         Core: [
           MutagenEx.MutationRunner,
           MutagenEx.MutationEnumerator,
+          MutagenEx.MutationEnumerator.Site,
           MutagenEx.Baseline,
           MutagenEx.CoverageRunner,
           MutagenEx.Config,
