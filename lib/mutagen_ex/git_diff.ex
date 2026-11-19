@@ -2,6 +2,10 @@ defmodule MutagenEx.GitDiff do
   @moduledoc """
   Reads changed source lines against a Git merge-base and reads blobs from it.
 
+  Diff roots must be real directories within the resolved project directory.
+  Case-insensitive checkouts use case-folded scope with tracked path spelling.
+  A changed symlink or gitlink at or below a root counts as a skipped entry.
+
   Git runs without a shell or pager. The environment drops inherited `GIT_*`
   variables, including `GIT_EXTERNAL_DIFF`, `GIT_DIFF_OPTS`, `GIT_PAGER`,
   `GIT_TRACE*`, `GIT_CONFIG*`, `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`,
@@ -164,25 +168,26 @@ defmodule MutagenEx.GitDiff do
   def base_file(base_sha, relative_path, opts) do
     with :ok <- validate_base_sha(base_sha),
          {:ok, roots} <- roots(opts),
-         :ok <- validate_base_path(relative_path, roots),
+         :ok <- validate_base_path(relative_path, roots, true),
          {:ok, git} <- git_context(opts),
          :ok <- check_version(git),
          {:ok, shallow} <- shallow?(git) do
       git
-      |> read_base_file(base_sha, relative_path)
+      |> read_base_file(base_sha, relative_path, roots)
       |> with_shallow(shallow)
     end
   end
 
   defp read_changes(git, ref, roots) do
     with {:ok, git} <- repository_context(git),
+         :ok <- validate_root_directories(git.cd, roots),
          :ok <- check_info_attributes(git),
          :ok <- reject_ambiguous(git, ref),
          {:ok, since} <- resolve_commit(git, ref, :resolve_ref, :unresolvable_ref),
          {:ok, head} <- resolve_commit(git, "HEAD", :resolve_head, :unresolvable_head),
          {:ok, base} <- merge_base(git, since, head),
          git = put_git_env(git, "GIT_ATTR_SOURCE", object_id("tree", "", head)),
-         paths = Enum.map(roots, &literal_path(git.prefix <> &1)),
+         paths = diff_paths(git, roots),
          args = ["diff" | @diff_flags] ++ [base, "--" | paths],
          {:ok, output} <- command(git, args, :diff, @max_diff_bytes),
          {:ok, changes} <- parse_diff(output, roots, git),
@@ -192,8 +197,9 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp read_base_file(git, sha, path) do
+  defp read_base_file(git, sha, path, roots) do
     with {:ok, git} <- repository_context(git),
+         :ok <- validate_base_path(path, roots, git.ignore_case?),
          :ok <- verify_base_type(git, sha),
          path = git.prefix <> path,
          {:ok, entry} <-
@@ -270,11 +276,15 @@ defmodule MutagenEx.GitDiff do
   end
 
   defp validate_base_sha(sha) do
-    if valid_sha?(sha), do: :ok, else: unavailable(:invalid_base_sha, :base_file)
+    cond do
+      not valid_sha?(sha) -> unavailable(:invalid_base_sha, :base_file)
+      String.trim(sha, "0") == "" -> unavailable(:zero_base_sha, :base_file)
+      true -> :ok
+    end
   end
 
-  defp validate_base_path(path, roots) do
-    if relative_path?(path) and in_roots?(path, roots),
+  defp validate_base_path(path, roots, ignore_case?) do
+    if relative_path?(path) and root_match(path, roots, ignore_case?) == :below,
       do: :ok,
       else: unavailable(:invalid_path, :base_file)
   end
@@ -296,36 +306,102 @@ defmodule MutagenEx.GitDiff do
 
   defp relative_path?(_path), do: false
 
-  defp in_roots?(path, roots), do: Enum.any?(roots, &String.starts_with?(path, &1 <> "/"))
+  defp root_match(nil, _roots, _ignore_case?), do: nil
+
+  defp root_match(path, roots, ignore_case?) do
+    path = path_key(path, ignore_case?)
+    roots = Enum.map(roots, &path_key(&1, ignore_case?))
+
+    cond do
+      Enum.any?(roots, &String.starts_with?(path, &1 <> "/")) -> :below
+      path in roots -> :root
+      true -> nil
+    end
+  end
+
+  defp path_key(path, false), do: path
+
+  defp path_key(path, true) do
+    if String.valid?(path),
+      do: path |> String.normalize(:nfd) |> :string.casefold(),
+      else: String.downcase(path, :ascii)
+  end
+
+  defp diff_paths(%{ignore_case?: true}, _roots), do: []
+  defp diff_paths(git, roots), do: Enum.map(roots, &literal_path(git.prefix <> &1))
   defp literal_path(path), do: ":(top,literal)" <> path
+
+  defp validate_root_directories(cd, roots) do
+    case Enum.find(roots, &(not real_root?(Path.split(&1), cd))) do
+      nil -> :ok
+      root -> unavailable(:invalid_root_directory, :worktree, %{root: root})
+    end
+  end
+
+  defp real_root?([], _dir), do: true
+
+  defp real_root?([part | rest], dir) do
+    path = Path.join(dir, part)
+    match?({:ok, %{type: :directory}}, File.lstat(path)) and real_root?(rest, path)
+  end
 
   defp git_context(opts) do
     cd = Keyword.get_lazy(opts, :cd, &File.cwd!/0)
     timeout = Keyword.get(opts, :timeout, @default_timeout)
 
-    cond do
-      not is_binary(cd) or not File.dir?(cd) ->
-        unavailable(:missing_cd, :repository)
+    with {:ok, cd} <- real_cd(cd),
+         true <- is_integer(timeout) and timeout > 0 do
+      env =
+        System.get_env()
+        |> Map.keys()
+        |> Enum.filter(&String.starts_with?(&1, "GIT_"))
+        |> Map.new(&{&1, nil})
+        |> Map.merge(@git_env)
 
-      not is_integer(timeout) or timeout <= 0 ->
-        unavailable(:invalid_timeout, :repository)
+      git = %{cmd: Keyword.get(opts, :cmd, &System.cmd/3), cd: cd, env: env, timeout: timeout}
 
-      true ->
-        cd = Path.expand(cd)
+      case worktree_root(cd) do
+        nil -> {:ok, git}
+        root -> {:ok, put_git_env(git, "GIT_WORK_TREE", root)}
+      end
+    else
+      false -> unavailable(:invalid_timeout, :repository)
+      :error -> unavailable(:missing_cd, :repository)
+    end
+  end
 
-        env =
-          System.get_env()
-          |> Map.keys()
-          |> Enum.filter(&String.starts_with?(&1, "GIT_"))
-          |> Map.new(&{&1, nil})
-          |> Map.merge(@git_env)
+  defp real_cd(cd) when is_binary(cd) and cd != "" do
+    [root | parts] = cd |> Path.absname() |> Path.split()
+    resolve_directory(parts, root, 40)
+  end
 
-        git = %{cmd: Keyword.get(opts, :cmd, &System.cmd/3), cd: cd, env: env, timeout: timeout}
+  defp real_cd(_cd), do: :error
 
-        case worktree_root(cd) do
-          nil -> {:ok, git}
-          root -> {:ok, put_git_env(git, "GIT_WORK_TREE", root)}
+  defp resolve_directory([], dir, _links), do: {:ok, dir}
+  defp resolve_directory(["." | rest], dir, links), do: resolve_directory(rest, dir, links)
+
+  defp resolve_directory([".." | rest], dir, links),
+    do: resolve_directory(rest, Path.dirname(dir), links)
+
+  defp resolve_directory([part | rest], dir, links) do
+    path = Path.join(dir, part)
+
+    case File.lstat(path) do
+      {:ok, %{type: :directory}} ->
+        resolve_directory(rest, path, links)
+
+      {:ok, %{type: :symlink}} when links > 0 ->
+        case File.read_link(path) do
+          {:ok, target} ->
+            [root | parts] = target |> Path.absname(dir) |> Path.split()
+            resolve_directory(parts ++ rest, root, links - 1)
+
+          _ ->
+            :error
         end
+
+      _ ->
+        :error
     end
   end
 
@@ -336,6 +412,7 @@ defmodule MutagenEx.GitDiff do
 
     cond do
       File.exists?(Path.join(dir, ".git")) -> dir
+      File.regular?(Path.join(dir, "HEAD")) and File.dir?(Path.join(dir, "objects")) -> nil
       parent == dir -> nil
       true -> worktree_root(parent)
     end
@@ -360,16 +437,36 @@ defmodule MutagenEx.GitDiff do
   end
 
   defp repository_context(git) do
-    with {:ok, git} <- neutralize_drivers(git),
+    with :ok <- require_worktree(git),
+         {:ok, git} <- neutralize_drivers(git),
+         {:ok, ignore_case?} <- ignore_case(git),
          {:ok, output} <- command(git, ["rev-parse", "--show-prefix"], :worktree),
          {:ok, prefix} <- output_line(output, :worktree) do
       if prefix == "" or
            (String.ends_with?(prefix, "/") and
               relative_path?(binary_part(prefix, 0, byte_size(prefix) - 1))) do
-        {:ok, Map.put(git, :prefix, prefix)}
+        {:ok, Map.merge(git, %{prefix: prefix, ignore_case?: ignore_case?})}
       else
         unavailable(:invalid_output, :worktree)
       end
+    end
+  end
+
+  defp require_worktree(git) do
+    case command(git, ["rev-parse", "--is-inside-work-tree"], :worktree) do
+      {:ok, "true\n"} -> :ok
+      {:ok, _} -> unavailable(:not_inside_worktree, :worktree)
+      error -> error
+    end
+  end
+
+  defp ignore_case(git) do
+    case run(git, ["config", "--type=bool", "--get", "core.ignorecase"], :config, @metadata_bytes) do
+      {:ok, "true\n", 0} -> {:ok, true}
+      {:ok, "false\n", 0} -> {:ok, false}
+      {:ok, "", 1} -> {:ok, false}
+      {:ok, _, status} -> unavailable(:invalid_output, :config, %{status: status})
+      error -> error
     end
   end
 
@@ -564,9 +661,12 @@ defmodule MutagenEx.GitDiff do
         unavailable(:timeout, step, %{timeout_ms: git.timeout})
 
       {"fatal: detected dubious ownership" <> _, status} when status != 0 ->
+        checkout = git.env["GIT_WORK_TREE"] || git.cd
+        command = "git config --global --add safe.directory " <> config_quote(checkout)
+
         unavailable(:dubious_ownership, step, %{
           status: status,
-          hint: "Run as the owning user or keep safe.directory configured in Git."
+          hint: "Git refused #{inspect(checkout)}. Run as the owning user or run " <> command
         })
 
       {output, status}
@@ -615,7 +715,7 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  # Closing a port alone can leave a silent OS child running.
+  # OTP starts each Unix port command in its own session and process group.
   defp kill_child(owner) do
     for port <- Port.list(),
         Port.info(port, :connected) == {:connected, owner},
@@ -623,8 +723,8 @@ defmodule MutagenEx.GitDiff do
         is_integer(pid) do
       {program, args} =
         case :os.type() do
-          {:win32, _} -> {"taskkill", ["/F", "/PID", Integer.to_string(pid)]}
-          _ -> {"/bin/kill", ["-KILL", Integer.to_string(pid)]}
+          {:win32, _} -> {"taskkill", ["/F", "/T", "/PID", Integer.to_string(pid)]}
+          _ -> {"/bin/kill", ["-KILL", "--", Integer.to_string(-pid)]}
         end
 
       System.cmd(program, args, stderr_to_stdout: true)
@@ -650,7 +750,7 @@ defmodule MutagenEx.GitDiff do
          fields = :binary.split(metadata, <<0>>, [:global]),
          {:ok, raw, stats} <- raw_records(fields, %{}, @max_files),
          {:ok, records} <- stat_records(stats, raw, [], git) do
-      patches(patch, records, roots, git.prefix, empty_changes())
+      patches(patch, records, roots, git, empty_changes())
     else
       {:error, _, _} = error -> error
       _ -> unavailable(:invalid_output, :diff)
@@ -722,27 +822,24 @@ defmodule MutagenEx.GitDiff do
   # Git reports "- -" in numstat even with --text. Compare the raw blob ID
   # only when the raw record could be a timestamp change with no patch.
   defp unchanged_binary?(git, path, old_oid) do
-    with project_path when is_binary(project_path) <- project_relative(path, git.prefix),
-         {:ok, _} <- regular_working_path(git.cd, project_path),
+    git = %{git | cd: git.env["GIT_WORK_TREE"] || git.cd}
+
+    with {:ok, _} <- regular_working_path(git.cd, path),
          {:ok, output} <-
-           command(git, ["hash-object", "--no-filters", "--", project_path], :hash_working_file),
+           command(git, ["hash-object", "--no-filters", "--", path], :hash_working_file),
          {:ok, oid} <- parse_sha(output, :hash_working_file) do
       {:ok, old_oid == oid}
-    else
-      nil -> unavailable(:invalid_path, :diff)
-      error -> error
     end
   end
 
-  defp patches("", [], _roots, _prefix, result),
+  defp patches("", [], _roots, _git, result),
     do: {:ok, %{result | skipped: Enum.reverse(result.skipped)}}
 
-  defp patches(patch, [{path, old_path, status, mode} | records], roots, prefix, result) do
+  defp patches(patch, [{path, old_path, status, mode} | records], roots, git, result) do
     with {:ok, ranges, binary?, rest} <- patch_for(patch, status),
-         entry =
-           {project_relative(path, prefix), project_relative(old_path, prefix), status, mode},
-         {:ok, result} <- put_change(entry, ranges, binary?, roots, result) do
-      patches(rest, records, roots, prefix, result)
+         entry = {project_relative(path, git), project_relative(old_path, git), status, mode},
+         {:ok, result} <- put_change(entry, ranges, binary?, roots, git.ignore_case?, result) do
+      patches(rest, records, roots, git, result)
     end
   end
 
@@ -766,29 +863,57 @@ defmodule MutagenEx.GitDiff do
 
   defp patch_section(_), do: unavailable(:invalid_output, :diff)
 
-  defp project_relative(nil, _prefix), do: nil
+  defp project_relative(nil, _git), do: nil
+  defp project_relative(path, %{prefix: ""}), do: path
 
-  defp project_relative(path, prefix) do
+  defp project_relative(path, %{prefix: prefix, ignore_case?: false}) do
     if String.starts_with?(path, prefix) do
       size = byte_size(prefix)
       binary_part(path, size, byte_size(path) - size)
     end
   end
 
-  defp put_change({_path, _, "D", _}, _ranges, _binary?, _roots, result), do: {:ok, result}
+  defp project_relative(path, %{prefix: prefix, ignore_case?: true}) do
+    components = :binary.split(prefix, "/", [:global]) |> Enum.drop(-1)
+    {directory, relative} = Enum.split(:binary.split(path, "/", [:global]), length(components))
 
-  defp put_change({path, old_path, status, mode}, ranges, binary?, roots, result) do
-    if is_binary(path) and in_roots?(path, roots) and String.ends_with?(path, ".ex") do
-      with {:ok, result} <- put_rename(result, path, old_path, status, roots) do
-        case skip_reason(status, mode, binary?) do
-          nil when ranges == [] -> {:ok, result}
-          nil -> {:ok, put_in(result.files[path], ranges)}
-          reason -> {:ok, %{result | skipped: [%{path: path, reason: reason} | result.skipped]}}
-        end
-      end
-    else
-      {:ok, result}
+    if relative != [] and
+         path_key(Enum.join(directory, "/"), true) == path_key(Enum.join(components, "/"), true) do
+      Enum.join(relative, "/")
     end
+  end
+
+  defp put_change({_path, _, "D", _}, _ranges, _binary?, _roots, _ignore_case?, result),
+    do: {:ok, result}
+
+  defp put_change({path, old_path, status, mode}, ranges, binary?, roots, ignore_case?, result) do
+    relation = root_match(path, roots, ignore_case?)
+
+    cond do
+      relation != nil and (mode in ["120000", "160000"] or status == "T") ->
+        result =
+          if status == "R" and root_match(old_path, roots, ignore_case?) != nil,
+            do: put_in(result.renames[path], old_path),
+            else: result
+
+        add_skipped(result, path, skip_reason(status, mode, binary?))
+
+      relation == :below and String.ends_with?(path, ".ex") ->
+        with {:ok, result} <- put_rename(result, path, old_path, status, roots, ignore_case?) do
+          case skip_reason(status, mode, binary?) do
+            nil when ranges == [] -> {:ok, result}
+            nil -> {:ok, put_in(result.files[path], ranges)}
+            reason -> add_skipped(result, path, reason)
+          end
+        end
+
+      true ->
+        {:ok, result}
+    end
+  end
+
+  defp add_skipped(result, path, reason) do
+    {:ok, %{result | skipped: [%{path: path, reason: reason} | result.skipped]}}
   end
 
   defp skip_reason("T", _mode, _binary?), do: :type_change
@@ -798,10 +923,11 @@ defmodule MutagenEx.GitDiff do
   defp skip_reason(_status, _mode, true), do: :binary
   defp skip_reason(_status, _mode, false), do: nil
 
-  defp put_rename(result, _path, _old_path, status, _roots) when status != "R", do: {:ok, result}
+  defp put_rename(result, _path, _old_path, status, _roots, _ignore_case?) when status != "R",
+    do: {:ok, result}
 
-  defp put_rename(result, path, old_path, "R", roots) do
-    if is_binary(old_path) and in_roots?(old_path, roots),
+  defp put_rename(result, path, old_path, "R", roots, ignore_case?) do
+    if root_match(old_path, roots, ignore_case?) == :below,
       do: {:ok, put_in(result.renames[path], old_path)},
       else: unavailable(:invalid_path, :diff)
   end
