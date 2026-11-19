@@ -796,9 +796,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
     report = %MutagenEx.JsonReporter.Report{
       warnings: warnings,
-      mutation: %{
-        results: Enum.map([first, second, third], &Mix.Tasks.Mutagen.__render_result__/1)
-      }
+      mutation: %{results: [first, second, third]}
     }
 
     {json, 0} = MutagenEx.JsonReporter.emit_report(report)
@@ -1349,7 +1347,7 @@ defmodule MutagenEx.MutationRunnerTest do
   defp decoded_warnings(result) do
     report = %MutagenEx.JsonReporter.Report{
       include_host_output: true,
-      mutation: %{results: [Mix.Tasks.Mutagen.__render_result__(result)]}
+      mutation: %{results: [result]}
     }
 
     {json, 0} = MutagenEx.JsonReporter.emit_report(report)
@@ -1405,7 +1403,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
       assert {:ok, _} = MutationRunner.run(cfg)
 
-      post = MutagenEx.TestSupport.DiskSnapshot.snapshot()
+      post = MutagenEx.TestSupport.DiskSnapshot.snapshot(tmp_dir: dir)
       diff = MutagenEx.TestSupport.DiskSnapshot.diff(pre, post)
 
       # Modified files: ANY content change to a snapshotted path is a
@@ -1428,10 +1426,6 @@ defmodule MutagenEx.MutationRunnerTest do
              "r11 regression: runner created files on disk:\n" <>
                Enum.map_join(diff.added, "\n  ", &("- " <> &1))
 
-      # /tmp churn: only flag entries the runner could plausibly own
-      # (prefix `mutagen_ex_`). Concurrent processes adding unrelated
-      # tmp entries during the test run are not a r11 violation — that
-      # would be a flaky assertion on shared hardware.
       attributable = MutagenEx.TestSupport.DiskSnapshot.mutagen_attributable_tmp(diff)
 
       assert attributable == [],

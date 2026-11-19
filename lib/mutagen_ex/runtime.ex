@@ -473,13 +473,15 @@ defmodule MutagenEx.Runtime do
 
   @doc "Runs the session's after-suite callbacks and releases its boot worker."
   def finish(%{worker: worker, callbacks: callbacks} = session, stats) do
-    case with_deadline(Map.get(session, :cleanup_timeout, @boot_timeout_ms), fn ->
-           run_callbacks(callbacks, stats)
-         end) do
-      {:ok, result} -> result
-      :timeout -> :timeout
-      {:exit, reason} -> failure(:after_suite_failed, :exit, reason, [], nil)
-    end
+    timeout = Map.get(session, :cleanup_timeout, @boot_timeout_ms)
+
+    Enum.reduce(callbacks, :ok, fn callback, previous ->
+      case run_callback(callback, stats, timeout) do
+        :ok -> previous
+        error when previous == :ok -> error
+        _error -> previous
+      end
+    end)
   after
     if is_pid(worker), do: send(worker, :stop)
   end
@@ -508,17 +510,17 @@ defmodule MutagenEx.Runtime do
   @doc false
   def empty_suite, do: %{total: 0, failures: 0, excluded: 0, skipped: 0}
 
-  defp run_callbacks(callbacks, stats) do
-    Enum.reduce(callbacks, :ok, fn callback, result ->
-      case step(:after_suite_failed, fn ->
+  defp run_callback(callback, stats, timeout) do
+    case with_deadline(timeout, fn ->
+           step(:after_suite_failed, fn ->
              callback.(stats)
              :ok
-           end) do
-        :ok -> result
-        error when result == :ok -> error
-        _ -> result
-      end
-    end)
+           end)
+         end) do
+      {:ok, result} -> result
+      :timeout -> :timeout
+      {:exit, reason} -> failure(:after_suite_failed, :exit, reason, [], nil)
+    end
   end
 
   defp ensure_mutagen_started do

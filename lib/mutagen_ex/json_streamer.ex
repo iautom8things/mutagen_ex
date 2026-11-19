@@ -59,7 +59,6 @@ defmodule MutagenEx.JsonStreamer do
   @spec emit_result(sink(), map()) :: :ok
   def emit_result(sink, %{} = result_map, options \\ %Report{}) do
     result_map
-    |> then(fn result -> if options.source, do: render_result(result), else: result end)
     |> JsonReporter.result_to_wire(options)
     |> Map.merge(%{"version" => JsonReporter.schema_version(), "kind" => "result"})
     |> then(&write_line(sink, &1))
@@ -97,6 +96,7 @@ defmodule MutagenEx.JsonStreamer do
       "meta" => JsonReporter.meta_to_wire(report.meta),
       "aborted" => report.aborted == true,
       "abort_reason" => report.abort_reason,
+      "truncated" => report.truncated == true,
       "total" => Map.get(mutation, :total, 0),
       "completed" => Map.get(mutation, :completed, 0),
       "killed" => Map.get(mutation, :killed, 0),
@@ -108,19 +108,6 @@ defmodule MutagenEx.JsonStreamer do
 
     write_line(sink, summary)
   end
-
-  # ---------------------------------------------------------------------------
-  # Wire shape (shared with JsonReporter)
-  # ---------------------------------------------------------------------------
-
-  defp render_result(%{before_source: _} = result), do: result
-
-  defp render_result(%{original_ast: ast, mutated_ast: mutated} = result) do
-    before = Macro.to_string(ast)
-    Map.merge(result, %{before: before, before_source: before, after: Macro.to_string(mutated)})
-  end
-
-  defp render_result(%{before: before} = result), do: Map.put(result, :before_source, before)
 
   # ---------------------------------------------------------------------------
   # I/O

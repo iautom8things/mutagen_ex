@@ -412,6 +412,7 @@ defmodule MutagenEx.JsonReporter do
           | :baseline_timeout
           | :invalid_redact_config
           | :no_tests_run
+          | :unsupported_otp_version
 
   @doc """
   Emit the success-shape JSON document.
@@ -457,6 +458,11 @@ defmodule MutagenEx.JsonReporter do
   # Build the wire-shape map from the in-memory `%Report{}` and encode.
   # The wire shape uses string keys (the schema is documented in terms of
   # JSON keys; we don't want to leak atom-key idioms into the contract).
+  # The runtime floor error still needs to be readable on OTP without :json.
+  defp encode(%Report{abort_reason: "unsupported_otp_version"} = report) do
+    [JSON.encode_to_iodata!(to_wire(report)), ?\n]
+  end
+
   defp encode(%Report{} = report) do
     doc = to_wire(report)
 
@@ -473,12 +479,27 @@ defmodule MutagenEx.JsonReporter do
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation, r),
-      "warnings" => warnings_to_wire(Enum.uniq(r.warnings || []), r) |> Enum.uniq(),
+      "warnings" => report_warnings(r),
       "aborted" => r.aborted == true,
       "abort_reason" => r.abort_reason,
       "details" => details_to_wire(r.details, r.abort_reason, r.include_host_output),
       "truncated" => r.truncated == true
     }
+  end
+
+  defp report_warnings(report) do
+    warnings = warnings_to_wire(Enum.uniq(report.warnings || []), report)
+
+    warnings =
+      case report.meta do
+        %{max_concurrency: limit} when is_integer(limit) and limit > 1 ->
+          ["Verdicts are unreliable in experimental parallel mode." | warnings]
+
+        _ ->
+          warnings
+      end
+
+    Enum.uniq(warnings)
   end
 
   @structured_details ~w(file line column origin_file origin_line module exception reason phase step
@@ -596,6 +617,9 @@ defmodule MutagenEx.JsonReporter do
 
       "invalid_mix_env" ->
         "Run the command with MIX_ENV=test."
+
+      "unsupported_otp_version" ->
+        "Run Mutagen with Erlang/OTP 27 or later."
 
       "umbrella_root" ->
         "Run from the umbrella child that owns the tests."
@@ -745,7 +769,8 @@ defmodule MutagenEx.JsonReporter do
   # `meta` is always populated even on early errors (r5: "we know our
   # tool/elixir/otp version even on early error").
   @doc false
-  def meta_to_wire(nil), do: %{"id_scheme" => @id_scheme, "fail_fast" => true}
+  def meta_to_wire(nil),
+    do: %{"id_scheme" => @id_scheme, "fail_fast" => true, "max_concurrency" => 1}
 
   def meta_to_wire(meta) when is_map(meta) do
     %{
@@ -754,7 +779,8 @@ defmodule MutagenEx.JsonReporter do
       "elixir_version" => Map.get(meta, :elixir_version),
       "otp_version" => Map.get(meta, :otp_version),
       "exunit_seed" => Map.get(meta, :exunit_seed),
-      "fail_fast" => Map.get(meta, :fail_fast, true)
+      "fail_fast" => Map.get(meta, :fail_fast, true),
+      "max_concurrency" => Map.get(meta, :max_concurrency) || 1
     }
   end
 
@@ -904,7 +930,205 @@ defmodule MutagenEx.JsonReporter do
       "tainted_predecessors" => Map.get(result, :tainted_predecessors, false) == true,
       "warnings" => warnings_to_wire(Map.get(result, :warnings, []), options)
     })
-    |> put_source(result, options)
+    |> put_source(render_result(result, options.source), options)
+  end
+
+  @doc false
+  def render_result(r, source? \\ true)
+  def render_result(r, false), do: r
+
+  def render_result(%{before_source: _} = result, true), do: result
+
+  def render_result(%{before: before} = result, true), do: Map.put(result, :before_source, before)
+
+  def render_result(r, true) do
+    before_binary = Macro.to_string(r.original_ast)
+    before_source = render_before_source(r, before_binary)
+
+    Map.merge(r, %{
+      before: before_binary,
+      before_source: before_source,
+      after: Macro.to_string(r.mutated_ast)
+    })
+  end
+
+  defp render_before_source(%{source_span: {start, length}, source_text: source}, _before)
+       when is_binary(source) do
+    binary_part(source, start, length)
+  end
+
+  # Results from callers without a byte span can still carry AST coordinates.
+  defp render_before_source(r, before_binary) do
+    end_line = Map.get(r, :end_line)
+    end_column = Map.get(r, :end_column)
+    source_text = Map.get(r, :source_text)
+
+    cond do
+      is_nil(end_line) or is_nil(end_column) ->
+        before_binary
+
+      not is_binary(source_text) ->
+        before_binary
+
+      true ->
+        case leftmost_descendant_position(r.original_ast) do
+          {start_line, start_column}
+          when is_integer(start_line) and is_integer(start_column) ->
+            case slice_source(source_text, start_line, start_column, end_line, end_column) do
+              {:ok, slice} -> slice
+              :error -> before_binary
+            end
+
+          _ ->
+            before_binary
+        end
+    end
+  end
+
+  # Find the leftmost descendant's `{line, column}` of an AST node.
+  # For most nodes the leftmost descendant is in `args`; if no
+  # descendant carries position metadata, fall back to the node's
+  # own meta. Returns `{line, column}` or `nil`.
+  defp leftmost_descendant_position(ast) do
+    case do_leftmost(ast) do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  # A missing literal position makes an infix start unknown. Prefix
+  # expressions can still start at their own opening token.
+  defp do_leftmost({form, meta, [left, _] = args}) when is_atom(form) and is_list(meta) do
+    if Macro.operator?(form, 2) do
+      case do_leftmost(left) do
+        {_, _} = pos -> earlier_position(position(meta), pos)
+        _ -> :missing_start
+      end
+    else
+      leftmost_position(meta, args)
+    end
+  end
+
+  defp do_leftmost({{:., _, [receiver | _]}, meta, args}) do
+    leftmost_position(meta, [receiver | args])
+  end
+
+  defp do_leftmost({_form, meta, args}) when is_list(meta), do: leftmost_position(meta, args)
+  defp do_leftmost(_), do: nil
+
+  defp leftmost_position(meta, args) do
+    own = position(meta)
+
+    case do_leftmost_children(args) do
+      nil -> own
+      :missing_start -> own || :missing_start
+      pos -> earlier_position(own, pos)
+    end
+  end
+
+  defp position(meta) do
+    case {meta[:line], meta[:column]} do
+      {line, column} when is_integer(line) and is_integer(column) -> {line, column}
+      _ -> nil
+    end
+  end
+
+  defp earlier_position(nil, pos), do: pos
+  defp earlier_position(own, pos), do: min(own, pos)
+
+  defp do_leftmost_children(nil), do: nil
+
+  defp do_leftmost_children(args) when is_list(args) do
+    Enum.reduce_while(args, nil, fn child, acc ->
+      case do_leftmost(child) do
+        nil -> {:cont, acc}
+        pos -> {:halt, pos}
+      end
+    end)
+  end
+
+  defp do_leftmost_children(_), do: nil
+
+  # Slice `source_text` between `{start_line, start_column}` (inclusive,
+  # 1-based) and `{end_line, end_column}` (exclusive, 1-based). Returns
+  # `{:ok, slice}` on success, `:error` if the indices are out of range.
+  # Columns count UTF-8 codepoints (matching how Elixir's tokenizer
+  # populates `:column`).
+  defp slice_source(source_text, start_line, start_column, end_line, end_column)
+       when is_binary(source_text) and is_integer(start_line) and is_integer(start_column) and
+              is_integer(end_line) and is_integer(end_column) do
+    lines = String.split(source_text, "\n", trim: false)
+
+    try do
+      cond do
+        start_line < 1 or end_line < 1 ->
+          :error
+
+        start_line > end_line ->
+          :error
+
+        start_line == end_line ->
+          line = Enum.at(lines, start_line - 1)
+
+          if is_binary(line) and end_column > start_column do
+            # Convert from 1-based inclusive `start_column` and 1-based
+            # exclusive `end_column` to byte indices on the line.
+            len = end_column - start_column
+            slice = slice_codepoints(line, start_column - 1, len)
+            {:ok, slice}
+          else
+            :error
+          end
+
+        true ->
+          # Multi-line slice: take suffix of start_line from start_column,
+          # all middle lines in full, prefix of end_line up to end_column.
+          start_line_text = Enum.at(lines, start_line - 1)
+          end_line_text = Enum.at(lines, end_line - 1)
+
+          middle =
+            if end_line - start_line >= 2 do
+              Enum.slice(lines, start_line, end_line - start_line - 1)
+            else
+              []
+            end
+
+          if is_binary(start_line_text) and is_binary(end_line_text) do
+            start_suffix = slice_codepoints_tail(start_line_text, start_column - 1)
+            end_prefix = slice_codepoints(end_line_text, 0, end_column - 1)
+
+            middle_iodata =
+              case middle do
+                [] -> []
+                _ -> [Enum.intersperse(middle, "\n"), "\n"]
+              end
+
+            iodata = [start_suffix, "\n", middle_iodata, end_prefix]
+            {:ok, IO.iodata_to_binary(iodata)}
+          else
+            :error
+          end
+      end
+    rescue
+      _ -> :error
+    end
+  end
+
+  defp slice_source(_, _, _, _, _), do: :error
+
+  # Take `len` codepoints from `string` starting at codepoint index `start`.
+  defp slice_codepoints(string, start, len) do
+    string
+    |> String.graphemes()
+    |> Enum.slice(start, len)
+    |> Enum.join()
+  end
+
+  defp slice_codepoints_tail(string, start) do
+    string
+    |> String.graphemes()
+    |> Enum.drop(start)
+    |> Enum.join()
   end
 
   defp site_to_wire(site, options) do

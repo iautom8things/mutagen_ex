@@ -214,6 +214,22 @@ defmodule MutagenEx.RuntimeTest do
   end
 
   @tag spec: "mutagen.cli.r20"
+  test "a hanging after-suite callback leaves the next callback its own deadline" do
+    caller = self()
+    stats = Runtime.empty_suite()
+
+    callbacks = [
+      fn _ -> Process.sleep(:infinity) end,
+      fn result -> send(caller, {:cleanup_finished, result}) end
+    ]
+
+    assert :timeout =
+             Runtime.finish(%{worker: nil, callbacks: callbacks, cleanup_timeout: 100}, stats)
+
+    assert_received {:cleanup_finished, ^stats}
+  end
+
+  @tag spec: "mutagen.cli.r20"
   test "captured callbacks run once in ExUnit order and failures do not skip later callbacks" do
     previous = Application.fetch_env!(:ex_unit, :after_suite)
     caller = self()
