@@ -618,7 +618,7 @@ defmodule MutagenEx.SelectedRun do
       if plan[:meta] do
         incomplete = plan.incomplete ++ Enum.map(state.dropped, &Map.take(&1, [:reason, :path]))
 
-        uncovered = ChangedScope.uncovered_lines(plan, state.coverage, evaluated)
+        uncovered = ChangedScope.uncovered_lines(plan, state.coverage, evaluated, pending)
 
         report.meta
         |> Map.put(:since, %{plan.meta | run: MapSet.size(evaluated), uncovered: uncovered})

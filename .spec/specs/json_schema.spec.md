@@ -575,8 +575,9 @@ Top-level keys, all present in every variant unless noted:
     at any confidence and no rejected red test file that mentions the
     function. Uncovered or unevaluated sites yield partly_checked when
     the run is otherwise complete. A changed, uncovered line within
-    an evaluated multi-line site also yields partly_checked. A run
-    with surviving sites never says nothing_to_check.
+    an evaluated multi-line site also yields partly_checked. These lines
+    include zero-hit lines and lines in the span of an uncovered site.
+    A run with surviving sites never says nothing_to_check.
     Remaining high-confidence survivors are ranked by the provisional
     mutator order and then file, line and ID. The report records the number
     omitted by the cap. Timeouts are unevaluated. Taint is counted as a note.

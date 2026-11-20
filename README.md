@@ -471,8 +471,12 @@ Both output paths use the project-root boundary by default.
   selected in a changed-code run covered none of its in-scope sites. A site
   is covered when its line runs. If that line has no cover counter, a hit
   in the site's own span counts. If its entire span has no counters, a hit
-  in its enclosing clause body counts. An instrumented line with zero
-  hits stays uncovered.
+  in its innermost enclosing branch body counts. A branch with no
+  coverable lines leaves the site uncovered even if a test entered it.
+  A site outside a branch can
+  use hits from its own function clause body. An instrumented line with
+  zero hits stays uncovered. If a guard runs and fails and its clause body
+  never runs, Mutagen reports the guard site as not executed.
   `nothing_asserted` means at least three high-confidence mutants ran in
   that function and every evaluated mutant survived. If a dropped test
   file mentions the function and failed on the unmutated code, the summary

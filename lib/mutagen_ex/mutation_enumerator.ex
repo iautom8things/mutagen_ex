@@ -123,7 +123,8 @@ defmodule MutagenEx.MutationEnumerator do
     * `covered_lines` — `%{file => MapSet.t(pos_integer())}`. The set of
       lines the cited tests executed. Sites use coverage on their line
       or, for definition heads and positionless nodes, anywhere in
-      their own clause body. Uncovered candidates are filtered before
+      their innermost branch body or their own clause body when outside
+      a branch. Uncovered candidates are filtered before
       mutator validation.
 
   ## Output
@@ -536,6 +537,8 @@ defmodule MutagenEx.MutationEnumerator do
         group_filter: group_filter,
         definition_kind: nil,
         clause: nil,
+        branch_body: nil,
+        branch_edge: nil,
         quoted: false,
         scopes: [],
         path: []
@@ -688,6 +691,8 @@ defmodule MutagenEx.MutationEnumerator do
             group_root: nil,
             definition_kind: nil,
             clause: nil,
+            branch_body: nil,
+            branch_edge: nil,
             scopes: Enum.sort_by(scopes ++ env.scopes, &elem(&1, 1)),
             path: Enum.reverse(path, env.path)
         }
@@ -782,23 +787,28 @@ defmodule MutagenEx.MutationEnumerator do
         acc
       end
 
-    env = %{env | enclosing: enclosing, definition_kind: kind, clause: clause(node)}
+    env = %{
+      env
+      | enclosing: enclosing,
+        definition_kind: kind,
+        clause: clause(node),
+        branch_body: nil
+    }
+
     {env, acc} = record_group(env, acc, node)
     walk_mutable_node(node, ambient, context, env, acc)
   end
 
-  defp walk_node({:->, meta, [_, body]} = node, ambient, context, %{clause: clause} = env, acc)
+  defp walk_node(
+         {:->, meta, [_, body]} = node,
+         ambient,
+         context,
+         %{clause: clause, source_index: index} = env,
+         acc
+       )
        when clause != nil do
-    line = meta[:line] || clause.body.first
-    {first, last} = source_range(body, nil) || {line, line}
-
-    walk_mutable_node(
-      node,
-      ambient,
-      context,
-      put_in(env.clause[:coverage_body], first..last),
-      acc
-    )
+    body_range = branch_range(body, [{:arg, 1} | env.path], index, meta[:line])
+    walk_mutable_node(node, ambient, context, %{env | branch_body: body_range}, acc)
   end
 
   defp walk_node(node, ambient, context, env, acc) do
@@ -864,7 +874,38 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp walk_child(child, ambient, parent, index, step, env, acc) do
     context = %{parent: parent, index: index}
-    walk_tree(child, ambient, context, %{env | path: [step | env.path]}, acc)
+    env = %{env | path: [step | env.path]}
+    walk_tree(child, ambient, context, branch_child(env, parent, child, step), acc)
+  end
+
+  # The block body is the right child of a pair in the call's final keyword list.
+  defp branch_child(%{clause: nil} = env, _parent, _child, _step), do: env
+  defp branch_child(%{mutators: []} = env, _parent, _child, _step), do: env
+
+  defp branch_child(env, {kind, _, args}, child, {:arg, index})
+       when kind in [:if, :unless, :case, :cond, :with, :try, :for, :receive] and is_list(child) do
+    %{env | branch_edge: if(index == length(args) - 1, do: :keywords)}
+  end
+
+  defp branch_child(%{branch_edge: :keywords} = env, _parent, {key, _}, {:elem, _})
+       when key in [:do, :else, :rescue, :catch, :after] do
+    %{env | branch_edge: :body}
+  end
+
+  defp branch_child(%{branch_edge: :body} = env, _parent, child, :right) do
+    %{env | branch_edge: nil, branch_body: branch_range(child, env.path, env.source_index)}
+  end
+
+  defp branch_child(%{branch_edge: nil} = env, _parent, _child, _step), do: env
+  defp branch_child(env, _parent, _child, _step), do: %{env | branch_edge: nil}
+
+  defp branch_range(body, path, index, entry_line \\ nil) do
+    case MutagenEx.JsonReporter.Source.line_range(index, Enum.reverse(path)) ||
+           source_range(body, nil) do
+      {first, last} -> min(entry_line || first, first)..last
+      nil when is_integer(entry_line) -> entry_line..entry_line
+      nil -> []
+    end
   end
 
   # Try each mutator on a single AST node. A node may match more than one
@@ -990,15 +1031,17 @@ defmodule MutagenEx.MutationEnumerator do
       (fallback != nil and Enum.any?(fallback, &MapSet.member?(covered, &1)))
   end
 
-  defp covered_line?({covered, coverable}, {line, {first, last}, body, _legacy}) do
+  defp covered_line?({covered, coverable}, {line, span, body, _legacy}) do
+    span_lines = if span, do: elem(span, 0)..elem(span, 1), else: []
+
     cond do
       MapSet.member?(coverable, line) ->
         MapSet.member?(covered, line)
 
-      Enum.any?(first..last, &MapSet.member?(covered, &1)) ->
+      Enum.any?(span_lines, &MapSet.member?(covered, &1)) ->
         true
 
-      Enum.any?(first..last, &MapSet.member?(coverable, &1)) ->
+      Enum.any?(span_lines, &MapSet.member?(coverable, &1)) ->
         false
 
       true ->
@@ -1008,10 +1051,19 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp coverage_location(node, line, path, env) do
     exact = MutagenEx.JsonReporter.Source.line_range(env.source_index, path)
-    span = exact || source_range(node, nil) || {line, line}
-    own_line = Ast.node_line(node) || if(exact, do: elem(exact, 0), else: line)
-    body = env.clause && Map.get(env.clause, :coverage_body, env.clause.body)
-    {own_line, span, body, {line, coverage_fallback(node, line, env.clause)}}
+    span = exact || source_range(node, nil)
+    own_line = Ast.node_line(node) || (exact && elem(exact, 0))
+    legacy = {line, coverage_fallback(node, line, env.clause)}
+
+    case env.branch_body do
+      nil ->
+        body = env.clause && env.clause.body
+        {own_line || line, span || {line, line}, body, legacy}
+
+      branch ->
+        legacy = if env.source_index, do: {own_line, branch}, else: legacy
+        {own_line, span, branch, legacy}
+    end
   end
 
   defp clause({_kind, meta, [head, body]}) when is_list(body) do

@@ -230,6 +230,107 @@ defmodule MutagenEx.ChangedRunTest do
     assert Enum.any?(pending, &(&1["function"] =~ "arm_live/" and &1["reason"] == "uncovered"))
   end
 
+  @tag spec: "mutagen.coverage.r14"
+  test "covers only the site span or innermost branch across coverage shapes", %{repo: repo} do
+    fixtures = Path.expand("../fixtures/branch_coverage", __DIR__)
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
+    write(repo, @convention, File.read!(Path.join(fixtures, "example_test.exs")))
+    base = commit(repo)
+    write(repo, @source, File.read!(Path.join(fixtures, "example.ex")))
+
+    changed = run(repo, ["--since", base, "--tests", @convention])
+    classic = run(repo, ["--scope", @source, "--tests", @convention])
+
+    for report <- [changed, classic] do
+      results = report["mutation"]["results"]
+
+      for {name, mutator, excerpt, covered?} <- [
+            {"guard_live/1", "compare", "x > 10", true},
+            {"guard_cold/1", "compare", "x > 10", false},
+            {"multi_live/1", "literal", "0", true},
+            {"multi_cold/1", "literal", "1", false},
+            {"pipe/2", "pipeline", "Enum.filter", true},
+            {"pipe/2", "pipeline", "Enum.sum", true},
+            {"pipe/2", "pipeline", "Enum.reverse", false},
+            {"pipe/2", "pipeline", "Enum.take", false},
+            {"unless_pipe/2", "pipeline", "Enum.reverse", false},
+            {"tup/2", "result_tuple", "{:ok, y}", true},
+            {"tup/2", "result_tuple", "{:error, y}", false},
+            {"cold_tail/1", "result_tuple", "{:ok, y}", false},
+            {"one_live/1", "arith", "x + 1", true},
+            {"one_cold/1", "arith", "x - 1", false},
+            {"two/1", "literal", "0", true},
+            {"two/1", "arith", "n - 1", false},
+            {"partial/1", "arith", "x + 1", true},
+            {"partial/1", "arith", "x - 1", false},
+            {"arm/1", "literal", "1", true},
+            {"arm/1", "literal", "0", false},
+            {"branch_tuple/2", "result_tuple", "{:ok, y}", true},
+            {"branch_tuple/2", "result_tuple", "{:error, x}", false},
+            {"branch_tuple_lit/1", "literal", "true", true},
+            {"branch_tuple_lit/1", "literal", "false", false},
+            {"branch_tuple_multi/2", "result_tuple", "{:ok,", true},
+            {"branch_tuple_multi/2", "result_tuple", "{:error,", false},
+            {"arm_tuple/1", "result_tuple", "{:ok, 1}", true},
+            {"arm_tuple/1", "result_tuple", "{:error, 0}", false},
+            {"cond_tuple/1", "result_tuple", "{:ok, x}", true},
+            {"cond_tuple/1", "result_tuple", "{:error, 0}", false},
+            {"with_else/1", "result_tuple", "{:error, false}", false},
+            {"with_else_taken/1", "result_tuple", "{:error, false}", true},
+            {"nested_branch/3", "result_tuple", "{:error, {false, 0}}", false}
+          ] do
+        assert Enum.any?(results, fn row ->
+                 row["function"] == "ChangedRunFixture.Example." <> name and
+                   row["mutator"] == mutator and row["before"] =~ excerpt
+               end) == covered?,
+               inspect({name, mutator, excerpt, covered?})
+      end
+    end
+  end
+
+  @tag spec: ["mutagen.coverage.r14", "mutagen.json_schema.r36"]
+  test "reports a counterless branch within a tested site as uncovered", %{repo: repo} do
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def safe_div(_, 0), do: {:error, :zero}
+      def safe_div(a, b), do: {:ok, div(a, b)}
+    end
+    """)
+
+    write(
+      repo,
+      @convention,
+      test_case("Divide", """
+      test "divides by a nonzero number" do
+        assert ChangedRunFixture.Example.safe_div(6, 2) == {:ok, 3}
+      end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def safe_div(a, b) do
+        if b == 0 do
+          {:error, :zero}
+        else
+          {:ok, div(a, b)}
+        end
+      end
+    end
+    """)
+
+    report = run(repo, ["--since", base, "--tests", @convention, "--summary", "summary.md"])
+    refute Enum.any?(report["mutation"]["results"], &(&1["before"] == "{:error, :zero}"))
+    assert [%{"path" => @source, "ranges" => ranges}] = report["meta"]["since"]["uncovered"]
+    assert [4, 4] in ranges
+    assert report["summary"]["verdict"] == "partly_checked"
+
+    assert File.read!(Path.join(repo, "summary.md")) =~
+             "uncovered within tested sites"
+  end
+
   @tag spec: ["mutagen.cli.r5", "mutagen.json_schema.r39"]
   test "OTP handler crashes reach stdout and leave aggregate and stream files parseable", %{
     repo: repo
