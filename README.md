@@ -129,10 +129,7 @@ treat the idiomatic six as the Elixir-specific extension that vocabulary lacks.
 Every aggregate `mutation.results[]` entry and every NDJSON `"result"` line
 has a `"confidence"` field. The ratings apply to whole operators and draw
 on manual review of survivors from two Phoenix apps. Even a high-rated
-survivor can be equivalent to the original code. A CI gate can filter for
-`status == "survived" and confidence == "high"`. The field is part of
-report schema version `"2"`. The summary counts results of both confidence
-levels.
+survivor can be equivalent to the original code.
 
 The ratings are provisional. We will re-measure each mutator as more files
 are judged.
@@ -209,10 +206,7 @@ test files in the same suite killed six of them. Three survived.
 A survivor means “the tests you selected miss it”. First rerun with a
 wider `--tests` selection before writing a test.
 
-The sample is small and per-mutator confidence is provisional. The gate
-is advisory. The project requires 85% real test gaps under this judging
-rule before recommending enforcement. This measurement falls short.
-[Anonymized judgments](docs/precision/blind-2026-11.csv).
+The sample is small and per-mutator confidence is provisional.
 
 ## Self-mutation
 
@@ -407,32 +401,43 @@ MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json
 ```
 
 Mutagen compares the working tree with the merge base of the ref and HEAD.
-CI needs the history that contains the merge base. The run plans mutations
+A shallow checkout always aborts. Fetch full Git history and use
+`fetch-depth: 0` in GitHub Actions. The run plans mutations
 in named runtime functions on touched lines, then compares their group
 fingerprints with the base source. Formatting, comments, and moved
 unchanged functions contribute no runtime sites. Use `--scope` to narrow
 the diff further. An empty runtime plan finishes before host setup.
 
+The run includes untracked, unignored files. It excludes test roots and
+test support from source planning. An incomplete run returns exit 0 with
+its reasons. A tool abort returns exit 2.
+
 Automatic test selection looks for `a/b_test.exs` under the configured
 test roots for `a/b.ex` under a configured source root. Changed test files
-also join a `--since` run. If mutants survive, Mutagen first searches
+also join a `--since` run. For runtime sites still unresolved, Mutagen searches
 uncited test files for the full module name, or for the module's last
 segment as a whole word in a file that aliases its parent. It then
-searches for function calls or captures in files that contain the last
-module segment. The search counts text mentions, including comments, and
-uses path order to break ties. Each step takes up to 20 files by default.
-Mutagen requires each added file to pass on the original code. A pass
-judges its mutants with the files admitted in that pass.
+searches for qualified function calls or captures, or bare calls where
+the matching module is imported or aliased. It counts text mentions and
+uses path order to break ties. Each step takes up to 20 files per function
+by default.
+Mutagen gives each added file up to five seconds on the original code,
+bounded by the host boot and mutant timeouts. If a batch fails, Mutagen
+keeps the files that pass together in score order. A pass judges its
+mutants with the files admitted in that pass.
 
 `meta.since` records the ref, merge base, and site counts.
-`meta.incomplete` records paths skipped or unreadable and sites that the
-runner dropped. `mutation.pending` shows sites with no outcome, including
-uncovered sites and covered sites left unrun. Coverage includes green
+`meta.complete` and `meta.incomplete_reasons` record missing evidence from
+skipped or unreadable paths and sites that the runner dropped.
+`meta.since.unmapped` lists changed lines without runtime sites.
+`mutation.pending` shows sites with no outcome, including uncovered sites
+and covered sites left unrun. Coverage includes green
 tests added during escalation. `meta.tests_selected` lists why each test
-file joined, and each result lists the steps it ran. Use
-`--include-host-output` to see discovered test paths when source reporting
-is enabled. Changed-code and automatic runs emit each final outcome after all passes
-when `--stream` is enabled.
+file joined, and each result lists the steps it ran. Discovered test paths
+follow `--no-source`. With `--stream`, changed-code
+and automatic runs emit final results and compile errors after all passes
+with the same fields as the aggregate. Pending sites appear in the final
+JSON document.
 
 Site IDs are stable within an unchanged function. Editing a function can
 reassign IDs, so use them to inspect the current report.
@@ -462,7 +467,7 @@ the average cost per mutant.
 | `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
 | `--since <ref>` | Plan changed runtime sites from the merge base. Defaults to `--tests auto`. |
 | `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
-| `--escalate-max-files <int>` | Maximum test files each extra pass considers. Default `20`. |
+| `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
 | `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor and a 30000 ms ceiling. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
@@ -664,7 +669,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `cover_compile_failed` | OTP coverage could not instrument a selected module. |
 | `cover_module_unavailable` | The OTP coverage module failed to load. |
 | `coverage_timeout` | The coverage phase exceeded its deadline. |
-| `diff_unavailable` | Reserved for the CI gate when Git cannot provide a usable diff. |
+| `diff_unavailable` | Git cannot provide a usable diff for the changed-code run. |
 | `ex_unit_run_failed` | ExUnit raised, threw, or exited while running a suite. |
 | `file_not_found` | A selected source or test file does not exist. |
 | `file_read_failed` | Mutagen could not read a required file. |
@@ -683,7 +688,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `invalid_mix_env` | The command selected an unsupported Mix environment. |
 | `invalid_redact_config` | The configured report redaction patterns are invalid. |
 | `invalid_seed` | The ExUnit seed is invalid. |
-| `invalid_since_ref` | Reserved for the CI gate when `--since` has an invalid Git ref. |
+| `invalid_since_ref` | `--since` has an invalid Git ref. |
 | `invalid_tag_name` | The test tag contains unsupported characters or has an invalid length. |
 | `invalid_target` | The test selector has an unsupported format. |
 | `invalid_timeout` | The per-site timeout is invalid. |
@@ -994,9 +999,9 @@ regression test for this lives in
   `Task.Supervisor.async_nolink/2` or `DynamicSupervisor.start_child/2`,
   can outlive the timeout. The host supervisor owns those children.
 
-### Changed-line gate planning
+### Changed-code planning
 
-The gate planner compares changed lines and the enclosing group's source
+Planning compares changed lines and the enclosing group's source
 fingerprint. An edit to a module attribute such as `@limit`, a
 `defguard`, a `defmacro`, a `defdelegate` target, `alias`, `import`,
 `use` options, or `defstruct` defaults can change runtime behavior and

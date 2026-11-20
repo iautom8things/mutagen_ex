@@ -44,6 +44,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
@@ -627,6 +628,18 @@ decisions:
     An explicit --timeout-ms overrides the calculation. A timeout with
     fail-fast on kills a mutant only when a failure was recorded before
     its effective deadline.
+
+- id: mutagen.mutation_pipeline.r31
+  priority: must
+  statement: |
+    Escalation has a deadline for each admission baseline. Red,
+    unloadable, crashed and timed-out candidates leave the run. If
+    otherwise green files fail together, add them in ranked order while
+    the combined baseline stays green. Replay host application settings
+    from accepted file loads for the selected batch. A rejected file's
+    settings do not affect the other candidates. If a step cannot
+    complete, retain the narrow results and warn. Explicit tests and mutation budget
+    truncation disable escalation. Taint carries into later passes.
 
 ```
 

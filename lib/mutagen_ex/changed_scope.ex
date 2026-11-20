@@ -3,16 +3,20 @@ defmodule MutagenEx.ChangedScope do
 
   alias MutagenEx.{AstCache, GitDiff, MutationEnumerator, ScopeResolver}
 
-  def plan(config, roots) do
-    opts = [roots: roots, deletion_anchors: true, allow_missing_roots: true]
+  def plan(config, roots, options \\ []) do
+    opts = [roots: roots, deletion_anchors: true, untracked: true]
+    git = Keyword.get(options, :git, GitDiff)
+    excluded = Keyword.get(options, :exclude, [])
 
-    with {:ok, diff} <- GitDiff.changed_lines(config.since, opts) do
+    with {:ok, diff} <- git.changed_lines(config.since, opts) do
       files =
         (Map.keys(diff.files) ++ Map.keys(diff.deletion_anchors) ++ Map.keys(diff.renames))
         |> Enum.uniq()
+        |> Enum.reject(&excluded?(&1, excluded))
         |> Enum.sort()
 
-      {cache, incomplete} = load_files(files, diff.skipped)
+      skipped = Enum.reject(diff.skipped, &excluded?(&1.path, excluded))
+      {cache, incomplete} = load_files(files, skipped)
 
       meta = %{
         ref: config.since,
@@ -21,13 +25,14 @@ defmodule MutagenEx.ChangedScope do
         planned: 0,
         in_scope: 0,
         runtime: 0,
-        run: 0
+        run: 0,
+        unmapped: []
       }
 
       plan = %{meta: meta, incomplete: incomplete, warnings: diff.warnings, head: diff.head}
 
       with {:ok, scopes} <- resolve_scopes(config.scopes, cache, files, roots) do
-        plan = enumerate(plan, diff, scopes, cache, files, config, opts)
+        plan = enumerate(plan, diff, scopes, cache, files, config, {git, opts})
         {:ok, plan}
       else
         {:error, reason, details} -> {:error, reason, details, plan}
@@ -35,10 +40,10 @@ defmodule MutagenEx.ChangedScope do
     end
   end
 
-  def changed_tests(plan, roots) do
-    opts = [roots: roots, file_kind: :test, allow_missing_roots: true]
+  def changed_tests(plan, roots, git \\ GitDiff) do
+    opts = [roots: roots, file_kind: :test, allow_missing_roots: true, untracked: true]
 
-    case GitDiff.changed_lines(plan.meta.ref, opts) do
+    case git.changed_lines(plan.meta.ref, opts) do
       {:ok, %{base: base, head: head} = diff} when base == plan.meta.base and head == plan.head ->
         {:ok, Enum.sort(Map.keys(diff.files)), diff.skipped}
 
@@ -48,6 +53,15 @@ defmodule MutagenEx.ChangedScope do
       {:error, _, _} = error ->
         error
     end
+  end
+
+  def excluded?(path, roots) do
+    path = String.normalize(path, :nfc)
+
+    Enum.any?(roots, fn root ->
+      root = String.normalize(root, :nfc)
+      path == root or String.starts_with?(path, root <> "/")
+    end)
   end
 
   defp load_files(files, skipped) do
@@ -141,7 +155,7 @@ defmodule MutagenEx.ChangedScope do
     end
   end
 
-  defp enumerate(plan, diff, scopes, cache, files, config, opts) do
+  defp enumerate(plan, diff, scopes, cache, files, config, {git, opts}) do
     lines =
       Map.new(cache, fn {file, {_ast, source}} ->
         {file, Map.get(diff.files, file, []) ++ anchor_ranges(diff, file, source)}
@@ -150,16 +164,30 @@ defmodule MutagenEx.ChangedScope do
     enumerated =
       MutationEnumerator.enumerate(cache, scopes, %{}, planned: lines, source: config.source)
 
-    planned = enumerated.sites ++ enumerated.skipped
-    planned_by_file = Enum.group_by(planned, & &1.file)
+    planned_by_file =
+      (enumerated.sites ++ enumerated.skipped)
+      |> Enum.group_by(& &1.file)
+      |> Map.new(fn {path, entries} ->
+        {_ast, source} = Map.fetch!(cache, path)
+        index = MutagenEx.JsonReporter.Source.index(source, path)
+
+        entries =
+          for entry <- entries,
+              span = planned_span(index, entry),
+              overlaps?(span, lines[path]) do
+            {entry, span}
+          end
+
+        {path, entries}
+      end)
 
     {entries, incomplete} =
       Enum.map_reduce(files, plan.incomplete, fn file, incomplete ->
-        entries = Map.get(planned_by_file, file, [])
+        entries = Enum.map(Map.get(planned_by_file, file, []), &elem(&1, 0))
         base_path = Map.get(diff.renames, file, file)
 
         {scoped, reasons} =
-          case GitDiff.base_file(diff.base, base_path, opts) do
+          case git.base_file(diff.base, base_path, opts) do
             {:ok, source} ->
               {scoped, warnings} = MutationEnumerator.fingerprint_scope(entries, source)
               reason = if warnings == [], do: :changed_group, else: :base_parse_error
@@ -177,7 +205,7 @@ defmodule MutagenEx.ChangedScope do
         incomplete =
           if incomplete?, do: [%{reason: reason, path: file} | incomplete], else: incomplete
 
-        {annotate(scoped, reason), incomplete}
+        {Enum.map(scoped, &Map.put(&1, :in_scope, reason)), incomplete}
       end)
 
     entries = List.flatten(entries)
@@ -191,24 +219,55 @@ defmodule MutagenEx.ChangedScope do
       incomplete: incomplete,
       meta: %{
         plan.meta
-        | planned: length(planned),
+        | planned: Enum.sum_by(planned_by_file, fn {_, entries} -> length(entries) end),
           in_scope: length(entries),
-          runtime: length(sites) + length(skipped)
+          runtime: length(sites) + length(skipped),
+          unmapped: unmapped(lines, diff, planned_by_file)
       }
     })
   end
 
-  defp annotate(entries, reason) do
-    {annotated, _groups} =
-      Enum.map_reduce(entries, %{}, fn %{group_key: key} = entry, groups ->
-        digest = Map.get_lazy(groups, key, fn -> MutationEnumerator.site_fingerprint(entry) end)
-
-        {Map.merge(entry, %{in_scope: reason, fingerprint: digest}),
-         Map.put_new(groups, key, digest)}
-      end)
-
-    annotated
+  defp planned_span(index, entry) do
+    MutagenEx.JsonReporter.Source.line_range(index, entry.path) ||
+      {entry.line, entry.end_line || entry.line}
   end
+
+  defp overlaps?({first, last}, ranges),
+    do: Enum.any?(ranges, fn {from, to} -> first <= to and from <= last end)
+
+  defp unmapped(lines, diff, planned_by_file) do
+    Enum.flat_map(Enum.sort(lines), fn {path, changed} ->
+      spans = for {%{runtime?: true}, span} <- Map.get(planned_by_file, path, []), do: span
+      ranges = Enum.reduce(spans, changed, &subtract_span/2) |> Enum.uniq() |> Enum.sort()
+      anchors = Map.get(diff.deletion_anchors, path, [])
+
+      unmapped =
+        if ranges == [],
+          do: [],
+          else: [%{path: path, ranges: wire_ranges(ranges), kind: :no_runtime_site}]
+
+      if changed == [] and anchors != [] do
+        [
+          %{
+            path: path,
+            ranges: wire_ranges(Enum.map(anchors, &{&1, &1})),
+            kind: :deletion_without_neighbor
+          }
+        ]
+      else
+        unmapped
+      end
+    end)
+  end
+
+  defp subtract_span({first, last}, ranges) do
+    Enum.flat_map(ranges, fn
+      {from, to} when to < first or from > last -> [{from, to}]
+      {from, to} -> Enum.filter([{from, first - 1}, {last + 1, to}], fn {a, b} -> a <= b end)
+    end)
+  end
+
+  defp wire_ranges(ranges), do: Enum.map(ranges, &Tuple.to_list/1)
 
   defp anchor_ranges(diff, file, source) do
     case Map.get(diff.deletion_anchors, file, []) do

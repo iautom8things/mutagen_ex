@@ -31,6 +31,7 @@ surface:
   - lib/mutagen_ex/auto_tests.ex
   - lib/mutagen_ex/test_selector.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.ancora_migration
   - mutagen.decision.host_test_setup
@@ -147,6 +148,15 @@ decisions:
     mutants, using module matches first and function calls or captures
     second. Equal scores sort by path. Each step admits at most the
     configured file cap and reports whether more files matched.
+
+- id: mutagen.test_selection.r11
+  priority: must
+  statement: |
+    Escalation counts whole module names and qualified calls or captures.
+    A bare function call or capture requires an import or alias of the
+    matching module. The file cap applies separately to each function.
+    The step ranks the union by mentions and path. Unreadable candidate
+    files produce a warning.
 
 ```
 

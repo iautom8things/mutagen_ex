@@ -11,6 +11,8 @@ defmodule MutagenEx.SelectedRun do
       selection: plan.selection,
       tried: MapSet.new(filter.files),
       rejected: %{},
+      loads: %{},
+      app: Mix.Project.config()[:app],
       coverage: %{},
       results: %{},
       compile_errors: %{},
@@ -22,12 +24,30 @@ defmodule MutagenEx.SelectedRun do
       tainted: false
     }
 
-    with {:ok, state} <- narrow(plan, config, state, phases),
-         narrow_timing = state.report.meta.timings_ms,
-         {:ok, state} <- escalate(plan, config, state, test_paths, phases) do
-      state = put_in(state.report.meta.timings_ms, %{narrow_timing | mutation: state.mutation_ms})
+    with {:ok, narrow} <- narrow(plan, config, state, phases) do
+      state = escalate_or_keep(plan, config, narrow, test_paths, phases)
+
+      state =
+        state
+        |> put_in([:report, Access.key!(:meta), :timings_ms], %{
+          narrow.report.meta.timings_ms
+          | mutation: state.mutation_ms
+        })
+        |> put_in([:report, Access.key!(:baseline)], narrow.report.baseline)
+
       complete(plan, state)
     end
+  end
+
+  defp escalate_or_keep(plan, config, narrow, paths, phases) do
+    case escalate(plan, config, narrow, paths, phases) do
+      {:ok, state} -> state
+      _abort -> warn(narrow, "escalation_failed")
+    end
+  rescue
+    _ -> warn(narrow, "escalation_failed")
+  catch
+    _, _ -> warn(narrow, "escalation_failed")
   end
 
   defp narrow(%{sites: []}, _config, state, _phases), do: {:ok, state}
@@ -60,12 +80,12 @@ defmodule MutagenEx.SelectedRun do
 
   defp escalate(plan, %{tests: ["auto"], escalate: true} = config, state, test_paths, phases) do
     Enum.reduce_while([:module, :function], {:ok, state}, fn stage, {:ok, current} ->
-      survivors = survivors(current)
+      candidates = remaining_sites(plan, current)
 
-      if survivors == [] or current.truncated do
+      if candidates == [] or current.truncated do
         {:halt, {:ok, current}}
       else
-        case escalate_stage(stage, survivors, plan, config, current, test_paths, phases) do
+        case escalate_stage(stage, candidates, plan, config, current, test_paths, phases) do
           {:ok, next} -> {:cont, {:ok, next}}
           abort -> {:halt, abort}
         end
@@ -75,22 +95,30 @@ defmodule MutagenEx.SelectedRun do
 
   defp escalate(_plan, _config, state, _test_paths, _phases), do: {:ok, state}
 
-  defp escalate_stage(stage, survivors, plan, config, state, test_paths, phases) do
+  defp escalate_stage(stage, candidates, plan, config, state, test_paths, phases) do
     started = System.monotonic_time(:millisecond)
+    survivors_in = length(survivors(state))
+    state = update_in(state.report.meta.timings_ms, &Map.delete(&1, :mutant_deadline))
 
-    {candidates, capped?} =
-      AutoTests.discover(stage, survivors, test_paths, state.tried, config.escalate_max_files)
+    {files, capped?, unreadable} =
+      AutoTests.discover(stage, candidates, test_paths, state.tried, config.escalate_max_files)
 
-    with {:ok, files, state} <- admit(candidates, state, phases),
+    state = Enum.reduce(unreadable, state, &reject(&2, &1, :test_read_failed))
+
+    with {:ok, files, state} <- admit(files, config, state, phases),
          {:ok, state, added} <- run_stage(stage, files, plan, config, state, phases) do
+      baseline =
+        if added != [], do: Map.take(state.report.baseline || %{}, [:passed, :failed, :failures])
+
       step = %{
         step: stage,
         files_added: added,
         capped: capped?,
-        survivors_in: length(survivors),
+        survivors_in: survivors_in,
         survivors_out: length(survivors(state)),
         wall_ms: elapsed(started),
-        baseline_ms: if(added == [], do: 0, else: state.report.meta.timings_ms.baseline),
+        baseline: baseline,
+        baseline_ms: if(added != [], do: state.report.meta.timings_ms.baseline),
         mutant_deadline_ms: if(added != [], do: state.report.meta.timings_ms[:mutant_deadline])
       }
 
@@ -98,66 +126,153 @@ defmodule MutagenEx.SelectedRun do
     end
   end
 
-  defp admit(candidates, state, phases) do
+  defp admit(candidates, config, state, phases) do
     state = %{state | tried: Enum.reduce(candidates, state.tried, &MapSet.put(&2, &1))}
 
-    candidates
-    |> Enum.reduce_while({:ok, [], state}, fn path, {:ok, accepted, state} ->
-      filter = %{state.filter | files: [path]}
+    {accepted, state} =
+      Enum.reduce(candidates, {[], state}, fn path, {accepted, state} ->
+        filter = %{state.filter | files: [path]}
+        input = %{test_filter: filter, escalation_timeout_ms: candidate_timeout(config)}
 
-      case phases.baseline.(%{test_filter: filter}, state.report) do
-        {:ok, _baseline, _report} ->
-          {:cont, {:ok, [path | accepted], state}}
+        case probe_candidate(input, state, phases) do
+          {{:ok, _baseline, _report}, effects} ->
+            {[path | accepted], put_in(state.loads[path], effects)}
 
-        {:abort, _report, _, reason, _details}
-        when reason in [:baseline_red, :test_file_load_failed, :no_tests_run] ->
-          # A file can register a case and then fail to load.
-          ExUnitServer.discard_pending_modules()
-          {:cont, {:ok, accepted, reject(state, path, reason)}}
+          {{:abort, _report, _, reason, _details}, _effects} ->
+            if reason == :test_file_load_failed, do: ExUnitServer.discard_pending_modules()
+            {accepted, reject(state, path, reason)}
+        end
+      end)
 
-        abort ->
-          {:halt, abort}
-      end
-    end)
-    |> case do
-      {:ok, files, state} -> {:ok, Enum.reverse(files), state}
-      abort -> abort
+    {:ok, Enum.reverse(accepted), state}
+  end
+
+  # Accept the file's load-time app configuration only when the file joins a
+  # pass. Test-body changes from a speculative baseline never enter a retry.
+  defp probe_candidate(input, state, phases) do
+    app = state.app
+    before = app_env(app)
+    caller = self()
+    ref = make_ref()
+
+    loader = fn file ->
+      result = Code.require_file(file)
+      send(caller, {ref, app_env(app)})
+      result
+    end
+
+    try do
+      outcome = phases.baseline.(Map.put(input, :test_loader, loader), state.report)
+
+      after_load =
+        receive do
+          {^ref, env} -> env
+        after
+          0 -> before
+        end
+
+      changes =
+        Map.reject(after_load, fn {key, value} -> Map.fetch(before, key) == {:ok, value} end)
+
+      {outcome, {Map.keys(before) -- Map.keys(after_load), changes}}
+    after
+      restore_app_env(app, before)
     end
   end
+
+  defp with_file_env(state, files, run) do
+    before = app_env(state.app)
+
+    selected =
+      Enum.reduce(files, before, fn file, env ->
+        {removed, changed} = Map.fetch!(state.loads, file)
+        env |> Map.drop(removed) |> Map.merge(changed)
+      end)
+
+    try do
+      restore_app_env(state.app, selected)
+      run.()
+    after
+      restore_app_env(state.app, before)
+    end
+  end
+
+  defp app_env(nil), do: %{}
+  defp app_env(app), do: Map.new(Application.get_all_env(app))
+
+  defp restore_app_env(nil, _env), do: :ok
+
+  defp restore_app_env(app, target) do
+    current = app_env(app)
+    Enum.each(Map.keys(current) -- Map.keys(target), &Application.delete_env(app, &1))
+
+    Enum.each(target, fn {key, value} ->
+      if Map.fetch(current, key) != {:ok, value}, do: Application.put_env(app, key, value)
+    end)
+  end
+
+  defp candidate_timeout(config),
+    do: min(config.boot_timeout_ms, min(config.timeout_ms, to_timeout(second: 5)))
 
   defp run_stage(_step, [], _plan, _config, state, _phases), do: {:ok, state, []}
 
   defp run_stage(step, files, plan, config, state, phases) do
-    filter = %{state.filter | files: files}
-    modules = TestModuleDiscovery.discover(files)
-    input = %{test_filter: filter, test_modules: modules}
-
-    # Baseline the files together to measure the pass and catch interactions.
-    case phases.baseline.(input, state.report) do
-      {:ok, _baseline, report} ->
+    case combined_baseline(files, config, state, phases) do
+      {:ok, input, report} ->
         run_green_stage(step, plan, config, state, input, report, phases)
 
-      {:abort, _report, _, :baseline_red, _details} ->
-        {:ok, Enum.reduce(files, state, &reject(&2, &1, :baseline_red)), []}
+      {:abort, _, _, _, _} ->
+        {state, accepted} =
+          Enum.reduce(files, {state, nil}, fn path, {state, accepted} ->
+            prefix = if accepted, do: elem(accepted, 0).test_filter.files, else: []
 
-      abort ->
-        abort
+            case combined_baseline(prefix ++ [path], config, state, phases) do
+              {:ok, input, report} ->
+                {state, {input, report}}
+
+              {:abort, _, _, :baseline_red, _} ->
+                {reject(state, path, :baseline_red_in_combination), accepted}
+
+              {:abort, _, _, reason, _} ->
+                {reject(state, path, reason), accepted}
+            end
+          end)
+
+        case accepted do
+          {input, report} -> run_green_stage(step, plan, config, state, input, report, phases)
+          nil -> {:ok, state, []}
+        end
     end
   end
 
+  defp combined_baseline(files, config, state, phases) do
+    filter = %{state.filter | files: files}
+    modules = TestModuleDiscovery.discover(files)
+    input = %{test_filter: filter, test_modules: modules}
+    timeout = min(config.boot_timeout_ms, candidate_timeout(config) * length(files))
+
+    with_file_env(state, files, fn ->
+      case phases.baseline.(Map.put(input, :escalation_timeout_ms, timeout), state.report) do
+        {:ok, _baseline, report} -> {:ok, input, report}
+        abort -> abort
+      end
+    end)
+  end
+
   defp run_green_stage(step, plan, config, state, input, report, phases) do
+    with_file_env(state, input.test_filter.files, fn ->
+      run_green_files(step, plan, config, state, input, report, phases)
+    end)
+  end
+
+  defp run_green_files(step, plan, config, state, input, report, phases) do
     %{test_filter: filter, test_modules: modules} = input
 
     with {:ok, coverage, report} <- phases.coverage.(filter, modules, report) do
       sites =
-        Enum.filter(plan.sites, fn %{id: id} = site ->
-          case state.results do
-            %{^id => %{status: :survived}} ->
-              true
-
-            _ ->
-              not covered?(site, state.coverage) and covered?(site, coverage.covered_lines)
-          end
+        Enum.filter(remaining_sites(plan, state), fn site ->
+          match?(%{status: :survived}, state.results[site.id]) or
+            covered?(site, coverage.covered_lines)
         end)
 
       why = if step == :module, do: :escalation_module, else: :escalation_function
@@ -181,8 +296,12 @@ defmodule MutagenEx.SelectedRun do
     warning =
       case reason do
         :baseline_red -> :escalation_baseline_red
+        :baseline_red_in_combination -> :escalation_baseline_red_in_combination
+        :baseline_timeout -> :escalation_baseline_timeout
         :test_file_load_failed -> :escalation_test_file_load_failed
+        :test_read_failed -> :escalation_test_read_failed
         :no_tests_run -> :escalation_no_tests_run
+        _ -> :escalation_baseline_crashed
       end
 
     update_in(state.rejected, &Map.update(&1, warning, [path], fn paths -> [path | paths] end))
@@ -223,7 +342,7 @@ defmodule MutagenEx.SelectedRun do
     %{
       warn(state, outcome.warnings)
       | results: state.results |> Map.drop(replaced) |> Map.merge(results),
-        compile_errors: Map.merge(state.compile_errors, errors),
+        compile_errors: state.compile_errors |> Map.drop(Map.keys(results)) |> Map.merge(errors),
         dropped: state.dropped ++ dropped,
         drift: Map.merge(state.drift, outcome.state_drift_warning),
         truncated: Map.get(outcome, :truncated, false),
@@ -271,7 +390,7 @@ defmodule MutagenEx.SelectedRun do
 
         report.meta
         |> Map.put(:since, %{plan.meta | run: length(results) + length(compile_errors)})
-        |> Map.put(:incomplete, Enum.uniq(incomplete))
+        |> Map.put(:incomplete_reasons, Enum.uniq(incomplete))
       else
         report.meta
       end
@@ -301,16 +420,19 @@ defmodule MutagenEx.SelectedRun do
     end
   end
 
-  defp pending_site(entry, reason), do: entry |> Map.put(:reason, reason) |> annotate(entry)
-
-  defp annotate(outcome, %{in_scope: reason} = entry) do
-    Map.merge(outcome, %{
-      in_scope: reason,
-      fingerprint: MutationEnumerator.site_fingerprint(entry)
-    })
+  defp pending_site(entry, reason) do
+    entry
+    |> Map.take([:id, :file, :line, :column, :mutator, :function, :in_scope])
+    |> Map.put(:reason, reason)
   end
 
+  defp annotate(outcome, %{in_scope: reason}), do: Map.put(outcome, :in_scope, reason)
+
   defp annotate(outcome, _entry), do: outcome
+
+  defp remaining_sites(plan, state) do
+    Enum.reject(plan.sites, &match?(%{status: :killed}, state.results[&1.id]))
+  end
 
   defp survivors(state) do
     state.results |> Map.values() |> Enum.filter(&(&1.status == :survived))

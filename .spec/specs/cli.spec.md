@@ -27,6 +27,7 @@ kind: module
 status: active
 summary: Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.
 surface:
+  - lib/mutagen_ex/changed_run.ex
   - lib/mutagen_ex/config.ex
   - lib/mix/tasks/mutagen.ex
   - lib/mutagen_ex/cli.ex
@@ -36,6 +37,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.serial_execution_and_seed
@@ -580,6 +582,13 @@ decisions:
     Auto is a standalone test target. Escalation defaults on, --no-escalate
     disables it, and --escalate-max-files takes a non-negative integer
     with a default of 20. Fail-fast remains on unless disabled.
+
+- id: mutagen.cli.r34
+  priority: must
+  statement: |
+    A changed-code run checks the Mix environment and refuses an umbrella
+    root before reading Git or starting the host. A plan that names Mutagen
+    modules refuses self mutation before coverage and baseline.
 
 ```
 

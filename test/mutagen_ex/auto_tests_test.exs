@@ -18,7 +18,7 @@ defmodule MutagenEx.AutoTestsTest do
         "Fixture.Parent.Example.call(1)\nFixture.Parent.Example.call(2)"
       )
 
-      File.write!("checks/function_test.exs", "# Example\n&call/1")
+      File.write!("checks/function_test.exs", "# Example\n&Example.call/1")
       File.write!("checks/decoy_test.exs", "# Fixture.Parent.ExampleOther callable(1)")
       File.write!("checks/other_test.exs", "# Another.Fixture.Parent.Example")
       File.ln_s!("full_test.exs", "checks/symlink_test.exs")
@@ -36,18 +36,48 @@ defmodule MutagenEx.AutoTestsTest do
 
       survivors = [%{function: "Fixture.Parent.Example.call/1"}]
 
-      assert {["checks/full_test.exs"], true} =
+      assert {["checks/full_test.exs"], true, []} =
                AutoTests.discover(:module, survivors, ["checks"], MapSet.new(), 1)
 
       tried = MapSet.new(["checks/full_test.exs"])
 
-      assert {["checks/module_test.exs"], false} =
-               AutoTests.discover(:module, survivors, ["checks"], tried, 20)
+      assert {["checks/module_test.exs"], false, []} =
+               AutoTests.discover(:module, survivors, ["checks"], tried, 1)
 
       tried = MapSet.put(tried, "checks/module_test.exs")
 
-      assert {["checks/function_test.exs"], false} =
-               AutoTests.discover(:function, survivors, ["checks"], tried, 20)
+      assert {["checks/function_test.exs"], false, []} =
+               AutoTests.discover(:function, survivors, ["checks"], tried, 1)
+    end)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.test_selection.r11"
+  test "caps each function, ignores unrelated qualifiers and reports failed reads", %{
+    tmp_dir: dir
+  } do
+    File.cd!(dir, fn ->
+      File.mkdir_p!("checks")
+      File.write!("checks/noise_test.exs", String.duplicate("# StoreFront Map.get(x, y)\n", 40))
+      File.write!("checks/store_test.exs", "&Store.get/2\nStore.get(x, y)")
+      File.write!("checks/price_test.exs", "alias Shop.Prices, as: P\nP.price(x)")
+      File.write!("checks/read_error_test.exs", "Store.get(x, y)")
+      sites = [%{function: "Shop.Store.get/2"}, %{function: "Shop.Prices.price/1"}]
+
+      reader = fn
+        "checks/read_error_test.exs" -> {:error, :eacces}
+        path -> File.read(path)
+      end
+
+      assert {["checks/store_test.exs", "checks/price_test.exs"], false,
+              ["checks/read_error_test.exs"]} =
+               AutoTests.discover(:function, sites, ["checks"], MapSet.new(), 1, reader)
+
+      File.write!("checks/another_test.exs", "import Shop.Store\nget(x, y)")
+
+      assert {["checks/store_test.exs", "checks/price_test.exs"], true,
+              ["checks/read_error_test.exs"]} =
+               AutoTests.discover(:function, sites, ["checks"], MapSet.new(), 1, reader)
     end)
   end
 end

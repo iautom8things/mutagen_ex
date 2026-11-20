@@ -35,6 +35,7 @@ surface:
   - lib/mutagen_ex/ast_cache.ex
   - lib/mutagen_ex/test/suite.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
@@ -223,6 +224,13 @@ decisions:
     runtime sites as uncovered. If escalation adds green files, their
     measured line coverage joins the run coverage. Newly covered runtime
     sites can be attempted in the step that first covers them.
+
+- id: mutagen.coverage.r13
+  priority: must
+  statement: |
+    Automatic escalation tries unresolved runtime sites even if the
+    narrow selection is empty. A site is uncovered if no accepted test
+    pass executes its line.
 
 ```
 

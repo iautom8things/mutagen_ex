@@ -175,8 +175,8 @@ defmodule MutagenEx.ReportProvenanceTest do
     assert abort(%Report{tests: filter})["tests"]["files"] == filter.files
   end
 
-  @tag spec: "mutagen.json_schema.r29"
-  test "automatic file names require host output and source reporting" do
+  @tag spec: ["mutagen.json_schema.r29", "mutagen.json_schema.r31"]
+  test "automatic file paths are ordinary repository paths under the source flag" do
     path = "checks/#{@canary}_test.exs"
 
     report = %Report{
@@ -187,16 +187,10 @@ defmodule MutagenEx.ReportProvenanceTest do
       tests: %{include: [], exclude: [], files: [path], host_paths?: true}
     }
 
-    assert %{"meta" => %{"tests_selected" => [%{"path" => :null, "why" => "convention"}]}} =
-             abort(report)
-
-    with_names = abort(%{report | include_host_output: true})
-
-    assert get_in(with_names, ["meta", "tests_selected"]) == [
-             %{"path" => path, "why" => "convention"}
-           ]
-
-    assert get_in(with_names, ["tests", "files"]) == [path]
+    wire = abort(report)
+    assert get_in(wire, ["meta", "tests_selected"]) == [%{"path" => path, "why" => "convention"}]
+    assert get_in(wire, ["meta", "escalation", Access.at(0), "files_added"]) == [path]
+    assert get_in(wire, ["tests", "files"]) == [path]
     refute inspect(abort(%{report | include_host_output: true, source: false})) =~ @canary
   end
 
@@ -215,7 +209,6 @@ defmodule MutagenEx.ReportProvenanceTest do
       before: "a + 1",
       before_source: "a + 1",
       excerpt_line: 1,
-      fingerprint: String.duplicate("a", 32),
       in_scope: :changed_group,
       selection: %{killed_at: :narrow, steps_run: [:narrow]},
       after: "a - 1",
@@ -231,8 +224,12 @@ defmodule MutagenEx.ReportProvenanceTest do
         tool_version: "test",
         elixir_version: "test",
         otp_version: "test",
-        since: %{ref: "main", base: String.duplicate("b", 40)},
-        incomplete: [%{reason: :symlink, path: file}],
+        since: %{
+          ref: "main",
+          base: String.duplicate("b", 40),
+          unmapped: [%{path: file, ranges: [[1, 1]], kind: :no_runtime_site}]
+        },
+        incomplete_reasons: [%{reason: :symlink, path: file}],
         tests_selected: [%{path: file, why: :convention}],
         escalation: [%{step: :module, files_added: [file]}],
         timings_ms: %{

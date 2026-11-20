@@ -1,7 +1,7 @@
 # mutagen.git_diff
 
 This library reads changed source lines and their merge-base versions for the
-CI gate. The CLI uses its fixed failure causes in Git abort reports.
+changed-code runs. The CLI uses its fixed failure causes in Git abort reports.
 
 ```spec-meta
 id: mutagen.git_diff
@@ -11,6 +11,7 @@ summary: Reads changed lines and base blobs from Git for changed-code runs.
 surface:
   - lib/mutagen_ex/git_diff.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.git_diff_read_only
   - mutagen.decision.git_diff_raw_worktree
   - mutagen.decision.git_diff_directory_scope
@@ -26,8 +27,8 @@ decisions:
     added, modified, or renamed regular .ex files inside the configured roots
     contribute ranges. The default root is lib. Git compares source as text,
     including files containing NUL bytes. Deletion-only hunks, mode-only
-    changes, timestamp-only changes, and untracked files contribute no ranges.
-    Intent-to-add files can contribute ranges. Changed symlinks, gitlinks,
+    changes and timestamp-only changes contribute no ranges. Untracked files
+    require the untracked option. Intent-to-add files can contribute ranges. Changed symlinks, gitlinks,
     type changes, and entries Git can only describe as binary are listed in
     skipped with a reason. Every index symlink or gitlink at or under a root
     is listed as preexisting even without a source extension and even when
@@ -62,7 +63,7 @@ decisions:
     Matching normalizes tracked paths and roots to NFC. It also folds case
     when core.ignorecase is true or when the checkout's .git entry and its
     uppercase spelling name the same file. Results retain the tracked
-    spelling. The gate must use those keys as returned and treat a non-empty
+    spelling. The changed-code run uses those keys as returned and treat a non-empty
     skipped list as incomplete, naming each reason and path.
 
 - id: mutagen.git_diff.r3
@@ -144,6 +145,14 @@ decisions:
     under the same Git read safeguards. With allow_missing_roots, a missing
     root is snapshotted as absent and a root that appears during the read
     fails the snapshot recheck. An empty roots list selects no paths.
+
+- id: mutagen.git_diff.r10
+  priority: must
+  statement: |
+    With untracked enabled, unignored untracked sources and test files
+    contribute their full working-file line ranges. The reader preserves
+    the index and validates untracked paths, parent directories and file
+    sizes under its regular read safeguards.
 
 ```
 
