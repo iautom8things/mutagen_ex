@@ -826,6 +826,7 @@ defmodule MutagenEx.MutationRunner do
     result = %{
       id: site.id,
       function: site.function,
+      definition_line: site.definition_line,
       file: site.file,
       line: site.line,
       column: site.column,
@@ -872,6 +873,7 @@ defmodule MutagenEx.MutationRunner do
     entry = %{
       id: site.id,
       function: site.function,
+      definition_line: site.definition_line,
       file: site.file,
       line: site.line,
       column: site.column,

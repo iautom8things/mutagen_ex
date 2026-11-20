@@ -264,6 +264,12 @@ decisions:
     that starts above its operator, the source span starts at its first
     expression while the site line remains the operator line.
 
+- id: mutagen.mutation_enumeration.r18
+  priority: must
+  statement: |
+    A named runtime mutation site retains the first definition line of its
+    enclosing function for the summary. This coordinate is independent of
+    the site's line, including when only a later clause yields a site.
 ```
 
 ```spec-scenarios
@@ -394,4 +400,5 @@ decisions:
     - mutagen.mutation_enumeration.r14
     - mutagen.mutation_enumeration.r15
     - mutagen.mutation_enumeration.r16
+    - mutagen.mutation_enumeration.r18
 ```

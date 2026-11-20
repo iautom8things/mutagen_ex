@@ -610,7 +610,9 @@ decisions:
   statement: |
     A --since run with no in-scope runtime mutations finishes before host
     boot and coverage. A skipped Git path, failed source read or parse,
-    or a site dropped by the runner makes the run incomplete.
+    or a site dropped by the runner makes the run incomplete. An uncovered
+    site can supply an example mutation and a single-site rerun in the
+    advisory summary.
 
 - id: mutagen.mutation_pipeline.r29
   priority: must
