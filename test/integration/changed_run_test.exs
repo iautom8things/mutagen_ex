@@ -366,7 +366,7 @@ defmodule MutagenEx.ChangedRunTest do
     assert function_step["files_added"] == ["checks/function_test.exs"]
 
     assert report["tests"]["files"] ==
-             [changed_test, @convention, "checks/module_test.exs", "checks/function_test.exs"]
+             [@convention, changed_test, "checks/module_test.exs", "checks/function_test.exs"]
 
     assert module_step["survivors_out"] < module_step["survivors_in"]
     assert function_step["survivors_out"] < function_step["survivors_in"]
