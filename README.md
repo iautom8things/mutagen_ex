@@ -206,7 +206,8 @@ test files in the same suite killed six of them. Three survived.
 A survivor means “the tests you selected miss it”. First rerun with a
 wider `--tests` selection before writing a test.
 
-The sample is small and per-mutator confidence is provisional.
+The sample is small and per-mutator confidence is provisional. Mutagen gives
+advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
 
 ## Self-mutation
 
@@ -451,10 +452,107 @@ JSON document.
 Site IDs are stable within an unchanged function. Editing a function can
 reassign IDs, so use them to inspect the current report.
 
+## Reading the summary
+
+Add `--summary mutagen.md` for a Markdown file you can read or paste into a
+pull request. The JSON always includes the same findings under `summary`.
+Both output paths use the project-root boundary by default.
+
+- **Check first** groups findings by function. `not_executed` means the tests
+  selected in a changed-code run reached none of its in-scope sites.
+  `nothing_asserted` means at least three high-confidence mutants ran in
+  that function and every evaluated high-confidence mutant survived.
+- **Worth a look** lists individual high-confidence survivors outside those
+  functions. The provisional [precision sample](docs/precision/blind-2026-11.csv)
+  puts boolean, else removal, result tuples and comparisons first, followed
+  by case drop and literals. Arithmetic has no measurement and sorts last.
+  Change the default five entries with `--summary-max N`.
+- Low-confidence survivors stay in the detailed results because they often
+  reflect equivalent changes. Timeouts count as unevaluated because the
+  tests did not finish. The summary kill rate uses killed and surviving
+  sites. Notes count results after a timeout or host state change. They
+  list skipped escalation files and explain when a kill followed a file
+  that had already loaded before Mutagen dropped it.
+
+Copy the printed `MIX_ENV=test mix mutagen --site …` command from the
+summary to rerun the one site with automatic test discovery and a larger
+search limit. Changed-code reruns keep the merge base from the report. Run
+the command from the same project checkout. Broader tests can kill a site
+that previously survived. With `--no-source`, the summary omits file names,
+function names and excerpts and prints an opaque reference for the rerun.
+
+## Audit mode
+
+Run a whole module to find tests that exercise code but miss its behavior.
+The per-function table lists up to 50 evaluated functions, lowest kill
+rate first.
+
+```sh
+MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json --summary billing.md
+jq '.summary.by_function[]' billing.json
+```
+
+Run each source file in a directory and rank the reported modules by kill
+rate, with zero first and unevaluated runs last.
+
+```sh
+find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \; > audit.ndjson
+jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+```
+
 ## Running in CI
 
-Run with `MIX_ENV=test` and use `--json PATH` for the report artifact.
-Keep stderr out of CI artifacts.
+Mutagen is advisory. Each run reports the current checkout and uses no
+repository state from previous runs. A shallow checkout aborts because the
+diff needs the merge base. Use `fetch-depth: 0`. The unmapped list names
+changed lines Mutagen could not map to a runtime site, such as attributes
+and macros. Upload the JSON report and keep stderr out of artifacts.
+
+```yaml
+name: Mutation advice
+on: pull_request
+
+jobs:
+  mutagen:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+      - name: Collect mutation advice
+        continue-on-error: true
+        run: |
+          MIX_ENV="test" mix deps.get
+          MIX_ENV="test" mix mutagen --since origin/main --summary mutagen.md --json mutagen.json
+      - name: Add advice to the job summary
+        if: always()
+        run: |
+          if [ -f mutagen.md ]; then
+            cat mutagen.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutagen
+          path: mutagen.json
+```
+
+A successful tool run exits 0 even when tests miss mutations. The
+`continue-on-error` setting also allows the job to proceed after a tool
+abort. To post the Markdown on a same-repository pull request, grant
+`pull-requests: write` to the job and set `GH_TOKEN` and `PR_NUMBER` for an
+optional step. Run `gh pr comment "$PR_NUMBER" --body-file mutagen.md`
+when the file exists.
+
+This repository runs its normal tests and host fixtures in CI. Mutagen
+refuses a changed-code run on its own runtime modules.
 
 Set `--timeout-ms` for scopes whose
 tests finish quickly. A runaway mutant can consume the full timeout. Set
@@ -467,6 +565,9 @@ the average cost per mutant.
 
 | Flag | Purpose |
 |---|---|
+| `--summary <path>` | Write a Markdown summary to a separate file. Use `--json` for a JSON file or leave it off for JSON on stdout. |
+| `--summary-max <int>` | Maximum entries in Worth a look. Default 5. Zero keeps only the omitted count. |
+| `--site <id>` | Rerun one site using the report ID or opaque reference. |
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required without `--since`. Repeatable up to 100 occurrences. |
 | `--tests <target>` | A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Repeatable up to 100 times. Use `auto` on its own. Required without `--since`. |
 | `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
@@ -659,7 +760,7 @@ bytes dropped by the input and output caps.
 
 | Code | Meaning |
 |---|---|
-| `0` | Pipeline ran to completion. This includes a run where every mutation survived — kill rate of 0.0 is a valid result, not a failure. |
+| `0` | Mutagen wrote its report. This includes incomplete runs and runs where every mutation survived. |
 | `2` | Mutagen aborted and wrote an error document to the selected destination. The string field `abort_reason` names the failure, for example `"missing_scope"` or `"baseline_red"`. |
 
 A host callback that calls `System.halt/1` decides the VM exit code.
@@ -697,7 +798,9 @@ An `after_suite` callback can therefore leave a completed report with
 | `invalid_mix_env` | The command selected an unsupported Mix environment. |
 | `invalid_redact_config` | The configured report redaction patterns are invalid. |
 | `invalid_seed` | The ExUnit seed is invalid. |
+| `invalid_site` | The site selector has an invalid format. |
 | `invalid_since_ref` | `--since` has an invalid Git ref. |
+| `invalid_summary_max` | The summary limit must be a non-negative integer. |
 | `invalid_tag_name` | The test tag contains unsupported characters or has an invalid length. |
 | `invalid_target` | The test selector has an unsupported format. |
 | `invalid_timeout` | The per-site timeout is invalid. |
@@ -710,6 +813,9 @@ An `after_suite` callback can therefore leave a completed report with
 | `parse_error` | Mutagen could not parse a source or test file. |
 | `runtime_load_failed` | The MutagenEx runtime or a report module could not load. |
 | `self_mutation_refused` | The scope targets MutagenEx code in the active VM. |
+| `site_not_found` | The site ID is absent from the current selection. |
+| `summary_path_conflict` | The JSON and Markdown paths resolve to the same file. |
+| `summary_write_failed` | Mutagen could not write the Markdown file. |
 | `test_alias_failed` | A host test alias setup step failed. |
 | `test_file_load_failed` | A cited test file could not be loaded or matched to its compiled path. |
 | `test_helper_load_failed` | A required test helper could not load. |
@@ -720,10 +826,15 @@ An `after_suite` callback can therefore leave a completed report with
 | `unrecognised_target` | The scope target has an unsupported format. |
 | `unrecoverable_restore_failure` | Mutagen could not restore the original module. |
 | `unsafe_json_path` | The report path failed validation. |
+| `unsafe_summary_path` | The Markdown path failed validation. |
 | `unsupported_elixir_version` | The Elixir release is below 1.18.0. |
 | `unsupported_otp_version` | The Erlang/OTP release is below 27. |
 
 ## JSON output
+
+The aggregate and the stream end record include `summary`. The examples
+below show the existing pipeline fields. See [Reading the summary](#reading-the-summary)
+for the ranked findings and the per-function counts.
 
 The aggregate JSON document goes to stdout or the file named by
 `--json <path>` and ends with a newline. With `--stream`, it follows
@@ -1071,7 +1182,7 @@ mix test
 No third-party dependencies. Requires Elixir 1.18.0 or later for ExUnit
 case registration and Erlang/OTP 27 or later for JSON and trace sessions.
 
-### Test suite gates
+### Test suites
 
 The default `mix test` run excludes subprocess integration tests, the
 end-to-end fixture runs, and the coverage spikes.

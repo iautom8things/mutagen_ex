@@ -39,6 +39,16 @@ defmodule MutagenEx.Pipeline.DefaultIo do
 
   def write(iodata, _config), do: write_stdout(iodata)
 
+  @doc false
+  def write_summary(iodata, %Config{} = config) do
+    opts = [
+      project_root: config.json_root,
+      unsafe_outside_project: config.unsafe_json_outside_project
+    ]
+
+    write_report(config.summary_path, config.summary_requested, config.json_root, opts, iodata)
+  end
+
   defp write_stdout(iodata) do
     IO.write(Process.get(:mutagen_report_device, Process.group_leader()), iodata)
   end

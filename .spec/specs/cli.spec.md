@@ -25,7 +25,7 @@ prompt and to every CI integration.
 id: mutagen.cli
 kind: module
 status: active
-summary: Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.
+summary: Parses CLI flags, validates them, starts the pipeline, and emits reports and exit codes.
 surface:
   - lib/mutagen_ex/changed_run.ex
   - lib/mutagen_ex/config.ex
@@ -37,6 +37,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
@@ -102,12 +103,11 @@ decisions:
 - id: mutagen.cli.r6
   priority: must
   statement: |
-    `mix mutagen` exits 0 on successful completion (pipeline ran to the end,
-    even if every mutation survived). Non-zero exits are reserved for "bad
-    input" cases: unparseable flags, unresolvable scope, no tests match, a
+    Mutagen returns 0 after writing a completed or incomplete report,
+    including reports with survivors. It returns 2 with an abort document
+    for tool failures such as unparseable flags, unresolvable scope, no tests match, a
     host setup failure (r18, r19, r21, r22), a cited selection that runs
-    no tests, red baseline, or unrecoverable pipeline errors. Mutagen
-    writes an error document for its own non-zero exits. A host callback
+    no tests, red baseline, or unrecoverable pipeline errors. A host callback
     that calls System.halt/1 controls the VM exit code and can leave a
     completed report when it halts during after-suite cleanup.
 
@@ -590,6 +590,21 @@ decisions:
     root before reading Git or starting the host. A plan that names Mutagen
     modules refuses self mutation before coverage and baseline.
 
+- id: mutagen.cli.r35
+  priority: must
+  statement: |
+    --summary PATH writes a Markdown report atomically and uses the same
+    project boundary as --json. The summary must have its own file.
+    A summary path or write failure emits an abort document and exits 2.
+    --summary-max accepts a non-negative integer and defaults to five.
+
+- id: mutagen.cli.r36
+  priority: must
+  statement: |
+    --site ID runs just the selected site, by report ID or by its opaque
+    reference. An unknown site produces an abort document. The generated
+    command reruns the site with automatic discovery and a larger search
+    allowance. With --since it retains the original merge base.
 ```
 
 ```spec-scenarios
@@ -1123,4 +1138,6 @@ decisions:
     - mutagen.cli.r30
     - mutagen.cli.r31
     - mutagen.cli.r32
+    - mutagen.cli.r35
+    - mutagen.cli.r36
 ```
