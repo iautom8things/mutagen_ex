@@ -71,7 +71,7 @@ defmodule MutagenEx.RuntimeTest do
       assert note =~ "Do not publish it as a CI artifact"
 
       assert File.read!("helper-entered") == "yes"
-      assert System.monotonic_time(:millisecond) - started < to_timeout(second: 5)
+      assert System.monotonic_time(:millisecond) - started < to_timeout(second: 30)
     end)
   end
 

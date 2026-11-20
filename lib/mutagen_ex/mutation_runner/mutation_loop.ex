@@ -209,6 +209,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
     start = make_ref()
     host = Map.get_lazy(input, :host_snapshot, &RunGroup.snapshot/0)
     group = RunGroup.start(destination)
+    group_monitor = Process.monitor(group)
 
     task =
       Task.Supervisor.async_nolink(task_sup, fn ->
@@ -222,13 +223,13 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         {System.monotonic_time(), result}
       end)
 
-    tracker = RunGroup.track(group, task.pid)
+    tracker = RunGroup.track(task.pid)
     send(task.pid, start)
     deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
 
     try do
       result =
-        case Task.yield(task, timeout) do
+        case await_site(task, group, group_monitor, timeout) do
           {:ok, {finished_at, result}} when finished_at <= deadline ->
             site_result(result)
 
@@ -238,6 +239,13 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
           nil ->
             cancel_on_timeout(task, grace, task_sup)
             timeout_result(failures, task.pid, deadline)
+
+          {:group_exit, reason} ->
+            cancel_on_timeout(task, grace, task_sup)
+            {:error, {:run_group_exited, reason}}
+
+          {:exit, {:run_group_exited, _} = failure} ->
+            {:error, failure}
 
           {:exit, reason} ->
             if System.monotonic_time() <= deadline do
@@ -254,6 +262,24 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
       kind, reason ->
         RunGroup.stop(group, :reap, host.processes, tracker)
         :erlang.raise(kind, reason, __STACKTRACE__)
+    after
+      Process.demonitor(group_monitor, [:flush])
+    end
+  end
+
+  defp await_site(%Task{ref: ref}, group, group_monitor, timeout) do
+    receive do
+      {^ref, reply} ->
+        Process.demonitor(ref, [:flush])
+        if Process.alive?(group), do: {:ok, reply}, else: {:exit, {:run_group_exited, :noproc}}
+
+      {:DOWN, ^ref, :process, _, reason} ->
+        if Process.alive?(group), do: {:exit, reason}, else: {:exit, {:run_group_exited, :noproc}}
+
+      {:DOWN, ^group_monitor, :process, ^group, reason} ->
+        {:group_exit, reason}
+    after
+      timeout -> nil
     end
   end
 

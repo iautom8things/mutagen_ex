@@ -24,6 +24,39 @@ defmodule MutagenEx.JsonReporterRenderTest do
   alias MutagenEx.JsonReporter.Source
   alias MutagenEx.ScopeResolver.Scope
 
+  @tag spec: ["mutagen.json_schema.r30", "mutagen.mutation_enumeration.r17"]
+  test "excerpt_line points to the first pipeline expression and respects source opt-out" do
+    file = "src/pipeline_fixture.ex"
+
+    source = """
+    defmodule PipelineFixture do
+      def run(name) do
+        name
+        |> String.trim()
+        |> String.upcase()
+      end
+    end
+    """
+
+    {:ok, parsed} = AstCache.parse(file, source)
+    scope = %Scope{file: file, line_range: 1..7, module: PipelineFixture}
+
+    %{sites: sites} =
+      MutationEnumerator.enumerate(%{file => parsed}, [scope], %{file => MapSet.new(1..7)})
+
+    site = Enum.find(sites, &(&1.mutator == :pipeline and &1.line == 5))
+    assert site.source_line == 3
+    result = site |> Map.from_struct() |> Map.merge(%{status: :survived, source_text: source})
+
+    assert %{"line" => 5, "excerpt_line" => 3, "before_source" => excerpt} =
+             JsonReporter.result_to_wire(result)
+
+    assert excerpt == "name\n    |> String.trim()\n    |> String.upcase()"
+    wire = JsonReporter.result_to_wire(result, %JsonReporter.Report{source: false})
+    refute Map.has_key?(wire, "excerpt_line")
+    refute Map.has_key?(wire, "before_source")
+  end
+
   @tag spec: ["mutagen.json_schema.r27", "mutagen.mutation_enumeration.r11"]
   test "every site in the fixture and library corpus renders its exact source expression" do
     files =

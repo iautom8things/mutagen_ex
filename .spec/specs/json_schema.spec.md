@@ -53,6 +53,9 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.escalation_outcomes
+  - mutagen.decision.advisory_changed_code
+  - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.json_reporter_owns_error
@@ -423,7 +426,7 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     The reporter maintains the abort reason vocabulary and a fixed hint for
     every reason. The README and schema tables match the reporter's list.
-    The list includes the reserved CI gate reasons diff_unavailable and
+    The list includes the changed-code reasons diff_unavailable and
     invalid_since_ref before the CLI wiring emits them.
     Test builds reject unregistered abort reasons, including values passed
     through variables. A registered abort emits its string and exit code 2.
@@ -468,8 +471,9 @@ Top-level keys, all present in every variant unless noted:
     error. The total measures pipeline entry through report assembly,
     before encoding and output, and includes work between phases such as
     enumeration. Stream envelopes and per-site lines omit `timings_ms`.
-    `meta.timings_ms` is the only field whose values Mutagen itself makes
-    non-deterministic. Captured host output may contain timestamps,
+    Elapsed timings and the baseline-derived deadline are the only report
+    fields whose values Mutagen itself makes non-deterministic on a
+    deterministic test run. Captured host output may contain timestamps,
     process identifiers or references.
 
 - id: mutagen.json_schema.r26
@@ -487,6 +491,71 @@ Top-level keys, all present in every variant unless noted:
     call receivers, field access, and expressions beside or within quoted
     text containing multi-codepoint graphemes. The aggregate and stream use
     the same renderer.
+- id: mutagen.json_schema.r28
+  priority: must
+  statement: |
+    Changed-code reports include the requested ref, resolved base and
+    counts in meta.since. Incomplete paths have fixed reasons. A Git abort
+    reports a fixed cause without command diagnostics. Evaluated sites
+    carry scope reasons, and outstanding runtime sites are listed as
+    uncovered or not_run.
+
+- id: mutagen.json_schema.r29
+  priority: must
+  statement: |
+    Auto reports include selected files with selection reasons, each
+    escalation step's admitted files, cap and survivor counts, and each
+    result's steps and killing step. Repository test paths follow the
+    source flag.
+
+- id: mutagen.json_schema.r30
+  priority: must
+  statement: |
+    After a mutation pass, meta records its baseline duration and the
+    deadline used. Each escalation step records its own baseline and
+    deadline when it runs mutants. A verified before_source slice has a
+    one-based excerpt_line at its first byte, omitted with --no-source.
+    AST-rendered fallbacks have no excerpt_line.
+
+- id: mutagen.json_schema.r31
+  priority: must
+  statement: |
+    Changed-code reports have meta.complete and meta.incomplete_reasons.
+    An incomplete run exits 0. Changed ranges without runtime sites
+    appear in meta.since.unmapped without making the run incomplete.
+    The aggregate baseline describes the narrow pass. Each escalation
+    step records its own baseline and uses null when no files ran.
+    Selected test paths follow the source flag. Group fingerprints stay
+    internal to planning.
+
+- id: mutagen.json_schema.r32
+  priority: must
+  statement: |
+    Redaction of oversized text has bounded work after the input cap.
+    A megabyte of adversarial text takes less than eight times the
+    duration for the same capped prefix, measured in the same test.
+
+- id: mutagen.json_schema.r33
+  priority: must
+  statement: |
+    Every abort document, including the end record of an aborted stream,
+    sets meta.complete to false.
+- id: mutagen.json_schema.r34
+  priority: must
+  statement: |
+    Each escalation step records the count of candidates dropped after a load
+    attempt as dropped_after_load and the per-candidate baseline deadline as
+    candidate_deadline_ms when a probe ran. Results decided in that step or
+    later include selection.after_dropped_file when one or more files were
+    dropped after a load attempt. Rejection warnings name repository paths
+    and fixed reasons by default. With --no-source they show counts.
+- id: mutagen.json_schema.r35
+  priority: must
+  statement: |
+    An untracked-file limit abort names the configured root and explains that
+    untracked files under it exceeded the limit and that ignoring the directory
+    fixes it.
+
 ```
 
 ```spec-scenarios
@@ -722,9 +791,19 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r25
     - mutagen.json_schema.r26
     - mutagen.json_schema.r27
+    - mutagen.json_schema.r33
+    - mutagen.json_schema.r34
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.json_schema.r34
+    - mutagen.json_schema.r35
 ```
 
 ## Default string provenance
+
+Automatically selected test paths in `meta.tests_selected`,
+`meta.escalation`, and `tests.files` follow the source flag.
 
 Static JSON keys are schema constants. The table uses `[]` for an array
 element and `{}` for a dynamic map entry. NDJSON result and compile
@@ -739,7 +818,31 @@ the envelope fields and add `kind`.
 | `meta.tool_version` | Mutagen build | Keep |
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
-| `meta.timings_ms` | Mutagen monotonic clock | Keep the five integer durations in the aggregate |
+| `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
+| `meta.since.ref` | CLI ref | Keep after Git resolves it |
+| `meta.since.base` | Verified Git object ID | Keep |
+| `meta.incomplete_reasons[].path` | Repository path | Keep with source enabled |
+| `meta.incomplete_reasons[].reason` | Git or runner failure vocabulary | Keep |
+| `meta.tests_selected[].why` | Mutagen selection vocabulary | Keep |
+| `meta.since.unmapped[].path` | Repository path | Keep with source enabled |
+| `meta.since.unmapped[].kind` | Mutagen scope vocabulary | Keep |
+| `meta.tests_selected[].path` | Repository path | Keep with source enabled |
+| `meta.escalation[].files_added[]` | Repository path | Keep with source enabled |
+| `meta.escalation[].step` | Mutagen escalation vocabulary | Keep |
+| `mutation.results[].excerpt_line` | Verified repository slice start | Keep with source enabled |
+| `mutation.results[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.results[].selection.killed_at` | Mutagen selection step | Keep |
+| `mutation.results[].selection.steps_run[]` | Mutagen selection steps | Keep |
+| `mutation.compile_errors[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.pending[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
+| `mutation.pending[].file` | Repository path | Keep with source enabled |
+| `mutation.pending[].function` | Repository definition | Keep with source enabled |
+| `mutation.pending[].mutator` | Mutagen catalog | Keep |
+| `mutation.pending[].confidence` | Mutagen catalog | Keep |
+| `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
+| `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
+| `details.cause` | Git reader failure vocabulary | Keep |
+| `details.root` | Configured repository root | Keep for an untracked-file limit abort |
 | `scope[].file` | Repository or CLI path | Keep |
 | `scope[].module` | Repository module declaration | Keep |
 | `tests.files[]` | Repository or CLI path | Keep |
@@ -785,7 +888,7 @@ the envelope fields and add `kind`.
 | `details.site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
 | `details.phase` | Mutagen phase name | Keep |
 | `details.step` | Mutagen step name | Keep |
-| `details.hint` | Mutagen constant | Keep |
+| `details.hint` | Mutagen text and, for an untracked-file limit, the configured root | Keep |
 | `details.note` | Mutagen constant | Keep |
 | `details.failures[].module` | Repository test module | Keep with a failure count |
 | `details.include[]` | CLI selector or host helper | Same filter policy as tests include |

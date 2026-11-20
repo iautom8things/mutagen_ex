@@ -321,7 +321,7 @@ defmodule MutagenEx.PlannedSitesTest do
 
     assert %{sites: [planned]} = MutationEnumerator.enumerate(cache, scopes, %{}, opts)
 
-    assert %MutationEnumerator.Site{source_span: {offset, length}} =
+    assert %MutationEnumerator.Site{source_span: {offset, length}, source_line: 3} =
              MutationEnumerator.to_site(planned)
 
     assert binary_part(source, offset, length) == "{:error,\n   %Result{value: x}}"
@@ -329,7 +329,7 @@ defmodule MutagenEx.PlannedSitesTest do
     assert %{sites: [without_source]} =
              MutationEnumerator.enumerate(cache, scopes, %{}, Keyword.put(opts, :source, false))
 
-    assert without_source == %{planned | source_span: nil}
+    assert without_source == %{planned | source_span: nil, source_line: nil}
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"

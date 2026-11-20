@@ -31,6 +31,40 @@ defmodule MutagenEx.CLITest do
   alias MutagenEx.CLI
   alias MutagenEx.Config
 
+  @tag spec: "mutagen.cli.r33"
+  test "changed-code defaults to auto and preserves the fail-fast default" do
+    assert {:ok,
+            %Config{
+              scopes: [],
+              tests: ["auto"],
+              since: "main",
+              fail_fast: true,
+              escalate: true,
+              escalate_max_files: 20
+            }} =
+             CLI.parse(["--since", "main"])
+
+    assert {:ok,
+            %Config{tests: ["checks/sample_test.exs"], escalate: false, escalate_max_files: 0}} =
+             CLI.parse(
+               ~w(--since main --tests checks/sample_test.exs --no-escalate --escalate-max-files 0)
+             )
+
+    assert {:error, :invalid_input, _} = CLI.parse(~w(--since main --tests auto --tests tag:fast))
+    assert {:error, :invalid_input, _} = CLI.parse(~w(--since main --escalate-max-files -1))
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r30"
+  test "scales the deadline with measured baseline input and honors the explicit override" do
+    assert {:ok, config} = CLI.parse(~w(--since HEAD))
+    assert Config.mutant_deadline(config, 0) == 5_000
+    assert Config.mutant_deadline(config, 1_200) == 12_000
+    assert Config.mutant_deadline(config, 10_000) == 30_000
+
+    assert {:ok, overridden} = CLI.parse(~w(--since HEAD --timeout-ms 500))
+    assert Config.mutant_deadline(overridden, 10_000) == 500
+  end
+
   @tag spec: ["mutagen.cli.r14", "mutagen.cli.r21", "mutagen.cli.r22"]
   test "parses the boot deadline and test alias opt-out" do
     args = ["--scope", "lib/example.ex", "--tests", "test/example_test.exs"]
