@@ -204,6 +204,101 @@ defmodule MutagenEx.SelectedRunTest do
              Enum.find(outcome.results, &(&1.id == "timeout"))
 
     assert [%{id: "compile_error"}] = outcome.compile_errors
+    assert outcome.pending == []
+
+    planned = Enum.frequencies_by(entries, & &1.id)
+    accounted = Enum.frequencies_by(outcome.results ++ outcome.compile_errors, & &1.id)
+    assert accounted == planned
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.mutation_pipeline.r36"
+  test "estimates the remaining stage from green probes, skips costly files and admits a cheaper one",
+       %{
+         tmp_dir: dir
+       } do
+    expensive = write_candidate(dir, "a_expensive")
+    cheap = write_candidate(dir, "b_cheap")
+    phases = callbacks(self(), cheap, false, :ok)
+    baseline = phases.baseline
+
+    phases = %{
+      phases
+      | baseline: fn
+          %{test_filter: %{files: [^expensive]}, escalation_timeout_ms: timeout} = input,
+          report ->
+            assert timeout <= 10_000
+            baseline.(input, put_in(report.meta.timings_ms.baseline, 6_000))
+
+          input, report ->
+            baseline.(input, report)
+        end
+    }
+
+    config = %Config{scopes: [], tests: ["auto"], since: "HEAD", escalate_budget_ms: 10_000}
+    {report, outcome} = exercise(dir, config.tests, phases, config)
+
+    assert_received {:candidate_baseline, [^expensive]}
+    refute_received {:candidate_baseline, [^expensive, ^cheap]}
+    assert [%{files_added: [^cheap]}] = report.meta.escalation
+    assert {:escalation_rejected, :escalation_budget_exhausted, [expensive]} in report.warnings
+    assert [%{id: "id", status: :killed}] = outcome.results
+
+    config = %{config | escalate_budget_ms: 0}
+
+    mutation = phases.mutation
+
+    phases = %{
+      phases
+      | baseline: fn
+          %{test_filter: %{files: [^expensive]}} = input, report ->
+            baseline.(input, put_in(report.meta.timings_ms.baseline, 60_000))
+
+          input, report ->
+            baseline.(input, report)
+        end,
+        mutation: fn
+          %{test_filter: %{files: [^expensive, ^cheap]} = filter} = input,
+          sites,
+          budget,
+          report ->
+            send(self(), :combined)
+            mutation.(%{input | test_filter: %{filter | files: [cheap]}}, sites, budget, report)
+
+          input, sites, budget, report ->
+            mutation.(input, sites, budget, report)
+        end
+    }
+
+    {report, _} = exercise(dir, config.tests, phases, config)
+    assert_received :combined
+    assert [%{files_added: [^expensive, ^cheap]}] = report.meta.escalation
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.mutation_pipeline.r28"
+  test "marks the report incomplete when the runner returns duplicate or unexpected site IDs", %{
+    tmp_dir: dir
+  } do
+    phases = callbacks(self(), nil, false, :ok)
+
+    for invalid <- ["id", "unexpected"] do
+      phases = %{
+        phases
+        | mutation: fn _, [%{id: id}], _, report ->
+            {:ok,
+             %{
+               results: [%{id: id, status: :survived}, %{id: invalid, status: :error}],
+               compile_errors: [],
+               warnings: [],
+               state_drift_warning: %{}
+             }, report}
+          end
+      }
+
+      {report, _outcome} = exercise(dir, ["checks/narrow_test.exs"], phases)
+      assert %{reason: :site_accounting_mismatch, path: nil} in report.meta.incomplete_reasons
+    end
   end
 
   @tag :tmp_dir

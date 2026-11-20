@@ -428,16 +428,22 @@ Mutagen tests each candidate on the original code. It allows ten times
 the narrow baseline duration, with a thirty-second floor capped by the
 host boot and mutant timeouts. Each step reports `candidate_deadline_ms`.
 If a batch fails, Mutagen keeps the files that pass together in score order.
-A pass judges its mutants with the files admitted in that pass. Only
-survivors and uncovered sites advance. A timeout stays unevaluated and
+The module and function passes share a two-minute budget, including
+candidate probes. Mutagen estimates each pass from the candidate baselines
+and reports files that exceed the budget as `escalation_budget_exhausted`.
+When escalation takes more than half the run, summary notes give the
+time spent in each pass. A pass judges mutants with the files admitted
+in that pass. Only survivors and uncovered sites advance. A timeout stays unevaluated and
 keeps the step that recorded it.
 
 `meta.since` records the ref, merge base, and site counts.
 `meta.complete` and `meta.incomplete_reasons` record missing evidence from
 skipped or unreadable paths and sites that the runner dropped.
-Every abort sets `meta.complete` to false. `meta.since.unmapped` lists
-changed code without runtime sites and omits blank, comment and structural
-lines.
+Every abort sets `meta.complete` to false and adds its reason to
+`meta.incomplete_reasons`. An accounting mismatch between planned sites
+and the final outcome records also marks the report incomplete.
+`meta.since.unmapped` lists changed code without runtime sites and omits
+blank, comment and structural lines.
 `mutation.pending` shows sites with no outcome, including uncovered sites
 and covered sites left unrun. Coverage includes green
 tests added during escalation. `meta.tests_selected` lists why each test
@@ -462,8 +468,10 @@ Both output paths use the project-root boundary by default.
 
 - **Check first** groups findings by function. `not_executed` means the tests
   selected in a changed-code run covered none of its in-scope sites. A site
-  is covered when its line runs. For definition heads and sites without
-  their own position, coverage of that clause's body also counts.
+  is covered when its line runs. If that line has no cover counter, a hit
+  in the site's own span counts. If its entire span has no counters, a hit
+  in its enclosing clause body counts. An instrumented line with zero
+  hits stays uncovered.
   `nothing_asserted` means at least three high-confidence mutants ran in
   that function and every evaluated mutant survived. If a dropped test
   file mentions the function and failed on the unmutated code, the summary
@@ -576,7 +584,7 @@ the average cost per mutant.
 
 | Flag | Purpose |
 |---|---|
-| `--summary <path>` | Write a Markdown summary to a separate file. Use `--json` for a JSON file or leave it off for JSON on stdout. |
+| `--summary <path>` | Write a Markdown summary to a separate file. As with `--json`, the path must stay within the project root unless `--unsafe-json-outside-project` is set. |
 | `--summary-max <int>` | Maximum entries in Worth a look. Default 5. Zero keeps only the omitted count. |
 | `--site <id>` | Rerun one site using the report ID or opaque reference. |
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required unless you use `--since` or `--site`. Repeatable up to 100 occurrences. |
@@ -589,7 +597,8 @@ the average cost per mutant.
 | `--since <ref>` | Plan changed runtime sites from the merge base. Defaults to `--tests auto`. |
 | `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
 | `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
-| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor and a 30000 ms ceiling. |
+| `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the escalation time limit. |
+| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |

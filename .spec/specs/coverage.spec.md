@@ -235,11 +235,12 @@ decisions:
 - id: mutagen.coverage.r14
   priority: must
   statement: |
-    In classic and changed-code runs, a site is covered when its source
-    line is covered. For a site in a definition head or a site without
-    its own position, coverage of any body line of that exact clause
-    also covers the site. Coverage of another clause of the same
-    function does not cover the site.
+    In classic and changed-code runs, an instrumented site line with
+    zero calls stays uncovered. If the site's line has no coverage
+    entry, any hit within the site's source span covers the site.
+    If the entire span has no coverage entry, any hit in the same
+    clause body covers the site. Both coverage and zero-call entries
+    are retained through automatic escalation.
 
 ```
 

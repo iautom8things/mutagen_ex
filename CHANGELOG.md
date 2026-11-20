@@ -23,12 +23,19 @@ file for traceability.
   including partial results, and 2 for an abort. An abort writes the
   reason and hint to both requested reports.
 - The default per-mutant deadline is ten times the baseline duration with
-  a five-second floor and a 30-second ceiling. With a fast baseline, a
+  a five-second floor. With a fast baseline, a
   mutant that sleeps for seven seconds now times out where it previously
-  could survive. Use `--timeout-ms` to set a deadline explicitly.
-- Guard sites and sites without their own source position count as covered
-  when tests cover any body line in the same clause. Classic runs can now
-  attempt these sites too.
+  could survive. Use `--timeout-ms` to set a deadline explicitly. Mutagen
+  warns when that deadline is shorter than the baseline.
+- Coverage distinguishes zero-hit counters from lines OTP did not
+  instrument. For sites on uninstrumented lines, Mutagen checks the site's
+  own span, then its enclosing clause body if the span has no counters.
+- Native host stdout, including OTP logger fallback messages during
+  cleanup, goes to stderr. The CLI forwards the report on its own pipe.
+- Escalation uses a two-minute budget by default. Only changed test files
+  that match a scoped module or its convention enter the narrow pass.
+- Changed-code reports account for each planned runtime site once. Abort
+  reports include the abort reason in the incomplete reasons.
 
 ### Final review fixes
 

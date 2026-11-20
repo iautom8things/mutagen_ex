@@ -26,10 +26,13 @@ defmodule MutagenEx.CLI do
       `auto` on its own. It is the default with `--since` or `--site`.
     * `--since <ref>` plans changed runtime sites from the merge base.
     * `--site <id>` selects one site by report ID or opaque reference.
-    * `--summary <path>` writes a Markdown file with the run's main findings.
+    * `--summary <path>` writes Markdown within the project root, as with
+      `--json`. Use `--unsafe-json-outside-project` to allow a path outside it.
     * `--summary-max <int>` caps the individual findings. Defaults to five.
     * `--no-escalate` — disable survivor escalation with automatic selection.
     * `--escalate-max-files <int>` — non-negative cap per step, default 20.
+    * `--escalate-budget-ms <int>` — total time for the extra passes, default 120000.
+      Use 0 to remove the escalation time limit.
     * `--timeout-ms <int>` — positive per-mutant deadline override.
     * `--seed <int>` — non-negative integer, default 0.
     * `--json <path>` — optional file path; when omitted, the final document
@@ -135,7 +138,8 @@ defmodule MutagenEx.CLI do
          scopes = site_scope(scopes, since, site),
          :ok <- require_scope(scopes, since || site),
          {:ok, tests} <- pick_tests(collect(parsed, :tests), since || site),
-         {:ok, escalate_max_files} <- pick_escalate_max_files(parsed),
+         {:ok, escalate_max_files} <- pick_escalation_limit(parsed, :escalate_max_files, 20),
+         {:ok, escalate_budget_ms} <- pick_escalation_limit(parsed, :escalate_budget_ms, 120_000),
          :ok <- refuse_self_mutation(scopes),
          :ok <- validate_tag_charset(tests),
          :ok <- enforce_target_cap(scopes, :scope),
@@ -162,6 +166,7 @@ defmodule MutagenEx.CLI do
          summary_max: summary_max,
          escalate: Keyword.get(parsed, :escalate, true),
          escalate_max_files: escalate_max_files,
+         escalate_budget_ms: escalate_budget_ms,
          timeout_ms: timeout_ms,
          timeout_override: Keyword.has_key?(parsed, :timeout_ms),
          fail_fast: Keyword.get(parsed, :fail_fast, true),
@@ -243,6 +248,7 @@ defmodule MutagenEx.CLI do
     summary_max: :integer,
     escalate: :boolean,
     escalate_max_files: :integer,
+    escalate_budget_ms: :integer,
     timeout_ms: :integer,
     fail_fast: :boolean,
     boot_timeout_ms: :integer,
@@ -304,8 +310,8 @@ defmodule MutagenEx.CLI do
       flag == "--summary-max" ->
         {:error, :invalid_summary_max, %{flag: flag}}
 
-      flag == "--escalate-max-files" ->
-        invalid_escalate_max_files()
+      flag in ["--escalate-max-files", "--escalate-budget-ms"] ->
+        invalid_escalation_limit(flag)
 
       flag == "--max-sites" ->
         {:error, :invalid_max_sites,
@@ -393,19 +399,18 @@ defmodule MutagenEx.CLI do
     end
   end
 
-  defp pick_escalate_max_files(parsed) do
-    case Keyword.get(parsed, :escalate_max_files, 20) do
-      n when is_integer(n) and n >= 0 -> {:ok, n}
-      _ -> invalid_escalate_max_files()
+  defp pick_escalation_limit(parsed, option, default) do
+    case Keyword.get(parsed, option, default) do
+      n when is_integer(n) and n >= 0 ->
+        {:ok, n}
+
+      _ ->
+        invalid_escalation_limit("--" <> String.replace(Atom.to_string(option), "_", "-"))
     end
   end
 
-  defp invalid_escalate_max_files do
-    {:error, :invalid_input,
-     %{
-       flag: "--escalate-max-files",
-       message: "--escalate-max-files requires a non-negative integer"
-     }}
+  defp invalid_escalation_limit(flag) do
+    {:error, :invalid_input, %{flag: flag, message: "#{flag} requires a non-negative integer"}}
   end
 
   # Per `mutagen.cli.r12`: cap repetition of `--scope` / `--tests` at

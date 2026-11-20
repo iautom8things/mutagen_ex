@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      MIX_ENV=test mix mutagen [--scope <target>] [--tests <target|auto>] [--since REF] [--site ID] [--summary PATH] [--summary-max N] [--no-escalate] [--escalate-max-files N] [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
+      MIX_ENV=test mix mutagen [--scope <target>] [--tests <target|auto>] [--since REF] [--site ID] [--summary PATH] [--summary-max N] [--no-escalate] [--escalate-max-files N] [--escalate-budget-ms N] [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. The final JSON document goes to stdout or `--json <path>`.
@@ -74,8 +74,9 @@ defmodule Mix.Tasks.Mutagen do
       `tag:<name>`. Repeat it to add targets, or use `auto` on its own.
       Required unless you use `--since` or `--site`.
     * `--summary <path>` writes Markdown to a file alongside the JSON report.
-      The files must have distinct paths. The path follows the JSON path
-      safety rules. Use a filename instead of `-`.
+      The files must have distinct paths. As with `--json`, the path must stay
+      within the project root unless `--unsafe-json-outside-project` is set.
+      Use a filename instead of `-`.
     * `--summary-max <int>` caps the Worth a look list. Default 5, minimum 0.
     * `--site <id>` selects one report site. It defaults to automatic tests.
     * `--since <ref>` plans the runtime mutations touched since the merge
@@ -85,6 +86,8 @@ defmodule Mix.Tasks.Mutagen do
       changed test files. It searches for more tests if mutants survive.
     * `--no-escalate` disables discovery after the first test selection.
     * `--escalate-max-files <int>` caps files per function in each pass. Default 20.
+    * `--escalate-budget-ms <int>` limits time spent on the extra passes. Default
+      120000. Zero removes the escalation time limit.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
       compilation and the deadline for each cleanup callback. Each
       coverage and baseline pass gets the greater of this timeout and
@@ -99,7 +102,8 @@ defmodule Mix.Tasks.Mutagen do
       functions. It warns if the alias has entries and no `test` entry.
     * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
       By default the deadline is ten times the baseline duration, with a
-      5000 ms floor and a 30000 ms ceiling.
+      5000 ms floor. Mutagen warns if a requested timeout is shorter than
+      the baseline.
     * `--no-fail-fast` runs the full cited suite for each mutant.
       By default, the mutation phase
       stops executing tests on the first failure. A failure recorded
@@ -282,7 +286,7 @@ defmodule Mix.Tasks.Mutagen do
   alias MutagenEx.{ChangedRun, CLI, JsonReporter, MutationRunner}
   alias MutagenEx.Config
   alias MutagenEx.Runtime
-  alias MutagenEx.Pipeline.Phases
+  alias MutagenEx.Pipeline.{DefaultIo, Phases}
   alias MutagenEx.JsonReporter.Report
 
   @typedoc """
@@ -504,7 +508,7 @@ defmodule Mix.Tasks.Mutagen do
     started_at = System.monotonic_time()
 
     output = %{
-      stdout: Process.group_leader(),
+      stdout: stdout,
       progress: build_progress_reporter(argv),
       root: Map.get_lazy(dispatch, :project_root, &File.cwd!/0),
       clock: Map.get(dispatch, :clock, fn _phase -> System.monotonic_time() end)
@@ -1030,7 +1034,8 @@ defmodule Mix.Tasks.Mutagen do
       host_app: config.host_app,
       test_alias: config.test_alias,
       fail_fast: config.fail_fast,
-      escalate_max_files: config.escalate_max_files
+      escalate_max_files: config.escalate_max_files,
+      escalate_budget_ms: config.escalate_budget_ms
     }
   end
 

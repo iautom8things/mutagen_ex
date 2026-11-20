@@ -257,7 +257,7 @@ defmodule MutagenEx.ReportProvenanceTest do
         },
         incomplete_reasons: [%{reason: :symlink, path: file}],
         tests_selected: [%{path: file, why: :convention}],
-        escalation: [%{step: :module, files_added: [file]}],
+        escalation: [%{step: :module, files_added: [file], wall_ms: 6}],
         timings_ms: %{
           boot: 1,
           coverage: 2,

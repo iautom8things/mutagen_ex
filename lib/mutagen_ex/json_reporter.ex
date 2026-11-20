@@ -1386,6 +1386,9 @@ defmodule MutagenEx.JsonReporter do
         {:escalation_rejected, kind, paths} ->
           render_host_names(kind, paths, options.source)
 
+        {:mutant_deadline_below_baseline, deadline_ms, baseline_ms} ->
+          ["mutant_deadline_below_baseline: #{deadline_ms} ms < #{baseline_ms} ms"]
+
         {:host_supervisor_changed, name} ->
           [Sanitizer.clean("host_supervisor_changed: #{name}")]
 

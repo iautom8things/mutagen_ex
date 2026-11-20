@@ -186,6 +186,7 @@ defmodule MutagenEx.ReportSummary do
     |> append_since(get_in(report.meta || %{}, [:since, :base]))
     |> append_option("--seed", options[:seed], 0)
     |> append_option("--timeout-ms", options[:timeout_ms], nil)
+    |> append_option("--escalate-budget-ms", options[:escalate_budget_ms], 120_000)
     |> append_option("--boot-timeout-ms", options[:boot_timeout_ms], 300_000)
     |> append_flag("--no-host-app", options[:host_app] == false)
     |> append_flag("--no-test-alias", options[:test_alias] == false)
@@ -276,14 +277,44 @@ defmodule MutagenEx.ReportSummary do
           reason not in red_reasons(),
           do: rejection(reason, paths, report)
 
+    short_deadlines =
+      for {:mutant_deadline_below_baseline, deadline_ms, baseline_ms} <-
+            Enum.uniq(report.warnings) do
+        %{
+          "kind" => "mutant_deadline_below_baseline",
+          "deadline_ms" => deadline_ms,
+          "baseline_ms" => baseline_ms
+        }
+      end
+
     red_note(red, report) ++
+      short_deadlines ++
       count_note("tainted_predecessors", tainted) ++
       count_note("kills_after_dropped_file", kills_after_drop) ++
       count_note("escalation_dropped_after_load", dropped_after_load) ++
+      escalation_times(report.meta) ++
       count_note("low_confidence_survivors", low) ++
       count_note("mutation_budget_exhausted", if(report.truncated, do: 1, else: 0)) ++
       rejected
   end
+
+  defp escalation_times(%{timings_ms: %{total: total}, escalation: steps}) when total > 0 do
+    measured = Enum.filter(steps, &is_integer(&1[:wall_ms]))
+
+    if Enum.sum_by(measured, & &1.wall_ms) * 2 > total do
+      for step <- measured do
+        %{
+          "kind" => "escalation_wall_time",
+          "step" => to_string(step.step),
+          "wall_ms" => step.wall_ms
+        }
+      end
+    else
+      []
+    end
+  end
+
+  defp escalation_times(_meta), do: []
 
   defp count_note(_kind, 0), do: []
   defp count_note(kind, count), do: [%{"kind" => kind, "count" => count}]

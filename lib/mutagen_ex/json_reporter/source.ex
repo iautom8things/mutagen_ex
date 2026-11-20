@@ -1,8 +1,8 @@
 defmodule MutagenEx.JsonReporter.Source do
   @moduledoc false
 
-  # Keep literal positions in a separate tree so source extraction never changes
-  # the AST used for mutation, coverage attribution, or site identity.
+  # Keep literal positions in a separate tree for source excerpts and cover
+  # attribution. Mutation and site identity use the original AST.
   def index(source, file) do
     key = make_ref()
     Process.put(key, %{})

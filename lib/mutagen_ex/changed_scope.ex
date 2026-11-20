@@ -294,7 +294,7 @@ defmodule MutagenEx.ChangedScope do
 
     for {path, pairs} <- planned, into: %{} do
       spans =
-        for {%{id: id, coverage_fallback: nil}, {first, last}} <- pairs,
+        for {%{id: id}, {first, last}} <- pairs,
             first < last and MapSet.member?(ids, id),
             do: {id, {first + 1, last}}
 
@@ -307,9 +307,11 @@ defmodule MutagenEx.ChangedScope do
         spans = Map.get(plan.multi_line_sites, path, []),
         spans != [],
         {_ast, source} <- List.wrap(plan.cache[path]),
-        bitmap = Map.get(coverage, path, MapSet.new()),
+        hit = Map.get(coverage.covered_lines, path, MapSet.new()),
+        measured = Map.get(coverage.coverable_lines, path, MapSet.new()),
+        missed = MapSet.difference(measured, hit),
         ranges = evaluated_ranges(lines, spans, evaluated),
-        ranges = code_ranges(source, ranges, bitmap),
+        ranges = code_ranges(source, ranges, &MapSet.member?(missed, &1)),
         ranges != [] do
       row(path, ranges)
     end
@@ -327,10 +329,10 @@ defmodule MutagenEx.ChangedScope do
 
   defp row(path, ranges), do: %{path: path, ranges: wire_ranges(ranges)}
 
-  defp code_ranges(source, ranges, covered \\ MapSet.new())
+  defp code_ranges(source, ranges, select? \\ fn _ -> true end)
   defp code_ranges(_source, [], _covered), do: []
 
-  defp code_ranges(source, ranges, covered) do
+  defp code_ranges(source, ranges, select?) do
     {_, code} =
       source
       |> String.splitter("\n")
@@ -342,7 +344,7 @@ defmodule MutagenEx.ChangedScope do
 
           [{first, _} | _] = ranges ->
             code =
-              if line >= first and not MapSet.member?(covered, line) and
+              if line >= first and select?.(line) and
                    code_line?(String.trim(text)),
                  do: add_line(code, line),
                  else: code

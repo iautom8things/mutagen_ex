@@ -5,7 +5,7 @@ defmodule MutagenEx.Pipeline.Phases do
   alias MutagenEx.JsonReporter.Report
 
   @enforce_keys [:config, :dispatch, :output]
-  defstruct [:config, :dispatch, :output, :host]
+  defstruct [:config, :dispatch, :output, :host, :escalation_deadline]
 
   def scope(phases, report), do: phase_scope(phases.config, phases.dispatch, report)
 
@@ -17,7 +17,7 @@ defmodule MutagenEx.Pipeline.Phases do
 
   def coverage(phases, scopes, filter, modules, report) do
     time_phase(:coverage, report, phases.output.clock, fn ->
-      phase_coverage(phases.config, scopes, filter, phases.dispatch, report, phases.host, modules)
+      phase_coverage(phases, scopes, filter, modules, report)
     end)
   end
 
@@ -79,7 +79,14 @@ defmodule MutagenEx.Pipeline.Phases do
   def put_mutant_deadline(report, config) do
     baseline_ms = report.meta.timings_ms.baseline
     deadline = Config.mutant_deadline(config, baseline_ms)
-    put_in(report.meta.timings_ms[:mutant_deadline], deadline)
+    report = put_in(report.meta.timings_ms[:mutant_deadline], deadline)
+
+    if deadline < baseline_ms do
+      warning = {:mutant_deadline_below_baseline, deadline, baseline_ms}
+      %{report | warnings: Enum.uniq(report.warnings ++ [warning])}
+    else
+      report
+    end
   end
 
   defp put_elapsed_timing(%Report{meta: meta} = report, phase, elapsed) do
@@ -149,32 +156,28 @@ defmodule MutagenEx.Pipeline.Phases do
     end
   end
 
-  defp phase_coverage(
-         %Config{seed: seed} = config,
-         scope_records,
-         test_filter,
-         dispatch,
-         report,
-         state,
-         modules
-       ) do
-    mod = Map.fetch!(dispatch, :coverage)
+  defp phase_coverage(phases, scope_records, test_filter, modules, report) do
+    mod = Map.fetch!(phases.dispatch, :coverage)
 
     in_scope_modules =
       scope_records
       |> Enum.map(&{&1.module, &1.file})
       |> Enum.uniq()
 
-    input = %{seed: seed, in_scope_modules: in_scope_modules, test_filter: test_filter}
+    input = %{
+      seed: phases.config.seed,
+      in_scope_modules: in_scope_modules,
+      test_filter: test_filter
+    }
 
     input = if modules == nil, do: input, else: Map.put(input, :test_modules, modules)
 
-    case run_suite_phase(state, config, :coverage, fn -> mod.run(input) end) do
+    case run_coverage(phases, fn -> mod.run(input) end) do
       {:ok, result} ->
         {:ok, result}
 
       {:error, reason, details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :coverage)}
+        {:abort, report, phases.config, reason, Map.put_new(details, :step, :coverage)}
     end
   end
 
@@ -198,6 +201,7 @@ defmodule MutagenEx.Pipeline.Phases do
 
     case mod.enumerate(ast_cache, scope_records, covered_lines,
            max_sites: max_sites,
+           coverable_lines: coverage_result[:coverable_lines],
            source: config.source
          ) do
       %{sites: _, skipped: _, warnings: _} = enum_result ->
@@ -266,8 +270,14 @@ defmodule MutagenEx.Pipeline.Phases do
     end
   end
 
-  defp run_suite_phase(%{worker: _}, config, :coverage, fun) do
-    timeout = suite_timeout(config)
+  defp run_coverage(%{host: %{worker: _}} = phases, fun) do
+    timeout = suite_timeout(phases.config)
+
+    timeout =
+      case phases.escalation_deadline do
+        nil -> timeout
+        deadline -> min(timeout, max(0, deadline - System.monotonic_time(:millisecond)))
+      end
 
     case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, :release) do
       {:ok, result} ->
@@ -282,7 +292,7 @@ defmodule MutagenEx.Pipeline.Phases do
     end
   end
 
-  defp run_suite_phase(_state, _config, :coverage, fun), do: fun.()
+  defp run_coverage(_phases, fun), do: fun.()
 
   defp suite_timeout(config), do: max(config.boot_timeout_ms, 10 * config.timeout_ms)
 
