@@ -11,6 +11,7 @@
   + x - 1
   ```
 
+  This mutant ran after a state-leak warning. Rerun alone to confirm.
   Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000003:arith --tests auto --escalate --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
 
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.

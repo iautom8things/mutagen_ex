@@ -71,7 +71,7 @@ wider `--tests` selection before writing a test.
 The sample is small and per-mutator confidence is provisional. Mutagen gives
 advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
 
-### Changed-code measurement
+### Changed-code measurement before the fixes
 
 A seeded script chose 12 real commits from two private Phoenix
 applications. A reviewer judged them blind, seeing only the change and
@@ -86,9 +86,31 @@ the tests that ran.
 This measurement predates probe confirmation, the changed-line rule, and
 opt-in escalation. Those changes address the false execution claims, the
 off-diff survivors, and the noise from widening the test selection by
-default. A later measurement will replace this table.
+default.
 
-**Third-pass measurement:** Results pending.
+### Third-pass measurement after the fixes
+
+The third pass used the same 12 commits and the same blind protocol
+after probe confirmation, the changed-line rule, and opt-in escalation.
+
+- 76 runtime sites in scope, 72 evaluated (59 killed, 12 survived, 1 timed out), 1 could not tell, 3 skipped by the validator.
+- 7 of 12 runs showed nothing. 5 runs showed 12 survivors in all, every one on a changed line.
+- Check first: 0 entries. No “not executed” claim was made, so none was false (the earlier pass made 3, 2 of them false).
+- Worth a look, high confidence: 4 entries, 0 real gaps, 4 noise.
+- Worth a look, low confidence on a changed line: 8 entries, 1 real gap, 7 noise.
+- Noise by kind: 6 reorderings nobody can observe, 2 inputs that cannot arrive through any caller, 2 that only the function's own contract admits, 1 fallback for malformed configuration that another test already rules out.
+- Escalation, rerun on the 5 runs with survivors: 0 outcomes changed, 186 s added.
+- Every compared site (28 across 5 runs) had the same status as one run with all selected tests passed explicitly.
+
+The report still included `pipeline` in Worth a look during this
+measurement. Five of the eight low-confidence entries came from
+`pipeline`. None was a real gap.
+
+On a commit that came with tests, a changed-code run is usually silent.
+A listed survivor is more often an unobservable or unreachable change
+than a missing test. One of the 12 survivors here was a real test gap.
+Read the line before drawing a conclusion. The whole-file audit figures
+above support looking for test gaps.
 
 ## Changed-code runs
 
@@ -116,7 +138,8 @@ test support from source planning. An incomplete run returns exit 0 with
 its reasons. A tool abort returns exit 2.
 
 Automatic test selection looks for `a/b_test.exs` under the configured
-test roots for `a/b.ex` under a configured source root. When a `--since` run
+test roots for `a/b.ex` under a configured source root that has a planned
+runtime mutation. When a `--since` run
 has runtime sites, it also selects new test files and changed test files
 whose parsed code differs from the merge base. Formatting and comment
 edits alone do not add a test file to this selection. An empty runtime
@@ -468,7 +491,9 @@ For the selected scopes, mutagen_ex:
 1. Resolves the target to one or more `(module, file)` pairs.
 2. Runs the cited tests to record line-level coverage for the in-scope
    modules.
-3. Enumerates mutation sites in each in-scope file's AST on covered lines.
+3. Enumerates mutation sites from each in-scope file's AST. It uses line
+   coverage first and probes remaining runtime sites before reporting
+   them as unexecuted.
 4. Runs the cited tests on the original code to check the baseline.
    A red baseline aborts the run.
 5. For each site, applies the mutator, recompiles the module in place,
@@ -522,20 +547,25 @@ says “Mutagen found nothing in the sites it could check.”
   Mutagen uses line coverage first. For the remaining sites, it installs
   counters in the original runtime expressions, runs the admitted tests
   once, and restores the original bytecode. A probe hit adds the site to
-  the mutation queue. When a guard, pattern, compilation failure or failed
-  probe run prevents confirmation, the site is `could_not_tell`.
+  the mutation queue. Captures, interpolation, bitstring segments,
+  map-update values, keyword arguments, function-head patterns, guards,
+  and `cond` heads can prevent probe placement. Such sites, compile
+  failures, and failed probe runs yield `could_not_tell`. An empty test
+  selection also leaves execution unknown and has its own note.
   Results report their execution evidence in `execution`, and
   `meta.timings_ms.probe` records the probe phase when it runs.
-  `nothing_asserted` means at least three high-confidence mutants ran in
-  that function with complete escalation evidence and every evaluated
-  mutant survived. If a dropped test file mentions the function and fails
-  alone on the unmutated code, the summary leads with the failed test file.
+  `nothing_asserted` means the tests that ran let every evaluated mutant
+  in the function survive, including at least three high-confidence
+  mutants without a recorded escalation shortfall. If a dropped test file
+  mentions the function and fails alone on the unmutated code, the summary
+  leads with the failed test file.
   A file that fails in combination appears in the notes.
 - **Worth a look** in a changed-code run lists survivors whose spans
   overlap changed lines. Within each confidence group, entries sort by
-  file and line. Low-confidence entries follow the high-confidence entries
-  and carry a label. Survivors away from changed lines stay in the JSON.
-  The notes count them.
+  file and line. On-line `with_swap` and `guard_drop` survivors follow the
+  high-confidence entries and carry a low-confidence label. Pipeline
+  survivors and survivors away from changed lines stay in the JSON. The
+  notes count them.
 - Classic and audit runs keep the provisional
   [precision order](docs/precision/blind-2026-11.csv). They list
   high-confidence survivors outside Check first, followed by those marked
@@ -550,8 +580,10 @@ says “Mutagen found nothing in the sites it could check.”
   mutation phase, the summary points to `--timeout-ms` and `--budget-ms`.
 
 Copy the printed `MIX_ENV=test mix mutagen --site …` command from the
-summary to rerun the one site with `--tests auto --escalate`, up to 40 test
-files per function in each pass, and the default escalation budget.
+summary to rerun the one site with `--tests auto --escalate` and up to 40
+test files per function in each pass. The escalation cap is the larger
+of 30 seconds and ten times the narrow baseline. A smaller configured
+budget still applies. The summary says when escalation admitted no files.
 Changed-code reruns keep the merge base from the report. Run
 the command from the same project checkout. Broader tests can kill a site
 that previously survived. With `--no-source`, the summary omits file names,
@@ -642,7 +674,7 @@ the average cost per mutant.
 | `--escalate` | Widen automatic test selection for surviving or uncovered sites. Off by default. |
 | `--no-escalate` | Accepted with no effect for one release. |
 | `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
-| `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the escalation time limit. |
+| `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the limit for runs without `--site`. A single-site run caps the budget at the larger of 30 seconds and ten times the narrow baseline. |
 | `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses three times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
@@ -1185,6 +1217,14 @@ regression test for this lives in
   starts through a host-owned supervisor, such as
   `Task.Supervisor.async_nolink/2` or `DynamicSupervisor.start_child/2`,
   can outlive the timeout. The host supervisor owns those children.
+- Macros can expand differently when a probe wraps an argument whose AST
+  they pattern-match. The expansion can discard the counter, and a test
+  with weak assertions can pass despite the changed behavior. Mutagen may
+  then report a site as unexecuted even though the original suite ran it.
+- Probes, coverage, and mutation runs only observe work during the suite
+  in the local node with the current module version. Code running on
+  another node, after the suite ends, or in a process still using old
+  code escapes those checks.
 
 ### Changed-code planning
 
