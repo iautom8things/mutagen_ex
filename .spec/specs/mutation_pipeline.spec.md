@@ -29,6 +29,7 @@ kind: workflow
 status: active
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
+  - lib/mutagen_ex/selected_run.ex
   - lib/mutagen_ex/baseline.ex
   - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
@@ -43,6 +44,9 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.escalation_outcomes
+  - mutagen.decision.advisory_changed_code
+  - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.mutation_id_scheme_2
@@ -601,6 +605,69 @@ decisions:
     ExUnit setup and tests. The `max_cases: 1` runner retains ExUnit's async
     and sync ordering. A timeout in an async case leaves the next site
     able to register and run the same cases in either fail-fast mode.
+- id: mutagen.mutation_pipeline.r28
+  priority: must
+  statement: |
+    A --since run with no in-scope runtime mutations finishes before host
+    boot and coverage. A skipped Git path, failed source read or parse,
+    or a site dropped by the runner makes the run incomplete.
+
+- id: mutagen.mutation_pipeline.r29
+  priority: must
+  statement: |
+    Each auto escalation pass runs only survivors and newly covered sites
+    against the newly selected files. Each added file must pass an
+    unmutated baseline. Red or unloadable files
+    are omitted with a fixed warning. Accepted test cases register for
+    later runs without reloading their modules or restarting ExUnit.Server.
+
+- id: mutagen.mutation_pipeline.r30
+  priority: must
+  statement: |
+    Each mutation pass uses a deadline of ten times the measured baseline
+    duration with a five-second floor and the configured ceiling.
+    An explicit --timeout-ms overrides the calculation. A timeout with
+    fail-fast on kills a mutant only when a failure was recorded before
+    its effective deadline.
+
+- id: mutagen.mutation_pipeline.r31
+  priority: must
+  statement: |
+    Escalation has a deadline for each admission baseline. Red,
+    unloadable, crashed and timed-out candidates leave the run. If
+    otherwise green files fail together, add them in ranked order while
+    the combined baseline stays green. Replay accepted files' load-time environment
+    changes for the selected batch. If a step cannot
+    complete, retain the narrow results and warn. Explicit tests and mutation budget
+    truncation disable escalation. Taint carries into later passes.
+
+- id: mutagen.mutation_pipeline.r32
+  priority: must
+  statement: |
+    Only survived and uncovered sites advance to another escalation step.
+    A timeout keeps its status and the step that observed it. Compile errors,
+    skipped sites and other terminal outcomes never run again.
+- id: mutagen.mutation_pipeline.r33
+  priority: must
+  statement: |
+    Candidate admission restores the OS environment and the environment of
+    every loaded application after each probe. The admitted files' load-time
+    environment changes apply only to their own pass. Side effects outside
+    those environments may persist after a candidate runs and is dropped.
+- id: mutagen.mutation_pipeline.r34
+  priority: must
+  statement: |
+    Death of the test group leader kills the current mutant and permits the
+    next site to run. In a baseline it is a red outcome. In candidate
+    admission that outcome drops the file and permits escalation to continue.
+- id: mutagen.mutation_pipeline.r35
+  priority: must
+  statement: |
+    A single candidate baseline gets ten times the narrow baseline duration
+    with a thirty-second floor, capped by the configured host boot and
+    mutant timeout ceilings. A combined baseline gets the single-candidate
+    deadline per file, capped by the host boot timeout.
+
 ```
 
 ```spec-scenarios
@@ -918,4 +985,14 @@ decisions:
     - mutagen.mutation_pipeline.r25
     - mutagen.mutation_pipeline.r26
     - mutagen.mutation_pipeline.r27
+    - mutagen.mutation_pipeline.r32
+    - mutagen.mutation_pipeline.r34
+    - mutagen.mutation_pipeline.r35
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.mutation_pipeline.r32
+    - mutagen.mutation_pipeline.r33
+    - mutagen.mutation_pipeline.r34
+    - mutagen.mutation_pipeline.r35
 ```

@@ -35,6 +35,8 @@ surface:
   - lib/mutagen_ex/ast_cache.ex
   - lib/mutagen_ex/test/suite.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
+  - mutagen.decision.changed_code_run
   - mutagen.decision.in_process_pipeline
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
@@ -207,7 +209,7 @@ decisions:
     `excluded` and `skipped` counts, and the effective `include` and
     `exclude` filters. The report boundary renders the filters using the
     same rules as the `tests` block (mutagen.json_schema.r17).
-    The pipeline aborts with
+    The classic pipeline aborts with
     `abort_reason: "no_tests_run"` before the baseline phase. A raise,
     throw, or exit out of `ExUnit.run/0` returns
     `{:error, :ex_unit_run_failed, %{message: msg}}`, where `msg` names the
@@ -215,6 +217,21 @@ decisions:
     only with --include-host-output and sanitizes it at emission. The
     exception type and position are reportable when available. Load
     failures use a verified project stack frame for the exception location.
+- id: mutagen.coverage.r12
+  priority: must
+  statement: |
+    A changed-code run with no selected or executable tests records
+    runtime sites as uncovered. If escalation adds green files, their
+    measured line coverage joins the run coverage. Newly covered runtime
+    sites can be attempted in the step that first covers them.
+
+- id: mutagen.coverage.r13
+  priority: must
+  statement: |
+    Automatic escalation tries unresolved runtime sites even if the
+    narrow selection is empty. A site is uncovered if no accepted test
+    pass executes its line.
+
 ```
 
 ```spec-scenarios
