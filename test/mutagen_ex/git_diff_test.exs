@@ -197,6 +197,7 @@ defmodule MutagenEx.GitDiffTest do
     assert_received {:git, ["rev-parse", "--is-shallow-repository"], _}
     assert_received {:git, ["rev-parse", "--is-inside-work-tree"], _}
     assert_received {:git, ["rev-parse", "--show-superproject-working-tree"], _}
+    assert_received {:git, ["rev-parse", "--absolute-git-dir"], _}
     assert_received {:git, ["config", "--null", "--name-only", "--get-regexp", _], _}
     assert_received {:git, ["config", "--type=bool", "--get", "core.ignorecase"], _}
     assert_received {:git, ["rev-parse", "--show-prefix"], _}
@@ -239,7 +240,7 @@ defmodule MutagenEx.GitDiffTest do
     assert "diff.external=" in prefix
     assert "diff.noPrefix=false" in prefix
 
-    for _ <- 1..14, do: assert_received({:git_prefix, ^prefix})
+    for _ <- 1..15, do: assert_received({:git_prefix, ^prefix})
     refute_received {:git_prefix, _}
 
     assert %{
@@ -425,6 +426,7 @@ defmodule MutagenEx.GitDiffTest do
       worktree: {"\n", 0},
       inside_worktree: {"true\n", 0},
       superproject: {"", 0},
+      git_dir: {Path.join(Process.get(:git_diff_test_dir), ".git") <> "\n", 0},
       index: {"", 0},
       scope_tree: {"", 0},
       ignore_case: {"", 1},
@@ -459,6 +461,7 @@ defmodule MutagenEx.GitDiffTest do
   defp step_for(["rev-parse", "--show-prefix"]), do: :worktree
   defp step_for(["rev-parse", "--is-inside-work-tree"]), do: :inside_worktree
   defp step_for(["rev-parse", "--show-superproject-working-tree"]), do: :superproject
+  defp step_for(["rev-parse", "--absolute-git-dir"]), do: :git_dir
   defp step_for(["ls-files", "-s", "-z", "--full-name"]), do: :index
   defp step_for(["ls-tree", "-r", "-z", "--full-tree", @base]), do: :scope_tree
   defp step_for(["config", "--type=bool", "--get", "core.ignorecase"]), do: :ignore_case
@@ -505,6 +508,7 @@ defmodule MutagenEx.GitDiffTest do
           :repository,
           :inside_worktree,
           :superproject,
+          :git_dir,
           :config,
           :ignore_case,
           :worktree,
