@@ -44,6 +44,7 @@ defmodule MutagenEx.JsonReporterTest do
              report = body |> IO.iodata_to_binary() |> JSON.decode!()
 
              assert %{"aborted" => true, "abort_reason" => ^reason} = report
+             assert %{"status" => "none"} = report["summary"]["checked"]
              assert get_in(report, ["meta", "complete"]) == false
 
              assert [%{"reason" => ^reason, "path" => nil}] =

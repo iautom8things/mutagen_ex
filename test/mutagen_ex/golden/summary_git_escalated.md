@@ -11,7 +11,7 @@
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:42835329c8a1a315d3879a23a7504b21:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:42835329c8a1a315d3879a23a7504b21:arith --tests auto --escalate --escalate-max-files 40 --since <BASE>`.
 
 ### Worth a look
 
@@ -22,7 +22,7 @@
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:9a5955146544391e55768c273a329135:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:9a5955146544391e55768c273a329135:arith --tests auto --escalate --escalate-max-files 40 --since <BASE>`.
 
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.
 
