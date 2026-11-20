@@ -11,306 +11,43 @@ file for traceability.
 
 ## [Unreleased]
 
-### Audit mode and changed-code advice
+## [0.2.0] - 2026-11-20
 
-- The README leads with whole-module and directory audits. It keeps the
-  whole-file confidence figures and adds the blinded 12-commit results
-  from before the quiet changed-code defaults.
+First Hex release. Mutagen changes one expression at a time and runs the
+selected tests to show which changes they catch.
 
-- Use `--since REF` to inspect runtime mutation sites near source changes
-  since the Git merge base. Add `--scope` to narrow the report. Automatic
-  test selection uses convention test files, new test files, and test files
-  with code changes. Pass `--escalate` to search for more tests for surviving
-  or uncovered sites. The existing file and time limits still apply.
-  `--no-escalate` is accepted with no effect for one release.
-- Changed-code Worth a look lists survivors whose expression spans touch
-  changed lines. It sorts by file and line, with labeled `guard_drop` and
-  `with_swap` survivors after the high-confidence entries. Pipeline
-  survivors and survivors away from changed lines stay in the JSON and
-  add to summary notes. Classic and audit runs
-  keep their provisional precision ordering.
-- Check first requires probe-confirmed misses across the function for a
-  `not_executed` finding. The `nothing_asserted` rule stays the same.
-- A partial summary with no finding says Mutagen found nothing in the sites
-  it could check and gives the unchecked count.
-- Convention tests are selected only for source files with planned sites.
-  The Markdown headline gives a remedy when no test file was selected.
-- A single-site rerun caps escalation at the larger of 30 seconds and ten
-  times the narrow baseline. The summary says when escalation admitted no
-  files. A tainted survivor's card advises rerunning it alone.
-- Use `--summary PATH` for a Markdown report with unchecked lines, failed
-  baseline tests, and survivors worth reviewing. Copy a `--site` command
-  from the report to rerun one mutation with `--escalate`. Mutagen exits 0 for a report,
-  including partial results, and 2 for an abort. An abort writes the
-  reason and hint to both requested reports.
-- The default per-mutant deadline is three times the baseline duration with
-  a five-second floor. With a fast baseline, a
-  mutant that sleeps for seven seconds now times out where it previously
-  could survive. Use `--timeout-ms` to set a deadline explicitly. Mutagen
-  warns when that deadline is shorter than the baseline. When three or more
-  mutants time out and their waits take over half the mutation phase, the
-  summary points to `--timeout-ms` and `--budget-ms`.
-- Coverage distinguishes zero-hit counters from lines OTP did not
-  instrument. For sites on uninstrumented lines, Mutagen checks the site's
-  own span, then its innermost branch body if the span has no counters.
-  Outside a branch, the fallback is the site's own clause body.
-- Use `--json PATH` and `--summary PATH` in CI. The report file stays
-  parseable when OTP writes logger fallback messages to stdout.
-- Escalation uses a two-minute budget by default.
-- Changed-code reports account for each planned runtime site once. Abort
-  reports include the abort reason in the incomplete reasons.
+### Breaking changes since the development snapshot
 
-### Final review fixes
+- Reports use schema `"2"`. Mutation IDs use a new scheme. Start a fresh
+  comparison when moving from earlier output.
+- Exit 0 means the run produced a report, including partial runs and
+  survivors. Exit 2 means the tool aborted. Check completeness in the report.
+- Use `--json PATH` for machine-readable output. Stdout is best effort
+  because host code and the VM can write to it directly.
 
-- Timed-out sites reap traced descendants even when a worker switched its
-  group leader inside `ExUnit.CaptureIO.capture_io/1`. Stopping an exited site
-  group returns immediately.
-- Coverage, baseline and mutants keep each case's declared `async` value,
-  so Phoenix DataCase uses the same Sandbox mode as in `mix test`.
-  ExUnit still runs one case at a time. Nested cases register before
-  enclosing cases. A timed-out async case leaves the next site able
-  to run in either fail-fast mode.
-- The JSON reporter uses one renderer for aggregate and streaming results.
-  `before_source` preserves remote receivers, field access, parentheses
-  and original literal spelling. The NDJSON `end` line includes `truncated`.
-- Reports include `meta.max_concurrency` and warn when experimental
-  parallel mode makes verdicts unreliable.
-- Erlang/OTP 27 is required. Older releases get an
-  `unsupported_otp_version` startup document. The README lists every
-  abort reason and explains that a cleanup callback calling
-  `System.halt/1` owns the exit code after the report is written.
-- `MutationRunner.run/1` can return tuple entries such as
-  `{:host_names, kind, names}` in its warnings. The JSON reporter
-  converts them to strings under the report's host-output policy.
-- Per-site spawn tracing added about 4 ms per site on the lane fixture
-  in the final review. Spawn-heavy tests paid more.
-- The runner's disk-write test uses its own temporary directory.
-  The state-count ADR records the limit when an ETS table disappears
-  and a same-named table takes its place within one site.
-- Public fixtures use neutral example names.
-- The README publishes the anonymized survivor measurement and the
-  follow-up across other test files. CI runs remain advisory.
+### Features
 
-- Source positions preserve expressions on lines with multi-codepoint
-  graphemes in quoted text. The reporter checks the slice against the
-  original AST before using it.
-- The CLI requires Elixir 1.18.0 or later and reports unsupported runtimes
-  before starting the host. The README lists every registered abort reason.
+- Audit a module to rank its functions by kill rate. Use `--summary PATH`
+  for a Markdown report and `--site ID` to rerun a finding.
+- Use `--since REF` to inspect changed code since the merge base. Mutagen
+  selects relevant tests automatically. Use `--escalate` to try more tests.
+- Runs load the host test setup and report startup failures. Per-mutant
+  deadlines and an optional run budget bound the mutation phase.
+- Execution probes distinguish confirmed misses from sites where coverage
+  cannot tell whether an expression ran.
 
-### Report safety
+### Known limits
 
-- Default reports count host process losses and baseline failures by
-  module. Dynamic names and helper filter values require opt-in.
-- Mutagen writes the report before cleanup and gives each callback its own
-  boot timeout. Each coverage and baseline pass gets the greater of the boot
-  timeout and ten times the mutation timeout.
+- A survivor may be equivalent to the original code. Review it before
+  writing a test. Automatic selection can miss relevant tests.
+- Some expressions, including guards and patterns, cannot host execution
+  probes. Mutagen reports uncertainty when it lacks execution evidence.
+- Run serially for reliable results. Parallel mutants share VM state and
+  can produce incorrect verdicts.
 
-- JSON and NDJSON omit host diagnostic text by default. Abort documents retain
-  a fixed hint, step, exception type, and location where available. Use
-  `--include-host-output` to include captured diagnostics with best-effort
-  credential redaction.
-- Source excerpts have a 4 KiB payload cap and omit control bytes.
-  `--no-source` omits source excerpts, file and function from site entries.
-  Compile errors include confidence and, with source enabled, the function.
-- Ordinary host I/O and Logger events go to stderr. JSON files use mode 0600.
-  AST-cache errors honor `--json`.
-- Coverage and baseline have independent deadlines. Cleanup callbacks
-  have a bounded runtime. Site timeouts preserve pre-existing host processes,
-  and the report names host process losses and taints later results.
+## 0.1.0 (unpublished development snapshot, 2026-05-13)
 
-### Added
-
-- **Mutator confidence.** Each aggregate mutation result and streaming
-  result line carries `"confidence": "high"` or `"confidence": "low"`.
-  CI gates can filter survivors by confidence. The field is part of report
-  schema version `"2"`. `with_swap`, `pipeline`, and `guard_drop` are
-  rated low. The other mutators rate high.
-
-- **Phase timings.** The aggregate document reports elapsed milliseconds in
-  `meta.timings_ms` for boot, coverage, baseline, mutation, and the full run.
-
-- **Parallel mutation dispatch (`--max-concurrency`).** The mutation phase
-  can now run per-site work in parallel. The default stays `1` (fully
-  serial, identical to v0.1.0) because the in-process pipeline shares
-  ExUnit, the code server, and `:cover` state across sites; set
-  `--max-concurrency N` explicitly when your scope and tests are arranged
-  for collision-free parallel runs.
-
-- **NDJSON streaming (`--stream`).** Emits one JSON line per completed
-  mutation site as the run progresses, on the same sink as the aggregate
-  document. Each line carries a `"kind"` discriminator
-  (`start` / `result` / `compile_error` / `end`) and is byte-equal to the
-  matching entry in the final document. Per-site lines arrive in input
-  order even under parallel dispatch. The final line is the aggregate
-  document without a `kind` field.
-
-- **Per-site progress feed.** When stderr is a TTY, a one-line-per-site
-  progress feed is printed (e.g. `[12/345] killed lib/foo.ex:42 :arith`).
-  Suppress it with `--no-progress`. The feed is driven by the mutation
-  runner's `:on_site_completed` callback (the same per-site seam
-  `--stream` rides).
-
-- **Test-suite gates documented.** The default `mix test` run now excludes
-  the slow end-to-end (`:e2e_slow`) and integration-spike (`:spike`) tag
-  families to keep the smoke gate fast; both remain runnable on demand
-  (`mix test --only e2e_slow`, `mix test --only spike`). The spike
-  iteration count is tunable via `MUTAGEN_SPIKE_ITERATIONS`. Default
-  `mix test` wall-clock dropped from ~24s to ~1s.
-
-### Changed
-
-- **Mutation IDs and report schema are now version 2.** IDs include the
-  enclosing definition, normalized expression, and occurrence among
-  identical sites. Whitespace and unrelated line shifts preserve the same
-  site IDs. JSON and NDJSON identify the scheme in `meta.id_scheme` and
-  include the enclosing function on each result. IDs and reports from
-  earlier versions cannot be compared with version 2.
-- **Mutations now use their exact AST path.** Earlier reports could attribute
-  the verdict for the first of two identical bare literals to the other
-  site. This affected kill and survival verdicts and invalidates the earlier
-  README efficacy figures.
-  Tagged result tuple mutations now run and appear in reports.
-- **NDJSON source slices.** Streamed `before_source` uses the same verbatim
-  slice as the aggregate report when source coordinates are available.
-  Early abort lines include the report version and ID scheme.
-- **Mutants stop executing tests after the first failure by default.**
-  A failure recorded before the deadline kills the mutant, even when
-  a later test would make a full run time out. Baseline and coverage
-  have no failure cap. Report schema 2 records the mode in
-  `meta.fail_fast`.
-  Equivalence assumes tests run independently. If a test sets up or
-  cleans up state for another, skipping it can change later mutants'
-  verdicts, warnings, and taint. These suites already depend on the
-  ordering from ExUnit's seed. Use `--no-fail-fast` for full runs.
-- **Breaking:** Select the test environment for `mix mutagen` via
-  `MIX_ENV=test`, an explicit custom test environment, or Mix's preferred
-  environment settings. An implicit non-test environment now aborts.
-- Mutagen runs host test-alias pre-steps before application startup. Use
-  `--no-test-alias` to skip them or `--boot-timeout-ms` to set the startup
-  deadline after compilation.
-
-- **`with_swap` validation.** For independent clauses, the mutator skips
-  swaps when one match always succeeds by syntax or the two right-hand
-  sides have the same value by construction. A catchall `else` can still
-  allow the swap to change which calls run. Those sites stay in the
-  report at low confidence.
-
-- **Faster mutation runs.** A round of AST and bytecode-handling work made
-  the mutation pipeline measurably faster — roughly a 1.66× wall-clock
-  speedup on the project's benchmark fixture — without changing any
-  outcome. Mutation site IDs, before/after source slices, kill/survive
-  verdicts, and the kill rate are byte-for-byte identical before and after;
-  only timing and some advisory diagnostic text changed. A benchmark
-  harness for reproducing these numbers ships at
-  `scripts/helper_scripts/bench_ast_perf.exs`.
-
-### Removed
-
-- **`:telemetry` event API and runtime dependency.** The producer-only
-  `:telemetry` event surface (run / coverage / baseline / enumeration /
-  per-site events) is removed, and `:telemetry` is no longer a runtime
-  dependency. It shipped no built-in subscriber and its only in-tree
-  consumer was the progress feed, which now rides the mutation runner's
-  `:on_site_completed` callback. Dropping the dependency makes the runtime
-  dependency-free, so `mix archive.install` produces a working
-  `mix mutagen` (a Mix archive cannot carry dependencies). External
-  telemetry handlers, if any, no longer receive events.
-
-- The `mix new` placeholder module and its test were deleted.
-
-### Fixed
-
-- **Late replies count as timeouts.** When fail-fast
-  has already recorded a failure by the deadline, the mutant still counts
-  as killed.
-- **State-leak warning details.** The runner reports positive deltas
-  for process registrations, ETS tables and persistent term keys.
-  The default report gives counts and deltas. Names require
-  `--include-host-output`. Same-name replacements, automatic Logger
-  caches, and compiler bookkeeping do not taint later results.
-- **ExUnit case registration.** Mutagen registers only ExUnit cases
-  from cited files. It preserves their parameterization and reuses the
-  case list across phases.
-- **Timeout cleanup.** Timed-out sites drain pending serial ExUnit
-  registrations once.
-- **Progress help.** `mix help mutagen` documents `--no-progress`.
-- **Baseline errors name every failing cited test.** Baseline runs
-  with an unbounded failure count even if the host config sets an
-  ExUnit failure cap.
-- The CLI loads the host's ExUnit helper once before running cited tests.
-  It honors helper filters, runs after-suite callbacks once, and releases
-  ExUnit processes and their Sandbox owners after a mutant times out.
-- A host compile, application startup, or test helper failure produces the
-  usual error JSON at the selected output path. A helper failure names the
-  helper's own line and, when it came from a file the helper evaluated, that
-  file and line as `origin_file` and `origin_line`. Each of these documents
-  notes in `details.note` that stderr is not redacted and should not be
-  published as a CI artifact.
-- A missing or corrupt report module in the installed tool produces a
-  `runtime_load_failed` document instead of a `MatchError`.
-- JSON reports redact common credential formats by default, including
-  compound keys such as `DATABASE_PASSWORD`, `api-token`, and
-  `AWS_SECRET_ACCESS_KEY`. If a report file cannot be written safely, the
-  task warns and writes to stdout.
-
-- **`guard_drop` mutations now run.** The enumerator validates the
-  mutated node, but `guard_drop` rejected any node without its `when`
-  wrapper, so every guard site landed in `mutation.skipped` as
-  `structurally_invalid`. Guarded function, `case` and `fn` clauses now
-  produce killed, survived or timeout results. A multi-parameter `fn`
-  clause guard stays skipped, because no single-node edit can drop it.
-
-- **Named function captures stay intact.** Mutators leave the slash and
-  arity in `&fun/1`, `&Mod.fun/2`, and `&:erlang.fun/2` alone.
-  Arithmetic and literal edits inside anonymous capture bodies still run.
-
-- **Archive-installed CLI no longer crashes on a cold start.** When
-  `mix mutagen` was installed globally via `mix archive.install` (no
-  `:mutagen_ex` entry in the host project's deps) and run for the first
-  time, it could crash with a raw `MatchError` traceback instead of the
-  CLI's structured error output. The task now repairs its own runtime load
-  path and, if the archive is genuinely unrecoverable, emits proper error
-  JSON (`abort_reason: "runtime_load_failed"`) instead of leaking a stack
-  trace. The `mix.exs`, Hex, and git install paths are unaffected.
-
-- **Ecto-style schema scope is now supported end-to-end.** A previously
-  skipped end-to-end scenario covering a hand-rolled Ecto-style schema DSL
-  was traced to a faulty test assertion (not a `:cover` interaction) and
-  re-enabled, confirming that mutations of macro-generated callbacks are
-  restored byte-for-byte between sites.
-
-### Security
-
-- **Sensitive output bounded and redactable.** Free-form text that flows
-  into the JSON report (captured stderr, exception messages, source
-  slices) is now truncated at a 4 KiB cap per field — appending a
-  `... <N bytes truncated>` marker — so a runaway diagnostic can't bloat
-  the report. A new opt-in `:redact` application config takes a list of
-  regexes; every match in a reported field is replaced with `[REDACTED]`.
-  Redaction runs before truncation. Built-in credential patterns apply by
-  default. The `:redact` setting starts with an empty list of extra patterns.
-  Use `--json <path>` when archiving reports off the run host.
-
-- **`--json <path>` is path-safe.** The output path is canonicalised
-  before any mutation runs: `..` segments and NUL bytes are refused at
-  parse time, and a fully-resolved path that escapes the project root is
-  refused (`abort_reason: "unsafe_json_path"`). This closes an
-  arbitrary-file-write avenue, since the pipeline compiles and runs the
-  target project's (possibly mutated) test code in-process. CI that must
-  write outside the project root opts in with
-  `--unsafe-json-outside-project`, which emits a one-shot stderr warning
-  naming the resolved target.
-
-- **Bounded atom creation on CLI input.** `tag:`, module, and function
-  scope/test arguments no longer convert unbounded user input to atoms, so
-  loops like `mix mutagen --tests tag:$(uuidgen)` can no longer exhaust the
-  atom table. A `tag:` charset gate rejects malformed names up front
-  (`abort_reason: "invalid_tag_name"`).
-
-## [0.1.0] — 2026-05-13
-
-First public cut. The CLI, the JSON document, and the mutator catalog are
-stable as of this release.
+Version 0.1.0 was never published on Hex or tagged.
 
 ### Added
 
@@ -333,7 +70,7 @@ stable as of this release.
   `:cover_server` torn down cleanly between runs.
 - Mutation enumeration restricted to covered lines, with content-addressed
   mutation IDs so they stay stable across `mix format` runs.
-- Mutators shipped in v0.1.0: `arith`, `compare`, `boolean`,
+- Mutators present in the snapshot: `arith`, `compare`, `boolean`,
   `case_drop`, `else_removal`, `withblock_with_swap`,
   `withblock_else_removal`, `literal`. (See Known limitations for the
   `literal` gap.)
@@ -362,7 +99,7 @@ stable as of this release.
 
 ### Known limitations
 
-Shipped with v0.1.0 and tracked for later releases:
+Known in the development snapshot:
 
 - File-cited `--tests` (a bare `_test.exs` path) produced a filter that
   excluded every test.
@@ -375,13 +112,13 @@ Shipped with v0.1.0 and tracked for later releases:
 - The `literal` mutator never fired, because atomic literals were wrapped
   in a way the mutator did not recognise.
 
-(Several of these were fixed in the Unreleased cycle above.)
+(Several of these were fixed in 0.2.0.)
 
-[0.1.0]: https://github.com/iautom8things/mutagen_ex/releases/tag/v0.1.0
+[0.2.0]: https://github.com/iautom8things/mutagen_ex/releases/tag/v0.2.0
 
 ---
 
-## Internal development log (Unreleased)
+## Internal development log
 
 
 - **Archive-installed CLI runtime self-heal.** Fixed the archive adoption

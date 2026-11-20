@@ -389,7 +389,7 @@ defmodule MutagenEx.Pipeline.Phases do
         site_sink,
         length(sites),
         (report.meta || %{})
-        |> Map.put_new(:tool_version, "0.0.0-dev")
+        |> Map.put_new(:tool_version, MutagenEx.Runtime.tool_version())
       )
     end
 

@@ -312,6 +312,8 @@ Top-level keys, all present in every variant unless noted:
       - `"start"` fires once at mutation-phase entry; carries `total`
         (planned site count, every enumerated site that was not skipped)
         and `meta` (r2's meta block), omitting timings and final completeness.
+        Its `tool_version` identifies the mutagen_ex build, including when the
+        caller supplies no report metadata.
       - `"result"` fires once per completed site (any of `killed`,
         `survived`, `timeout`, `error`); the line's wire shape MUST be
         byte-equal to the equivalent entry in the aggregate document's
@@ -546,7 +548,8 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     Redaction of oversized text has bounded work after the input cap.
     A megabyte of adversarial text takes less than eight times the
-    duration for the same capped prefix, measured in the same test.
+    duration for its prefix of exactly the configured input limit
+    (currently 64 KiB), measured in the same test.
 
 - id: mutagen.json_schema.r33
   priority: must

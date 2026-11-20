@@ -47,7 +47,7 @@ defmodule MutagenEx.JsonStreamerTest do
       out =
         capture_sink(fn sink ->
           JsonStreamer.emit_start(sink, 42, %{
-            tool_version: "0.1.0",
+            tool_version: Mix.Project.config()[:version],
             elixir_version: "1.19.5",
             otp_version: "28",
             exunit_seed: 0
@@ -59,7 +59,7 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["version"] == "2"
       assert decoded["meta"]["id_scheme"] == "2"
       assert decoded["total"] == 42
-      assert decoded["meta"]["tool_version"] == "0.1.0"
+      assert decoded["meta"]["tool_version"] == Mix.Project.config()[:version]
       assert decoded["meta"]["elixir_version"] == "1.19.5"
       assert decoded["meta"]["otp_version"] == "28"
       assert decoded["meta"]["exunit_seed"] == 0

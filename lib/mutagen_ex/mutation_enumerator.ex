@@ -111,7 +111,7 @@ defmodule MutagenEx.MutationEnumerator do
   parallel `skipped` list and a `warnings` list.
 
   Implements the behavioural contract in
-  [`mutagen.mutation_enumeration`](../../.spec/specs/mutation_enumeration.spec.md).
+  [`mutagen.mutation_enumeration`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/mutation_enumeration.spec.md).
 
   ## Inputs
 

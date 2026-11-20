@@ -2,7 +2,7 @@ defmodule MutagenEx.Baseline do
   @moduledoc """
   Pre-mutation test pass: do the cited tests pass on unmodified code?
 
-  Contract: [`mutagen.mutation_pipeline`](../../.spec/specs/mutation_pipeline.spec.md)
+  Contract: [`mutagen.mutation_pipeline`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/mutation_pipeline.spec.md)
   r1, r2.
 
   ## Responsibilities (and what it deliberately is NOT)

@@ -210,7 +210,7 @@ defmodule MutagenEx.ReportSafetyTest do
           "password: \"" <> String.duplicate("a\\", 524_288),
           String.duplicate("a_", 524_288) <> "token=fixture"
         ] do
-      control = binary_part(line, 0, 32 * 1024)
+      control = binary_part(line, 0, Redactor.input_limit())
       sample = fn input -> :timer.tc(fn -> Sanitizer.clean(input, patterns: []) end) end
       sample.(control)
       {before, _} = sample.(control)

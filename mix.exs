@@ -1,13 +1,17 @@
 defmodule MutagenEx.MixProject do
   use Mix.Project
 
+  @version "0.2.0"
+  @source_url "https://github.com/iautom8things/mutagen_ex"
+
   def project do
     [
       app: :mutagen_ex,
-      version: "0.1.0",
+      version: @version,
+      source_url: @source_url,
       elixir: ">= 1.18.0",
       description:
-        "Mutation testing for Elixir — mutates a scope, runs cited tests per mutant, emits a JSON kill/survive report.",
+        "Advisory mutation testing for Elixir with module audits and changed-code summaries.",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       package: package(),
@@ -26,7 +30,7 @@ defmodule MutagenEx.MixProject do
         # `Code.require_file/2` (not `elixirc_paths`), so they are not
         # `_test.exs` files and would otherwise trip the unmatched-file
         # warning.
-        fn path -> String.starts_with?(path, "test/support/") end
+        fn path -> String.starts_with?(path, ["test/support/", "test/integration/support/"]) end
       ]
     ]
   end
@@ -39,21 +43,14 @@ defmodule MutagenEx.MixProject do
     ]
   end
 
-  # Hex package metadata. The root `LICENSE` file backs the `:licenses` key.
-  #
-  # The `:files` whitelist ships only the runtime library and the docs a
-  # consumer needs. Hex's default globs would otherwise sweep in dev cruft:
-  # the bench/spike scripts under `scripts/helper_scripts/` (including the nested
-  # `wrd25_200sites/` fixture mix project), the `.spec/` corpus, `CLAUDE.md` /
-  # `AGENTS.md`, and the `Makefile` / `make/` worktree tooling. The README's
-  # JSON example is inlined (mutagen-hcs.6), so it no longer depends on the
-  # golden fixtures under `test/`; nothing under `test/` needs to ship.
   defp package do
     [
-      files: ~w(lib mix.exs mix.lock README.md CHANGELOG.md LICENSE),
+      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE),
       licenses: ["MIT"],
-      links: %{"GitHub" => "https://github.com/iautom8things/mutagen_ex"},
-      maintainers: ["Manuel Zubieta"]
+      links: %{
+        "GitHub" => @source_url,
+        "Changelog" => "#{@source_url}/blob/v#{@version}/CHANGELOG.md"
+      }
     ]
   end
 
@@ -118,6 +115,20 @@ defmodule MutagenEx.MixProject do
   defp docs do
     [
       main: "readme",
+      source_ref: "v#{@version}",
+      # The engineering notes cite private functions that have no public docs.
+      skip_code_autolink_to: ~w(
+        :erts_debug.same/2
+        ExUnit.Server
+        ExUnit.Server.add_module/2
+        Mix.Local.append_archives/0
+        Mix.Tasks.Mutagen.phase_scope/3
+        MutagenEx.CoverageRunner.ensure_cover_loadable/1
+        MutagenEx.CoverageRunner.with_cover_lifecycle/2
+        MutagenEx.JsonReporter.Redactor.secret_key?/1
+        MutagenEx.MutationEnumerator.try_mutators/6
+        MutagenEx.MutationRunner.MutationLoop
+      ),
       extras: ["README.md", "CHANGELOG.md"],
       groups_for_modules: [
         Mutators: [~r/^MutagenEx\.Mutators/],
