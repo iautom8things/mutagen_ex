@@ -37,6 +37,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.report_stdout_descriptor
   - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
@@ -96,9 +97,10 @@ decisions:
     (r23).
 
     While `Mix.Tasks.Mutagen.run/1` executes, Mix tasks, host code, test
-    helpers, ExUnit formatters, and the default `:logger` console handler
-    write to stderr. Stdout carries only the final document and, with
-    `--stream` and no `--json`, the NDJSON lines before it.
+    helpers, ExUnit formatters, and OTP logger fallbacks write to stderr,
+    including writes during after-suite cleanup. Stdout carries only the
+    final document and, with `--stream` and no `--json`, the NDJSON lines
+    before it.
 
 - id: mutagen.cli.r6
   priority: must

@@ -61,8 +61,9 @@ defmodule Mix.Tasks.Mutagen do
   contain secrets committed in the repository. Pattern redaction of opted-in
   host diagnostics is best-effort.
 
-  Use `--json PATH` for CI. Native fd 1 writes and Mix messages emitted
-  before this task starts can still reach stdout. Do not publish stderr.
+  Use `--json PATH` to keep the CI report in its own file. During the task,
+  the host VM sends native output and OTP logger fallback messages to stderr.
+  Mix can write to stdout before the task starts. Do not publish stderr.
 
   ## Flags
 
@@ -363,7 +364,22 @@ defmodule Mix.Tasks.Mutagen do
   def run(argv) do
     Mix.Local.append_archives()
 
-    run_pipeline(argv, default_dispatch(), {:host, preload_report_modules()})
+    ebin = __MODULE__ |> :code.which() |> Path.dirname()
+
+    case DefaultIo.report_pipe(argv, ebin) do
+      {:ok, device} ->
+        run_pipeline(argv, default_dispatch(), {:host, preload_report_modules()}, device)
+
+      {:error, _reason} ->
+        dispatch = default_dispatch()
+        {report, config} = abort_report_options(argv, File.cwd!())
+
+        emit_result(
+          {:abort, report, config, :report_stdout_unavailable, %{}},
+          dispatch,
+          Process.group_leader()
+        )
+    end
   end
 
   @report_modules [
@@ -484,7 +500,7 @@ defmodule Mix.Tasks.Mutagen do
   # either returns `{:ok, update}` (continue) or
   # `{:error, phase, reason, details, partial_report}` (emit abort, halt).
   #
-  defp run_pipeline(argv, dispatch, mode \\ :prepared) do
+  defp run_pipeline(argv, dispatch, mode \\ :prepared, stdout \\ Process.group_leader()) do
     started_at = System.monotonic_time()
 
     output = %{
@@ -506,7 +522,7 @@ defmodule Mix.Tasks.Mutagen do
         pipeline.()
 
       {:host, _preloaded} ->
-        MutagenEx.Pipeline.DefaultIo.with_report_device(fn ->
+        DefaultIo.with_report_device(stdout, fn ->
           Runtime.route_default_logger()
           previous = Process.put(MutagenEx.JsonReporter.Sanitizer, [])
 

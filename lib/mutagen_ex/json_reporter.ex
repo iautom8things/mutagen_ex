@@ -413,6 +413,8 @@ defmodule MutagenEx.JsonReporter do
     "no_tests_match" => "Choose a test target that resolves to a test file.",
     "no_tests_run" => "Check the cited tests and the effective ExUnit filters.",
     "parse_error" => "Fix the syntax at the reported file and line.",
+    "report_stdout_unavailable" =>
+      "Use a local Elixir and Mix installation with POSIX file descriptors.",
     "runtime_load_failed" =>
       "Reinstall the mutagen_ex archive and check for module name collisions.",
     "self_mutation_refused" =>

@@ -1016,6 +1016,7 @@ exception names. Pattern redaction is best-effort.
 | `no_tests_match` |
 | `no_tests_run` |
 | `parse_error` |
+| `report_stdout_unavailable` |
 | `runtime_load_failed` |
 | `self_mutation_refused` |
 | `site_not_found` |

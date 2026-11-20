@@ -125,6 +125,62 @@ defmodule MutagenEx.ChangedRunTest do
     refute Enum.any?(audit["mutation"]["pending"], &is_nil(&1["function"]))
   end
 
+  @tag spec: "mutagen.cli.r5"
+  test "failing OTP log handlers before and after reporting keep stdout valid", %{repo: repo} do
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def inc(n), do: n + 2
+    end
+    """)
+
+    test_path = "checks/café_test.exs"
+
+    write(
+      repo,
+      test_path,
+      test_case("Logger", """
+        test "calls the changed function" do
+          assert ChangedRunFixture.Example.inc(3) == 5
+        end
+      """)
+    )
+
+    helper = File.read!(Path.join(repo, "checks/test_helper.exs"))
+
+    write(
+      repo,
+      "checks/test_helper.exs",
+      helper <>
+        """
+        defmodule ChangedRunFixture.FailingLogger do
+          def log(_, _), do: raise("logger fixture")
+        end
+
+        :ok = :logger.add_handler(:early_logger_fixture, ChangedRunFixture.FailingLogger, %{})
+        :logger.warning("early fixture")
+        {:error, {:not_found, :early_logger_fixture}} = :logger.get_handler_config(:early_logger_fixture)
+
+        ExUnit.after_suite(fn _ ->
+          :ok = :logger.add_handler(:late_logger_fixture, ChangedRunFixture.FailingLogger, %{})
+          :logger.warning("late fixture")
+          {:error, {:not_found, :late_logger_fixture}} = :logger.get_handler_config(:late_logger_fixture)
+          File.write!("after-logger", "removed")
+        end)
+        """
+    )
+
+    args = ["--scope", @source, "--tests", test_path]
+    report = run(repo, args)
+    assert report["tests"]["files"] == [test_path]
+    assert [%{"status" => "killed"}] = report["mutation"]["results"]
+
+    {stream, 0} = invoke(repo, args ++ ["--stream"])
+    records = stream |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+    assert [%{"kind" => "start"}, %{"kind" => "result"}, %{"kind" => "end"}, aggregate] = records
+    assert aggregate["tests"]["files"] == [test_path]
+    assert File.read!(Path.join(repo, "after-logger")) == "removed"
+  end
+
   @tag spec: [
          "mutagen.scope_resolution.r11",
          "mutagen.mutation_pipeline.r28",
