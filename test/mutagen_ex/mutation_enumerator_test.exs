@@ -47,6 +47,28 @@ defmodule MutagenEx.MutationEnumeratorTest do
   describe "scenario s1 — determinism (mutagen.mutation_enumeration.r1)" do
     @describetag spec: "mutagen.mutation_enumeration.r1"
 
+    @tag spec: "mutagen.coverage.r14"
+    test "only falls back to a clause when the whole site span has no cover entries" do
+      file = "lib/fixture.ex"
+      site = %{file: file, line: 10, coverage_location: {10, {10, 12}, 8..15, nil}}
+
+      for {hits, measured, covered?} <- [
+            {[8, 10], [8, 10, 12], true},
+            {[8, 12], [8, 10, 12], false},
+            {[8, 12], [8, 12], true},
+            {[8], [8, 12], false},
+            {[8], [8], true},
+            {[17], [17], false}
+          ] do
+        coverage = %{
+          covered_lines: %{file => MapSet.new(hits)},
+          coverable_lines: %{file => MapSet.new(measured)}
+        }
+
+        assert MutationEnumerator.covered?(site, coverage) == covered?
+      end
+    end
+
     @tag :determinism
     test "the same inputs produce byte-identical site lists across two runs" do
       source = """

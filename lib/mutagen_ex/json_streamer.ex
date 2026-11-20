@@ -39,7 +39,8 @@ defmodule MutagenEx.JsonStreamer do
 
   `total` is the total site count the runner will attempt; `meta` is
   the same `meta` block the final document carries (tool version,
-  Elixir/OTP version, ExUnit seed, and fail-fast setting), without timings.
+  Elixir/OTP version, ExUnit seed, and fail-fast setting), without timings
+  or final completeness.
   """
   @spec emit_start(sink(), pos_integer() | non_neg_integer(), map()) :: :ok
   def emit_start(sink, total, meta), do: emit_start(sink, total, meta, %Report{})
@@ -96,7 +97,7 @@ defmodule MutagenEx.JsonStreamer do
     summary = %{
       "version" => JsonReporter.schema_version(),
       "kind" => "end",
-      "meta" => JsonReporter.stream_meta_to_wire(report.meta, report),
+      "meta" => JsonReporter.stream_end_meta_to_wire(report),
       "aborted" => report.aborted == true,
       "abort_reason" => JsonReporter.abort_reason_to_wire(report.abort_reason),
       "truncated" => report.truncated == true,

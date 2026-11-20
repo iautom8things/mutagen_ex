@@ -481,7 +481,17 @@ defmodule MutagenEx.MutationRunner do
   # The post-prime portion of `execute/2`. Split out from `execute/2` so
   # the prime step's `{:error, _, _}` short-circuits cleanly via `with`.
   defp execute_after_prime(cfg, drift) do
-    sites = cfg.sites
+    sites =
+      case Map.get(cfg, :escalation_deadline_ms) do
+        nil ->
+          cfg.sites
+
+        deadline ->
+          Stream.take_while(cfg.sites, fn _site ->
+            deadline - System.monotonic_time(:millisecond) >= cfg.timeout_ms
+          end)
+      end
+
     max_concurrency = resolve_max_concurrency(cfg)
     warn_experimental_parallel_mode(max_concurrency)
     on_site_completed = Map.get(cfg, :on_site_completed, fn _ -> :ok end)

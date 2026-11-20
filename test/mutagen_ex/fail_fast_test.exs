@@ -1,6 +1,7 @@
 defmodule MutagenEx.FailFastTest do
   use ExUnit.Case, async: false
 
+  alias MutagenEx.Pipeline.Phases
   alias MutagenEx.TestSelector.TestFilter
 
   @fixtures Path.expand("../fixtures/lane_project", __DIR__)
@@ -177,24 +178,38 @@ defmodule MutagenEx.FailFastTest do
   @tag scenario: :before_failure
   @tag spec: ["mutagen.mutation_pipeline.r30", "mutagen.json_schema.r30"]
   test "reports the measured baseline duration and sends its scaled deadline to the runner" do
-    Process.put(:baseline_clock, [0, System.convert_time_unit(1_200, :millisecond, :native)])
+    calls = :counters.new(1, [])
 
-    clock = fn ->
-      [tick | rest] = Process.get(:baseline_clock)
-      Process.put(:baseline_clock, rest)
-      tick
+    clock = fn
+      :baseline ->
+        ticks = :counters.get(calls, 1)
+        :counters.add(calls, 1, 1)
+        System.convert_time_unit(ticks * 57_000, :millisecond, :native)
+
+      _phase ->
+        System.monotonic_time()
     end
 
     {output, _, _} =
       invoke([], 0, {@fixture, @source, @tests}, %{
-        baseline_clock: clock,
-        mutation: __MODULE__.TraceMutation
+        clock: clock,
+        mutation: __MODULE__.DeadlineMutation
       })
 
-    assert %{"baseline" => 1_200, "mutant_deadline" => 12_000} =
+    assert %{"baseline" => 57_000, "mutant_deadline" => 570_000} =
              :json.decode(output)["meta"]["timings_ms"]
 
-    assert Process.get(:observed_mutant_deadline) == 12_000
+    assert Process.get(:observed_mutant_deadline) == 570_000
+
+    config = %MutagenEx.Config{scopes: [], tests: [], timeout_override: true, timeout_ms: 7_000}
+    report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 57_000}}}
+
+    timed = Phases.put_mutant_deadline(report, config)
+    assert timed.meta.timings_ms.mutant_deadline == 7_000
+
+    assert "mutant_deadline_below_baseline: 7000 ms < 57000 ms" in MutagenEx.JsonReporter.to_wire(
+             timed
+           )["warnings"]
   end
 
   @tag scenario: :slow_cleanup
@@ -229,8 +244,10 @@ defmodule MutagenEx.FailFastTest do
            } = finish
 
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
-    assert Map.delete(aggregate["meta"], "timings_ms") == start["meta"]
-    assert start["meta"] == finish["meta"]
+    assert Map.drop(aggregate["meta"], ["timings_ms", "complete"]) == start["meta"]
+    assert finish["meta"] == Map.put(start["meta"], "complete", false)
+    assert aggregate["meta"]["complete"] == false
+    assert aggregate["summary"]["verdict"] == "incomplete"
     refute Map.has_key?(aggregate, "kind")
     refute Map.has_key?(result, "meta")
     assert aggregate["truncated"]
@@ -593,6 +610,16 @@ defmodule MutagenEx.FailFastTest do
     def discard_pending_modules do
       Process.put(:fail_fast_drains, Process.get(:fail_fast_drains, 0) + 1)
       MutagenEx.Test.ExUnitServer.discard_pending_modules()
+    end
+  end
+
+  defmodule DeadlineMutation do
+    @behaviour MutagenEx.Pipeline.MutationFacade
+
+    @impl MutagenEx.Pipeline.MutationFacade
+    def run(config) do
+      Process.put(:observed_mutant_deadline, config.timeout_ms)
+      {:ok, %{results: [], compile_errors: [], state_drift_warning: %{}, warnings: []}}
     end
   end
 
