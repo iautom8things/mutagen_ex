@@ -256,6 +256,14 @@ decisions:
     timed-out, skipped, and compile-error entries
     are evaluated. Runner errors are not run. IDs absent from all run
     output are uncovered candidates pending the coverage decision.
+- id: mutagen.mutation_enumeration.r17
+  priority: must
+  statement: |
+    An enumerated source span carries the byte offset and length of the
+    expression and the one-based line where the span starts. For a pipeline
+    that starts above its operator, the source span starts at its first
+    expression while the site line remains the operator line.
+
 ```
 
 ```spec-scenarios

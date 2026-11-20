@@ -200,9 +200,9 @@ defmodule MutagenEx.ReportSafetyTest do
              "https://[REDACTED]@db/path?sig=[REDACTED]&ok=1"
   end
 
-  @tag spec: "mutagen.json_schema.r17"
-  @tag timeout: to_timeout(second: 5)
-  test "redaction handles a megabyte of adversarial text within 750 ms" do
+  @tag spec: ["mutagen.json_schema.r17", "mutagen.json_schema.r32"]
+  @tag timeout: to_timeout(minute: 1)
+  test "redaction handles a megabyte of adversarial text without stalling" do
     for line <- [
           String.duplicate("eyJaaaaaaaa-", 87_382),
           String.duplicate("a.", 524_288) <> " postgres://root:ZZTailFixture@db/path",
@@ -210,8 +210,13 @@ defmodule MutagenEx.ReportSafetyTest do
           "password: \"" <> String.duplicate("a\\", 524_288),
           String.duplicate("a_", 524_288) <> "token=fixture"
         ] do
-      {microseconds, cleaned} = :timer.tc(fn -> Sanitizer.clean(line, patterns: []) end)
-      assert microseconds < 750_000
+      control = binary_part(line, 0, 32 * 1024)
+      sample = fn input -> :timer.tc(fn -> Sanitizer.clean(input, patterns: []) end) end
+      sample.(control)
+      {before, _} = sample.(control)
+      {elapsed, cleaned} = sample.(line)
+      {after_, _} = sample.(control)
+      assert elapsed < 8 * max(before, after_)
       assert byte_size(cleaned) <= 4136
     end
   end
@@ -270,6 +275,19 @@ defmodule MutagenEx.ReportSafetyTest do
       assert report["details"]["hint"] != ""
       refute Map.has_key?(report["details"], "message")
       refute File.read!(path) =~ "ZZAbortCanaryFromHost"
+    end
+  end
+
+  @tag spec: "mutagen.json_schema.r33"
+  test "every registered abort overrides a complete changed-code report" do
+    report = %Report{meta: %{since: %{}, incomplete_reasons: []}}
+
+    for name <- JsonReporter.abort_reasons() do
+      {output, 2} = JsonReporter.emit_error(report, String.to_atom(name))
+      wire = output |> IO.iodata_to_binary() |> JSON.decode!()
+      assert wire["aborted"]
+      assert wire["abort_reason"] == name
+      assert wire["meta"]["complete"] == false
     end
   end
 

@@ -94,7 +94,7 @@ defmodule MutagenEx.Test.RunGroupTest do
           Process.sleep(:infinity)
         end)
 
-      tracker = RunGroup.track(group, member)
+      tracker = RunGroup.track(member)
       send(member, :start)
       assert_receive {:child, child}
       assert StringIO.contents(device) == {"", "forwarded"}
@@ -104,12 +104,40 @@ defmodule MutagenEx.Test.RunGroupTest do
     end
   end
 
+  @tag spec: "mutagen.mutation_pipeline.r34"
+  test "reaps a child that changed its group leader before the test group died" do
+    parent = self()
+    destination = Process.group_leader()
+
+    assert {:exit, {:run_group_exited, :killed}} =
+             RunGroup.with_deadline(to_timeout(second: 2), fn ->
+               worker = self()
+
+               child =
+                 spawn(fn ->
+                   Process.group_leader(self(), destination)
+                   send(worker, :outside_group)
+                   Process.sleep(:infinity)
+                 end)
+
+               receive do
+                 :outside_group ->
+                   send(parent, {:child, child})
+                   Process.exit(Process.group_leader(), :kill)
+                   Process.sleep(:infinity)
+               end
+             end)
+
+    assert_received {:child, child}
+    refute Process.alive?(child)
+  end
+
   @tag spec: "mutagen.mutation_pipeline.r26"
   test "stop waits for the group to exit and an immediate second stop returns" do
     group = RunGroup.start(Process.group_leader())
     runner = spawn(fn -> Process.sleep(:infinity) end)
     on_exit(fn -> Process.exit(runner, :kill) end)
-    tracker = RunGroup.track(group, runner)
+    tracker = RunGroup.track(runner)
     session = :trace.session_create(:run_group_stop_test, self(), [])
 
     task =

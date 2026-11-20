@@ -11,9 +11,12 @@ defmodule MutagenEx.GitDiffTest do
                  --unified=0 --find-renames --diff-filter=AMRT --text --src-prefix=a/ --dst-prefix=b/
                  --no-relative --ignore-submodules=dirty --submodule=short)
 
-  @moduletag :tmp_dir
-
-  setup %{tmp_dir: dir} do
+  setup do
+    suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    dir = Path.join(System.tmp_dir!(), "mutagen_git_diff_#{suffix}")
+    File.mkdir!(dir)
+    File.mkdir!(Path.join(dir, ".git"))
+    on_exit(fn -> File.rm_rf!(dir) end)
     Process.put(:git_diff_test_dir, dir)
 
     for relative <- [
@@ -28,7 +31,7 @@ defmodule MutagenEx.GitDiffTest do
       File.write!(path, String.duplicate("line\n", 40))
     end
 
-    :ok
+    {:ok, tmp_dir: dir}
   end
 
   @tag spec: "mutagen.git_diff.r1"
@@ -192,7 +195,7 @@ defmodule MutagenEx.GitDiffTest do
       fake.("git", argv, opts)
     end
 
-    assert {:ok, _} = GitDiff.changed_lines(@ref, cmd: cmd)
+    assert {:ok, _} = read_changes(@ref, cmd: cmd)
     assert_received {:git, ["version"], _}
     assert_received {:git, ["rev-parse", "--is-shallow-repository"], _}
     assert_received {:git, ["rev-parse", "--is-inside-work-tree"], _}
@@ -309,7 +312,7 @@ defmodule MutagenEx.GitDiffTest do
         end)
 
       assert {:error, :diff_unavailable, %{cause: :invalid_output, step: ^step}} =
-               GitDiff.changed_lines(@ref, cmd: cmd)
+               read_changes(@ref, cmd: cmd)
     end
   end
 
@@ -404,7 +407,6 @@ defmodule MutagenEx.GitDiffTest do
              GitDiff.changed_lines(@ref, cmd: cmd)
   end
 
-  @tag :tmp_dir
   @tag spec: "mutagen.git_diff.r5"
   test "reports a missing working directory without calling Git", %{tmp_dir: dir} do
     assert {:error, :diff_unavailable, %{cause: :missing_cd}} =
