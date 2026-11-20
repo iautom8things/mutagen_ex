@@ -141,15 +141,16 @@ decisions:
     A --since auto run with runtime sites selects every new test file and
     every changed test file whose normalized AST differs from the merge
     base. Renamed files compare against their old path. A file with an
-    unavailable comparison stays eligible. Convention files can still
-    join by path. With no runnable runtime sites the run selects no tests
+    unavailable comparison stays eligible. Convention files join by path
+    only for source files with runnable runtime sites in the plan.
+    With no runnable runtime sites the run selects no tests
     and skips host setup.
 
 - id: mutagen.test_selection.r10
   priority: must
   statement: |
-    Auto escalation ranks uncited test files by text mentions of surviving
-    mutants, using module matches first and function calls or captures
+    Auto escalation runs only with --escalate. It ranks uncited test files
+    by text mentions of surviving mutants, using module matches first and function calls or captures
     second. Equal scores sort by path. Each step admits at most the
     configured file cap and reports whether more files matched.
 

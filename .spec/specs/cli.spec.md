@@ -581,9 +581,10 @@ decisions:
   priority: must
   statement: |
     --since REF permits an omitted --scope and defaults to --tests auto.
-    Auto is a standalone test target. Escalation defaults on, --no-escalate
-    disables it, and --escalate-max-files takes a non-negative integer
-    with a default of 20. Fail-fast remains on unless disabled.
+    Auto is a standalone test target. --escalate opts into widening the
+    test selection after the narrow pass. --no-escalate is accepted with no
+    effect for one release. --escalate-max-files takes a non-negative
+    integer with a default of 20. Fail-fast remains on unless disabled.
 
 - id: mutagen.cli.r34
   priority: must
@@ -609,16 +610,18 @@ decisions:
   statement: |
     --site ID runs just the selected site, by report ID or by its opaque
     reference. An unknown site produces an abort document. The generated
-    command reruns the site with automatic discovery and a larger search
-    allowance of 40 files per function in each pass and the default time
-    budget. With --since it retains the original merge base.
+    command reruns the site with --tests auto --escalate and a larger search
+    allowance of 40 files per function in each pass. With --since it
+    retains the original merge base.
 
 - id: mutagen.cli.r37
   priority: must
   statement: |
     --escalate-budget-ms sets the total time limit for automatic escalation.
-    It accepts non-negative milliseconds, defaults to 120000, and removes
-    the time limit when set to zero.
+    It accepts non-negative milliseconds and defaults to 120000. Zero
+    removes the time limit for runs without --site. A --site run caps the
+    budget at the larger of 30 seconds and ten times the narrow baseline.
+    A smaller positive configured budget still applies.
 ```
 
 ```spec-scenarios
