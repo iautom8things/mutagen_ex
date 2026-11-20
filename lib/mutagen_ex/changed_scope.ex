@@ -242,6 +242,7 @@ defmodule MutagenEx.ChangedScope do
       sites: sites,
       skipped: skipped,
       changed_lines: changed,
+      changed_line_sites: changed_line_sites(planned_by_file, changed),
       multi_line_sites: multi_line_sites(planned_by_file, sites),
       incomplete: incomplete,
       meta: %{
@@ -263,6 +264,14 @@ defmodule MutagenEx.ChangedScope do
 
   defp overlaps?({first, last}, ranges),
     do: Enum.any?(ranges, fn {from, to} -> first <= to and from <= last end)
+
+  defp changed_line_sites(planned, changed) do
+    for {file, ranges} <- changed,
+        {%{id: id}, span} <- Map.get(planned, file, []),
+        overlaps?(span, ranges),
+        into: MapSet.new(),
+        do: id
+  end
 
   defp scope_lines(files, _scopes, []), do: {files, []}
 

@@ -11,15 +11,30 @@ file for traceability.
 
 ## [Unreleased]
 
-### Changed-code mutation advice
+### Audit mode and changed-code advice
+
+- The README leads with whole-module and directory audits. It keeps the
+  whole-file confidence figures and adds the blinded 12-commit results
+  from before the quiet changed-code defaults.
 
 - Use `--since REF` to inspect runtime mutation sites near source changes
   since the Git merge base. Add `--scope` to narrow the report. Automatic
-  test selection starts with conventional and changed test files, then
-  searches for more tests for surviving or uncovered sites.
+  test selection uses convention test files, new test files, and test files
+  with code changes. Pass `--escalate` to search for more tests for surviving
+  or uncovered sites. The existing file and time limits still apply.
+  `--no-escalate` is accepted with no effect for one release.
+- Changed-code Worth a look lists survivors whose expression spans touch
+  changed lines. It sorts by file and line, with labeled low-confidence
+  survivors after the high-confidence entries. Survivors away from changed
+  lines stay in the JSON and add to a summary note. Classic and audit runs
+  keep their provisional precision ordering.
+- Check first requires probe-confirmed misses across the function for a
+  `not_executed` finding. The `nothing_asserted` rule stays the same.
+- A partial summary with no finding says Mutagen found nothing in the sites
+  it could check and gives the unchecked count.
 - Use `--summary PATH` for a Markdown report with unchecked lines, failed
   baseline tests, and survivors worth reviewing. Copy a `--site` command
-  from the report to rerun one mutation. Mutagen exits 0 for a report,
+  from the report to rerun one mutation with `--escalate`. Mutagen exits 0 for a report,
   including partial results, and 2 for an abort. An abort writes the
   reason and hint to both requested reports.
 - The default per-mutant deadline is three times the baseline duration with
@@ -35,8 +50,7 @@ file for traceability.
   Outside a branch, the fallback is the site's own clause body.
 - Use `--json PATH` and `--summary PATH` in CI. The report file stays
   parseable when OTP writes logger fallback messages to stdout.
-- Escalation uses a two-minute budget by default. Only changed test files
-  that match a scoped module or its convention enter the narrow pass.
+- Escalation uses a two-minute budget by default.
 - Changed-code reports account for each planned runtime site once. Abort
   reports include the abort reason in the incomplete reasons.
 

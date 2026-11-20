@@ -36,3 +36,12 @@ the narrow report if escalation cannot complete.
 The report preserves the narrow baseline and the measurements from
 each additional step. It identifies changed lines that map to no
 runtime site so the reader can inspect what the run covers.
+
+## Quiet changed-code defaults
+
+The default run uses the convention tests and test files changed in the
+diff. Pass `--escalate` to search for more tests. The changed-code summary
+shows survivors whose expression span intersects a changed line. Entries
+sort by path and line within each confidence group, with high confidence
+first. The remaining survivors stay in the JSON. Audit runs keep the
+provisional whole-file ordering.

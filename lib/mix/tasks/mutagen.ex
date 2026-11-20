@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      MIX_ENV=test mix mutagen [--scope <target>] [--tests <target|auto>] [--since REF] [--site ID] [--summary PATH] [--summary-max N] [--no-escalate] [--escalate-max-files N] [--escalate-budget-ms N] [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
+      MIX_ENV=test mix mutagen [--scope <target>] [--tests <target|auto>] [--since REF] [--site ID] [--summary PATH] [--summary-max N] [--escalate] [--escalate-max-files N] [--escalate-budget-ms N] [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. The final JSON document goes to stdout or `--json <path>`.
@@ -95,8 +95,9 @@ defmodule Mix.Tasks.Mutagen do
       base with the given ref. `--scope` intersects the diff when supplied.
       Test selection defaults to `auto`.
     * `--tests auto` selects conventional test files and, with `--since`,
-      changed test files. It searches for more tests if mutants survive.
-    * `--no-escalate` disables discovery after the first test selection.
+      test files with code changes and new test files.
+    * `--escalate` searches for more tests for surviving or uncovered sites.
+      `--no-escalate` is accepted with no effect for one release.
     * `--escalate-max-files <int>` caps files per function in each pass. Default 20.
     * `--escalate-budget-ms <int>` limits time spent on the extra passes. Default
       120000. Zero removes the escalation time limit.

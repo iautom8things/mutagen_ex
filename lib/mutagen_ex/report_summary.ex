@@ -47,16 +47,26 @@ defmodule MutagenEx.ReportSummary do
     survivors = for {:survived, site} <- sites, do: site
     {high, low} = Enum.split_with(survivors, &high?/1)
 
+    {candidates, away} =
+      if since do
+        changed_line_sites = Map.get(meta, :changed_line_sites, MapSet.new())
+        Enum.split_with(survivors, &MapSet.member?(changed_line_sites, &1.id))
+      else
+        {high, []}
+      end
+
     worth =
       if interrupted? do
         []
       else
-        Enum.reject(high, fn site ->
-          MapSet.member?(hidden, function_key(site)) and not escalation_incomplete?(site)
+        Enum.reject(candidates, fn site ->
+          high?(site) and MapSet.member?(hidden, function_key(site)) and
+            not escalation_incomplete?(site)
         end)
       end
 
-    ranked = worth |> Enum.sort_by(&rank/1) |> Enum.take(report.summary_max)
+    order = if since, do: &changed_rank/1, else: &rank/1
+    ranked = worth |> Enum.sort_by(order) |> Enum.take(report.summary_max)
     total = length(sites)
     missing = max(0, Map.get(mutation, :planned_sites, total) - total)
     unevaluated = counts |> Map.update(:not_run, missing, &(&1 + missing)) |> unevaluated()
@@ -67,8 +77,9 @@ defmodule MutagenEx.ReportSummary do
         red != [] -> "baseline_red"
         check_first != [] -> "check_first"
         ranked != [] -> "worth_a_look"
-        survivors != [] and high == [] -> "low_confidence_survivors"
-        survivors != [] -> "unranked_survivors"
+        worth != [] -> "unranked_survivors"
+        is_nil(since) and survivors != [] and high == [] -> "low_confidence_survivors"
+        is_nil(since) and survivors != [] -> "unranked_survivors"
         since && sites == [] -> "no_mutable_changes"
         true -> "nothing_to_check"
       end
@@ -91,11 +102,12 @@ defmodule MutagenEx.ReportSummary do
       "counts" => if(skipped > 0, do: Map.put(totals, "skipped", skipped), else: totals),
       "changed_functions" => if(since, do: changed_functions(groups, mutation)),
       "check_first" => Enum.map(check_first, &elem(&1, 1)),
-      "worth_a_look" => Enum.map(ranked, &example(&1, report)),
+      "worth_a_look" => Enum.map(ranked, &survivor_example(&1, report)),
       "worth_a_look_omitted" => length(worth) - length(ranked),
       "unevaluated" => unevaluated,
       "notes" =>
-        notes(report, results, length(low), red, rejections) ++
+        notes(report, results, if(since, do: 0, else: length(low)), red, rejections) ++
+          count_note("off_changed_line_survivors", length(away)) ++
           uncertain_functions(groups, report),
       "by_function" => by_function(groups, report),
       "source" => report.source
@@ -235,6 +247,13 @@ defmodule MutagenEx.ReportSummary do
       site.id
     }
 
+  defp changed_rank(site), do: {not high?(site), site.file, site.line, site.id}
+
+  defp survivor_example(site, report) do
+    example = example(site, report)
+    if high?(site), do: example, else: Map.put(example, "confidence", "low")
+  end
+
   defp example(site, report) do
     wire = JsonReporter.summary_site_to_wire(site, report)
     reference = Site.reference(site.id)
@@ -268,6 +287,7 @@ defmodule MutagenEx.ReportSummary do
       selector,
       "--tests",
       "auto",
+      "--escalate",
       "--escalate-max-files",
       "40"
     ]
