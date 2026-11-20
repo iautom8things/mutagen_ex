@@ -1,6 +1,7 @@
 ---
 id: mutagen.decision.git_diff_tracked_scope
-status: accepted
+status: superseded
+superseded_by: mutagen.decision.git_diff_runner_protection
 date: 2026-11-19
 affects:
   - mutagen.git_diff

@@ -11,6 +11,7 @@ summary: Reads changed lines and base blobs from Git for changed-code runs.
 surface:
   - lib/mutagen_ex/git_diff.ex
 decisions:
+  - mutagen.decision.git_diff_runner_protection
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.git_diff_read_only
   - mutagen.decision.git_diff_raw_worktree
