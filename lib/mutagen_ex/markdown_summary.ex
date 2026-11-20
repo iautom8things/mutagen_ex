@@ -8,7 +8,6 @@ defmodule MutagenEx.MarkdownSummary do
     "worth_a_look" => "Mutagen found changes worth a look",
     "low_confidence_survivors" => "Mutagen found low-confidence survivors in the JSON (0 ranked)",
     "unranked_survivors" => "Mutagen listed survivors in the JSON (0 ranked)",
-    "partly_checked" => "Mutagen checked only part of the selected code",
     "incomplete" => "Mutagen has incomplete results",
     "no_mutable_changes" => "Mutagen found no mutable changes"
   }
@@ -110,6 +109,7 @@ defmodule MutagenEx.MarkdownSummary do
       "**",
       Map.fetch!(@headlines, summary["verdict"]),
       ".** ",
+      checked_count(summary["checked"], since),
       "#{quantity(counts["run"], "mutant")} run · #{counts["killed"]} killed · #{counts["survived"]} survived",
       " · #{summary["unevaluated"]["count"]} unevaluated",
       if(counts["skipped"], do: " · #{counts["skipped"]} skipped by the validator", else: ""),
@@ -119,6 +119,14 @@ defmodule MutagenEx.MarkdownSummary do
       "\n"
     ]
   end
+
+  defp checked_count(%{"status" => "partial"} = checked, since) do
+    unchecked = checked["uncovered"] + checked["unevaluated"]
+    sites = if since, do: "changed site", else: "site"
+    "#{unchecked} of #{quantity(checked["total"], sites)} could not be checked. "
+  end
+
+  defp checked_count(_checked, _since), do: []
 
   defp uncovered_count(since) do
     lines =
@@ -289,6 +297,16 @@ defmodule MutagenEx.MarkdownSummary do
   defp note(%{"kind" => "mutation_timeouts_dominate"}),
     do:
       "- Waiting for mutant timeouts took more than half the mutation phase. Consider `--timeout-ms` or `--budget-ms`.\n"
+
+  defp note(%{"kind" => "execution_could_not_tell", "count" => count} = note) do
+    names = Enum.map_intersperse(note["functions"] || [], ", ", &inline/1)
+
+    [
+      "- Probe evidence was inconclusive for #{quantity(count, "function")}",
+      if(names == [], do: [], else: [" (", names, ")"]),
+      ".\n"
+    ]
+  end
 
   defp note(%{"kind" => "tainted_predecessors", "count" => count}),
     do: "- #{quantity(count, "result")} followed a timeout or host state change.\n"

@@ -196,10 +196,10 @@ defmodule MutagenEx.FailFastTest do
         mutation: __MODULE__.DeadlineMutation
       })
 
-    assert %{"baseline" => 57_000, "mutant_deadline" => 285_000} =
+    assert %{"baseline" => 57_000, "mutant_deadline" => 171_000} =
              :json.decode(output)["meta"]["timings_ms"]
 
-    assert Process.get(:observed_mutant_deadline) == 285_000
+    assert Process.get(:observed_mutant_deadline) == 171_000
 
     config = %MutagenEx.Config{scopes: [], tests: [], timeout_override: true, timeout_ms: 7_000}
     report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 57_000}}}
@@ -230,6 +230,7 @@ defmodule MutagenEx.FailFastTest do
          "mutagen.cli.r13",
          "mutagen.json_schema.r14",
          "mutagen.json_schema.r31",
+         "mutagen.json_schema.r36",
          "mutagen.mutation_pipeline.r2"
        ]
   test "a budget truncation preserves stream ordering and restores ExUnit configuration" do
@@ -260,6 +261,14 @@ defmodule MutagenEx.FailFastTest do
              })
 
     assert aggregate["summary"]["verdict"] == "incomplete"
+
+    assert aggregate["summary"]["checked"] == %{
+             "status" => "partial",
+             "total" => 4,
+             "uncovered" => 0,
+             "unevaluated" => 3
+           }
+
     refute Map.has_key?(aggregate, "kind")
     refute Map.has_key?(result, "meta")
     assert aggregate["truncated"]

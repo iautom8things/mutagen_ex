@@ -520,6 +520,8 @@ Top-level keys, all present in every variant unless noted:
     deadline when it runs mutants. A verified before_source slice has a
     one-based excerpt_line at its first byte, omitted with --no-source.
     AST-rendered fallbacks have no excerpt_line.
+    If the probe phase runs, meta.timings_ms.probe records its wall time
+    separately from the baseline and mutation phases.
 
 - id: mutagen.json_schema.r31
   priority: must
@@ -578,11 +580,18 @@ Top-level keys, all present in every variant unless noted:
     first identifies a function with only uncovered sites in a changed-code
     run or at least three evaluated high-confidence sites with complete
     escalation evidence, no kill
-    at any confidence and no rejected red test file that mentions the
-    function. Uncovered or unevaluated sites yield partly_checked when
-    the run is otherwise complete. A changed, uncovered line within
-    an evaluated multi-line site also yields partly_checked. These lines
-    include zero-hit lines and lines in the span of an uncovered site.
+    at any confidence and no test file that failed alone and mentions
+    the function. The verdict keeps incomplete and no_mutable_changes
+    and prioritizes baseline_red, check_first, worth_a_look, the unranked
+    survivor verdicts and nothing_to_check. summary.checked names the
+    status (full or partial), total sites, uncovered sites, and sites
+    left unevaluated for reasons other than lack of coverage.
+    Runtime rows carry execution set to cover, probe or could_not_tell.
+    The summary counts rows by execution evidence. A not_executed
+    finding requires only probe-confirmed uncovered sites in its function.
+    A function with inconclusive sites and no probe hit appears in a
+    note and stays out of Check first.
+    Uncovered lines inside evaluated sites appear separately in meta.since.
     Validator skips are counted separately from unevaluated mutants.
     A run with surviving sites never says nothing_to_check.
     Remaining high-confidence survivors are ranked by escalation
@@ -609,8 +618,12 @@ Top-level keys, all present in every variant unless noted:
     when the escalation budget runs out and labels survivors with
     incomplete escalation as not fully escalated. Preexisting symlinks
     and submodules under a source root have distinct wording.
-    It leads with a note naming test
-    files that failed on the unmutated code. An abort replaces the
+    The headline names the finding first and gives the unchecked count
+    and site total when checked is partial.
+    It leads with a note for escalation candidates that failed alone
+    on the unmutated code. Candidates that failed in combination
+    appear in the notes. The escalation budget note counts a file once
+    per run. An abort replaces the
     summary with the fixed abort reason and hint. A single-line excerpt
     can show the full line before and after to distinguish repeated
     literals. A clean run renders two lines.
@@ -913,6 +926,7 @@ the envelope fields and add `kind`.
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
 | `summary.verdict` | Tool vocabulary | Keep |
+| `summary.checked.status` | Tool coverage vocabulary | Keep |
 | `summary.check_first[].kind` | Tool vocabulary | Keep |
 | `summary.check_first[].file` | Project source path | Omit with --no-source |
 | `summary.check_first[].function` | Source definition | Omit with --no-source |
@@ -938,6 +952,7 @@ the envelope fields and add `kind`.
 | `summary.notes[].step` | Tool escalation step | Keep |
 | `summary.notes[].reason` | Tool escalation vocabulary | Keep |
 | `summary.notes[].files[]` | Project test paths from discovery | Omit with --no-source |
+| `summary.notes[].functions[]` | Source definition | Omit with --no-source |
 | `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
 | `meta.since.ref` | CLI ref | Keep after Git resolves it |
 | `meta.since.base` | Verified Git object ID | Keep |
@@ -951,16 +966,20 @@ the envelope fields and add `kind`.
 | `meta.escalation[].step` | Mutagen escalation vocabulary | Keep |
 | `mutation.results[].excerpt_line` | Verified repository slice start | Keep with source enabled |
 | `mutation.results[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.results[].execution` | Mutagen coverage vocabulary | Keep |
 | `mutation.results[].selection.killed_at` | Mutagen selection step | Keep |
 | `mutation.results[].selection.steps_run[]` | Mutagen selection steps | Keep |
 | `mutation.results[].selection.escalation_incomplete_reason` | Mutagen escalation vocabulary | Keep |
 | `mutation.compile_errors[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.compile_errors[].execution` | Mutagen coverage vocabulary | Keep |
 | `mutation.pending[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
 | `mutation.pending[].file` | Repository path | Keep with source enabled |
 | `mutation.pending[].function` | Repository definition | Keep with source enabled |
 | `mutation.pending[].mutator` | Mutagen catalog | Keep |
 | `mutation.pending[].confidence` | Mutagen catalog | Keep |
 | `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
+| `mutation.pending[].execution` | Mutagen coverage vocabulary | Keep |
+| `mutation.pending[].probe_reason` | Mutagen probe vocabulary | Keep |
 | `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
 | `details.cause` | Git reader failure vocabulary | Keep |
 | `details.root` | Configured repository root | Keep for an untracked-file limit abort |

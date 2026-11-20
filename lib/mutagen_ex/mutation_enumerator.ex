@@ -50,6 +50,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
     :original_ast,
     :mutated_ast,
     :path,
+    :execution,
     function: nil,
     definition_line: nil,
     end_line: nil,
@@ -70,6 +71,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
           original_ast: Macro.t(),
           mutated_ast: Macro.t(),
           path: [path_step()],
+          execution: :cover | :probe | nil,
           function: String.t() | nil,
           definition_line: pos_integer() | nil,
           end_line: pos_integer() | nil,
@@ -1045,8 +1047,16 @@ defmodule MutagenEx.MutationEnumerator do
         false
 
       true ->
-        body != nil and Enum.any?(body, &MapSet.member?(covered, &1))
+        body_covered?(body, covered, coverable)
     end
+  end
+
+  defp body_covered?(nil, _covered, _coverable), do: false
+
+  defp body_covered?({lines, head}, covered, coverable) do
+    if Enum.any?(lines, &MapSet.member?(coverable, &1)),
+      do: Enum.any?(lines, &MapSet.member?(covered, &1)),
+      else: MapSet.member?(covered, head)
   end
 
   defp coverage_location(node, line, path, env) do
@@ -1057,12 +1067,12 @@ defmodule MutagenEx.MutationEnumerator do
 
     case env.branch_body do
       nil ->
-        body = env.clause && env.clause.body
+        body = env.clause && {env.clause.body, env.clause.head_line}
         {own_line || line, span || {line, line}, body, legacy}
 
       branch ->
         legacy = if env.source_index, do: {own_line, branch}, else: legacy
-        {own_line, span, branch, legacy}
+        {own_line, span, {branch, nil}, legacy}
     end
   end
 
@@ -1077,7 +1087,13 @@ defmodule MutagenEx.MutationEnumerator do
       first = if opening, do: min(first, first_line), else: first
       last = if closing, do: max(last, closing - 1), else: last
       clause_end = max(last, closing || last)
-      %{head_end: head_end, body: first..last, range: {meta[:line], clause_end}}
+
+      %{
+        head_line: meta[:line],
+        head_end: head_end,
+        body: first..last,
+        range: {meta[:line], clause_end}
+      }
     end
   end
 

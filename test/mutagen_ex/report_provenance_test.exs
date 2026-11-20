@@ -227,6 +227,7 @@ defmodule MutagenEx.ReportProvenanceTest do
       before_source: "a + 1",
       excerpt_line: 1,
       in_scope: :changed_group,
+      execution: :cover,
       selection: %{killed_at: :narrow, steps_run: [:narrow]},
       after: "a - 1",
       status: :killed,
@@ -238,7 +239,21 @@ defmodule MutagenEx.ReportProvenanceTest do
     pending =
       site
       |> Map.drop([:status, :selection])
-      |> Map.merge(%{id: "pending-id", function: "Example.pending/1", reason: :uncovered})
+      |> Map.merge(%{
+        id: "pending-id",
+        function: "Example.pending/1",
+        reason: :uncovered,
+        execution: :probe
+      })
+
+    uncertain =
+      Map.merge(pending, %{
+        id: "uncertain-id",
+        function: "Example.uncertain/1",
+        reason: :could_not_tell,
+        execution: :could_not_tell,
+        probe_reason: :probe_unwrappable
+      })
 
     survivor = %{site | id: "survivor-id", function: "Example.survives/1", status: :survived}
     survivor = Map.put(survivor, :tainted_predecessors, true)
@@ -282,7 +297,7 @@ defmodule MutagenEx.ReportProvenanceTest do
       baseline: %{passed: 0, failed: 1, failures: failures},
       mutation: %{
         results: [site, survivor | weak],
-        pending: [pending],
+        pending: [pending, uncertain],
         compile_errors: [compile_error],
         skipped: [%{site_id: "id", file: file, reason: :validate_refused, mutator: :arith}],
         state_drift_warning: %{Example => [GenServer]}

@@ -113,7 +113,7 @@ defmodule Mix.Tasks.Mutagen do
       the arguments on the `test` entry and the return values of alias
       functions. It warns if the alias has entries and no `test` entry.
     * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
-      By default the deadline is five times the baseline duration, with a
+      By default the deadline is three times the baseline duration, with a
       5000 ms floor. Mutagen warns if a requested timeout is shorter than
       the baseline.
     * `--no-fail-fast` runs the full cited suite for each mutant.
@@ -801,13 +801,18 @@ defmodule Mix.Tasks.Mutagen do
          {:ok, input} <- Phases.test_input(phases, coverage, filter, report),
          {:ok, _baseline, report} <- Phases.baseline(phases, input, report),
          plan = %{cache: cache, scopes: scopes},
+         {:ok, enumeration, report} <-
+           Phases.confirm_classic(phases, plan, enumeration, input, report),
          {:ok, outcome, report} <-
            Phases.mutation(phases, plan, input, enumeration.sites, config.budget_ms, report) do
       warnings = report.warnings ++ Phases.enumerator_warnings(enumeration) ++ outcome.warnings
 
+      mutation =
+        Map.merge(Phases.report_mutation(outcome, enumeration), Map.take(enumeration, [:pending]))
+
       report = %{
         report
-        | mutation: Phases.report_mutation(outcome, enumeration),
+        | mutation: mutation,
           warnings: warnings,
           truncated: Map.get(outcome, :truncated, false) == true
       }

@@ -24,8 +24,11 @@ defmodule MutagenEx.AutoTestsTest do
       File.ln_s!("full_test.exs", "checks/symlink_test.exs")
 
       assert [
+               %{path: "checks/decoy_test.exs", why: :changed_in_diff},
+               %{path: "checks/function_test.exs", why: :changed_in_diff},
                %{path: "checks/module_test.exs", why: :changed_in_diff},
-               %{path: "checks/nested/example_test.exs", why: :convention}
+               %{path: "checks/nested/example_test.exs", why: :convention},
+               %{path: "checks/other_test.exs", why: :changed_in_diff}
              ] =
                AutoTests.select(
                  [%{file: "src/nested/example.ex", module: Fixture.Parent.Example}],
@@ -53,6 +56,25 @@ defmodule MutagenEx.AutoTestsTest do
 
       assert {["checks/function_test.exs"], false, []} =
                AutoTests.discover(:function, survivors, ["checks"], tried, 1)
+    end)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.test_selection.r11"
+  test "ranks brace aliases and references to an explicit alias in the module pass", %{
+    tmp_dir: dir
+  } do
+    File.cd!(dir, fn ->
+      File.mkdir_p!("checks")
+      File.write!("checks/brace_test.exs", "alias Shop.Data.{Other, Store}\nStore.get(x)")
+      File.write!("checks/named_test.exs", "alias Shop.Data.Store, as: S\nS.get(x)\n&S.get/1")
+      File.write!("checks/full_test.exs", "Shop.Data.Store.get(x)")
+      File.write!("checks/decoy_test.exs", "alias Shop.Data.{Other, Storefront}\nStore.get(x)")
+      sites = [%{function: "Shop.Data.Store.get/1"}]
+
+      assert {["checks/named_test.exs", "checks/brace_test.exs", "checks/full_test.exs"], false,
+              []} =
+               AutoTests.discover(:module, sites, ["checks"], MapSet.new(), 5)
     end)
   end
 

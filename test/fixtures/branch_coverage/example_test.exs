@@ -21,5 +21,9 @@ defmodule ChangedRunFixture.BranchCoverageTest do
     assert ChangedRunFixture.Example.with_else_taken(:missing) == {:error, false}
     assert ChangedRunFixture.Example.nested_branch(-1, true, true) == {:ok, 1}
     assert ChangedRunFixture.Example.unless_pipe([1], true) == nil
+    assert ChangedRunFixture.Example.head_list_live() == [true, 0]
+    assert ChangedRunFixture.Example.head_map_live() == %{enabled: true, count: 0}
+    assert ChangedRunFixture.Example.head_tuple_live(:data) == {:ok, :data}
+    assert ChangedRunFixture.Example.head_pipe_live([1, 2]) == [2, 1]
   end
 end
