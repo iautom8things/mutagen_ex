@@ -125,9 +125,7 @@ decisions:
   priority: must
   statement: |
     For mutators whose swap is symmetric (e.g., `arith` swapping `+` and
-    `-`, `compare` swapping `< >=`), `mutate(mutate(node)) == node`. This
-    invariant is property-tested per the merge gate of S4a in the refined
-    plan.
+    `-`, `compare` swapping `< >=`), `mutate(mutate(node)) == node`.
 
 - id: mutagen.mutators.r6
   priority: must

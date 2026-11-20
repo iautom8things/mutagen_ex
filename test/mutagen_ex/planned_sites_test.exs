@@ -9,39 +9,16 @@ defmodule MutagenEx.PlannedSitesTest do
   @file_path "lib/sample.ex"
   @group {Sample, :target, 1}
 
-  @tag spec: ["mutagen.mutation_enumeration.r12", "mutagen.mutators.r12"]
-  test "a fingerprint hashes normalized clauses in walk order under their ID group key" do
-    ast =
-      module_source("""
-      @default true
-      def target(0), do: 1
-      field :enabled, :boolean, default: true
-      def target(x), do: x + 1
-      field :enabled, :boolean, default: false
-      """)
-      |> parse()
-
-    assert [{Sample, _, {:__block__, _, [attribute, first, field1, second, field2]}}] =
-             Ast.module_blocks(ast)
-
-    assert MutationEnumerator.group_fingerprints(ast) == %{
-             @group => digest([first, second]),
-             {Sample, {:@, :default}} => digest([attribute]),
-             {Sample, {:field, :enabled}} => digest([field1, field2])
-           }
-
-    identity = {@group, Mutators.identity_node(first), 0}
+  @tag spec: "mutagen.mutators.r12"
+  test "identity hashes use the same canonical AST encoding for site IDs and groups" do
+    clause = parse("def target(x), do: x + 1")
+    identity = {@group, Mutators.identity_node(clause), 0}
 
     assert Mutators.site_id(@file_path, identity, :arith) ==
              "#{@file_path}:#{Mutators.identity_hash(identity)}:arith"
 
     quoted = parse("quote do: {x.field, x.field(), Mod.fun(), %{value: [1, 0]}}")
     assert Mutators.identity_hash([quoted], :ast_list) == digest([quoted])
-
-    for entry <- ast |> plan_ast() |> planned_entries() do
-      assert MutationEnumerator.site_fingerprint(entry) ==
-               Map.fetch!(MutationEnumerator.group_fingerprints(ast), entry.group_key)
-    end
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -70,15 +47,14 @@ defmodule MutagenEx.PlannedSitesTest do
 
       expected = target_sites(original)
       assert expected != []
-      expected_fingerprint = fingerprint(original)
 
       for length <- [34, 55, 98] do
         formatted = format(original, length)
-        assert fingerprint(formatted) == expected_fingerprint
+        assert unchanged_group?(original, formatted)
         assert id_paths(target_sites(formatted)) == id_paths(expected)
 
         formatted_move = format(moved, length)
-        assert fingerprint(formatted_move) == expected_fingerprint
+        assert unchanged_group?(original, formatted_move)
         moved_sites = target_sites(formatted_move)
         refute id_paths(moved_sites) == id_paths(expected)
 
@@ -100,15 +76,17 @@ defmodule MutagenEx.PlannedSitesTest do
         ] do
       before = module_source(before)
       after_edit = module_source(after_edit)
-      refute fingerprint(before) == fingerprint(after_edit)
+      refute unchanged_group?(before, after_edit)
 
       old = Enum.find(target_sites(before), &match?({:+, _, _}, &1.original_ast))
       assert transferred = Enum.find(target_sites(after_edit), &(&1.id == old.id))
       assert Enum.at(String.split(after_edit, "\n"), transferred.line - 1) =~ "# transferred"
     end
 
-    refute fingerprint(module_source("def target(x), do: {x, 1, 1}")) ==
-             fingerprint(module_source("def target(x), do: {1, x, 1}"))
+    refute unchanged_group?(
+             module_source("def target(x), do: {x, 1, 1}"),
+             module_source("def target(x), do: {1, x, 1}")
+           )
   end
 
   @tag spec: "mutagen.mutation_enumeration.r13"
@@ -143,7 +121,6 @@ defmodule MutagenEx.PlannedSitesTest do
              )
 
     assert %{line: 4, end_line: 5, group_key: {Sample, :multiline, 1}, runtime?: true} = site
-    assert is_binary(MutationEnumerator.site_fingerprint(site))
 
     assert %{
              reason: :bound_var_used_before_binding,
@@ -152,8 +129,6 @@ defmodule MutagenEx.PlannedSitesTest do
              group_key: {Sample, :skipped, 0},
              runtime?: true
            } = skip
-
-    assert is_binary(MutationEnumerator.site_fingerprint(skip))
 
     assert %{sites: [%MutationEnumerator.Site{line: 2}], skipped: []} =
              MutationEnumerator.enumerate(cache, [scope], coverage, mutators: mutators)
@@ -338,7 +313,7 @@ defmodule MutagenEx.PlannedSitesTest do
     second = "def target(x), do: x + 1"
     before = module_source(Enum.join([first, second], "\n"))
     after_swap = module_source(Enum.join([second, first], "\n"))
-    refute fingerprint(before) == fingerprint(after_swap)
+    refute unchanged_group?(before, after_swap)
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -359,7 +334,7 @@ defmodule MutagenEx.PlannedSitesTest do
 
         before = source.(expressions)
         after_edit = format(source.(edited), Enum.random([34, 55, 98]))
-        same? = fingerprint(before) == fingerprint(after_edit)
+        same? = unchanged_group?(before, after_edit)
 
         if same? do
           assert id_paths(target_sites(before)) == id_paths(target_sites(after_edit))
@@ -454,15 +429,13 @@ defmodule MutagenEx.PlannedSitesTest do
     end
     """
 
-    before = MutationEnumerator.group_fingerprints(parse(source))
     nested_edit = String.replace(source, "x + 1", "x * 1")
     both_edits = String.replace(nested_edit, "x - 1", "x / 1")
-
     inner = {Sample.Inner, :inner, 1}
-    after_edit = MutationEnumerator.group_fingerprints(parse(both_edits))
-    refute before[inner] == after_edit[inner]
-    refute before[@group] == after_edit[@group]
-    assert Map.drop(before, [inner, @group]) == Map.drop(after_edit, [inner, @group])
+    entries = both_edits |> plan() |> planned_entries()
+
+    assert {changed, []} = MutationEnumerator.fingerprint_scope(entries, source)
+    assert MapSet.new(changed, & &1.group_key) == MapSet.new([inner, @group])
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -488,8 +461,7 @@ defmodule MutagenEx.PlannedSitesTest do
     assert [first, second] = ids.(before)
     assert [^second, ^first] = ids.(swapped)
 
-    refute MutationEnumerator.group_fingerprints(parse(before))[key] ==
-             MutationEnumerator.group_fingerprints(parse(swapped))[key]
+    refute unchanged_group?(before, swapped, key)
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -505,8 +477,7 @@ defmodule MutagenEx.PlannedSitesTest do
     after_edit = String.replace(before, "x + 1", "x - 1")
     key = {Sample, {:if, :_}}
 
-    refute MutationEnumerator.group_fingerprints(parse(before))[key] ==
-             MutationEnumerator.group_fingerprints(parse(after_edit))[key]
+    refute unchanged_group?(before, after_edit, key)
   end
 
   @tag spec: "mutagen.mutation_enumeration.r12"
@@ -538,7 +509,7 @@ defmodule MutagenEx.PlannedSitesTest do
       assert first.id == moved_first.id
       assert second.id == moved_second.id
       refute first.path == moved_first.path
-      refute fingerprint(before) == fingerprint(swapped)
+      refute unchanged_group?(before, swapped)
     end
   end
 
@@ -790,8 +761,11 @@ defmodule MutagenEx.PlannedSitesTest do
   defp digest(clauses),
     do: clauses |> Enum.map(&Mutators.identity_node/1) |> Mutators.identity_hash()
 
-  defp fingerprint(source),
-    do: source |> parse() |> MutationEnumerator.group_fingerprints() |> Map.fetch!(@group)
+  defp unchanged_group?(before, current, key \\ @group) do
+    entries = current |> plan() |> planned_entries() |> Enum.filter(&(&1.group_key == key))
+    assert entries != []
+    MutationEnumerator.fingerprint_scope(entries, before) == {[], []}
+  end
 
   defp target_sites(source),
     do: source |> plan() |> Map.fetch!(:sites) |> Enum.filter(&(&1.group_key == @group))

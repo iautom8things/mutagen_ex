@@ -316,7 +316,8 @@ defmodule MutagenEx.CoverageRunnerTest do
     end
 
     @tag :scope_filter
-    test "lines with zero coverage are excluded from the MapSet" do
+    @tag spec: "mutagen.coverage.r14"
+    test "retains lines with zero calls separately from executed lines" do
       Process.put(:cover_fake_module, MutagenEx.CoverageRunnerTest)
 
       Process.put(:cover_fake_analyse, [
@@ -331,7 +332,11 @@ defmodule MutagenEx.CoverageRunnerTest do
           ]
         )
 
-      assert {:ok, %{covered_lines: covered}} = CoverageRunner.run(cfg)
+      assert {:ok, %{covered_lines: covered, coverable_lines: coverable}} =
+               CoverageRunner.run(cfg)
+
+      assert [lines] = Map.values(coverable)
+      assert lines == MapSet.new([42, 99])
       assert MapSet.equal?(covered["test/mutagen_ex/coverage_runner_test.exs"], MapSet.new([99]))
     end
   end
