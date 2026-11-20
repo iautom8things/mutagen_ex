@@ -758,6 +758,24 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       assert {:ok, %{files: ^expected}} = GitDiff.changed_lines(base, cd: repo)
     end
 
+    @tag spec: ["mutagen.git_diff.r2", "mutagen.git_diff.r6"]
+    test "base_file folds a case-variant base path when the disk ignores case", %{tmp_dir: repo} do
+      init!(repo)
+      git!(repo, ~w(config core.ignorecase false))
+      write!(repo, "Lib/new.ex", "base\n")
+      write!(repo, "lib/other.ex", "other\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+
+      result = GitDiff.base_file(base, "Lib/new.ex", cd: repo)
+
+      if same_directory?(repo, "lib", "LIB") do
+        assert result == {:ok, "base\n"}
+      else
+        assert {:error, :diff_unavailable, %{cause: :invalid_path}} = result
+      end
+    end
+
     @tag spec: "mutagen.git_diff.r2"
     test "folds a root with a dotless i when the disk ignores case", %{tmp_dir: repo} do
       assert_case_probe(repo, "", "lıb", "LıB", "LıB", "LıB/new.ex")
@@ -798,6 +816,29 @@ defmodule MutagenEx.GitDiffIntegrationTest do
         assert {:ok, %{files: %{^path => [{1, 1}]}}} =
                  GitDiff.changed_lines(base, cd: repo, roots: [root])
       end
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "a rename whose source spelling exists only in the base commit keeps its mapping", %{
+      tmp_dir: repo
+    } do
+      init!(repo)
+      git!(repo, ~w(config core.ignorecase false))
+      write!(repo, "Lib/old.ex", "first\nsecond\nthird\nfourth\n")
+      commit!(repo, "Base")
+      base = sha(repo)
+      git!(repo, ["mv", "Lib/old.ex", "lib/new.ex"])
+      write!(repo, "lib/new.ex", "first\nsecond\nchanged\nfourth\n")
+
+      expected =
+        if same_directory?(repo, "lib", "LIB") do
+          {%{"lib/new.ex" => [{3, 3}]}, %{"lib/new.ex" => "Lib/old.ex"}}
+        else
+          {%{"lib/new.ex" => [{1, 4}]}, %{}}
+        end
+
+      assert {:ok, %{files: files, renames: renames}} = GitDiff.changed_lines(base, cd: repo)
+      assert {files, renames} == expected
     end
 
     @tag spec: "mutagen.git_diff.r1"
@@ -889,6 +930,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       assert_case_modes(repo, base, %{"lib/a.ex" => [{1, 1}]})
     end
 
+    @tag timeout: 180_000
     @tag spec: "mutagen.git_diff.r5"
     test "out-of-root changes do not consume the changed file cap", %{tmp_dir: repo} do
       init!(repo)
@@ -979,6 +1021,37 @@ defmodule MutagenEx.GitDiffIntegrationTest do
           assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} = result
         else
           assert {:error, :diff_unavailable, %{cause: :root_changed}} = result
+        end
+
+        assert :atomics.get(counter, 1) == 2
+      end
+    end
+
+    @tag spec: "mutagen.git_diff.r2"
+    test "a root directory touched without a new identity or entry retries once", %{tmp_dir: repo} do
+      init!(repo)
+      write!(repo, "lib/a.ex", "base\n")
+      commit!(repo, "Base")
+      write!(repo, "lib/a.ex", "changed\n")
+      root = Path.join(repo, "lib")
+
+      for touches <- [1, 2] do
+        counter = :atomics.new(1, [])
+
+        cmd =
+          after_diff(fn ->
+            attempt = :atomics.add_get(counter, 1, 1)
+
+            if attempt <= touches,
+              do: File.touch!(root, {{2000 + attempt, 1, 1}, {0, 0, 0}})
+          end)
+
+        result = GitDiff.changed_lines("HEAD", cd: repo, cmd: cmd)
+
+        if touches == 1 do
+          assert {:ok, %{files: %{"lib/a.ex" => [{1, 1}]}}} = result
+        else
+          assert {:error, :diff_unavailable, %{cause: :root_changed, root: "lib"}} = result
         end
 
         assert :atomics.get(counter, 1) == 2
