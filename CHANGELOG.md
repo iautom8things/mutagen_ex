@@ -11,6 +11,25 @@ file for traceability.
 
 ## [Unreleased]
 
+### Changed-code mutation advice
+
+- Use `--since REF` to inspect runtime mutation sites near source changes
+  since the Git merge base. Add `--scope` to narrow the report. Automatic
+  test selection starts with conventional and changed test files, then
+  searches for more tests for surviving or uncovered sites.
+- Use `--summary PATH` for a Markdown report with unchecked lines, failed
+  baseline tests, and survivors worth reviewing. Copy a `--site` command
+  from the report to rerun one mutation. Mutagen exits 0 for a report,
+  including partial results, and 2 for an abort. An abort writes the
+  reason and hint to both requested reports.
+- The default per-mutant deadline is ten times the baseline duration with
+  a five-second floor and a 30-second ceiling. With a fast baseline, a
+  mutant that sleeps for seven seconds now times out where it previously
+  could survive. Use `--timeout-ms` to set a deadline explicitly.
+- Guard sites and sites without their own source position count as covered
+  when tests cover any body line in the same clause. Classic runs can now
+  attempt these sites too.
+
 ### Final review fixes
 
 - Timed-out sites reap traced descendants even when a worker switched its
@@ -40,7 +59,7 @@ file for traceability.
   and a same-named table takes its place within one site.
 - Public fixtures use neutral example names.
 - The README publishes the anonymized survivor measurement and the
-  follow-up across other test files. CI gating remains advisory.
+  follow-up across other test files. CI runs remain advisory.
 
 - Source positions preserve expressions on lines with multi-codepoint
   graphemes in quoted text. The reporter checks the slice against the

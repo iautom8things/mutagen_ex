@@ -172,7 +172,7 @@ decisions:
     - mutagen.git_diff.r7
     - mutagen.git_diff.r8
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.git_diff.r11
 ```

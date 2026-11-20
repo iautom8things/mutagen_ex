@@ -310,8 +310,7 @@ Top-level keys, all present in every variant unless noted:
     The four kinds bracket the run from the enumeration phase on:
       - `"start"` fires once at mutation-phase entry; carries `total`
         (planned site count, every enumerated site that was not skipped)
-        and `meta` (`r2`'s meta block). That `meta` equals the aggregate
-        document's `meta` with `timings_ms` omitted.
+        and `meta` (r2's meta block), omitting timings and final completeness.
       - `"result"` fires once per completed site (any of `killed`,
         `survived`, `timeout`, `error`); the line's wire shape MUST be
         byte-equal to the equivalent entry in the aggregate document's
@@ -321,8 +320,8 @@ Top-level keys, all present in every variant unless noted:
         line's wire shape MUST be byte-equal to the equivalent entry
         in `mutation.compile_errors[]`.
       - `"end"` fires once at pipeline exit (success or abort) for
-        every run that reached the enumeration phase; carries the same
-        `meta` fields as `"start"`, plus
+        every run that reached the enumeration phase; carries the start
+        metadata, final completeness when applicable, and
         the aggregate counters (`total`, `completed`, `killed`,
         `survived`, `timeout`, `compile_error`, `kill_rate`)
         AND `aborted`, `abort_reason` and `truncated`. Its `total` is the aggregate
@@ -476,9 +475,8 @@ Top-level keys, all present in every variant unless noted:
     error. The total measures pipeline entry through report assembly,
     before encoding and output, and includes work between phases such as
     enumeration. Stream envelopes and per-site lines omit `timings_ms`.
-    Elapsed timings and the baseline-derived deadline are the only report
-    fields whose values Mutagen itself makes non-deterministic on a
-    deterministic test run. Captured host output may contain timestamps,
+    Elapsed timings and baseline-derived deadlines can vary between
+    deterministic runs. Captured host output may contain timestamps,
     process identifiers or references.
 
 - id: mutagen.json_schema.r26
@@ -516,8 +514,8 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r30
   priority: must
   statement: |
-    After a mutation pass, meta records its baseline duration and the
-    deadline used. Each escalation step records its own baseline and
+    Every CLI aggregate records baseline duration and the effective
+    per-mutant deadline, including runs that do not reach mutation. Each escalation step records its own baseline and
     deadline when it runs mutants. A verified before_source slice has a
     one-based excerpt_line at its first byte, omitted with --no-source.
     AST-rendered fallbacks have no excerpt_line.
@@ -526,10 +524,15 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     Changed-code reports have meta.complete and meta.incomplete_reasons.
-    An incomplete run exits 0. Changed ranges without runtime sites
+    A report is incomplete when the run aborts, is truncated, or has
+    incomplete inputs. A non-aborting incomplete run exits 0.
+    Changed ranges outside explicit scope appear separately in
+    meta.since.out_of_scope. Changed ranges without runtime sites
     appear in meta.since.unmapped without making the run incomplete.
-    The aggregate baseline describes the narrow pass. Each escalation
-    step records its own baseline and uses null when no files ran.
+    The aggregate baseline describes the narrow pass. Each escalation step
+    records its own baseline and uses null when no files ran. tests.files
+    lists the narrow selection and files admitted in every escalation pass.
+    A warning about no tests running is removed once escalation runs tests.
     Selected test paths follow the source flag. Group fingerprints stay
     internal to planning.
 
@@ -566,7 +569,12 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     The aggregate and stream end carry the same additive summary. Check
     first identifies a function with only uncovered sites in a changed-code
-    run or at least three evaluated high-confidence sites with no kill.
+    run or at least three evaluated high-confidence sites with no kill
+    at any confidence and no rejected red test file that mentions the
+    function. Uncovered or unevaluated sites yield partly_checked when
+    the run is otherwise complete. A changed, uncovered line within
+    an evaluated multi-line site also yields partly_checked. A run
+    with surviving sites never says nothing_to_check.
     Remaining high-confidence survivors are ranked by the provisional
     mutator order and then file, line and ID. The report records the number
     omitted by the cap. Timeouts are unevaluated. Taint is counted as a note.
@@ -581,8 +589,12 @@ Top-level keys, all present in every variant unless noted:
     Markdown renders the aggregate summary and its counts without host
     diagnostics. --no-source omits function names, file paths and excerpts
     from summary entries and uses opaque rerun references. The rendered
-    summary describes incomplete evidence, unmapped lines and skipped
-    escalation files. A clean run renders two lines.
+    summary describes incomplete evidence, unmapped lines, out-of-scope
+    lines and skipped escalation files. It leads with a note naming test
+    files that failed on the unmutated code. An abort replaces the
+    summary with the fixed abort reason and hint. A single-line excerpt
+    can show the full line before and after to distinguish repeated
+    literals. A clean run renders two lines.
 ```
 
 ```spec-scenarios
@@ -823,7 +835,7 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r36
     - mutagen.json_schema.r37
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.json_schema.r34
     - mutagen.json_schema.r35
@@ -972,6 +984,7 @@ exception names. Pattern redaction is best-effort.
 | `cover_module_unavailable` |
 | `coverage_timeout` |
 | `diff_unavailable` |
+| `escalation_crashed` |
 | `ex_unit_run_failed` |
 | `file_not_found` |
 | `file_read_failed` |

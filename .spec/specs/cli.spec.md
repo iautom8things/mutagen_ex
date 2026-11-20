@@ -136,7 +136,7 @@ decisions:
     equivalent mutants, mix-format ID stability under scheme 2,
     no `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon
     syntax dropped, self-mutation refused, the `--json` path-safety
-    contract (r10), and the `tag:NAME` charset gate (r11).
+    contract (r10), and the `tag:NAME` character check (r11).
 
 - id: mutagen.cli.r10
   priority: must
@@ -176,9 +176,9 @@ decisions:
     before any test selector resolution runs. This is the front-door bound
     for the atom-table-DOS risk (mutagen-wrd.20): even with a downstream
     string-comparison fallback in `mutagen.test_selection` (r7), the
-    charset gate keeps adversarial CI loops (`mix mutagen --tests
+    character check keeps adversarial CI loops (`mix mutagen --tests
     tag:$(uuidgen)`) from reaching the resolver at all. Non-`tag:` `--tests`
-    targets (file paths, `file:line`) are not gated by this rule — they
+    targets (file paths, `file:line`) are outside this rule — they
     don't feed atom resolution.
 
 - id: mutagen.cli.r12
@@ -192,7 +192,7 @@ decisions:
          error-JSON `details` map carries `flag: "--scope"`, `kind:
          :scope`, `cap: 100`, and `count: <n>`. The cap is structural
          — enforced before any scope resolution. The `tag:NAME` charset
-         gate (r11) runs before this cap, so invalid tag names are
+         check (r11) runs before this cap, so invalid tag names are
          rejected at parse time regardless of count.
       2. `--tests` accepts at most 100 occurrences with the same shape
          (`flag: "--tests"`, `kind: :tests`).
@@ -343,7 +343,7 @@ decisions:
     destination of r5 and r19, and the task exits non-zero per r6. It
     MUST NOT raise a `MatchError` or put a traceback in the document.
 
-    The repair branch is gated by the failure-tuple shape from
+    The repair branch depends on the failure-tuple shape from
     `Application.ensure_all_started/1`. It runs zero code on the
     `path:` / `hex` / `git` dep adoption paths covered by r14, because
     those paths return `{:ok, _apps}` from the first attempt and never

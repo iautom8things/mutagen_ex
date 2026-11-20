@@ -122,7 +122,7 @@ decisions:
     (HFS+ sorts; ext4 returns inode order), so two hosts could otherwise
     pick a different file when multiple sources happen to declare the
     same `defmodule`. The sort makes the chosen file deterministic across
-    hosts, preserving the byte-identical-output gate in
+    hosts, preserving the byte-identical output requirement in
     `mutagen.mutation_pipeline.r15`. Callers passing an explicit
     `:source_files` list are not re-sorted — the caller already chose
     the order.
@@ -164,9 +164,10 @@ decisions:
   priority: must
   statement: |
     Unmapped changed-line ranges omit blank lines, comment-only lines and
-    structural lines like module openings and block endings. They retain
-    changed code without a runtime site, including attributes, macros, guards,
-    struct fields and delegates.
+    structural lines like module openings and block endings. They omit
+    lines in an added function or a fully added clause that has a runtime site. They retain
+    changed code without a runtime site, including attributes, macros,
+    defguard declarations, struct fields and delegates.
 
 ```
 
@@ -322,7 +323,7 @@ decisions:
     - mutagen.scope_resolution.r9
     - mutagen.scope_resolution.r10
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.scope_resolution.r13
 ```

@@ -11,7 +11,7 @@ affects:
 ## Context
 
 Repository attributes and content detection can hide changed source from the
-gate or move its reported line numbers. A project can also live below the
+report or move its reported line numbers. A project can also live below the
 repository root. Container CI often shares a checkout with another user.
 
 ## Decision

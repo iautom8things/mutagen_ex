@@ -544,7 +544,7 @@ defmodule MutagenEx.CLITest do
     end
   end
 
-  describe "parse/1 — tag:NAME charset gate (mutagen.cli.r11, s11, s12)" do
+  describe "parse/1 — tag name character validation (mutagen.cli.r11, s11, s12)" do
     @describetag spec: "mutagen.cli.r11"
 
     @describetag :tag_charset
@@ -1068,7 +1068,7 @@ defmodule MutagenEx.CLITest do
         "ExUnit ordering",
         "colon syntax",
         "Self-mutation",
-        # mutagen.cli.r11 — tag:NAME charset gate
+        # mutagen.cli.r11 — tag name character validation
         "tag:NAME"
       ]
 

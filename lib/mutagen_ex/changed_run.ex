@@ -3,17 +3,20 @@ defmodule MutagenEx.ChangedRun do
 
   alias MutagenEx.{AutoTests, ChangedScope, JsonStreamer, MutationEnumerator, MutationRunner}
   alias MutagenEx.{Runtime, SelectedRun, TestSelector}
+  alias MutagenEx.Pipeline.Phases
   alias MutationEnumerator.Site
   alias TestSelector.TestFilter
 
-  def run(%{since: nil} = config, report, phases) do
-    phases.boot.(report, fn report, state ->
+  def run(%Phases{config: %{since: nil} = config} = phases, report, _command, boot) do
+    boot.(report, fn report, state ->
       paths = project_paths(state.test_paths)
       roots = source_roots(paths)
 
-      with {:ok, scopes} <- phases.scope.(report, roots),
+      scoped = %{phases | config: %{config | scopes: site_scopes(config, roots)}}
+
+      with {:ok, scopes} <- Phases.scope(scoped, report),
            report = %{report | scope: scopes},
-           {:ok, cache} <- phases.ast_cache.(scopes, empty_filter(), report) do
+           {:ok, cache} <- Phases.ast_cache(phases, scopes, empty_filter(), report) do
         lines =
           for {file, records} <- Enum.group_by(scopes, & &1.file), into: %{} do
             {file, [{1, Enum.max_by(records, & &1.line_range.last).line_range.last}]}
@@ -42,8 +45,8 @@ defmodule MutagenEx.ChangedRun do
     end)
   end
 
-  def run(config, report, phases) do
-    with :ok <- Runtime.check_project(phases.command),
+  def run(%Phases{config: config} = phases, report, command, boot) do
+    with :ok <- Runtime.check_project(command),
          paths = project_paths(Runtime.test_paths()),
          roots = source_roots(paths),
          {:ok, plan} <- ChangedScope.plan(config, roots, exclude: excluded_roots(paths)) do
@@ -52,7 +55,7 @@ defmodule MutagenEx.ChangedRun do
       with {:ok, plan} <- select_site(plan, config, report),
            :ok <- check_scope(plan.scopes, config, report),
            :ok <- check_site_cap(plan, config, report) do
-        prepare_tests(plan, config, report, phases, roots, paths)
+        prepare_tests(plan, config, report, phases, boot, roots, paths)
       end
     else
       {:error, reason, details, plan} ->
@@ -63,7 +66,7 @@ defmodule MutagenEx.ChangedRun do
     end
   end
 
-  defp prepare_tests(plan, config, report, phases, roots, paths) do
+  defp prepare_tests(plan, config, report, phases, boot, roots, paths) do
     discovery =
       if config.tests == ["auto"] and paths != [],
         do: ChangedScope.changed_tests(plan, paths),
@@ -80,13 +83,18 @@ defmodule MutagenEx.ChangedRun do
         if plan.sites == [] or (selection == [] and (not config.escalate or paths == [])) do
           run_selected(plan, config, report, phases, %{test_paths: paths, exunit: []})
         else
-          phases.boot.(report, &run_selected(plan, config, &1, phases, &2))
+          boot.(report, &run_selected(plan, config, &1, phases, &2))
         end
 
       {:error, reason, details} ->
         abort(report, config, reason, details)
     end
   end
+
+  defp site_scopes(%{scopes: [], site: site}, roots) when is_binary(site),
+    do: Enum.flat_map(roots, &Path.wildcard(Path.join(&1, "**/*.ex")))
+
+  defp site_scopes(config, _roots), do: config.scopes
 
   defp source_roots(paths) do
     (Mix.Project.config()[:elixirc_paths] || ["lib"])
@@ -174,18 +182,24 @@ defmodule MutagenEx.ChangedRun do
 
   defp run_selected(plan, config, report, phases, state) do
     with {:ok, filter} <- selected_filter(plan, phases, report, state) do
-      tests = filter |> phases.report_tests.() |> Map.put(:host_paths?, plan.selection != nil)
+      tests = filter |> Phases.report_tests() |> Map.put(:host_paths?, plan.selection != nil)
       report = %{report | tests: tests}
       paths = project_paths(state.test_paths)
 
+      execution = %{phases | config: %{config | stream: false}, host: state}
+
       with {:ok, report, outcome} <-
-             SelectedRun.run(plan, report, config, filter, paths, phases.phases.(plan, state)) do
+             SelectedRun.run(plan, report, config, filter, paths, {Phases, execution}) do
         mutation =
-          phases.report_mutation.(outcome, plan)
+          Phases.report_mutation(outcome, plan)
           |> Map.put(:pending, pending_for_summary(outcome.pending, plan))
 
-        report = %{report | mutation: mutation}
-        if config.stream, do: emit_stream(config, phases.stream_sink.(), plan, report)
+        report = %{report | mutation: mutation, stream_end: config.stream}
+
+        if config.stream do
+          emit_stream(config, Phases.stream_sink(config, phases.output.stdout), plan, report)
+        end
+
         {:ok, report, config}
       end
     end
@@ -227,7 +241,7 @@ defmodule MutagenEx.ChangedRun do
           {:ok, empty_filter()}
 
         true ->
-          phases.tests.(report, state.test_paths)
+          Phases.tests(phases, report, state.test_paths)
       end
 
     with {:ok, filter} <- selected do
@@ -245,7 +259,6 @@ defmodule MutagenEx.ChangedRun do
     by_id = Map.new(results, &{&1.id, {:result, &1}})
     by_id = Enum.into(errors, by_id, &{&1.id, {:compile_error, &1}})
 
-    Process.put(:mutagen_stream_open, true)
     JsonStreamer.emit_start(sink, map_size(by_id), report.meta, config)
 
     for site <- plan.sites do

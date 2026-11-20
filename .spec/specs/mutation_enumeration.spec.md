@@ -50,9 +50,9 @@ decisions:
 - id: mutagen.mutation_enumeration.r2
   priority: must
   statement: |
-    Sites whose AST line is outside `covered_lines` are filtered out before
-    `validate/1` is consulted. The enumerator does not produce mutation
-    sites for code the cited tests do not execute.
+    Classic enumeration applies the coverage rule in mutagen.coverage.r14
+    before calling `validate/1`. An uncovered candidate produces neither
+    a site nor a validator skip.
 
 - id: mutagen.mutation_enumeration.r3
   priority: must

@@ -1,7 +1,7 @@
 defmodule MutagenEx.ChangedScope do
   @moduledoc false
 
-  alias MutagenEx.{AstCache, GitDiff, MutationEnumerator, ScopeResolver}
+  alias MutagenEx.{AstCache, FileIdentity, GitDiff, MutationEnumerator, ScopeResolver}
 
   def plan(config, roots, options \\ []) do
     opts = [roots: roots, deletion_anchors: true, untracked: true]
@@ -26,7 +26,9 @@ defmodule MutagenEx.ChangedScope do
         in_scope: 0,
         runtime: 0,
         run: 0,
-        unmapped: []
+        unmapped: [],
+        out_of_scope: [],
+        uncovered: []
       }
 
       plan = %{meta: meta, incomplete: incomplete, warnings: diff.warnings, head: diff.head}
@@ -142,8 +144,7 @@ defmodule MutagenEx.ChangedScope do
         Enum.find(files, fn file ->
           case File.stat(file) do
             {:ok, other} ->
-              {stat.inode, stat.major_device, stat.minor_device} ==
-                {other.inode, other.major_device, other.minor_device}
+              FileIdentity.key(stat) == FileIdentity.key(other)
 
             _ ->
               false
@@ -209,6 +210,7 @@ defmodule MutagenEx.ChangedScope do
       end)
 
     entries = List.flatten(entries)
+    {changed, out_of_scope} = scope_lines(diff.files, scopes, config.scopes)
     {sites, skipped} = Enum.split_with(Enum.filter(entries, & &1.runtime?), &is_map_key(&1, :id))
 
     Map.merge(plan, %{
@@ -216,13 +218,17 @@ defmodule MutagenEx.ChangedScope do
       cache: cache,
       sites: sites,
       skipped: skipped,
+      changed_lines: changed,
+      multi_line_sites: multi_line_sites(planned_by_file, sites),
       incomplete: incomplete,
       meta: %{
         plan.meta
         | planned: Enum.sum_by(planned_by_file, fn {_, entries} -> length(entries) end),
           in_scope: length(entries),
           runtime: length(sites) + length(skipped),
-          unmapped: unmapped(lines, diff, planned_by_file, cache)
+          unmapped:
+            unmapped(changed, planned_by_file, entries, cache) ++ empty_file_anchors(lines, diff),
+          out_of_scope: out_of_scope
       }
     })
   end
@@ -235,37 +241,96 @@ defmodule MutagenEx.ChangedScope do
   defp overlaps?({first, last}, ranges),
     do: Enum.any?(ranges, fn {from, to} -> first <= to and from <= last end)
 
-  defp unmapped(lines, diff, planned_by_file, cache) do
-    Enum.flat_map(Enum.sort(lines), fn {path, neighbors} ->
-      {_ast, source} = Map.fetch!(cache, path)
-      spans = for {%{runtime?: true}, span} <- Map.get(planned_by_file, path, []), do: span
-      changed = Map.get(diff.files, path, [])
-      ranges = Enum.reduce(spans, changed, &subtract_span/2)
-      ranges = code_ranges(source, ranges)
-      anchors = Map.get(diff.deletion_anchors, path, [])
+  defp scope_lines(files, _scopes, []), do: {files, []}
 
-      unmapped =
-        if ranges == [],
-          do: [],
-          else: [%{path: path, ranges: wire_ranges(ranges), kind: :no_runtime_site}]
+  defp scope_lines(files, scopes, _targets) do
+    by_file = Enum.group_by(scopes, & &1.file, &{&1.line_range.first, &1.line_range.last})
 
-      if neighbors == [] and anchors != [] do
-        [
-          %{
-            path: path,
-            ranges: wire_ranges(Enum.map(anchors, &{&1, &1})),
-            kind: :deletion_without_neighbor
-          }
-        ]
-      else
-        unmapped
-      end
+    Enum.sort(files)
+    |> Enum.reduce({%{}, []}, fn {path, changed}, {inside, outside} ->
+      spans = Map.get(by_file, path, [])
+      excluded = Enum.reduce(spans, changed, &subtract_span/2)
+      included = Enum.reduce(excluded, changed, &subtract_span/2)
+      outside = if excluded == [], do: outside, else: [row(path, excluded) | outside]
+      {Map.put(inside, path, included), outside}
     end)
+    |> then(fn {inside, outside} -> {inside, Enum.reverse(outside)} end)
   end
 
-  defp code_ranges(_source, []), do: []
+  defp unmapped(changed, planned, entries, cache) do
+    new_clauses =
+      for %{runtime?: true, clause_range: {first, last}} = entry <- entries,
+          new_group?(entry) or
+            Enum.any?(changed[entry.file] || [], fn {from, to} ->
+              from <= first and last <= to
+            end),
+          do: {entry.file, entry.clause_range}
 
-  defp code_ranges(source, ranges) do
+    new_clauses = Enum.group_by(new_clauses, &elem(&1, 0), &elem(&1, 1))
+
+    for {path, lines} <- Enum.sort(changed),
+        {_ast, source} <- List.wrap(cache[path]),
+        spans = for({%{runtime?: true}, span} <- Map.get(planned, path, []), do: span),
+        spans = spans ++ Map.get(new_clauses, path, []),
+        ranges = spans |> Enum.reduce(lines, &subtract_span/2) |> then(&code_ranges(source, &1)),
+        ranges != [] do
+      Map.put(row(path, ranges), :kind, :no_runtime_site)
+    end
+  end
+
+  # Groups absent from the base still carry their deferred fingerprint.
+  defp new_group?(entry), do: is_tuple(entry.fingerprint)
+
+  defp empty_file_anchors(lines, diff) do
+    for {path, []} <- Enum.sort(lines),
+        anchors = Map.get(diff.deletion_anchors, path, []),
+        anchors != [] do
+      Map.put(row(path, Enum.map(anchors, &{&1, &1})), :kind, :deletion_without_neighbor)
+    end
+  end
+
+  defp multi_line_sites(planned, sites) do
+    ids = MapSet.new(sites, & &1.id)
+
+    for {path, pairs} <- planned, into: %{} do
+      spans =
+        for {%{id: id, coverage_fallback: nil}, {first, last}} <- pairs,
+            first < last and MapSet.member?(ids, id),
+            do: {id, {first + 1, last}}
+
+      {path, spans}
+    end
+  end
+
+  def uncovered_lines(plan, coverage, evaluated) do
+    for {path, lines} <- Enum.sort(plan.changed_lines),
+        spans = Map.get(plan.multi_line_sites, path, []),
+        spans != [],
+        {_ast, source} <- List.wrap(plan.cache[path]),
+        bitmap = Map.get(coverage, path, MapSet.new()),
+        ranges = evaluated_ranges(lines, spans, evaluated),
+        ranges = code_ranges(source, ranges, bitmap),
+        ranges != [] do
+      row(path, ranges)
+    end
+  end
+
+  defp evaluated_ranges(lines, spans, evaluated) do
+    for {id, {first, last}} <- spans,
+        MapSet.member?(evaluated, id),
+        {from, to} <- lines,
+        low = max(first, from),
+        high = min(last, to),
+        low <= high,
+        do: {low, high}
+  end
+
+  defp row(path, ranges), do: %{path: path, ranges: wire_ranges(ranges)}
+
+  defp code_ranges(source, ranges, covered \\ MapSet.new())
+  defp code_ranges(_source, [], _covered), do: []
+
+  defp code_ranges(source, ranges, covered) do
     {_, code} =
       source
       |> String.splitter("\n")
@@ -277,9 +342,10 @@ defmodule MutagenEx.ChangedScope do
 
           [{first, _} | _] = ranges ->
             code =
-              if line >= first and code_line?(String.trim(text)),
-                do: add_line(code, line),
-                else: code
+              if line >= first and not MapSet.member?(covered, line) and
+                   code_line?(String.trim(text)),
+                 do: add_line(code, line),
+                 else: code
 
             {:cont, {ranges, code}}
         end

@@ -1,7 +1,7 @@
 defmodule MutagenEx.AutoTestsTest do
   use ExUnit.Case, async: false
 
-  alias MutagenEx.AutoTests
+  alias MutagenEx.{AutoTests, FileIdentity}
 
   @tag :tmp_dir
   @tag spec: ["mutagen.test_selection.r9", "mutagen.test_selection.r10"]
@@ -48,6 +48,26 @@ defmodule MutagenEx.AutoTestsTest do
 
       assert {["checks/function_test.exs"], false, []} =
                AutoTests.discover(:function, survivors, ["checks"], tried, 1)
+    end)
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.test_selection.r9"
+  test "selects a changed path once when the conventional path names the same file", %{
+    tmp_dir: dir
+  } do
+    File.cd!(dir, fn ->
+      File.mkdir_p!("checks")
+      changed = "checks/renamed_test.exs"
+      convention = "checks/example_test.exs"
+      File.write!(changed, "# one test file")
+      File.ln!(changed, convention)
+
+      assert FileIdentity.same?(changed, convention)
+      refute FileIdentity.same?(changed, "checks/missing_test.exs")
+
+      assert [%{path: ^changed, why: :changed_in_diff}] =
+               AutoTests.select([%{file: "src/example.ex"}], ["src"], ["checks"], [changed])
     end)
   end
 

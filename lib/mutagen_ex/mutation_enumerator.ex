@@ -121,9 +121,10 @@ defmodule MutagenEx.MutationEnumerator do
       `MutagenEx.ScopeResolver.resolve/2`. Each names a file, an inclusive
       line range, module and optional function to select from the file.
     * `covered_lines` — `%{file => MapSet.t(pos_integer())}`. The set of
-      lines the cited tests actually executed. A node whose `:line` meta
-      falls outside this set is filtered out before any mutator's
-      `validate/1` runs (r2).
+      lines the cited tests executed. Sites use coverage on their line
+      or, for definition heads and positionless nodes, anywhere in
+      their own clause body. Uncovered candidates are filtered before
+      mutator validation.
 
   ## Output
 
@@ -974,16 +975,18 @@ defmodule MutagenEx.MutationEnumerator do
       (fallback != nil and Enum.any?(fallback, &MapSet.member?(covered, &1)))
   end
 
-  defp clause({_kind, meta, [head, body]} = node) when is_list(body) do
+  defp clause({_kind, meta, [head, body]}) when is_list(body) do
     if Keyword.has_key?(body, :do) and is_integer(meta[:line]) do
       {_, head_end} = source_range(head, nil) || {meta[:line], meta[:line]}
       # A bare body can lack metadata even when it occupies its own line.
-      first_body_line = if meta[:do], do: meta[:do][:line] + 1, else: head_end
-      last_body_line = if meta[:end], do: meta[:end][:line] - 1, else: head_end
-      {first, last} = source_range(body, nil) || {first_body_line, last_body_line}
-      first = min(first, first_body_line)
-      last = max(first, max(last, last_body_line))
-      %{head_end: head_end, body: first..last, range: source_range(node, nil)}
+      opening = get_in(meta, [:do, :line])
+      closing = get_in(meta, [:end, :line])
+      first_line = if opening, do: min(opening + 1, closing || opening + 1), else: head_end
+      {first, last} = source_range(body, nil) || {first_line, first_line}
+      first = if opening, do: min(first, first_line), else: first
+      last = if closing, do: max(last, closing - 1), else: last
+      clause_end = max(last, closing || last)
+      %{head_end: head_end, body: first..last, range: {meta[:line], clause_end}}
     end
   end
 

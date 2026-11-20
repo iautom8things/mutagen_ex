@@ -463,7 +463,9 @@ Both output paths use the project-root boundary by default.
   is covered when its line runs. For definition heads and sites without
   their own position, coverage of that clause's body also counts.
   `nothing_asserted` means at least three high-confidence mutants ran in
-  that function and every evaluated high-confidence mutant survived.
+  that function and every evaluated mutant survived. If a dropped test
+  file mentions the function and failed on the unmutated code, the summary
+  leads with the failed test file instead.
 - **Worth a look** lists individual high-confidence survivors outside those
   functions. The provisional [precision sample](docs/precision/blind-2026-11.csv)
   puts boolean, else removal, result tuples and comparisons first, followed
@@ -508,7 +510,10 @@ Mutagen is advisory. Each run reports the current checkout and uses no
 repository state from previous runs. A shallow checkout aborts because the
 diff needs the merge base. Use `fetch-depth: 0`. The unmapped list names
 changed lines Mutagen could not map to a runtime site, such as attributes
-and macros. Upload the JSON report and keep stderr out of artifacts.
+and macros. A separate list shows changed lines outside an explicit
+`--scope`. The summary names changed lines that tests missed inside
+evaluated sites and reports partial coverage. Upload the JSON report
+and keep stderr out of artifacts.
 
 ```yaml
 name: Mutation advice
@@ -530,16 +535,18 @@ jobs:
           version-type: strict
       - name: Collect mutation advice
         continue-on-error: true
+        env:
+          MUTAGEN_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           MIX_ENV="test" mix deps.get
-          MIX_ENV="test" mix mutagen --since origin/main --summary mutagen.md --json mutagen.json
+          MIX_ENV="test" mix mutagen --since "$MUTAGEN_BASE" --summary mutagen.md --json mutagen.json
       - name: Add advice to the job summary
         if: always()
         run: |
           if [ -f mutagen.md ]; then
             cat mutagen.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mutagen
@@ -548,7 +555,7 @@ jobs:
 
 A successful tool run exits 0 even when tests miss mutations. The
 `continue-on-error` setting also allows the job to proceed after a tool
-abort. To post the Markdown on a same-repository pull request, grant
+abort. The job summary includes the abort reason and its hint. To post the Markdown on a same-repository pull request, grant
 `pull-requests: write` to the job and set `GH_TOKEN` and `PR_NUMBER` for an
 optional step. Run `gh pr comment "$PR_NUMBER" --body-file mutagen.md`
 when the file exists.
@@ -782,6 +789,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `cover_module_unavailable` | The OTP coverage module failed to load. |
 | `coverage_timeout` | The coverage phase exceeded its deadline. |
 | `diff_unavailable` | Git cannot provide a usable diff for the changed-code run. |
+| `escalation_crashed` | An unexpected exception ended automatic test discovery. |
 | `ex_unit_run_failed` | ExUnit raised, threw, or exited while running a suite. |
 | `file_not_found` | A selected source or test file does not exist. |
 | `file_read_failed` | Mutagen could not read a required file. |
@@ -845,8 +853,9 @@ the [per-site events](#ndjson-streaming---stream).
 `meta.timings_ms` measures elapsed milliseconds for boot, coverage,
 baseline and mutation. The total also includes work between phases such
 as enumeration, through report assembly. A phase that did not run shows
-zero. `meta.timings_ms` is the only report field whose values Mutagen
-itself makes non-deterministic. Captured host output can contain
+zero. `meta.timings_ms.mutant_deadline` records the effective per-mutant
+deadline in milliseconds. Escalation records the baseline duration and
+deadline for each pass that runs mutants. Captured host output can contain
 timestamps, process identifiers, and references.
 
 ### Successful run
@@ -1128,9 +1137,9 @@ fingerprint. An edit to a module attribute such as `@limit`, a
 `defguard`, a `defmacro`, a `defdelegate` target, `alias`, `import`,
 `use` options, or `defstruct` defaults can change runtime behavior and
 still plan zero runtime sites. Callers of a changed private helper
-keep their own fingerprints. Pure deletions, including removed clauses
-and guards, can also plan zero sites because the diff may supply no
-new-side lines.
+keep their own fingerprints. For a deletion hunk, Mutagen considers
+the remaining lines next to the deletion. A deletion can plan zero sites
+when neither neighbor touches a runtime site.
 
 Runtime classification uses syntax. A named `def` or `defp` outside
 `quote` qualifies even if only compile-time code calls it. An expression
