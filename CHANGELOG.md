@@ -24,14 +24,20 @@ file for traceability.
   or uncovered sites. The existing file and time limits still apply.
   `--no-escalate` is accepted with no effect for one release.
 - Changed-code Worth a look lists survivors whose expression spans touch
-  changed lines. It sorts by file and line, with labeled low-confidence
-  survivors after the high-confidence entries. Survivors away from changed
-  lines stay in the JSON and add to a summary note. Classic and audit runs
+  changed lines. It sorts by file and line, with labeled `guard_drop` and
+  `with_swap` survivors after the high-confidence entries. Pipeline
+  survivors and survivors away from changed lines stay in the JSON and
+  add to summary notes. Classic and audit runs
   keep their provisional precision ordering.
 - Check first requires probe-confirmed misses across the function for a
   `not_executed` finding. The `nothing_asserted` rule stays the same.
 - A partial summary with no finding says Mutagen found nothing in the sites
   it could check and gives the unchecked count.
+- Convention tests are selected only for source files with planned sites.
+  The Markdown headline gives a remedy when no test file was selected.
+- A single-site rerun caps escalation at the larger of 30 seconds and ten
+  times the narrow baseline. The summary says when escalation admitted no
+  files. A tainted survivor's card advises rerunning it alone.
 - Use `--summary PATH` for a Markdown report with unchecked lines, failed
   baseline tests, and survivors worth reviewing. Copy a `--site` command
   from the report to rerun one mutation with `--escalate`. Mutagen exits 0 for a report,
