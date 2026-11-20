@@ -53,6 +53,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.escalation_outcomes
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
@@ -504,8 +505,8 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     Auto reports include selected files with selection reasons, each
     escalation step's admitted files, cap and survivor counts, and each
-    result's steps and killing step. Host path disclosure follows the
-    host-name reporting option.
+    result's steps and killing step. Repository test paths follow the
+    source flag.
 
 - id: mutagen.json_schema.r30
   priority: must
@@ -533,6 +534,27 @@ Top-level keys, all present in every variant unless noted:
     Redaction of oversized text has bounded work after the input cap.
     A megabyte of adversarial text takes less than eight times the
     duration for the same capped prefix, measured in the same test.
+
+- id: mutagen.json_schema.r33
+  priority: must
+  statement: |
+    Every abort document, including the end record of an aborted stream,
+    sets meta.complete to false.
+- id: mutagen.json_schema.r34
+  priority: must
+  statement: |
+    Each escalation step records the count of candidates dropped after a load
+    attempt as dropped_after_load and the per-candidate baseline deadline as
+    candidate_deadline_ms when a probe ran. Results decided in that step or
+    later include selection.after_dropped_file when one or more files were
+    dropped after a load attempt. Rejection warnings name repository paths
+    and fixed reasons by default. With --no-source they show counts.
+- id: mutagen.json_schema.r35
+  priority: must
+  statement: |
+    An untracked-file limit abort names the configured root and explains that
+    untracked files under it exceeded the limit and that ignoring the directory
+    fixes it.
 
 ```
 
@@ -769,6 +791,13 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r25
     - mutagen.json_schema.r26
     - mutagen.json_schema.r27
+    - mutagen.json_schema.r33
+    - mutagen.json_schema.r34
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.json_schema.r34
+    - mutagen.json_schema.r35
 ```
 
 ## Default string provenance
@@ -813,6 +842,7 @@ the envelope fields and add `kind`.
 | `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
 | `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
 | `details.cause` | Git reader failure vocabulary | Keep |
+| `details.root` | Configured repository root | Keep for an untracked-file limit abort |
 | `scope[].file` | Repository or CLI path | Keep |
 | `scope[].module` | Repository module declaration | Keep |
 | `tests.files[]` | Repository or CLI path | Keep |
@@ -858,7 +888,7 @@ the envelope fields and add `kind`.
 | `details.site_id` | Source path, MD5 of normalized source AST, mutator | Keep |
 | `details.phase` | Mutagen phase name | Keep |
 | `details.step` | Mutagen step name | Keep |
-| `details.hint` | Mutagen constant | Keep |
+| `details.hint` | Mutagen text and, for an untracked-file limit, the configured root | Keep |
 | `details.note` | Mutagen constant | Keep |
 | `details.failures[].module` | Repository test module | Keep with a failure count |
 | `details.include[]` | CLI selector or host helper | Same filter policy as tests include |

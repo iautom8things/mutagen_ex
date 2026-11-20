@@ -1107,12 +1107,15 @@ defmodule Mix.Tasks.Mutagen do
     input = Map.put(test_input, :seed, seed)
 
     baseline =
-      case input do
-        %{escalation_timeout_ms: timeout} ->
+      case {input, state} do
+        {%{escalation_timeout_ms: timeout}, _} ->
           Runtime.bounded_baseline(timeout, fn -> mod.run(input) end)
 
+        {_, %{worker: _}} ->
+          Runtime.bounded_baseline(suite_timeout(config), fn -> mod.run(input) end, :release)
+
         _ ->
-          run_suite_phase(state, config, :baseline, fn -> mod.run(input) end)
+          mod.run(input)
       end
 
     case baseline do
@@ -1140,24 +1143,25 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp run_suite_phase(%{worker: _}, config, phase, fun) do
-    timeout = max(config.boot_timeout_ms, 10 * config.timeout_ms)
+  defp run_suite_phase(%{worker: _}, config, :coverage, fun) do
+    timeout = suite_timeout(config)
 
-    case Runtime.with_deadline(timeout, fun) do
+    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, :release) do
       {:ok, result} ->
         result
 
       :timeout ->
-        reason = if phase == :coverage, do: :coverage_timeout, else: :baseline_timeout
-        {:error, reason, %{phase: phase, limit: timeout}}
+        {:error, :coverage_timeout, %{phase: :coverage, limit: timeout}}
 
       {:exit, reason} ->
         {:error, :ex_unit_run_failed,
-         %{phase: phase, message: "Suite worker exited: #{inspect(reason)}"}}
+         %{phase: :coverage, message: "Suite worker exited: #{inspect(reason)}"}}
     end
   end
 
-  defp run_suite_phase(_state, _config, _phase, fun), do: fun.()
+  defp run_suite_phase(_state, _config, :coverage, fun), do: fun.()
+
+  defp suite_timeout(config), do: max(config.boot_timeout_ms, 10 * config.timeout_ms)
 
   defp phase_mutation(
          %Config{seed: seed, budget_ms: budget_ms} = config,

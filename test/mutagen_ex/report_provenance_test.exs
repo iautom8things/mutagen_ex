@@ -175,7 +175,7 @@ defmodule MutagenEx.ReportProvenanceTest do
     assert abort(%Report{tests: filter})["tests"]["files"] == filter.files
   end
 
-  @tag spec: ["mutagen.json_schema.r29", "mutagen.json_schema.r31"]
+  @tag spec: ["mutagen.json_schema.r29", "mutagen.json_schema.r31", "mutagen.json_schema.r34"]
   test "automatic file paths are ordinary repository paths under the source flag" do
     path = "checks/#{@canary}_test.exs"
 
@@ -184,14 +184,18 @@ defmodule MutagenEx.ReportProvenanceTest do
         tests_selected: [%{path: path, why: :convention}],
         escalation: [%{step: :module, files_added: [path]}]
       },
-      tests: %{include: [], exclude: [], files: [path], host_paths?: true}
+      tests: %{include: [], exclude: [], files: [path], host_paths?: true},
+      warnings: [{:escalation_rejected, :escalation_baseline_red, [path]}]
     }
 
     wire = abort(report)
     assert get_in(wire, ["meta", "tests_selected"]) == [%{"path" => path, "why" => "convention"}]
     assert get_in(wire, ["meta", "escalation", Access.at(0), "files_added"]) == [path]
     assert get_in(wire, ["tests", "files"]) == [path]
-    refute inspect(abort(%{report | include_host_output: true, source: false})) =~ @canary
+    assert wire["warnings"] == ["escalation_baseline_red: #{path}"]
+    hidden = abort(%{report | include_host_output: true, source: false})
+    assert hidden["warnings"] == ["escalation_baseline_red: 1"]
+    refute inspect(hidden) =~ @canary
   end
 
   @tag spec: "mutagen.json_schema.r22"
@@ -262,6 +266,7 @@ defmodule MutagenEx.ReportProvenanceTest do
         site_id: "id",
         phase: :coverage,
         cause: :invalid_ref,
+        root: "lib",
         step: :coverage,
         flag: "--tests",
         failures: failures,

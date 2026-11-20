@@ -106,14 +106,94 @@ defmodule MutagenEx.SelectedRunTest do
     assert [%{status: :survived, selection: %{steps_run: [:narrow]}}] = outcome.results
   end
 
+  @tag :tmp_dir
+  @tag spec: "mutagen.mutation_pipeline.r32"
+  test "advances only survivors and uncovered sites", %{tmp_dir: dir} do
+    candidate = write_candidate(dir, "candidate")
+    statuses = [:survived, :timeout, :killed, :skipped, :error]
+    file = "src/store.ex"
+    entries = Enum.map(statuses ++ [:compile_error, :uncovered], &entry(to_string(&1), file))
+    entries = Enum.map(entries, &Map.put(&1, :function, "Fixture.Store.get/2"))
+
+    entries =
+      Enum.map(entries, fn
+        %{id: "uncovered"} = entry -> %{entry | line: 3}
+        entry -> entry
+      end)
+
+    narrow = "checks/narrow_test.exs"
+    filter = %TestSelector.TestFilter{files: [narrow], include: [], exclude: []}
+    plan = %{sites: entries, selection: [%{path: narrow, why: :convention}]}
+    report = %Report{meta: %{timings_ms: %{mutation: 0, baseline: 1}}}
+
+    phases = %{
+      coverage: fn filter, _, report ->
+        lines = if filter.files == [narrow], do: [2], else: [2, 3]
+        {:ok, %{covered_lines: %{file => MapSet.new(lines)}}, report}
+      end,
+      test_input: fn _, filter, _ -> {:ok, %{test_filter: filter}} end,
+      baseline: fn _, report -> {:ok, %{}, report} end,
+      mutation: fn input, sites, _, report ->
+        {results, errors} =
+          case input.test_filter.files do
+            [^narrow] ->
+              {Enum.map(statuses, &%{id: to_string(&1), status: &1}), [%{id: "compile_error"}]}
+
+            [^candidate] ->
+              assert Enum.map(sites, & &1.id) == ["survived", "uncovered"]
+              {Enum.map(sites, &%{id: &1.id, status: :killed}), []}
+          end
+
+        {:ok, %{results: results, compile_errors: errors, warnings: [], state_drift_warning: %{}},
+         report}
+      end
+    }
+
+    config = %Config{scopes: [], tests: ["auto"]}
+
+    assert {:ok, _, outcome} =
+             SelectedRun.run(plan, report, config, filter, [Path.relative_to_cwd(dir)], phases)
+
+    assert %{status: :timeout, selection: %{steps_run: [:narrow]}} =
+             Enum.find(outcome.results, &(&1.id == "timeout"))
+
+    assert [%{id: "compile_error"}] = outcome.compile_errors
+  end
+
+  @tag :tmp_dir
+  @tag spec: ["mutagen.mutation_pipeline.r35", "mutagen.json_schema.r34"]
+  test "scales the deadline for every candidate from the narrow baseline", %{tmp_dir: dir} do
+    candidate = write_candidate(dir, "candidate")
+    config = %Config{scopes: [], tests: ["auto"], timeout_ms: 60_000, boot_timeout_ms: 80_000}
+    phases = callbacks(self(), candidate, false, :ok)
+    report_baseline = phases.baseline
+
+    for {narrow_ms, expected} <- [{500, 30_000}, {4_200, 42_000}, {7_000, 60_000}] do
+      phases = %{
+        phases
+        | baseline: fn
+            %{escalation_timeout_ms: used} = input, report ->
+              assert used == expected
+              report_baseline.(input, report)
+
+            input, report ->
+              report_baseline.(input, put_in(report.meta.timings_ms.baseline, narrow_ms))
+          end
+      }
+
+      {report, _} = exercise(dir, config.tests, phases, config)
+      assert [%{candidate_deadline_ms: ^expected}] = report.meta.escalation
+    end
+  end
+
   defp write_candidate(dir, name) do
     path = Path.join(dir, name <> "_test.exs")
     File.write!(path, "# Fixture.Store")
     Path.relative_to_cwd(path)
   end
 
-  defp exercise(dir, tests, phases) do
-    config = %Config{scopes: [], tests: tests, since: "HEAD"}
+  defp exercise(dir, tests, phases, config \\ nil) do
+    config = config || %Config{scopes: [], tests: tests, since: "HEAD"}
     file = "checks/narrow_test.exs"
     entry = Map.put(entry("id", "src/store.ex"), :function, "Fixture.Store.get/2")
 

@@ -222,7 +222,7 @@ defmodule MutagenEx.ChangedScope do
         | planned: Enum.sum_by(planned_by_file, fn {_, entries} -> length(entries) end),
           in_scope: length(entries),
           runtime: length(sites) + length(skipped),
-          unmapped: unmapped(lines, diff, planned_by_file)
+          unmapped: unmapped(lines, diff, planned_by_file, cache)
       }
     })
   end
@@ -235,10 +235,13 @@ defmodule MutagenEx.ChangedScope do
   defp overlaps?({first, last}, ranges),
     do: Enum.any?(ranges, fn {from, to} -> first <= to and from <= last end)
 
-  defp unmapped(lines, diff, planned_by_file) do
-    Enum.flat_map(Enum.sort(lines), fn {path, changed} ->
+  defp unmapped(lines, diff, planned_by_file, cache) do
+    Enum.flat_map(Enum.sort(lines), fn {path, neighbors} ->
+      {_ast, source} = Map.fetch!(cache, path)
       spans = for {%{runtime?: true}, span} <- Map.get(planned_by_file, path, []), do: span
-      ranges = Enum.reduce(spans, changed, &subtract_span/2) |> Enum.uniq() |> Enum.sort()
+      changed = Map.get(diff.files, path, [])
+      ranges = Enum.reduce(spans, changed, &subtract_span/2)
+      ranges = code_ranges(source, ranges)
       anchors = Map.get(diff.deletion_anchors, path, [])
 
       unmapped =
@@ -246,7 +249,7 @@ defmodule MutagenEx.ChangedScope do
           do: [],
           else: [%{path: path, ranges: wire_ranges(ranges), kind: :no_runtime_site}]
 
-      if changed == [] and anchors != [] do
+      if neighbors == [] and anchors != [] do
         [
           %{
             path: path,
@@ -258,6 +261,44 @@ defmodule MutagenEx.ChangedScope do
         unmapped
       end
     end)
+  end
+
+  defp code_ranges(_source, []), do: []
+
+  defp code_ranges(source, ranges) do
+    {_, code} =
+      source
+      |> String.splitter("\n")
+      |> Stream.with_index(1)
+      |> Enum.reduce_while({Enum.sort(ranges), []}, fn {text, line}, {ranges, code} ->
+        case Enum.drop_while(ranges, fn {_, last} -> last < line end) do
+          [] ->
+            {:halt, {[], code}}
+
+          [{first, _} | _] = ranges ->
+            code =
+              if line >= first and code_line?(String.trim(text)),
+                do: add_line(code, line),
+                else: code
+
+            {:cont, {ranges, code}}
+        end
+      end)
+
+    Enum.reverse(code)
+  end
+
+  defp add_line([{first, last} | rest], line) when last == line - 1, do: [{first, line} | rest]
+  defp add_line(ranges, line), do: [{line, line} | ranges]
+
+  defp code_line?(""), do: false
+  defp code_line?("#" <> _), do: false
+
+  defp code_line?(text) do
+    not Regex.match?(
+      ~r/^(?:(?:end|do|else|rescue|catch|after)|[\])},]+|defmodule\s+[^,;#]+\s+do)\s*(#.*)?$/u,
+      text
+    )
   end
 
   defp subtract_span({first, last}, ranges) do

@@ -154,6 +154,13 @@ decisions:
     the index and validates untracked paths, parent directories and file
     sizes under its regular read safeguards.
 
+- id: mutagen.git_diff.r11
+  priority: must
+  statement: |
+    Only untracked paths matching the requested source or test file kind
+    consume the file cap. A file_limit caused by untracked files identifies
+    the root whose files exceeded the cap.
+
 ```
 
 ```spec-verification
@@ -176,4 +183,8 @@ decisions:
     - mutagen.git_diff.r6
     - mutagen.git_diff.r7
     - mutagen.git_diff.r8
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.git_diff.r11
 ```

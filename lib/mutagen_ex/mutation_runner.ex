@@ -1258,6 +1258,11 @@ defmodule MutagenEx.MutationRunner do
     {:timeout, warnings, meta}
   end
 
+  defp classify({:error, {:run_group_exited, _reason}, meta}, compile_stderr) do
+    warnings = compose_warnings([compile_stderr, meta.stderr]) ++ ["test group exited"]
+    {:killed, warnings, meta}
+  end
+
   defp classify({:error, reason, meta}, compile_stderr) do
     warnings =
       compose_warnings([compile_stderr, meta.stderr, "error: " <> inspect(reason)]) ++

@@ -513,16 +513,20 @@ defmodule MutagenEx.Runtime do
   end
 
   @doc false
-  def bounded_baseline(timeout, fun) do
+  def bounded_baseline(timeout, fun, on_success \\ :reap) do
     previous = Application.get_all_env(:ex_unit)
 
-    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun) do
+    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, on_success) do
       {:ok, result} ->
         result
 
       :timeout ->
         recover_exunit(previous)
         {:error, :baseline_timeout, %{phase: :baseline, limit: timeout}}
+
+      {:exit, {:run_group_exited, _}} ->
+        recover_exunit(previous)
+        {:error, :baseline_red, %{phase: :baseline, failed: 1, failures: []}}
 
       {:exit, _} ->
         recover_exunit(previous)

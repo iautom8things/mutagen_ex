@@ -1,7 +1,7 @@
 defmodule MutagenEx.GateWiringTest do
   use ExUnit.Case, async: false
 
-  alias MutagenEx.{ChangedScope, CLI}
+  alias MutagenEx.{ChangedScope, CLI, GitDiff}
 
   @moduletag :git_diff_integration
   @moduletag timeout: to_timeout(minute: 2)
@@ -214,7 +214,7 @@ defmodule MutagenEx.GateWiringTest do
     changed_test = "checks/changed_test.exs"
     write(repo, changed_test, test_case("Changed", ~s|test "runs", do: assert(true)|))
 
-    args = ["--since", base, "--include-host-output"]
+    args = ["--since", base]
     report = run(repo, args)
 
     assert %{"path" => changed_test, "why" => "changed_in_diff"} in report["meta"][
@@ -225,21 +225,25 @@ defmodule MutagenEx.GateWiringTest do
 
     assert result_selection(report, "module_pick") == %{
              "killed_at" => "module",
+             "after_dropped_file" => true,
              "steps_run" => ["narrow", "module"]
            }
 
     assert result_selection(report, "function_pick") == %{
              "killed_at" => "function",
+             "after_dropped_file" => true,
              "steps_run" => ["narrow", "module", "function"]
            }
 
     assert result_selection(report, "always_survives") == %{
              "killed_at" => nil,
+             "after_dropped_file" => true,
              "steps_run" => ["narrow", "module", "function"]
            }
 
     assert result_selection(report, "newly_covered") == %{
              "killed_at" => "module",
+             "after_dropped_file" => true,
              "steps_run" => ["module"]
            }
 
@@ -253,6 +257,8 @@ defmodule MutagenEx.GateWiringTest do
     assert module_step["survivors_out"] < module_step["survivors_in"]
     assert function_step["survivors_out"] < function_step["survivors_in"]
     refute module_step["capped"]
+    assert module_step["dropped_after_load"] == 2
+    assert function_step["dropped_after_load"] == 0
 
     assert Enum.any?(
              report["warnings"],
@@ -350,12 +356,21 @@ defmodule MutagenEx.GateWiringTest do
     assert %{"abort_reason" => "umbrella_root"} = JSON.decode!(umbrella)
   end
 
-  @tag spec: ["mutagen.scope_resolution.r12", "mutagen.json_schema.r31"]
-  test "reports changed non-runtime lines and ignores test support", %{repo: repo} do
+  @tag spec: [
+         "mutagen.scope_resolution.r12",
+         "mutagen.scope_resolution.r13",
+         "mutagen.json_schema.r31"
+       ]
+  test "reports only changed non-runtime code and ignores test support", %{repo: repo} do
     original = """
     defmodule GateFixture.Example do
       @limit 2
       defmacro add(x), do: quote(do: unquote(x) + 1)
+      defguard inside(x) when is_integer(x)
+      defstruct [
+        :name
+      ]
+      defdelegate parse(x), to: Integer
       def keep(x), do: x + @limit
     end
     """
@@ -385,7 +400,15 @@ defmodule MutagenEx.GateWiringTest do
     write(
       repo,
       @source,
-      original |> String.replace("@limit 2", "@limit 3") |> String.replace("+ 1", "+ 0")
+      original
+      |> String.replace("Example do", "Example do # module")
+      |> String.replace("@limit 2", "@limit 3")
+      |> String.replace("+ 1", "+ 0")
+      |> String.replace("is_integer", "is_number")
+      |> String.replace(":name", ":title")
+      |> String.replace("defdelegate parse", "defdelegate other")
+      |> String.replace("  def keep", "\n  # only a comment\n  def keep")
+      |> String.replace("\nend\n", "\nend # closing\n")
     )
 
     write(
@@ -400,7 +423,14 @@ defmodule MutagenEx.GateWiringTest do
     assert report["meta"]["since"]["runtime"] == 0
     assert report["meta"]["since"]["changed_files"] == 1
     ranges = Enum.flat_map(report["meta"]["since"]["unmapped"], & &1["ranges"])
-    assert Enum.sort(Enum.flat_map(ranges, fn [f, l] -> Enum.to_list(f..l) end)) == [2, 3]
+
+    assert Enum.sort(Enum.flat_map(ranges, fn [f, l] -> Enum.to_list(f..l) end)) == [
+             2,
+             3,
+             4,
+             6,
+             8
+           ]
 
     assert Enum.all?(
              report["meta"]["since"]["unmapped"],
@@ -491,6 +521,351 @@ defmodule MutagenEx.GateWiringTest do
 
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_timeout:"))
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_crashed:"))
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r32"
+  test "a countdown timeout stays in the narrow pass", %{repo: repo} do
+    original = """
+    defmodule GateFixture.Example do
+      def countdown(n), do: if(n == 0, do: :done, else: countdown(n - 2))
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("Countdown", """
+      test "counts down", do: assert(GateFixture.Example.countdown(3) == :done)
+      """)
+    )
+
+    zero_test = "checks/zero_test.exs"
+
+    write(
+      repo,
+      zero_test,
+      test_case("Zero", """
+      test "base case", do: assert(GateFixture.Example.countdown(0) == :done)
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, String.replace(original, "n - 2", "n - 1"))
+    args = ["--since", base, "--timeout-ms", "1000"]
+    auto = run(repo, args)
+    assert %{"files_added" => [^zero_test]} = hd(auto["meta"]["escalation"])
+
+    explicit = run(repo, args ++ ["--tests", @convention, "--tests", zero_test, "--no-escalate"])
+    assert statuses(auto) == statuses(explicit)
+
+    for row <- auto["mutation"]["results"], row["before_source"] in ["n - 1", "1"] do
+      assert row["status"] == "timeout"
+      assert row["selection"]["steps_run"] == ["narrow"]
+    end
+  end
+
+  @tag spec: ["mutagen.mutation_pipeline.r33", "mutagen.json_schema.r34"]
+  test "restores rejected candidate environments and marks verdicts after the drop", %{repo: repo} do
+    original = """
+    defmodule GateFixture.Example do
+      def early(x), do: x + 2
+      def limit?(x), do: x > 11
+
+      def strict_inc(x) do
+        if :persistent_term.get(:gate_fixture_strict, false), do: x + 2, else: 2
+      end
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(repo, "checks/test_helper.exs", """
+    ExUnit.start()
+    :persistent_term.put(:gate_fixture_server, Process.whereis(ExUnit.Server))
+    System.put_env("MUTAGEN_FIXTURE_ORIGINAL", "original")
+    :ok = Application.ensure_loaded(:logger)
+    Application.put_env(:logger, :mutagen_fixture_original, :original)
+    """)
+
+    write(
+      repo,
+      @convention,
+      test_case("NarrowLeak", """
+      alias GateFixture.Example
+      test "weak for the escalated functions" do
+        assert Example.early(1) == 2
+        assert is_boolean(Example.limit?(3))
+        assert is_integer(Example.strict_inc(1))
+      end
+      """)
+    )
+
+    dropper = "checks/dropper_test.exs"
+
+    write(
+      repo,
+      dropper,
+      """
+      :persistent_term.put(:gate_fixture_strict, true)
+      System.put_env("MUTAGEN_FIXTURE_ADDED", "dropper")
+      System.delete_env("MUTAGEN_FIXTURE_ORIGINAL")
+      Application.put_env(:logger, :mutagen_fixture_added, :dropper)
+      Application.delete_env(:logger, :mutagen_fixture_original)
+      """ <>
+        test_case("Dropper", """
+        # GateFixture.Example GateFixture.Example
+        test "is red on the original" do
+          System.put_env("MUTAGEN_FIXTURE_BODY", "dropper")
+          Application.put_env(:logger, :mutagen_fixture_body, :dropper)
+          flunk("rejected candidate")
+        end
+        """)
+    )
+
+    keeper = "checks/keeper_test.exs"
+
+    write(
+      repo,
+      keeper,
+      test_case("Keeper", """
+      test "sees the original environments but the persistent term remains" do
+        assert System.get_env("MUTAGEN_FIXTURE_ORIGINAL") == "original"
+        refute System.get_env("MUTAGEN_FIXTURE_ADDED")
+        refute System.get_env("MUTAGEN_FIXTURE_BODY")
+        assert Application.get_env(:logger, :mutagen_fixture_original) == :original
+        refute Application.get_env(:logger, :mutagen_fixture_added)
+        refute Application.get_env(:logger, :mutagen_fixture_body)
+        assert :persistent_term.get(:gate_fixture_strict)
+        assert GateFixture.Example.limit?(11)
+        refute GateFixture.Example.limit?(10)
+      end
+      """)
+    )
+
+    function_test = "checks/strict_inc_test.exs"
+
+    write(
+      repo,
+      function_test,
+      test_case("FunctionLeak", """
+      test "checks strict_inc" do
+        mod = Module.concat(GateFixture, Example)
+        assert mod.strict_inc(1) == 2
+      end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(
+      repo,
+      @source,
+      original |> String.replace("x + 2", "x + 1") |> String.replace("> 11", "> 10")
+    )
+
+    report = run(repo, ["--since", base])
+
+    assert [
+             %{"step" => "module", "dropped_after_load" => 1, "files_added" => [^keeper]},
+             %{"step" => "function", "dropped_after_load" => 0, "files_added" => [^function_test]}
+           ] = report["meta"]["escalation"]
+
+    assert "escalation_baseline_red: #{dropper}" in report["warnings"]
+    refute result_selection(report, "early")["after_dropped_file"]
+    assert result_selection(report, "strict_inc")["after_dropped_file"]
+    assert result_selection(report, "strict_inc")["killed_at"] == "function"
+
+    assert Enum.any?(report["mutation"]["results"], fn row ->
+             row["function"] == "GateFixture.Example.limit?/1" and row["status"] == "killed" and
+               row["selection"]["after_dropped_file"] == true
+           end)
+  end
+
+  @tag spec: ["mutagen.mutation_pipeline.r34", "mutagen.json_schema.r33"]
+  test "group leader death kills each affected mutant and makes a baseline red", %{repo: repo} do
+    write(repo, @source, """
+    defmodule GateFixture.Example do
+      def value(x), do: x + 1
+    end
+    """)
+
+    write(
+      repo,
+      @convention,
+      test_case("MutantCrash", """
+      test "kills its group leader when it detects a mutant" do
+        if GateFixture.Example.value(2) != 3 do
+          Process.exit(Process.group_leader(), :kill)
+          Process.sleep(:infinity)
+        end
+      end
+      """)
+    )
+
+    args = ["--scope", @source, "--tests", @convention]
+    report = run(repo, args)
+
+    assert %{"total" => 2, "killed" => 2, "timeout" => 0} = report["mutation"]
+    assert Enum.all?(report["mutation"]["results"], &(&1["status"] == "killed"))
+
+    write(
+      repo,
+      @convention,
+      test_case("BaselineCrash", """
+      test "kills its group leader outside coverage" do
+        assert GateFixture.Example.value(2) == 3
+
+        if Process.whereis(:cover_server) == nil do
+          Process.exit(Process.group_leader(), :kill)
+          Process.sleep(:infinity)
+        end
+      end
+      """)
+    )
+
+    {raw, 2} = invoke(repo, args)
+
+    assert %{
+             "abort_reason" => "baseline_red",
+             "aborted" => true,
+             "baseline" => %{"failed" => 1},
+             "meta" => %{"complete" => false}
+           } = JSON.decode!(raw)
+  end
+
+  @tag spec: "mutagen.mutation_pipeline.r34"
+  test "drops a candidate that kills its group leader and still runs green candidates", %{
+    repo: repo
+  } do
+    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 2\nend\n")
+    crashed = "checks/crash_test.exs"
+
+    write(
+      repo,
+      crashed,
+      test_case("CandidateCrash", """
+      # GateFixture.Example GateFixture.Example
+      test "kills its group leader" do
+        Process.exit(Process.group_leader(), :kill)
+        Process.sleep(:infinity)
+      end
+      """)
+    )
+
+    green = "checks/green_test.exs"
+
+    write(
+      repo,
+      green,
+      test_case("GreenAfterCrash", """
+      test "checks the value", do: assert(GateFixture.Example.value(2) == 3)
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 1\nend\n")
+    report = run(repo, ["--since", base, "--timeout-ms", "1000"])
+
+    assert [%{"dropped_after_load" => 1, "files_added" => [^green]}] =
+             report["meta"]["escalation"]
+
+    assert "escalation_baseline_red: #{crashed}" in report["warnings"]
+    assert report["mutation"]["killed"] == 2
+  end
+
+  @tag spec: ["mutagen.mutation_pipeline.r35", "mutagen.json_schema.r34"]
+  test "admits a green six-second test that kills limit mutants", %{repo: repo} do
+    original = """
+    defmodule GateFixture.Example do
+      def limit?(x), do: x > 11
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("WeakLimit", """
+      test "checks the type", do: assert(is_boolean(GateFixture.Example.limit?(3)))
+      """)
+    )
+
+    slow = "checks/slow_test.exs"
+
+    write(
+      repo,
+      slow,
+      test_case("SlowLimit", """
+      test "checks the boundary" do
+        Process.sleep(to_timeout(second: 6))
+        assert GateFixture.Example.limit?(11)
+        refute GateFixture.Example.limit?(10)
+      end
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, String.replace(original, "> 11", "> 10"))
+    report = run(repo, ["--since", base])
+
+    assert [
+             %{
+               "candidate_deadline_ms" => 30_000,
+               "files_added" => [^slow],
+               "dropped_after_load" => 0
+             }
+           ] =
+             report["meta"]["escalation"]
+
+    assert result_selection_for(report, "limit?/1", "compare")["killed_at"] == "module"
+  end
+
+  @tag spec: ["mutagen.git_diff.r11", "mutagen.json_schema.r35"]
+  test "counts only untracked files it reads and names the root when that cap is exceeded", %{
+    repo: repo
+  } do
+    write(repo, @source, "defmodule GateFixture.Example do\nend\n")
+    base = commit(repo)
+
+    for root <- ["src", "checks"] do
+      vendor = Path.join([repo, root, "vendor"])
+      File.mkdir!(vendor)
+      for n <- 1..2_001, do: File.write!(Path.join(vendor, "#{n}.js"), "irrelevant")
+    end
+
+    assert_fast(run(repo, ["--since", base]), repo)
+
+    vendor = Path.join(repo, "checks/vendor")
+    for n <- 1..2_001, do: File.write!(Path.join(vendor, "#{n}_test.exs"), "# a test")
+
+    assert {:error, :diff_unavailable, %{cause: :file_limit, root: "checks"}} =
+             GitDiff.changed_lines(base,
+               cd: repo,
+               roots: ["checks"],
+               file_kind: :test,
+               untracked: true
+             )
+
+    {raw, 2} = invoke(repo, ["--since", base])
+
+    assert %{
+             "abort_reason" => "diff_unavailable",
+             "meta" => %{"complete" => false},
+             "details" => %{"cause" => "file_limit", "root" => "checks", "hint" => hint}
+           } = JSON.decode!(raw)
+
+    assert hint =~ "Untracked files under checks exceeded"
+    assert hint =~ "Ignore the directory"
+
+    write(repo, ".gitignore", "/_build/\n/deps/\n/checks/vendor/\n")
+    assert_fast(run(repo, ["--since", base]), repo)
+  end
+
+  defp statuses(report) do
+    Map.new(report["mutation"]["results"], &{&1["id"], &1["status"]})
   end
 
   defp source(n) do
@@ -586,11 +961,11 @@ defmodule MutagenEx.GateWiringTest do
     """
   end
 
-  defp result_selection(report, name) do
+  defp result_selection(report, name), do: result_selection_for(report, "#{name}/1", "arith")
+
+  defp result_selection_for(report, mfa, mutator) do
     report["mutation"]["results"]
-    |> Enum.find(
-      &(&1["function"] == "GateFixture.Example.#{name}/1" and &1["mutator"] == "arith")
-    )
+    |> Enum.find(&(&1["function"] == "GateFixture.Example.#{mfa}" and &1["mutator"] == mutator))
     |> Map.fetch!("selection")
   end
 
@@ -605,7 +980,10 @@ defmodule MutagenEx.GateWiringTest do
   defp clean_timings(raw) do
     raw
     |> String.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, "")
-    |> String.replace(~r/"(wall_ms|baseline_ms|mutant_deadline_ms)":\d+/, ~s("\\1":0))
+    |> String.replace(
+      ~r/"(wall_ms|baseline_ms|mutant_deadline_ms|candidate_deadline_ms)":\d+/,
+      ~s("\\1":0)
+    )
   end
 
   defp run(repo, args), do: repo |> raw_run(args) |> JSON.decode!()
