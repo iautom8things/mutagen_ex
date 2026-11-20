@@ -73,7 +73,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
                snapshot_before: snapshot(),
                snapshot_after: snapshot(),
                host_warnings: [term()],
-               failure_recorded?: boolean()
+               failure_recorded?: boolean(),
+               timeout_window: {integer(), integer()}
              }}
           | {:error, term(),
              %{
@@ -106,7 +107,7 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
   def run(input) when is_map(input) do
     snapshot_before = Map.get(input, :snapshot_before) || take_snapshot()
 
-    {stderr, {body_result, host_warnings}} =
+    {stderr, {body_result, host_warnings, timeout_window}} =
       capture_stderr(input, fn ->
         execute_with_timeout(input)
       end)
@@ -125,7 +126,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
         {:completed, exunit_result, meta}
 
       {:timeout, failure_recorded?} ->
-        {:timeout, Map.put(meta, :failure_recorded?, failure_recorded?)}
+        {:timeout,
+         Map.merge(meta, %{failure_recorded?: failure_recorded?, timeout_window: timeout_window})}
 
       {:error, reason} ->
         {:error, reason, meta}
@@ -225,7 +227,8 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
     tracker = RunGroup.track(task.pid)
     send(task.pid, start)
-    deadline = System.monotonic_time() + System.convert_time_unit(timeout, :millisecond, :native)
+    started_at = System.monotonic_time()
+    deadline = started_at + System.convert_time_unit(timeout, :millisecond, :native)
 
     try do
       result =
@@ -257,7 +260,9 @@ defmodule MutagenEx.MutationRunner.MutationLoop do
 
       if failures, do: :ets.delete(failures, task.pid)
       body_result = finish_group(result, group, host.processes, tracker, input, server)
-      {body_result, RunGroup.host_warnings(host, not match?({:ok, _}, body_result))}
+
+      {body_result, RunGroup.host_warnings(host, not match?({:ok, _}, body_result)),
+       {started_at, deadline}}
     catch
       kind, reason ->
         RunGroup.stop(group, :reap, host.processes, tracker)

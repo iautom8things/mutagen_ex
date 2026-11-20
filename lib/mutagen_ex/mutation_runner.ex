@@ -859,6 +859,13 @@ defmodule MutagenEx.MutationRunner do
       source_text: source_text
     }
 
+    result =
+      if status == :timeout,
+        do: Map.put(result, :timeout_window, post_meta.timeout_window),
+        else: result
+
+    result = add_execution(result, site)
+
     _ = on_site_completed.({:result, result})
 
     {:cont,
@@ -892,6 +899,8 @@ defmodule MutagenEx.MutationRunner do
       exception: details[:exception]
     }
 
+    entry = add_execution(entry, site)
+
     _ = on_site_completed.({:compile_error, entry})
 
     {:cont, %{acc | compile_errors: [entry | acc.compile_errors]}}
@@ -910,6 +919,11 @@ defmodule MutagenEx.MutationRunner do
   defp fold_task_outcome({:abort, reason, details}, _cfg, _acc, _on_site_completed) do
     {:halt, {:error, reason, details}}
   end
+
+  defp add_execution(row, %{execution: basis}) when basis in [:cover, :probe],
+    do: Map.put(row, :execution, basis)
+
+  defp add_execution(row, _site), do: row
 
   defp drop_site(acc, site, reason, warning) do
     dropped = %{id: site.id, path: site.file, reason: reason}
@@ -976,42 +990,49 @@ defmodule MutagenEx.MutationRunner do
 
   @doc false
   @spec mutate_at_path(Macro.t(), Site.t()) :: {:ok, Macro.t()} | {:error, :site_not_found}
-  def mutate_at_path(file_ast, %Site{path: path} = site), do: swap(file_ast, path, site)
-
-  defp swap(node, [], %Site{original_ast: original, mutated_ast: mutated}) when node === original,
-    do: {:ok, mutated}
-
-  defp swap({form, meta, args}, [:form | rest], site) when is_list(meta) do
-    with {:ok, changed} <- swap(form, rest, site), do: {:ok, {changed, meta, args}}
+  def mutate_at_path(file_ast, %Site{path: path} = site) do
+    rewrite_at_path(file_ast, path, fn node ->
+      if node === site.original_ast, do: {:ok, site.mutated_ast}, else: {:error, :site_not_found}
+    end)
   end
 
-  defp swap({form, meta, args}, [{:arg, index} | rest], site)
-       when is_list(meta) and is_list(args) do
-    with {:ok, changed} <- swap_child(args, index, rest, site), do: {:ok, {form, meta, changed}}
+  @doc false
+  def rewrite_at_path(node, [], rewrite), do: rewrite.(node)
+
+  def rewrite_at_path({form, meta, args}, [:form | rest], rewrite) when is_list(meta) do
+    with {:ok, changed} <- rewrite_at_path(form, rest, rewrite),
+         do: {:ok, {changed, meta, args}}
   end
 
-  defp swap({left, right}, [:left | rest], site) do
-    with {:ok, changed} <- swap(left, rest, site), do: {:ok, {changed, right}}
+  def rewrite_at_path({form, meta, args}, [{:arg, index} | rest], rewrite)
+      when is_list(meta) and is_list(args) do
+    with {:ok, changed} <- rewrite_child(args, index, rest, rewrite),
+         do: {:ok, {form, meta, changed}}
   end
 
-  defp swap({left, right}, [:right | rest], site) do
-    with {:ok, changed} <- swap(right, rest, site), do: {:ok, {left, changed}}
+  def rewrite_at_path({left, right}, [:left | rest], rewrite) do
+    with {:ok, changed} <- rewrite_at_path(left, rest, rewrite), do: {:ok, {changed, right}}
   end
 
-  defp swap(list, [{:elem, index} | rest], site) when is_list(list),
-    do: swap_child(list, index, rest, site)
-
-  defp swap(_node, _path, _site), do: {:error, :site_not_found}
-
-  defp swap_child([head | tail], 0, rest, site) do
-    with {:ok, changed} <- swap(head, rest, site), do: {:ok, [changed | tail]}
+  def rewrite_at_path({left, right}, [:right | rest], rewrite) do
+    with {:ok, changed} <- rewrite_at_path(right, rest, rewrite), do: {:ok, {left, changed}}
   end
 
-  defp swap_child([head | tail], index, rest, site) when is_integer(index) and index > 0 do
-    with {:ok, changed} <- swap_child(tail, index - 1, rest, site), do: {:ok, [head | changed]}
+  def rewrite_at_path(list, [{:elem, index} | rest], rewrite) when is_list(list),
+    do: rewrite_child(list, index, rest, rewrite)
+
+  def rewrite_at_path(_node, _path, _rewrite), do: {:error, :site_not_found}
+
+  defp rewrite_child([head | tail], 0, rest, rewrite) do
+    with {:ok, changed} <- rewrite_at_path(head, rest, rewrite), do: {:ok, [changed | tail]}
   end
 
-  defp swap_child(_list, _index, _rest, _site), do: {:error, :site_not_found}
+  defp rewrite_child([head | tail], index, rest, rewrite) when is_integer(index) and index > 0 do
+    with {:ok, changed} <- rewrite_child(tail, index - 1, rest, rewrite),
+         do: {:ok, [head | changed]}
+  end
+
+  defp rewrite_child(_list, _index, _rest, _rewrite), do: {:error, :site_not_found}
 
   # ---------------------------------------------------------------------------
   # Code.Server settle (r4 hardening — `mutagen.decision.timeout_handling`)
@@ -1146,6 +1167,72 @@ defmodule MutagenEx.MutationRunner do
       |> Enum.uniq()
 
     restore_modules(modules, cfg)
+  end
+
+  @doc false
+  def with_probe_files([], _suite), do: {:ok, MapSet.new(), :not_run}
+
+  def with_probe_files(files, suite) do
+    table = BeamCache.new()
+    cfg = %{beam_cache_table: table}
+    ignore_conflict = Code.get_compiler_option(:ignore_module_conflict)
+    Code.put_compiler_option(:ignore_module_conflict, true)
+
+    try do
+      with {:ok, loaded, modules} <- compile_probes(files, cfg) do
+        result = if Enum.empty?(loaded), do: :not_run, else: run_probe_suite(suite)
+
+        with :ok <- restore_probe_modules(modules, cfg), do: {:ok, loaded, result}
+      end
+    after
+      Code.put_compiler_option(:ignore_module_conflict, ignore_conflict)
+      BeamCache.delete(table)
+    end
+  end
+
+  defp compile_probes(files, cfg) do
+    Enum.reduce_while(files, {:ok, MapSet.new(), []}, fn {file, original, probed, _placed},
+                                                         {:ok, loaded, touched} ->
+      modules = original |> Ast.module_blocks() |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+
+      if modules != [] and
+           Enum.all?(
+             modules,
+             &(BeamCache.snapshot(cfg.beam_cache_table, &1, code_server_module(cfg)) == :ok)
+           ) do
+        case safe_compile_quoted(probed, file, cfg) do
+          {:ok, _compiled, _stderr} ->
+            {:cont, {:ok, MapSet.put(loaded, file), modules ++ touched}}
+
+          {:error, :compile_error, _details} ->
+            case restore_probe_modules(modules, cfg) do
+              :ok ->
+                {:cont, {:ok, loaded, touched}}
+
+              error ->
+                _ = restore_probe_modules(touched, cfg)
+                {:halt, error}
+            end
+        end
+      else
+        {:cont, {:ok, loaded, touched}}
+      end
+    end)
+  end
+
+  defp run_probe_suite(suite) do
+    suite.()
+  rescue
+    _ -> :failed
+  catch
+    _, _ -> :failed
+  end
+
+  defp restore_probe_modules(modules, cfg) do
+    case restore_modules(Enum.uniq(modules), cfg) do
+      :ok -> :ok
+      {:error, message} -> {:error, :unrecoverable_restore_failure, %{message: message}}
+    end
   end
 
   defp restore_modules(modules, cfg) do

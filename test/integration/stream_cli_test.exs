@@ -272,7 +272,7 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert timings["coverage"] > 0
     assert timings["baseline"] > 0
     assert timings["mutation"] > 0
-    assert timings["mutant_deadline"] == min(30_000, max(5_000, 10 * timings["baseline"]))
+    assert timings["mutant_deadline"] == max(5_000, 3 * timings["baseline"])
     measured = Map.drop(timings, ["total", "mutant_deadline"])
     assert timings["total"] >= Enum.sum(Map.values(measured))
     assert Map.delete(aggregate["meta"], "timings_ms") == start_line["meta"]
@@ -287,6 +287,11 @@ defmodule MutagenEx.Integration.StreamCliTest do
     #      composition is intact. ──────────────────────────────────────
     {:ok, stderr} = File.read(stderr_path)
     refute stderr =~ "UndefinedFunctionError"
+
+    assert Enum.count(
+             String.split(stderr, "\n"),
+             &(&1 == "Use --json PATH for reliable reports in scripts and CI.")
+           ) == 1
 
     refute Enum.any?(aggregate_results, fn result ->
              Enum.any?(result["warnings"], &String.contains?(&1, "__ex_unit__"))
@@ -321,6 +326,12 @@ defmodule MutagenEx.Integration.StreamCliTest do
 
     refute Map.has_key?(abort_aggregate, "kind")
     refute Map.has_key?(abort_end["meta"], "timings_ms")
+
+    for report <- [abort_aggregate, abort_end] do
+      assert %{"complete" => false, "incomplete_reasons" => [%{"reason" => "too_many_sites"}]} =
+               report["meta"]
+    end
+
     assert abort_timings["coverage"] > 0
     assert abort_timings["baseline"] == 0
     assert abort_timings["mutation"] == 0

@@ -6,7 +6,8 @@ defmodule MutagenEx.MarkdownSummary do
     "check_first" => "Mutagen found functions to check first",
     "baseline_red" => "Mutagen found failing baseline tests",
     "worth_a_look" => "Mutagen found changes worth a look",
-    "partly_checked" => "Mutagen checked only part of the selected code",
+    "low_confidence_survivors" => "Mutagen found low-confidence survivors in the JSON (0 ranked)",
+    "unranked_survivors" => "Mutagen listed survivors in the JSON (0 ranked)",
     "incomplete" => "Mutagen has incomplete results",
     "no_mutable_changes" => "Mutagen found no mutable changes"
   }
@@ -25,6 +26,9 @@ defmodule MutagenEx.MarkdownSummary do
     "current_read_failed" => "Could not read the current source",
     "escalation_stopped" => "Escalation stopped after a coverage failure",
     "gitlink" => "Skipped a Git link",
+    "mutation_budget_exhausted" => "The mutation time budget expired before the run finished",
+    "preexisting_gitlink" => "Mutagen did not read a submodule under the source root",
+    "preexisting_symlink" => "Mutagen did not read a symlink under the source root",
     "site_node_not_found" => "Could not find a planned site in the source",
     "symlink" => "Skipped a symlink",
     "type_change" => "Skipped a file that changed type",
@@ -35,6 +39,7 @@ defmodule MutagenEx.MarkdownSummary do
     "escalation_baseline_red" => "tests failed on original code",
     "escalation_baseline_red_in_combination" => "tests failed when run together",
     "escalation_baseline_timeout" => "tests timed out on original code",
+    "escalation_budget_exhausted" => "the escalation budget ran out under `--escalate-budget-ms`",
     "escalation_test_file_load_failed" => "test files failed to load",
     "escalation_test_read_failed" => "test files could not be read",
     "escalation_coverage_failed" => "coverage could not run",
@@ -104,14 +109,24 @@ defmodule MutagenEx.MarkdownSummary do
       "**",
       Map.fetch!(@headlines, summary["verdict"]),
       ".** ",
+      checked_count(summary["checked"], since),
       "#{quantity(counts["run"], "mutant")} run · #{counts["killed"]} killed · #{counts["survived"]} survived",
       " · #{summary["unevaluated"]["count"]} unevaluated",
+      if(counts["skipped"], do: " · #{counts["skipped"]} skipped by the validator", else: ""),
       uncovered_count(since),
       " · kill rate #{kill_rate(counts)}",
       changed,
       "\n"
     ]
   end
+
+  defp checked_count(%{"status" => "partial"} = checked, since) do
+    unchecked = checked["uncovered"] + checked["unevaluated"]
+    sites = if since, do: "changed site", else: "site"
+    "#{unchecked} of #{quantity(checked["total"], sites)} could not be checked. "
+  end
+
+  defp checked_count(_checked, _since), do: []
 
   defp uncovered_count(since) do
     lines =
@@ -153,14 +168,15 @@ defmodule MutagenEx.MarkdownSummary do
   end
 
   defp mutant(entry) do
-    steps = Enum.join(entry["steps_run"], ", ")
+    steps = entry["steps_run"]
+    steps = if entry["escalation_incomplete"], do: steps ++ ["not fully escalated"], else: steps
 
     [
       "- ",
       location(entry),
       " ",
       inline(entry["mutator"]),
-      " survived (#{steps}).\n",
+      " survived (#{Enum.join(steps, ", ")}).\n",
       details(entry)
     ]
   end
@@ -236,7 +252,12 @@ defmodule MutagenEx.MarkdownSummary do
         count -> ["- #{quantity(count, "mutant")} timed out.\n"]
       end
 
-    ordinary_notes = Enum.reject(summary["notes"], &(&1["kind"] == "baseline_red_files"))
+    ordinary_notes =
+      Enum.reject(
+        summary["notes"],
+        &(&1["kind"] in ~w(baseline_red_files mutation_budget_exhausted))
+      )
+
     incomplete ++ changes ++ timeouts ++ Enum.map(ordinary_notes, &note/1) ++ source
   end
 
@@ -273,6 +294,20 @@ defmodule MutagenEx.MarkdownSummary do
   defp note(%{"kind" => "escalation_wall_time", "step" => step, "wall_ms" => wall_ms}),
     do: "- The #{step} escalation pass took #{wall_ms} ms.\n"
 
+  defp note(%{"kind" => "mutation_timeouts_dominate"}),
+    do:
+      "- Waiting for mutant timeouts took more than half the mutation phase. Consider `--timeout-ms` or `--budget-ms`.\n"
+
+  defp note(%{"kind" => "execution_could_not_tell", "count" => count} = note) do
+    names = Enum.map_intersperse(note["functions"] || [], ", ", &inline/1)
+
+    [
+      "- Probe evidence was inconclusive for #{quantity(count, "function")}",
+      if(names == [], do: [], else: [" (", names, ")"]),
+      ".\n"
+    ]
+  end
+
   defp note(%{"kind" => "tainted_predecessors", "count" => count}),
     do: "- #{quantity(count, "result")} followed a timeout or host state change.\n"
 
@@ -285,9 +320,6 @@ defmodule MutagenEx.MarkdownSummary do
 
   defp note(%{"kind" => "low_confidence_survivors", "count" => count}),
     do: "- Only the JSON results list #{quantity(count, "low-confidence survivor")}.\n"
-
-  defp note(%{"kind" => "mutation_budget_exhausted"}),
-    do: "- The mutation time budget expired before the run finished.\n"
 
   defp path(nil), do: []
   defp path(file), do: [" in ", inline(file)]
