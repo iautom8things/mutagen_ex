@@ -329,7 +329,8 @@ Without `--json`, Mutagen writes the report to stdout and routes the
 `:user` device and known console logger handlers to stderr. The VM can
 write directly to file descriptor 1, including when an OTP logger
 handler crashes. In-process I/O routing cannot intercept those writes.
-Use `--json PATH` and `--summary PATH` in CI.
+Mutagen prints a reminder on stderr when it writes to stdout. Use
+`--json PATH` and `--summary PATH` in CI.
 
 Mutagen writes the file with mode 0600. If it cannot safely write the
 file, it warns on stderr and falls back to stdout.
@@ -417,10 +418,14 @@ test support from source planning. An incomplete run returns exit 0 with
 its reasons. A tool abort returns exit 2.
 
 Automatic test selection looks for `a/b_test.exs` under the configured
-test roots for `a/b.ex` under a configured source root. Changed test files
-also join a `--since` run. For runtime sites still unresolved, Mutagen searches
+test roots for `a/b.ex` under a configured source root. When a `--since` run
+has runtime sites, it also selects new test files and changed test files
+whose parsed code differs from the merge base. Formatting and comment
+edits alone do not add a test file to this selection. An empty runtime
+plan selects no tests. For runtime sites still unresolved, Mutagen searches
 uncited test files for the full module name, or for the module's last
-segment as a whole word in a file that aliases its parent. It then
+segment as a whole word in a file that aliases its parent. Brace aliases
+and aliases declared with `as:` count in the module pass. It then
 searches for qualified function calls or captures, or bare calls where
 the matching module is imported or aliased. It counts text mentions and
 uses path order to break ties. Each step takes up to 20 files per function
@@ -432,6 +437,7 @@ If a batch fails, Mutagen keeps the files that pass together in score order.
 The module and function passes share a two-minute budget, including
 candidate probes. Mutagen estimates each pass from the candidate baselines
 and reports files that exceed the budget as `escalation_budget_exhausted`.
+Affected survivors carry `selection.escalation_incomplete: true`.
 When escalation takes more than half the run, summary notes give the
 time spent in each pass. A pass judges mutants with the files admitted
 in that pass. Only survivors and uncovered sites advance. A timeout stays unevaluated and
@@ -441,7 +447,8 @@ keeps the step that recorded it.
 `meta.complete` and `meta.incomplete_reasons` record missing evidence from
 skipped or unreadable paths and sites that the runner dropped.
 Every abort sets `meta.complete` to false and adds its reason to
-`meta.incomplete_reasons`. An accounting mismatch between planned sites
+`meta.incomplete_reasons`. A partial run stopped by `--budget-ms` records
+`mutation_budget_exhausted`. An accounting mismatch between planned sites
 and the final outcome records also marks the report incomplete.
 `meta.since.unmapped` lists changed code without runtime sites and omits
 blank, comment and structural lines.
@@ -467,18 +474,28 @@ Add `--summary mutagen.md` for a Markdown file you can read or paste into a
 pull request. The JSON always includes the same findings under `summary`.
 Both output paths use the project-root boundary by default.
 
-- **Check first** groups findings by function. `not_executed` means the tests
-  selected in a changed-code run covered none of its in-scope sites. A site
-  is covered when its line runs. If that line has no cover counter, a hit
-  in the site's own span counts. If its entire span has no counters, a hit
-  in its enclosing clause body counts. An instrumented line with zero
-  hits stays uncovered.
+The headline leads with the highest-priority finding. `summary.checked`
+reports `full` or `partial` along with the total sites, uncovered sites,
+and sites left unevaluated for other reasons. A partial run states how
+many sites it could not check, even when the finding is `nothing_to_check`.
+
+- **Check first** groups findings by function. `not_executed` means none
+  of its in-scope sites recorded a hit during an execution probe.
+  Mutagen uses line coverage first. For the remaining sites, it installs
+  counters in the original runtime expressions, runs the admitted tests
+  once, and restores the original bytecode. A probe hit adds the site to
+  the mutation queue. When a guard, pattern, compilation failure or failed
+  probe run prevents confirmation, the site is `could_not_tell`.
+  Results report their execution evidence in `execution`, and
+  `meta.timings_ms.probe` records the probe phase when it runs.
   `nothing_asserted` means at least three high-confidence mutants ran in
-  that function and every evaluated mutant survived. If a dropped test
-  file mentions the function and failed on the unmutated code, the summary
-  leads with the failed test file instead.
+  that function with complete escalation evidence and every evaluated
+  mutant survived. If a dropped test file mentions the function and fails
+  alone on the unmutated code, the summary leads with the failed test file.
+  A file that fails in combination appears in the notes.
 - **Worth a look** lists individual high-confidence survivors outside those
-  functions. The provisional [precision sample](docs/precision/blind-2026-11.csv)
+  functions, followed by high-confidence survivors marked
+  `not fully escalated`. The provisional [precision sample](docs/precision/blind-2026-11.csv)
   puts boolean, else removal, result tuples and comparisons first, followed
   by case drop and literals. Arithmetic has no measurement and sorts last.
   Change the default five entries with `--summary-max N`.
@@ -488,10 +505,13 @@ Both output paths use the project-root boundary by default.
   sites. Notes count results after a timeout or host state change. They
   list skipped escalation files and explain when a kill followed a file
   that had already loaded before Mutagen dropped it.
+  When three or more mutants time out and the waits take over half the
+  mutation phase, the summary points to `--timeout-ms` and `--budget-ms`.
 
 Copy the printed `MIX_ENV=test mix mutagen --site …` command from the
-summary to rerun the one site with automatic test discovery and a larger
-search limit. Changed-code reruns keep the merge base from the report. Run
+summary to rerun the one site with automatic test discovery, up to 40 test
+files per function in each pass, and the default escalation budget.
+Changed-code reruns keep the merge base from the report. Run
 the command from the same project checkout. Broader tests can kill a site
 that previously survived. With `--no-source`, the summary omits file names,
 function names and excerpts and prints an opaque reference for the rerun.
@@ -602,7 +622,7 @@ the average cost per mutant.
 | `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
 | `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
 | `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the escalation time limit. |
-| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
+| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses three times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |

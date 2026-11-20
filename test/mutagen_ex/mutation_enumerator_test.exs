@@ -50,7 +50,7 @@ defmodule MutagenEx.MutationEnumeratorTest do
     @tag spec: "mutagen.coverage.r14"
     test "only falls back to a clause when the whole site span has no cover entries" do
       file = "lib/fixture.ex"
-      site = %{file: file, line: 10, coverage_location: {10, {10, 12}, 8..15, nil}}
+      site = %{file: file, line: 10, coverage_location: {10, {10, 12}, {8..15, 7}, nil}}
 
       for {hits, measured, covered?} <- [
             {[8, 10], [8, 10, 12], true},
@@ -58,6 +58,8 @@ defmodule MutagenEx.MutationEnumeratorTest do
             {[8, 12], [8, 12], true},
             {[8], [8, 12], false},
             {[8], [8], true},
+            {[7], [7], true},
+            {[7], [7, 8], false},
             {[17], [17], false}
           ] do
         coverage = %{

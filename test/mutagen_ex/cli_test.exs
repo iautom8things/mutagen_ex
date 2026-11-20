@@ -84,8 +84,8 @@ defmodule MutagenEx.CLITest do
   test "scales the deadline with measured baseline input and honors the explicit override" do
     assert {:ok, config} = CLI.parse(~w(--since HEAD))
     assert Config.mutant_deadline(config, 0) == 5_000
-    assert Config.mutant_deadline(config, 1_200) == 12_000
-    assert Config.mutant_deadline(config, 57_000) == 570_000
+    assert Config.mutant_deadline(config, 1_700) == 5_100
+    assert Config.mutant_deadline(config, 57_000) == 171_000
 
     assert {:ok, overridden} = CLI.parse(~w(--since HEAD --timeout-ms 500))
     assert Config.mutant_deadline(overridden, 10_000) == 500

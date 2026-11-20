@@ -1,7 +1,7 @@
 defmodule MutagenEx.ChangedScope do
   @moduledoc false
 
-  alias MutagenEx.{AstCache, FileIdentity, GitDiff, MutationEnumerator, ScopeResolver}
+  alias MutagenEx.{AstCache, FileIdentity, GitDiff, MutationEnumerator, Mutators, ScopeResolver}
 
   def plan(config, roots, options \\ []) do
     opts = [roots: roots, deletion_anchors: true, untracked: true]
@@ -47,7 +47,16 @@ defmodule MutagenEx.ChangedScope do
 
     case git.changed_lines(plan.meta.ref, opts) do
       {:ok, %{base: base, head: head} = diff} when base == plan.meta.base and head == plan.head ->
-        {:ok, Enum.sort(Map.keys(diff.files)), diff.skipped}
+        changed =
+          diff.files
+          |> Map.keys()
+          |> Enum.sort()
+          |> Enum.reject(fn path ->
+            old_path = Map.get(diff.renames, path, path)
+            unchanged_test?(path, git.base_file(base, old_path, opts))
+          end)
+
+        {:ok, changed, diff.skipped}
 
       {:ok, _diff} ->
         {:error, :diff_unavailable, %{cause: :history_changed}}
@@ -56,6 +65,20 @@ defmodule MutagenEx.ChangedScope do
         error
     end
   end
+
+  defp unchanged_test?(path, {:ok, previous}) do
+    with {:ok, current} <- File.read(path),
+         {:ok, before_ast} <- Code.string_to_quoted(previous, emit_warnings: false),
+         {:ok, after_ast} <- Code.string_to_quoted(current, emit_warnings: false) do
+      Mutators.identity_node(before_ast) == Mutators.identity_node(after_ast)
+    else
+      _ -> false
+    end
+  rescue
+    UnicodeConversionError -> false
+  end
+
+  defp unchanged_test?(_path, _previous), do: false
 
   def excluded?(path, roots) do
     path = String.normalize(path, :nfc)
@@ -302,16 +325,29 @@ defmodule MutagenEx.ChangedScope do
     end
   end
 
-  def uncovered_lines(plan, coverage, evaluated) do
+  def uncovered_lines(plan, coverage, evaluated, pending) do
+    uncovered = MapSet.new(for %{id: id, reason: :uncovered} <- pending, do: id)
+
+    spans_by_file =
+      for %{file: file, id: id, coverage_location: {_, {first, last}, _, _}} <- plan.sites,
+          MapSet.member?(uncovered, id),
+          do: {file, {first, last}}
+
+    spans_by_file = Enum.group_by(spans_by_file, &elem(&1, 0), &elem(&1, 1))
+
     for {path, lines} <- Enum.sort(plan.changed_lines),
         spans = Map.get(plan.multi_line_sites, path, []),
         spans != [],
         {_ast, source} <- List.wrap(plan.cache[path]),
         hit = Map.get(coverage.covered_lines, path, MapSet.new()),
         measured = Map.get(coverage.coverable_lines, path, MapSet.new()),
-        missed = MapSet.difference(measured, hit),
+        uncovered_spans = Map.get(spans_by_file, path, []),
         ranges = evaluated_ranges(lines, spans, evaluated),
-        ranges = code_ranges(source, ranges, &MapSet.member?(missed, &1)),
+        ranges =
+          code_ranges(source, ranges, fn line ->
+            not MapSet.member?(hit, line) and
+              (MapSet.member?(measured, line) or overlaps?({line, line}, uncovered_spans))
+          end),
         ranges != [] do
       row(path, ranges)
     end

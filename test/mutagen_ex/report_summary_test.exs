@@ -16,7 +16,8 @@ defmodule MutagenEx.ReportSummaryTest do
     summary =
       report(two ++ three ++ mixed ++ timed ++ [low, tainted])["summary"]
 
-    assert summary["verdict"] == "partly_checked"
+    assert summary["verdict"] == "check_first"
+    assert %{"status" => "partial", "uncovered" => 0, "unevaluated" => 1} = summary["checked"]
 
     assert [
              %{
@@ -57,7 +58,7 @@ defmodule MutagenEx.ReportSummaryTest do
     classic = report([reached, unrelated, timeout], pending)["summary"]
     changed = report([reached, unrelated, timeout], pending, meta: since())["summary"]
 
-    assert classic["check_first"] == []
+    assert Enum.map(classic["check_first"], & &1["kind"]) == ["not_executed"]
 
     assert [
              %{
@@ -69,9 +70,32 @@ defmodule MutagenEx.ReportSummaryTest do
              changed["check_first"]
 
     assert Enum.map(changed["worth_a_look"], & &1["id"]) == [reached.id, unrelated.id]
+    assert changed["verdict"] == "check_first"
+
+    assert changed["checked"] == %{
+             "status" => "partial",
+             "total" => 7,
+             "uncovered" => 3,
+             "unevaluated" => 2
+           }
 
     assert %{"count" => 5, "uncovered" => 3, "not_run" => 1, "timeout" => 1} =
              changed["unevaluated"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "inconclusive functions with no probe hit stay out of check first" do
+    results = sites("maybe", [:survived, :survived, :survived])
+    pending = %{pending("maybe", 9) | reason: :could_not_tell, execution: :could_not_tell}
+    summary = report(results, [pending], meta: since())["summary"]
+    assert summary["check_first"] == []
+
+    assert [%{"kind" => "execution_could_not_tell", "functions" => ["Fixture.maybe/1"]}] =
+             summary["notes"]
+
+    [first | rest] = results
+    with_hit = report([Map.put(first, :execution, :probe) | rest], [pending], meta: since())
+    assert [%{"kind" => "nothing_asserted"}] = with_hit["summary"]["check_first"]
   end
 
   @tag spec: "mutagen.json_schema.r36"
@@ -101,7 +125,7 @@ defmodule MutagenEx.ReportSummaryTest do
 
     assert summary["worth_a_look_omitted"] == 2
 
-    assert %{"verdict" => "worth_a_look", "worth_a_look" => [], "worth_a_look_omitted" => 9} =
+    assert %{"verdict" => "unranked_survivors", "worth_a_look" => [], "worth_a_look_omitted" => 9} =
              report(results, [], summary_max: 0)["summary"]
   end
 
@@ -132,11 +156,15 @@ defmodule MutagenEx.ReportSummaryTest do
     killed = site("covered", 2, :killed)
     assert report([killed], [], meta: since())["summary"]["verdict"] == "nothing_to_check"
 
-    for {results, pending} <- [
-          {[killed], [pending("uncovered", 3)]},
-          {[site("timeout", 2, :timeout)], []}
+    for {results, pending, verdict} <- [
+          {[killed], [pending("uncovered", 3)], "check_first"},
+          {[site("timeout", 2, :timeout)], [], "nothing_to_check"},
+          {[site("worth", 2, :survived), site("error", 3, :error)], [], "worth_a_look"}
         ] do
-      assert %{"summary" => %{"verdict" => "partly_checked"}, "meta" => %{"complete" => true}} =
+      assert %{
+               "summary" => %{"verdict" => ^verdict, "checked" => %{"status" => "partial"}},
+               "meta" => %{"complete" => true}
+             } =
                report(results, pending, meta: since())
     end
 
@@ -145,11 +173,51 @@ defmodule MutagenEx.ReportSummaryTest do
 
     with_skip = %Report{mutation: %{results: [killed], skipped: [%{site_id: "skip"}]}}
 
-    assert %{"verdict" => "partly_checked", "unevaluated" => %{"skipped" => 1}} =
+    assert %{
+             "verdict" => "nothing_to_check",
+             "counts" => %{"skipped" => 1},
+             "unevaluated" => %{"count" => 0}
+           } =
              ReportSummary.build(with_skip)
 
     low = %{site("low", 3, :survived) | mutator: :pipeline}
-    assert report([low])["summary"]["verdict"] == "worth_a_look"
+
+    assert %{"verdict" => "low_confidence_survivors", "worth_a_look" => []} =
+             report([low])["summary"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "a file that fails alone leads the verdict even with uncovered sites" do
+    warnings = [{:escalation_rejected, :escalation_baseline_red, ["test/red_test.exs"]}]
+
+    summary =
+      report([], [pending("uncovered", 2)], meta: since(), warnings: warnings)["summary"]
+
+    assert %{"verdict" => "baseline_red", "checked" => %{"status" => "partial"}} = summary
+
+    assert [%{"kind" => "baseline_red_files", "files" => ["test/red_test.exs"]}] =
+             summary["notes"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "ranks fully escalated survivors first and keeps incomplete ones out of check first" do
+    fully_escalated = site("complete", 2, :survived)
+
+    incomplete =
+      for item <- sites("incomplete", [:survived, :survived, :survived]) do
+        item
+        |> Map.replace!(:mutator, :boolean)
+        |> Map.put(:selection, %{steps_run: [:narrow], escalation_incomplete: true})
+      end
+
+    summary = report(incomplete ++ [fully_escalated])["summary"]
+    assert summary["check_first"] == []
+
+    assert [first | rest] = summary["worth_a_look"]
+    assert first["id"] == fully_escalated.id
+    refute Map.has_key?(first, "escalation_incomplete")
+    assert Enum.map(rest, & &1["id"]) == Enum.map(incomplete, & &1.id)
+    assert Enum.all?(rest, & &1["escalation_incomplete"])
   end
 
   @tag spec: "mutagen.json_schema.r36"
@@ -195,7 +263,9 @@ defmodule MutagenEx.ReportSummaryTest do
   defp since, do: %{since: %{runtime: 6}, incomplete_reasons: []}
 
   defp pending(function, line) do
-    site(function, line, :pending) |> Map.delete(:status) |> Map.put(:reason, :uncovered)
+    site(function, line, :pending)
+    |> Map.delete(:status)
+    |> Map.merge(%{reason: :uncovered, execution: :probe})
   end
 
   defp sites(function, statuses) do

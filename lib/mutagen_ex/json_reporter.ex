@@ -757,14 +757,17 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_complete(wire, report) do
     incomplete? = MutagenEx.ReportSummary.incomplete?(report)
+    abort_reason = if report.aborted, do: abort_reason_to_wire(report.abort_reason)
+
+    reasons =
+      for reason <- [if(report.truncated, do: "mutation_budget_exhausted"), abort_reason],
+          reason != nil,
+          do: %{"reason" => reason, "path" => nil}
 
     wire =
-      if report.aborted and report.abort_reason do
-        row = %{"reason" => abort_reason_to_wire(report.abort_reason), "path" => nil}
-        Map.update(wire, "incomplete_reasons", [row], &Enum.uniq(&1 ++ [row]))
-      else
-        wire
-      end
+      if reasons == [],
+        do: wire,
+        else: Map.update(wire, "incomplete_reasons", reasons, &Enum.uniq(&1 ++ reasons))
 
     if incomplete? or Map.has_key?(wire, "since"),
       do: Map.put(wire, "complete", not incomplete?),
@@ -1009,7 +1012,10 @@ defmodule MutagenEx.JsonReporter do
       {:ok, pending} ->
         rows =
           for site <- pending do
-            site |> site_to_wire(options) |> Map.put("reason", to_string(site.reason))
+            site
+            |> site_to_wire(options)
+            |> Map.put("reason", to_string(site.reason))
+            |> put_site_enum("probe_reason", site[:probe_reason])
           end
 
         Map.put(wire, "pending", rows)
@@ -1339,6 +1345,8 @@ defmodule MutagenEx.JsonReporter do
           wire
       end
 
+    wire = put_site_enum(wire, "execution", site[:execution])
+
     if options.source do
       Map.merge(wire, %{
         "file" => Sanitizer.clean(to_string(Map.fetch!(site, :file))),
@@ -1348,6 +1356,9 @@ defmodule MutagenEx.JsonReporter do
       wire
     end
   end
+
+  defp put_site_enum(wire, _key, nil), do: wire
+  defp put_site_enum(wire, key, value), do: Map.put(wire, key, Atom.to_string(value))
 
   defp put_source(wire, result, %{source: true}) do
     wire =

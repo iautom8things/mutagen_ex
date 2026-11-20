@@ -196,10 +196,10 @@ defmodule MutagenEx.FailFastTest do
         mutation: __MODULE__.DeadlineMutation
       })
 
-    assert %{"baseline" => 57_000, "mutant_deadline" => 570_000} =
+    assert %{"baseline" => 57_000, "mutant_deadline" => 171_000} =
              :json.decode(output)["meta"]["timings_ms"]
 
-    assert Process.get(:observed_mutant_deadline) == 570_000
+    assert Process.get(:observed_mutant_deadline) == 171_000
 
     config = %MutagenEx.Config{scopes: [], tests: [], timeout_override: true, timeout_ms: 7_000}
     report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 57_000}}}
@@ -226,7 +226,13 @@ defmodule MutagenEx.FailFastTest do
   end
 
   @tag scenario: :budget
-  @tag spec: ["mutagen.cli.r13", "mutagen.json_schema.r14", "mutagen.mutation_pipeline.r2"]
+  @tag spec: [
+         "mutagen.cli.r13",
+         "mutagen.json_schema.r14",
+         "mutagen.json_schema.r31",
+         "mutagen.json_schema.r36",
+         "mutagen.mutation_pipeline.r2"
+       ]
   test "a budget truncation preserves stream ordering and restores ExUnit configuration" do
     {output, _traces, _elapsed} = invoke(["--stream", "--budget-ms", "1"], 0)
 
@@ -244,10 +250,25 @@ defmodule MutagenEx.FailFastTest do
            } = finish
 
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
-    assert Map.drop(aggregate["meta"], ["timings_ms", "complete"]) == start["meta"]
-    assert finish["meta"] == Map.put(start["meta"], "complete", false)
-    assert aggregate["meta"]["complete"] == false
+    assert Map.drop(aggregate["meta"], ["timings_ms"]) == finish["meta"]
+
+    assert finish["meta"] ==
+             Map.merge(start["meta"], %{
+               "complete" => false,
+               "incomplete_reasons" => [
+                 %{"reason" => "mutation_budget_exhausted", "path" => :null}
+               ]
+             })
+
     assert aggregate["summary"]["verdict"] == "incomplete"
+
+    assert aggregate["summary"]["checked"] == %{
+             "status" => "partial",
+             "total" => 4,
+             "uncovered" => 0,
+             "unevaluated" => 3
+           }
+
     refute Map.has_key?(aggregate, "kind")
     refute Map.has_key?(result, "meta")
     assert aggregate["truncated"]
