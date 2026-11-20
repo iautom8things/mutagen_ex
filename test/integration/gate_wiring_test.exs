@@ -616,7 +616,10 @@ defmodule MutagenEx.GateWiringTest do
     end
 
     summary = auto["summary"]
-    assert summary["unevaluated"]["timeout"] == length(timeouts)
+
+    assert summary["unevaluated"]["timeout"] ==
+             Enum.count(auto["mutation"]["results"], &(&1["status"] == "timeout"))
+
     assert summary["counts"]["killed"] == auto["mutation"]["killed"]
     assert summary["counts"]["survived"] == auto["mutation"]["survived"]
   end
