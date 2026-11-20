@@ -44,6 +44,87 @@ defmodule MutagenEx.GateWiringTest do
     {:ok, repo: repo}
   end
 
+  @tag spec: "mutagen.coverage.r14"
+  test "covers guard heads and trailing tuples only through their own clause", %{repo: repo} do
+    source = """
+    defmodule GateFixture.Example do
+      @moduledoc false
+
+      def discount(price, pct) when pct > 0 and pct <= 100 do
+        div(price * pct, 100)
+      end
+
+      def discount(price, pct) when pct > 100 do
+        price
+      end
+
+      def handle_call({:inc, n}, _from, s) when is_integer(n) and n > 0 do
+        {:reply, :ok, s + n}
+      end
+
+      def handle_call(_, _, s), do: {:reply, :error, s}
+
+      def parse(s) do
+        s = String.trim(s)
+        {:ok, s}
+      end
+    end
+    """
+
+    write(
+      repo,
+      @source,
+      source
+      |> String.replace("pct <= 100", "pct <= 101")
+      |> String.replace("pct > 100", "pct > 101")
+      |> String.replace("and n > 0", "and n >= 0")
+      |> String.replace("{:ok, s}", "{:error, s}")
+    )
+
+    write(
+      repo,
+      @convention,
+      test_case("Clause", """
+        alias GateFixture.Example
+
+        test "exercises one clause per function" do
+          assert Example.discount(200, 50) == 100
+          assert Example.handle_call({:inc, 1}, nil, 0) == {:reply, :ok, 1}
+          assert Example.handle_call({:inc, 0}, nil, 0) == {:reply, :error, 0}
+          assert Example.parse(" a ") == {:ok, "a"}
+        end
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, source)
+
+    changed = run(repo, ["--since", base, "--tests", @convention])
+    classic = run(repo, ["--scope", @source, "--tests", @convention])
+    audit = run(repo, ["--scope", @source, "--tests", "auto", "--no-escalate"])
+
+    for report <- [changed, classic, audit] do
+      results = report["mutation"]["results"]
+
+      for {fun, mutator} <- [
+            {"discount/2", "compare"},
+            {"handle_call/3", "boolean"},
+            {"parse/1", "result_tuple"}
+          ] do
+        assert Enum.any?(results, fn row ->
+                 row["function"] == "GateFixture.Example." <> fun and
+                   row["mutator"] == mutator and row["status"] == "killed"
+               end),
+               inspect({fun, mutator, results})
+      end
+
+      refute Enum.any?(results, &(&1["line"] == 8))
+    end
+
+    assert Enum.any?(changed["mutation"]["pending"], &(&1["line"] == 8))
+    refute Enum.any?(audit["mutation"]["pending"], &is_nil(&1["function"]))
+  end
+
   @tag spec: [
          "mutagen.scope_resolution.r11",
          "mutagen.mutation_pipeline.r28",
