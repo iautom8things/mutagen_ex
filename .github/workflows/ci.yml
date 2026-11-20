@@ -116,6 +116,8 @@ jobs:
           fi
           mix spec.check --base "$SPEC_BASE"
 
+  # Test Mutagen through host fixtures. A --since run on its own runtime
+  # modules exits with self_mutation_refused.
   end-to-end:
     name: Slow end-to-end tests
     runs-on: ubuntu-latest
