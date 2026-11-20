@@ -231,6 +231,8 @@ defmodule MutagenEx.ReportSafetyTest do
     tmp_dir: dir
   } do
     declared = JsonReporter.abort_reasons() |> Enum.sort()
+    assert "diff_unavailable" in declared
+    assert "invalid_since_ref" in declared
 
     for path <- ["README.md", ".spec/specs/json_schema.spec.md"] do
       [_, section] =
