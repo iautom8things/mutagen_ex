@@ -35,6 +35,7 @@ decisions:
   - mutagen.decision.static_mutator_dispatch
   - mutagen.decision.adoption_polish_efficacy
   - mutagen.decision.ancora_migration
+  - mutagen.decision.planned_runtime_sites
 ```
 
 ```spec-requirements
@@ -189,6 +190,72 @@ decisions:
     same AST after dropping metadata, including for bare literals,
     receivers and parenthesized operands. Disabling source reporting
     skips span collection without changing mutation IDs or order.
+
+- id: mutagen.mutation_enumeration.r12
+  priority: must
+  statement: |
+    `MutagenEx.MutationEnumerator.group_fingerprints/1` returns each
+    group's lowercase MD5 of the canonical identity
+    encoding of its list of normalized clauses or statements in file walk
+    order. A nested module or definition contributes its boundary to the
+    outer group's AST and contributes its own sites to its own group.
+    A definition with a nil head or a module declaration without a do
+    block remains part of the enclosing group's source.
+    When the normalized expression used by an outer site's ID includes
+    nested syntax, the outer fingerprint includes that syntax too.
+    A planned entry carries deferred inputs for its existing ID group's
+    fingerprint. `MutagenEx.MutationEnumerator.site_fingerprint/1` returns
+    the concrete fingerprint on demand. Formatting, comments, blank
+    lines, and edits outside the group
+    preserve the fingerprint. For named definitions, matching fingerprints
+    preserve the mapping from ID to clause occurrence and path within that
+    clause. File-root paths also match when the clauses stay at the same
+    file-root paths.
+
+- id: mutagen.mutation_enumeration.r13
+  priority: must
+  statement: |
+    Planned enumeration selects sites whose inclusive source range
+    overlaps a supplied changed-line range in the same file. The source
+    range spans the line, closing, end and end-of-expression metadata in
+    the subtree. When a node has no line of its own, the range also
+    covers the parent's line through the nearest enclosing end or closing
+    position. A subtree without positions falls back to its nearest
+    positioned ancestor when no enclosing end or closing position exists.
+    Changed lines accept positive, ascending inclusive
+    ranges or endpoint pairs. Malformed inputs raise `ArgumentError`.
+    Planning ignores coverage and retains validator skips with planned
+    metadata. `MutagenEx.MutationEnumerator.to_site/1` converts a planned
+    site into the corresponding runner site struct. Classic enumeration
+    keeps the coverage filter and result shape.
+
+- id: mutagen.mutation_enumeration.r14
+  priority: must
+  statement: |
+    A planned entry has `runtime?: true` exactly when it has a named
+    enclosing function, that definition is a `def` or `defp`, and the
+    entry is outside `quote`.
+
+- id: mutagen.mutation_enumeration.r15
+  priority: must
+  statement: |
+    `MutagenEx.MutationEnumerator.fingerprint_scope/2` keeps only entries
+    whose group is absent from the base source or has a different
+    fingerprint there. It parses the base with `MutagenEx.AstCache.parse/2`.
+    The first comparison for a shared key resolves its current and base
+    fingerprints once per call. An absent file or group scopes its
+    planned entries without hashing. A base source that fails to parse
+    scopes all the planned entries and returns a warning.
+
+- id: mutagen.mutation_enumeration.r16
+  priority: must
+  statement: |
+    `MutagenEx.MutationEnumerator.partition_planned_runtime_sites/2` puts
+    each planned runtime entry in exactly one bucket by ID and rejects
+    duplicate planned IDs with `ArgumentError`. Killed, survived,
+    timed-out, skipped, and compile-error entries
+    are evaluated. Runner errors are not run. IDs absent from all run
+    output are uncovered candidates pending the coverage decision.
 ```
 
 ```spec-scenarios
@@ -314,4 +381,9 @@ decisions:
     - mutagen.mutation_enumeration.r9
     - mutagen.mutation_enumeration.r10
     - mutagen.mutation_enumeration.r11
+    - mutagen.mutation_enumeration.r12
+    - mutagen.mutation_enumeration.r13
+    - mutagen.mutation_enumeration.r14
+    - mutagen.mutation_enumeration.r15
+    - mutagen.mutation_enumeration.r16
 ```
