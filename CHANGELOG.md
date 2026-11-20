@@ -11,7 +11,7 @@ file for traceability.
 
 ## [Unreleased]
 
-## [0.2.0] (release date pending)
+## [0.2.0] — 2026-11-20
 
 First Hex release. Mutagen changes one expression at a time and runs the
 selected tests to show which changes they catch.
