@@ -63,7 +63,7 @@ defmodule MutagenEx.SelectedRun do
 
         with {:ok, input} <- phases.test_input.(coverage, state.filter, report),
              {:ok, _baseline, report} <- phases.baseline.(input, report) do
-          sites = Enum.filter(plan.sites, &covered?(&1, state.coverage))
+          sites = Enum.filter(plan.sites, &MutationEnumerator.covered?(&1, state.coverage))
           mutate(:narrow, sites, config, %{state | report: report}, input, phases)
         end
 
@@ -310,7 +310,7 @@ defmodule MutagenEx.SelectedRun do
       sites =
         Enum.filter(remaining_sites(plan, state), fn site ->
           match?(%{status: :survived}, state.results[site.id]) or
-            covered?(site, coverage.covered_lines)
+            MutationEnumerator.covered?(site, coverage.covered_lines)
         end)
 
       why = if step == :module, do: :escalation_module, else: :escalation_function
@@ -412,7 +412,10 @@ defmodule MutagenEx.SelectedRun do
 
     pending =
       Enum.map(partitions.uncovered_candidate, fn site ->
-        pending_site(site, if(covered?(site, state.coverage), do: :not_run, else: :uncovered))
+        pending_site(
+          site,
+          if(MutationEnumerator.covered?(site, state.coverage), do: :not_run, else: :uncovered)
+        )
       end)
 
     not_run = Enum.map(partitions.not_run, &pending_site(&1, :not_run))
@@ -488,7 +491,8 @@ defmodule MutagenEx.SelectedRun do
           status in [:survived, :uncovered]
 
         nil ->
-          not covered?(site, state.coverage) and not Map.has_key?(state.compile_errors, site.id) and
+          not MutationEnumerator.covered?(site, state.coverage) and
+            not Map.has_key?(state.compile_errors, site.id) and
             not MapSet.member?(terminal, site.id)
       end
     end)
@@ -496,13 +500,6 @@ defmodule MutagenEx.SelectedRun do
 
   defp survivors(state) do
     state.results |> Map.values() |> Enum.filter(&(&1.status == :survived))
-  end
-
-  defp covered?(%{file: file} = site, bitmap) do
-    case bitmap do
-      %{^file => lines} -> MapSet.member?(lines, site.line)
-      _ -> false
-    end
   end
 
   defp warn(state, warnings) do

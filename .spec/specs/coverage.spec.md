@@ -230,7 +230,16 @@ decisions:
   statement: |
     Automatic escalation tries unresolved runtime sites even if the
     narrow selection is empty. A site is uncovered if no accepted test
-    pass executes its line.
+    pass covers it under the clause rule in mutagen.coverage.r14.
+
+- id: mutagen.coverage.r14
+  priority: must
+  statement: |
+    In classic and changed-code runs, a site is covered when its source
+    line is covered. For a site in a definition head or a site without
+    its own position, coverage of any body line of that exact clause
+    also covers the site. Coverage of another clause of the same
+    function does not cover the site.
 
 ```
 

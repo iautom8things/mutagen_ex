@@ -459,7 +459,9 @@ pull request. The JSON always includes the same findings under `summary`.
 Both output paths use the project-root boundary by default.
 
 - **Check first** groups findings by function. `not_executed` means the tests
-  selected in a changed-code run reached none of its in-scope sites.
+  selected in a changed-code run covered none of its in-scope sites. A site
+  is covered when its line runs. For definition heads and sites without
+  their own position, coverage of that clause's body also counts.
   `nothing_asserted` means at least three high-confidence mutants ran in
   that function and every evaluated high-confidence mutant survived.
 - **Worth a look** lists individual high-confidence survivors outside those

@@ -452,7 +452,10 @@ defmodule MutagenEx.MutationEnumerator do
   @doc "Converts a planned site into the struct accepted by the mutation runner."
   @spec to_site(planned_entry()) :: Site.t()
   def to_site(%{id: _} = entry) do
-    struct!(Site, Map.drop(entry, [:group_key, :fingerprint, :runtime?]))
+    struct!(
+      Site,
+      Map.drop(entry, [:group_key, :fingerprint, :runtime?, :coverage_fallback, :clause_range])
+    )
   end
 
   @doc """
@@ -547,6 +550,7 @@ defmodule MutagenEx.MutationEnumerator do
         group_root: nil,
         group_filter: group_filter,
         definition_kind: nil,
+        clause: nil,
         quoted: false,
         scopes: [],
         path: []
@@ -698,6 +702,7 @@ defmodule MutagenEx.MutationEnumerator do
             enclosing: nil,
             group_root: nil,
             definition_kind: nil,
+            clause: nil,
             scopes: Enum.sort_by(scopes ++ env.scopes, &elem(&1, 1)),
             path: Enum.reverse(path, env.path)
         }
@@ -792,7 +797,8 @@ defmodule MutagenEx.MutationEnumerator do
         acc
       end
 
-    {env, acc} = record_group(%{env | enclosing: enclosing, definition_kind: kind}, acc, node)
+    env = %{env | enclosing: enclosing, definition_kind: kind, clause: clause(node)}
+    {env, acc} = record_group(env, acc, node)
     walk_mutable_node(node, ambient, context, env, acc)
   end
 
@@ -949,14 +955,16 @@ defmodule MutagenEx.MutationEnumerator do
   defp emit_site(mutator, node, ambient, context, env, identity, acc) do
     {line, column} = effective_position(node, ambient)
 
+    fallback = coverage_fallback(node, line, env.clause)
+
     with true <- is_integer(line),
-         true <- select_span(env.filter, node, ambient, line),
+         true <- select_span(env.filter, node, ambient, line, fallback),
          [{_scope, owner} | _] = scopes <-
            Enum.filter(env.scopes, fn {scope, _rank} -> in_scope?(scope, line, env.enclosing) end) do
       matched =
         Enum.reduce(scopes, acc.scopes, fn {_scope, rank}, acc -> Map.put(acc, rank, :matched) end)
 
-      record_site(mutator, node, {line, column}, context, env, identity, owner, %{
+      record_site(mutator, node, {line, column, fallback}, context, env, identity, owner, %{
         acc
         | scopes: matched
       })
@@ -965,14 +973,54 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  defp select_span({:covered, covered}, _node, _ambient, line) do
-    MapSet.member?(covered, line)
+  @doc false
+  def covered?(%{file: file, line: line} = site, bitmap) do
+    case bitmap do
+      %{^file => lines} -> covered_line?(lines, line, site[:coverage_fallback])
+      _ -> false
+    end
   end
 
-  defp select_span({:planned, []}, _node, _ambient, _line), do: false
-  defp select_span({:planned, :whole_file}, _node, _ambient, _line), do: true
+  defp covered_line?(covered, line, fallback) do
+    MapSet.member?(covered, line) or
+      (fallback != nil and Enum.any?(fallback, &MapSet.member?(covered, &1)))
+  end
 
-  defp select_span({:planned, ranges}, node, {_line, _column, parent, closing_line}, line) do
+  defp clause({_kind, meta, [head, body]} = node) when is_list(body) do
+    if Keyword.has_key?(body, :do) and is_integer(meta[:line]) do
+      {_, head_end} = source_range(head, nil) || {meta[:line], meta[:line]}
+      # A bare body can lack metadata even when it occupies its own line.
+      first_body_line = if meta[:do], do: meta[:do][:line] + 1, else: head_end
+      last_body_line = if meta[:end], do: meta[:end][:line] - 1, else: head_end
+      {first, last} = source_range(body, nil) || {first_body_line, last_body_line}
+      first = min(first, first_body_line)
+      last = max(first, max(last, last_body_line))
+      %{head_end: head_end, body: first..last, range: source_range(node, nil)}
+    end
+  end
+
+  defp clause(_node), do: nil
+
+  defp coverage_fallback(node, line, %{head_end: head_end, body: body}) do
+    if (is_integer(line) and line <= head_end) or is_nil(Ast.node_line(node)), do: body
+  end
+
+  defp coverage_fallback(_node, _line, nil), do: nil
+
+  defp select_span({:covered, covered}, _node, _ambient, line, fallback) do
+    covered_line?(covered, line, fallback)
+  end
+
+  defp select_span({:planned, []}, _node, _ambient, _line, _fallback), do: false
+  defp select_span({:planned, :whole_file}, _node, _ambient, _line, _fallback), do: true
+
+  defp select_span(
+         {:planned, ranges},
+         node,
+         {_line, _column, parent, closing_line},
+         line,
+         _fallback
+       ) do
     case Ast.node_line(node) do
       nil ->
         last = max(line, closing_line || line)
@@ -1045,7 +1093,7 @@ defmodule MutagenEx.MutationEnumerator do
   defp record_site(
          mutator,
          node,
-         {line, column},
+         {line, column, fallback},
          context,
          env,
          {identity, name},
@@ -1083,7 +1131,7 @@ defmodule MutagenEx.MutationEnumerator do
           end_column: end_column
         }
 
-        site = plan_site(site, plan_mode(env), env)
+        site = plan_site(site, plan_mode(env), env, fallback)
         %{acc | sites: Map.update(acc.sites, owner, [site], &[site | &1])}
 
       {:skip, reason} ->
@@ -1093,8 +1141,11 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  defp plan_site(site, :covered, _env), do: site
-  defp plan_site(site, :planned, env), do: plan_entry(site, env)
+  defp plan_site(site, :covered, _env, _fallback), do: site
+
+  defp plan_site(site, :planned, env, fallback) do
+    site |> Map.from_struct() |> Map.put(:coverage_fallback, fallback) |> plan_entry(env)
+  end
 
   defp plan_skip(entry, _node, _position, :covered, _env), do: entry
 
@@ -1115,7 +1166,7 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp plan_entry(entry, env) do
     runtime? = env.definition_kind in [:def, :defp] and entry.function != nil and not env.quoted
-    {entry, group_key(env), runtime?}
+    {Map.put(entry, :clause_range, env.clause && env.clause.range), group_key(env), runtime?}
   end
 
   defp format_function({module, name, arity})

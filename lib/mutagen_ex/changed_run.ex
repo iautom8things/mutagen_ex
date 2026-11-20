@@ -22,6 +22,9 @@ defmodule MutagenEx.ChangedRun do
         %{sites: sites, skipped: skipped} =
           MutationEnumerator.enumerate(cache, scopes, %{}, planned: lines, source: config.source)
 
+        sites = Enum.filter(sites, & &1.runtime?)
+        skipped = Enum.filter(skipped, & &1.runtime?)
+
         with {:ok, plan} <-
                select_site(
                  %{scopes: scopes, cache: cache, sites: sites, skipped: skipped},
