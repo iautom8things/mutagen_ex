@@ -1,4 +1,4 @@
-**Mutagen found changes worth a look.** 4 mutants run · 0 killed · 4 survived · 0 unevaluated · kill rate 0.0% · 1 changed file · 4 changed functions
+**Mutagen found changes worth a look.** 4 mutants run · 0 killed · 4 survived · 0 unevaluated · kill rate 0.0% (0/4 evaluated) · 1 changed file · 4 changed functions
 
 ### Worth a look
 

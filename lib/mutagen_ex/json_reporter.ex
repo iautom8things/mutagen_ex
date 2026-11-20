@@ -284,6 +284,7 @@ defmodule MutagenEx.JsonReporter.Report do
             abort_reason: nil,
             details: nil,
             truncated: false,
+            stream_end: false,
             source: true,
             include_host_output: false,
             summary: nil,
@@ -302,6 +303,7 @@ defmodule MutagenEx.JsonReporter.Report do
           abort_reason: String.t() | nil,
           details: map() | nil,
           truncated: boolean(),
+          stream_end: boolean(),
           source: boolean(),
           include_host_output: boolean(),
           summary: map() | nil,
@@ -379,6 +381,7 @@ defmodule MutagenEx.JsonReporter do
     "cover_module_unavailable" => "Check that the Erlang tools application is installed.",
     "coverage_timeout" => "Narrow --tests or increase --boot-timeout-ms or --timeout-ms.",
     "diff_unavailable" => "Check the Git diff details and the local checkout.",
+    "escalation_crashed" => "Check the escalation exception and diagnostics on stderr.",
     "ex_unit_run_failed" => "Check the ExUnit setup and formatters for the named phase.",
     "file_not_found" => "Check that the selected source or test file exists.",
     "file_read_failed" => "Check permissions on the reported file.",
@@ -700,6 +703,14 @@ defmodule MutagenEx.JsonReporter do
 
   defp hint(reason), do: Map.get(@abort_hints, reason)
 
+  @doc false
+  def abort_hint(reason, details) do
+    details
+    |> detail_value_to_wire()
+    |> put_hint(abort_reason_to_wire(to_string(reason)))
+    |> Map.fetch!("hint")
+  end
+
   defp detail_value_to_wire(%{} = map) do
     Enum.into(map, %{}, fn {key, value} ->
       key = detail_key_to_wire(key)
@@ -744,15 +755,28 @@ defmodule MutagenEx.JsonReporter do
     }
   end
 
-  defp put_abort_complete(wire, %Report{aborted: true}), do: Map.put(wire, "complete", false)
-  defp put_abort_complete(wire, _options), do: wire
+  defp put_complete(wire, report) do
+    incomplete? = MutagenEx.ReportSummary.incomplete?(report)
+
+    wire =
+      if report.aborted and report.abort_reason do
+        row = %{"reason" => abort_reason_to_wire(report.abort_reason), "path" => nil}
+        Map.update(wire, "incomplete_reasons", [row], &Enum.uniq(&1 ++ [row]))
+      else
+        wire
+      end
+
+    if incomplete? or Map.has_key?(wire, "since"),
+      do: Map.put(wire, "complete", not incomplete?),
+      else: wire
+  end
 
   defp aggregate_meta_to_wire(meta, options) do
     meta
     |> meta_to_wire()
     |> put_timing_wire(meta)
     |> put_selected_meta(meta, options)
-    |> put_abort_complete(options)
+    |> put_complete(options)
   end
 
   @doc false
@@ -770,7 +794,12 @@ defmodule MutagenEx.JsonReporter do
           meta
       end
 
-    meta |> meta_to_wire() |> put_selected_meta(meta, options) |> put_abort_complete(options)
+    meta |> meta_to_wire() |> put_selected_meta(meta, options)
+  end
+
+  @doc false
+  def stream_end_meta_to_wire(%Report{} = report) do
+    report.meta |> stream_meta_to_wire(report) |> put_complete(report)
   end
 
   defp put_timing_wire(wire, %{timings_ms: timings}) do
@@ -779,25 +808,36 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_timing_wire(wire, _meta), do: wire
 
-  defp put_selected_meta(wire, %{since: since, incomplete_reasons: incomplete} = meta, options) do
-    paths =
-      Enum.map(incomplete, fn %{reason: reason, path: path} ->
-        %{"reason" => to_string(reason), "path" => test_path(path, options.source)}
-      end)
-
-    since =
-      Map.update(since, :unmapped, [], fn rows ->
-        Enum.map(rows, fn row -> %{row | path: test_path(row.path, options.source)} end)
-      end)
-
+  defp put_selected_meta(wire, meta, options) do
     wire
-    |> Map.put("since", detail_value_to_wire(since))
-    |> Map.put("complete", incomplete == [])
-    |> Map.put("incomplete_reasons", paths)
+    |> put_since(meta, options)
+    |> put_incomplete(meta, options)
     |> put_auto_meta(meta, options)
   end
 
-  defp put_selected_meta(wire, meta, options), do: put_auto_meta(wire, meta, options)
+  defp put_since(wire, %{since: since}, options) do
+    since =
+      Enum.reduce([:unmapped, :out_of_scope, :uncovered], since, fn key, since ->
+        Map.update(since, key, [], fn rows ->
+          Enum.map(rows, fn row -> %{row | path: test_path(row.path, options.source)} end)
+        end)
+      end)
+
+    Map.put(wire, "since", detail_value_to_wire(since))
+  end
+
+  defp put_since(wire, _meta, _options), do: wire
+
+  defp put_incomplete(wire, %{incomplete_reasons: incomplete}, options) do
+    reason_rows =
+      for %{reason: reason, path: path} <- incomplete do
+        %{"reason" => to_string(reason), "path" => if(path, do: test_path(path, options.source))}
+      end
+
+    Map.put(wire, "incomplete_reasons", reason_rows)
+  end
+
+  defp put_incomplete(wire, _meta, _options), do: wire
 
   defp put_auto_meta(wire, %{tests_selected: selected, escalation: steps}, options) do
     reveal? = options.source
@@ -1229,7 +1269,54 @@ defmodule MutagenEx.JsonReporter do
       |> put_source(render_result(site, options.source), options)
       |> Map.take(~w(id file function line excerpt_line mutator before_source after))
 
-    if options.source, do: Map.put_new(wire, "excerpt_line", site.line), else: wire
+    if options.source do
+      wire |> Map.put_new("excerpt_line", site.line) |> put_summary_line(site)
+    else
+      wire
+    end
+  end
+
+  defp put_summary_line(wire, %{source_span: {offset, length}, source_text: source} = site)
+       when is_binary(source) and offset >= 0 and length > 0 and
+              offset + length <= byte_size(source) do
+    line_start = source_line_start(source, offset)
+    before = binary_part(source, line_start, offset - line_start)
+    suffix_start = offset + length
+    suffix = binary_part(source, suffix_start, byte_size(source) - suffix_start)
+    [after_excerpt | _] = :binary.split(suffix, "\n")
+
+    with {excerpt, _line} <- verified_source(site),
+         false <- String.contains?(excerpt, "\n"),
+         true <- String.contains?(before, excerpt) or String.contains?(after_excerpt, excerpt),
+         true <- is_binary(wire["after"]) do
+      prefix = context_prefix(before)
+      suffix = context_suffix(after_excerpt)
+
+      Map.merge(wire, %{
+        "before_line" => Sanitizer.source(prefix <> excerpt <> suffix),
+        "after_line" => Sanitizer.source(prefix <> wire["after"] <> suffix)
+      })
+    else
+      _ -> wire
+    end
+  end
+
+  defp put_summary_line(wire, _site), do: wire
+
+  defp source_line_start(_source, 0), do: 0
+
+  defp source_line_start(source, offset) do
+    if :binary.at(source, offset - 1) == ?\n,
+      do: offset,
+      else: source_line_start(source, offset - 1)
+  end
+
+  defp context_prefix(text) do
+    if String.length(text) > 72, do: "…" <> String.slice(text, -71, 71), else: text
+  end
+
+  defp context_suffix(text) do
+    if String.length(text) > 72, do: String.slice(text, 0, 71) <> "…", else: text
   end
 
   defp site_to_wire(site, options) do
@@ -1296,6 +1383,9 @@ defmodule MutagenEx.JsonReporter do
 
         {:escalation_rejected, kind, paths} ->
           render_host_names(kind, paths, options.source)
+
+        {:mutant_deadline_below_baseline, deadline_ms, baseline_ms} ->
+          ["mutant_deadline_below_baseline: #{deadline_ms} ms < #{baseline_ms} ms"]
 
         {:host_supervisor_changed, name} ->
           [Sanitizer.clean("host_supervisor_changed: #{name}")]

@@ -135,7 +135,8 @@ defmodule MutagenEx.Baseline do
       options =
         MutagenEx.Test.ExUnit.options(cfg.seed, cfg.test_filter, :infinity)
         |> MutagenEx.Test.FailureFormatter.attach(fn _runner, test ->
-          :ets.insert(failures, {System.unique_integer([:monotonic]), {test.module, test.name}})
+          failure = {test.module, test.name, test.tags[:file]}
+          :ets.insert(failures, {System.unique_integer([:monotonic]), failure})
         end)
 
       :ok = register_test_modules(cfg, modules)
@@ -210,7 +211,8 @@ defmodule MutagenEx.Baseline do
        %{
          passed: passed,
          failed: failures,
-         failures: failure_list,
+         failures: Enum.map(failure_list, fn {module, name, _file} -> {module, name} end),
+         failing_files: failing_files(cfg.test_filter.files, failure_list),
          warnings: warnings,
          suite_stats: exunit_result,
          message: "baseline: #{failures} test failure(s) before any mutation"
@@ -232,6 +234,16 @@ defmodule MutagenEx.Baseline do
      %{
        message: "ExUnit.run/0 returned an unexpected shape (#{inspect(other)})"
      }}
+  end
+
+  defp failing_files(selected, failures) do
+    paths = Map.new(selected, &{Path.expand(&1), &1})
+
+    for {_, _, file} <- failures,
+        is_binary(file),
+        {:ok, selected_path} <- [Map.fetch(paths, Path.expand(file))],
+        uniq: true,
+        do: selected_path
   end
 
   # r2 second clause: detect `async: true` test modules in the cited

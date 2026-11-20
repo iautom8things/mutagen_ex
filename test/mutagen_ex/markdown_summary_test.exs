@@ -63,6 +63,47 @@ defmodule MutagenEx.MarkdownSummaryTest do
     assert_golden("summary_classic", report([site(2, :killed), site(3, :survived)]))
   end
 
+  @tag spec: "mutagen.json_schema.r37"
+  test "timeouts keep the verdict partial even when every completed mutant was killed" do
+    doc = report([site(2, :killed), site(3, :timeout)])
+    assert doc["summary"]["verdict"] == "partly_checked"
+
+    text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+    assert text =~ "1 unevaluated · kill rate 100.0% (1/1 evaluated)"
+  end
+
+  @tag spec: "mutagen.json_schema.r38"
+  test "names each escalation pass when their share of wall time exceeds half" do
+    steps = [
+      %{
+        step: :module,
+        wall_ms: 120,
+        files_added: [],
+        capped: false,
+        survivors_in: 0,
+        survivors_out: 0
+      },
+      %{
+        step: :function,
+        wall_ms: 35,
+        files_added: [],
+        capped: false,
+        survivors_in: 0,
+        survivors_out: 0
+      }
+    ]
+
+    for {total, count} <- [{310, 0}, {309, 2}] do
+      doc =
+        report([], meta: %{timings_ms: %{total: total}, tests_selected: [], escalation: steps})
+
+      assert length(doc["summary"]["notes"]) == count
+      text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+      assert String.contains?(text, "module escalation pass took 120 ms") == (count == 2)
+      assert String.contains?(text, "function escalation pass took 35 ms") == (count == 2)
+    end
+  end
+
   defp assert_golden(name, doc) do
     path = Path.join([__DIR__, "golden", "#{name}.md"])
     actual = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()

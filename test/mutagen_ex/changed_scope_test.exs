@@ -3,6 +3,7 @@ defmodule MutagenEx.ChangedScopeTest do
 
   alias MutagenEx.{ChangedRun, ChangedScope, Config}
   alias MutagenEx.JsonReporter.Report
+  alias MutagenEx.Pipeline.Phases
 
   defmodule ControlledGit do
     def changed_lines(ref, opts), do: Process.get(:diff).(ref, opts)
@@ -21,10 +22,11 @@ defmodule MutagenEx.ChangedScopeTest do
 
     config = %Config{since: "HEAD", scopes: [], tests: ["auto"]}
     report = %Report{}
+    phases = %Phases{config: config, dispatch: %{}, output: %{}}
 
     Mix.Project.in_project(:changed_run_umbrella_fixture, dir, fn _ ->
       assert {:abort, ^report, ^config, :umbrella_root, _} =
-               ChangedRun.run(config, report, %{command: nil})
+               ChangedRun.run(phases, report, nil, fn _, _ -> flunk("attempted host boot") end)
     end)
   end
 
