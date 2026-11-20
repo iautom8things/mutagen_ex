@@ -188,21 +188,27 @@ defmodule MutagenEx.CLI do
   # because we declare `--json` as `:string`. Catch it before parsing so the
   @doc false
   def report_options(argv) do
-    with {:ok, parsed, _, _} <- option_parse(argv),
-         {:ok, path} <- pick_json_path(parsed) do
-      %Config{
-        scopes: [],
-        tests: [],
-        json_path: path,
-        source: Keyword.get(parsed, :source, true),
-        max_concurrency: report_max_concurrency(parsed),
-        include_host_output: Keyword.get(parsed, :include_host_output, false),
-        unsafe_json_outside_project: pick_unsafe_outside_project(parsed)
-      }
-    else
-      _ -> %Config{scopes: [], tests: []}
-    end
+    {:ok, parsed, _, _} = option_parse(argv)
+
+    default = %Config{scopes: [], tests: []}
+    timeout = valid_report_path(pick_timeout(parsed))
+
+    %Config{
+      scopes: [],
+      tests: [],
+      json_path: valid_report_path(pick_json_path(parsed)),
+      summary_path: valid_report_path(pick_summary_path(parsed)),
+      timeout_ms: timeout || default.timeout_ms,
+      timeout_override: timeout != nil and Keyword.has_key?(parsed, :timeout_ms),
+      source: Keyword.get(parsed, :source, true),
+      max_concurrency: report_max_concurrency(parsed),
+      include_host_output: Keyword.get(parsed, :include_host_output, false),
+      unsafe_json_outside_project: pick_unsafe_outside_project(parsed)
+    }
   end
+
+  defp valid_report_path({:ok, path}), do: path
+  defp valid_report_path({:error, _, _}), do: nil
 
   defp report_max_concurrency(parsed) do
     case pick_max_concurrency(parsed) do

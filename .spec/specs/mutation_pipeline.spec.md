@@ -30,6 +30,7 @@ status: active
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
   - lib/mutagen_ex/selected_run.ex
+  - lib/mutagen_ex/pipeline/phases.ex
   - lib/mutagen_ex/baseline.ex
   - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
@@ -472,10 +473,10 @@ decisions:
     When the resolved `max_concurrency == 1`, the runner is SILENT: no
     EXPERIMENTAL warning is written to stderr.
 
-    This is the gate half of the parallel-mode fork: the default
+    In parallel mode, the default
     remains the fully-serial, v1.0-equivalent `max_concurrency == 1`
     (r15), and `> 1` is offered as a warned, opt-in path rather than
-    blocked. The user-facing documentation mirrors the gate: `mix help
+    rejected. The user-facing documentation mirrors this behavior: `mix help
     mutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`
     option text) and the README both mark `--max-concurrency > 1`
     EXPERIMENTAL with the same risk language. The real fix for the
@@ -639,9 +640,11 @@ decisions:
     unloadable, crashed and timed-out candidates leave the run. If
     otherwise green files fail together, add them in ranked order while
     the combined baseline stays green. Replay accepted files' load-time environment
-    changes for the selected batch. If a step cannot
-    complete, retain the narrow results and warn. Explicit tests and mutation budget
-    truncation disable escalation. Taint carries into later passes.
+    changes for the selected batch. A known coverage failure during
+    escalation leaves earlier results intact and marks the run incomplete.
+    Unexpected exceptions abort with an escalation error. Explicit tests
+    and mutation budget truncation disable escalation. Taint carries
+    into later passes.
 
 - id: mutagen.mutation_pipeline.r32
   priority: must
@@ -991,7 +994,7 @@ decisions:
     - mutagen.mutation_pipeline.r34
     - mutagen.mutation_pipeline.r35
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.mutation_pipeline.r32
     - mutagen.mutation_pipeline.r33

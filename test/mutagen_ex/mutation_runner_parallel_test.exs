@@ -303,7 +303,7 @@ defmodule MutagenEx.MutationRunnerParallelTest do
   # r15: byte-identical aggregate output across max_concurrency values
   # ---------------------------------------------------------------------------
 
-  describe "byte-identical determinism (r15 merge gate)" do
+  describe "byte-identical output (r15)" do
     @describetag spec: "mutagen.mutation_pipeline.r15"
 
     test "parallel and serial runs produce byte-equal results on deterministic input" do

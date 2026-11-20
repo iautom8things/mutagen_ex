@@ -16,7 +16,7 @@ defmodule MutagenEx.ReportSummaryTest do
     summary =
       report(two ++ three ++ mixed ++ timed ++ [low, tainted])["summary"]
 
-    assert summary["verdict"] == "check_first"
+    assert summary["verdict"] == "partly_checked"
 
     assert [
              %{
@@ -123,8 +123,33 @@ defmodule MutagenEx.ReportSummaryTest do
     assert %{"verdict" => "incomplete", "worth_a_look" => [], "check_first" => []} =
              report([site("narrow_only", 2, :survived)], [pending("pending", 9)],
                meta: since(),
-               warnings: ["escalation_failed"]
+               truncated: true
              )["summary"]
+  end
+
+  @tag spec: ["mutagen.json_schema.r31", "mutagen.json_schema.r36"]
+  test "pending, unevaluated and truncated runs agree with the completeness signal" do
+    killed = site("covered", 2, :killed)
+    assert report([killed], [], meta: since())["summary"]["verdict"] == "nothing_to_check"
+
+    for {results, pending} <- [
+          {[killed], [pending("uncovered", 3)]},
+          {[site("timeout", 2, :timeout)], []}
+        ] do
+      assert %{"summary" => %{"verdict" => "partly_checked"}, "meta" => %{"complete" => true}} =
+               report(results, pending, meta: since())
+    end
+
+    assert %{"summary" => %{"verdict" => "incomplete"}, "meta" => %{"complete" => false}} =
+             report([killed], [], meta: since(), truncated: true)
+
+    with_skip = %Report{mutation: %{results: [killed], skipped: [%{site_id: "skip"}]}}
+
+    assert %{"verdict" => "partly_checked", "unevaluated" => %{"skipped" => 1}} =
+             ReportSummary.build(with_skip)
+
+    low = %{site("low", 3, :survived) | mutator: :pipeline}
+    assert report([low])["summary"]["verdict"] == "worth_a_look"
   end
 
   @tag spec: "mutagen.json_schema.r36"
@@ -141,7 +166,8 @@ defmodule MutagenEx.ReportSummaryTest do
   test "a marked kill counts and explains why its function is absent from check first" do
     survivors = sites("mixed", [:survived, :survived, :survived])
     selection = %{killed_at: :module, steps_run: [:narrow, :module], after_dropped_file: true}
-    weak_kill = Map.put(site("mixed", 5, :killed), :selection, selection)
+    weak_kill = %{site("mixed", 5, :killed) | mutator: :pipeline}
+    weak_kill = Map.put(weak_kill, :selection, selection)
     following_survivor = Map.put(site("another", 6, :survived), :selection, selection)
 
     meta =

@@ -1,4 +1,6 @@
-**Mutagen found functions to check first.** 4 mutants run · 3 killed · 1 survived · 1 unevaluated · kill rate 75.0% · 1 changed file · 5 changed functions
+**Tests failed on the unmutated code** `checks/red_test.exs`.
+
+**Mutagen checked only part of the selected code.** 4 mutants run · 3 killed · 1 survived · 1 unevaluated · kill rate 75.0% · 1 changed file · 5 changed functions
 
 ### Check first
 
@@ -28,5 +30,4 @@
 
 - 3 kills followed a dropped test file and may reflect its effects on the run.
 - Escalation tried to load 2 test files that it later dropped.
-- Skipped 1 test file during escalation (tests failed on original code) in `checks/red_test.exs`.
 - Skipped 1 test file during escalation (test files failed to load) in `checks/broken_test.exs`.

@@ -33,7 +33,7 @@ pass. Add newly covered sites to the pass that discovers their coverage.
 
 Keep per-mutant fail-fast on for changed-code runs. When skipping a test
 leaves cross-test state behind, a later mutant can be killed falsely. This
-costs a missed warning and cannot make that false kill block the run.
+can cause the report to miss a survivor.
 Users can request full mutation passes with `--no-fail-fast`.
 
 Derive the default mutant deadline from the unmutated baseline of the

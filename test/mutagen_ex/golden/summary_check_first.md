@@ -2,7 +2,7 @@
 
 ### Check first
 
-- `lib/fixture.ex:1` `Fixture.fixture/1`. All evaluated high-confidence mutants survived (3 mutants, 3 survived, 3 executed).
+- `lib/fixture.ex:1` `Fixture.fixture/1`. Every evaluated mutant survived (3 mutants, 3 survived, 3 executed).
 
   ```diff
   - x + 1

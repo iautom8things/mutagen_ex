@@ -1,6 +1,7 @@
 defmodule MutagenEx.FailFastTest do
   use ExUnit.Case, async: false
 
+  alias MutagenEx.Pipeline.Phases
   alias MutagenEx.TestSelector.TestFilter
 
   @fixtures Path.expand("../fixtures/lane_project", __DIR__)
@@ -177,17 +178,21 @@ defmodule MutagenEx.FailFastTest do
   @tag scenario: :before_failure
   @tag spec: ["mutagen.mutation_pipeline.r30", "mutagen.json_schema.r30"]
   test "reports the measured baseline duration and sends its scaled deadline to the runner" do
-    Process.put(:baseline_clock, [0, System.convert_time_unit(1_200, :millisecond, :native)])
+    calls = :counters.new(1, [])
 
-    clock = fn ->
-      [tick | rest] = Process.get(:baseline_clock)
-      Process.put(:baseline_clock, rest)
-      tick
+    clock = fn
+      :baseline ->
+        ticks = :counters.get(calls, 1)
+        :counters.add(calls, 1, 1)
+        System.convert_time_unit(ticks * 1_200, :millisecond, :native)
+
+      _phase ->
+        System.monotonic_time()
     end
 
     {output, _, _} =
       invoke([], 0, {@fixture, @source, @tests}, %{
-        baseline_clock: clock,
+        clock: clock,
         mutation: __MODULE__.TraceMutation
       })
 
@@ -195,6 +200,12 @@ defmodule MutagenEx.FailFastTest do
              :json.decode(output)["meta"]["timings_ms"]
 
     assert Process.get(:observed_mutant_deadline) == 12_000
+
+    config = %MutagenEx.Config{scopes: [], tests: [], timeout_override: true, timeout_ms: 7_000}
+    report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 1_200}}}
+
+    timed = Phases.put_mutant_deadline(report, config)
+    assert timed.meta.timings_ms.mutant_deadline == 7_000
   end
 
   @tag scenario: :slow_cleanup
@@ -229,8 +240,10 @@ defmodule MutagenEx.FailFastTest do
            } = finish
 
     assert aggregate["mutation"]["results"] == [Map.drop(result, ["version", "kind"])]
-    assert Map.delete(aggregate["meta"], "timings_ms") == start["meta"]
-    assert start["meta"] == finish["meta"]
+    assert Map.drop(aggregate["meta"], ["timings_ms", "complete"]) == start["meta"]
+    assert finish["meta"] == Map.put(start["meta"], "complete", false)
+    assert aggregate["meta"]["complete"] == false
+    assert aggregate["summary"]["verdict"] == "incomplete"
     refute Map.has_key?(aggregate, "kind")
     refute Map.has_key?(result, "meta")
     assert aggregate["truncated"]

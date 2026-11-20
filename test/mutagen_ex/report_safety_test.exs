@@ -238,6 +238,7 @@ defmodule MutagenEx.ReportSafetyTest do
     declared = JsonReporter.abort_reasons() |> Enum.sort()
     assert "diff_unavailable" in declared
     assert "invalid_since_ref" in declared
+    assert "escalation_crashed" in declared
 
     for path <- ["README.md", ".spec/specs/json_schema.spec.md"] do
       [_, section] =
@@ -253,11 +254,10 @@ defmodule MutagenEx.ReportSafetyTest do
 
     refute Mix.Tasks.Mutagen |> Code.fetch_docs() |> elem(4) |> Map.fetch!("en") =~ ~r/`reason: :/
 
-    Process.put(:mutagen_json_path_project_root, dir)
     scope = "test/fixtures/lane_project/lib/lane_fixture/arith.ex"
     cited = "test/fixtures/lane_project/test/lane_fixture/arith_test.exs"
     args = ["--scope", scope, "--tests", cited, "--json", "error.json"]
-    dispatch = %{coverage: AbortCoverage, io: WriteWithoutHalt}
+    dispatch = %{coverage: AbortCoverage, io: WriteWithoutHalt, project_root: dir}
 
     assert {:aborted, :missing_scope, _} =
              Mix.Tasks.Mutagen.run(~w(--tests) ++ [cited] ++ ~w(--json error.json), dispatch)

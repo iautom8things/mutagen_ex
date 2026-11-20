@@ -72,17 +72,17 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
     %{
       name: "mutators",
       lib: "lib/mutagen_ex/mutators.ex",
-      test: "test/mutagen_ex/mutators_test.exs"
+      tests: ["test/mutagen_ex/mutators_test.exs"]
     },
     %{
       name: "scope_resolver",
       lib: "lib/mutagen_ex/scope_resolver.ex",
-      test: "test/mutagen_ex/scope_resolver_test.exs"
+      tests: ["test/mutagen_ex/scope_resolver_test.exs"]
     },
     %{
       name: "json_reporter",
       lib: "lib/mutagen_ex/json_reporter.ex",
-      test: "test/mutagen_ex/json_reporter_test.exs"
+      tests: ["test/mutagen_ex/json_reporter_test.exs", "test/mutagen_ex/report_summary_test.exs"]
     }
   ]
 
@@ -149,13 +149,13 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
       File.write!(dest, contents)
     end)
 
-    # 2. Copy each target's cited test file under the shadow namespace.
-    Enum.each(targets, fn t ->
-      contents = File.read!(Path.join(project_root, t.test)) |> rewrite()
-      dest = Path.join(shadow_dir, shadow_test_path(t.test))
+    # 2. Copy the tests for each target under the shadow namespace.
+    for original <- Enum.flat_map(targets, & &1.tests) |> Enum.uniq() do
+      contents = File.read!(Path.join(project_root, original)) |> rewrite()
+      dest = Path.join(shadow_dir, shadow_test_path(original))
       File.mkdir_p!(Path.dirname(dest))
       File.write!(dest, contents)
-    end)
+    end
 
     # 3. Minimal mix.exs: the shadow app depends only on the real mutagen_ex
     #    for the `mix mutagen` task. No test aliases — the harness drives
@@ -187,7 +187,7 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
 
   defp run_target(target, shadow_dir) do
     scope = "lib/" <> rewrite_path(Path.relative_to(target.lib, "lib"))
-    tests = shadow_test_path(target.test)
+    tests = Enum.map(target.tests, &shadow_test_path/1)
 
     # Pin a tight per-mutation timeout. The CLI default was raised to
     # 30_000 ms for app-shaped (Phoenix/Ecto) suites that boot a host app
@@ -198,8 +198,10 @@ defmodule MutagenEx.Integration.SelfMutationHarness do
     # overruns the CI lane. 5_000 ms is the value this test ran green under
     # before the default changed; it does not alter what the test asserts
     # (that mutagen produces a self-mutation score without aborting).
+    test_flags = Enum.flat_map(tests, &["--tests", &1])
+
     {out, code} =
-      System.cmd("mix", ["mutagen", "--scope", scope, "--tests", tests, "--timeout-ms", "5000"],
+      System.cmd("mix", ["mutagen", "--scope", scope, "--timeout-ms", "5000"] ++ test_flags,
         cd: shadow_dir,
         stderr_to_stdout: false,
         env: clean_env()

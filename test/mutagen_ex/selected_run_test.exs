@@ -4,6 +4,21 @@ defmodule MutagenEx.SelectedRunTest do
   alias MutagenEx.{Config, SelectedRun, TestSelector}
   alias MutagenEx.JsonReporter.Report
 
+  defmodule TestPhases do
+    @moduledoc false
+
+    def coverage(callbacks, _, filter, modules, report),
+      do: callbacks.coverage.(filter, modules, report)
+
+    def test_input(callbacks, coverage, filter, report),
+      do: callbacks.test_input.(coverage, filter, report)
+
+    def baseline(callbacks, input, report), do: callbacks.baseline.(input, report)
+
+    def mutation(callbacks, _, input, sites, budget, report),
+      do: callbacks.mutation.(input, sites, budget, report)
+  end
+
   @tag spec: ["mutagen.mutation_pipeline.r28", "mutagen.json_schema.r28"]
   test "runner drops and covered sites without results stay pending, with fixed drop reasons" do
     covered_a = entry("a", "src/a.ex")
@@ -14,7 +29,8 @@ defmodule MutagenEx.SelectedRunTest do
     plan = %{
       sites: entries,
       selection: nil,
-      meta: %{run: 0},
+      meta: %{run: 0, uncovered: []},
+      changed_lines: %{},
       incomplete: []
     }
 
@@ -49,7 +65,9 @@ defmodule MutagenEx.SelectedRunTest do
       end
     }
 
-    assert {:ok, report, outcome} = SelectedRun.run(plan, report, config, filter, [], phases)
+    assert {:ok, report, outcome} =
+             SelectedRun.run(plan, report, config, filter, [], {TestPhases, phases})
+
     assert report.meta.incomplete_reasons == Enum.map(drops, &Map.delete(&1, :id))
     assert report.meta.since.run == 0
     refute Enum.any?(outcome.pending, &Map.has_key?(&1, :fingerprint))
@@ -101,9 +119,30 @@ defmodule MutagenEx.SelectedRunTest do
     candidate = write_candidate(dir, "candidate")
     phases = callbacks(self(), candidate, false, :coverage_abort)
     {report, outcome} = exercise(dir, ["auto"], phases)
-    assert "escalation_failed" in report.warnings
+    assert %{reason: :escalation_stopped, path: nil} in report.meta.incomplete_reasons
     assert report.baseline.passed == 1
     assert [%{status: :survived, selection: %{steps_run: [:narrow]}}] = outcome.results
+  end
+
+  @tag :tmp_dir
+  @tag spec: "mutagen.mutation_pipeline.r31"
+  test "an unexpected escalation exception aborts with a fixed reason", %{tmp_dir: dir} do
+    candidate = write_candidate(dir, "candidate")
+    phases = callbacks(self(), candidate, false, :ok)
+
+    phases = %{
+      phases
+      | coverage: fn
+          %{files: ["checks/narrow_test.exs"]} = filter, modules, report ->
+            phases.coverage.(filter, modules, report)
+
+          _, _, _ ->
+            raise ArgumentError, "fixture exception"
+        end
+    }
+
+    assert {:abort, _, _, :escalation_crashed, %{step: :escalation, exception: "ArgumentError"}} =
+             run_selected(dir, ["auto"], phases, nil)
   end
 
   @tag :tmp_dir
@@ -152,7 +191,14 @@ defmodule MutagenEx.SelectedRunTest do
     config = %Config{scopes: [], tests: ["auto"]}
 
     assert {:ok, _, outcome} =
-             SelectedRun.run(plan, report, config, filter, [Path.relative_to_cwd(dir)], phases)
+             SelectedRun.run(
+               plan,
+               report,
+               config,
+               filter,
+               [Path.relative_to_cwd(dir)],
+               {TestPhases, phases}
+             )
 
     assert %{status: :timeout, selection: %{steps_run: [:narrow]}} =
              Enum.find(outcome.results, &(&1.id == "timeout"))
@@ -193,6 +239,11 @@ defmodule MutagenEx.SelectedRunTest do
   end
 
   defp exercise(dir, tests, phases, config \\ nil) do
+    assert {:ok, result, outcome} = run_selected(dir, tests, phases, config)
+    {result, outcome}
+  end
+
+  defp run_selected(dir, tests, phases, config) do
     config = config || %Config{scopes: [], tests: tests, since: "HEAD"}
     file = "checks/narrow_test.exs"
     entry = Map.put(entry("id", "src/store.ex"), :function, "Fixture.Store.get/2")
@@ -200,17 +251,22 @@ defmodule MutagenEx.SelectedRunTest do
     plan = %{
       sites: [entry],
       selection: [%{path: file, why: :convention}],
-      meta: %{run: 0},
+      meta: %{run: 0, uncovered: []},
+      changed_lines: %{},
       incomplete: []
     }
 
     filter = %TestSelector.TestFilter{files: [file], include: [], exclude: []}
     report = %Report{meta: %{timings_ms: %{mutation: 0, baseline: 42}}, warnings: []}
 
-    assert {:ok, result, outcome} =
-             SelectedRun.run(plan, report, config, filter, [Path.relative_to_cwd(dir)], phases)
-
-    {result, outcome}
+    SelectedRun.run(
+      plan,
+      report,
+      config,
+      filter,
+      [Path.relative_to_cwd(dir)],
+      {TestPhases, phases}
+    )
   end
 
   defp callbacks(test, first, truncated, scenario) do
