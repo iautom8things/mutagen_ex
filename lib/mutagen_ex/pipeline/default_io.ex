@@ -50,6 +50,7 @@ defmodule MutagenEx.Pipeline.DefaultIo do
   end
 
   defp write_stdout(iodata) do
+    IO.puts(:stderr, "Use --json PATH for reliable reports in scripts and CI.")
     IO.write(Process.get(:mutagen_report_device, Process.group_leader()), iodata)
   end
 

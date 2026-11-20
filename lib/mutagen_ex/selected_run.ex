@@ -29,6 +29,8 @@ defmodule MutagenEx.SelectedRun do
       loads: %{},
       candidate_ms: %{},
       escalation_deadline: nil,
+      stage_missed_files?: false,
+      unfinished_escalation: MapSet.new(),
       dropped_files: MapSet.new(),
       coverage: %{covered_lines: %{}, coverable_lines: %{}},
       results: %{},
@@ -125,6 +127,7 @@ defmodule MutagenEx.SelectedRun do
     survivors_in = length(survivors(state))
     dropped_in = MapSet.size(state.dropped_files)
     state = update_in(state.report.meta.timings_ms, &Map.delete(&1, :mutant_deadline))
+    state = %{state | stage_missed_files?: false}
 
     {files, capped?, unreadable} =
       AutoTests.discover(stage, candidates, test_paths, state.tried, config.escalate_max_files)
@@ -134,6 +137,14 @@ defmodule MutagenEx.SelectedRun do
     with {:ok, admitted, state, probe_timeout} <- admit(files, timeout, state, phases),
          {admitted, state} <- fit_budget(admitted, state, config, length(candidates)),
          {:ok, state, added} <- run_stage(stage, admitted, plan, config, timeout, state, phases) do
+      state =
+        if state.stage_missed_files? do
+          affected = MapSet.new(candidates, & &1.id)
+          update_in(state.unfinished_escalation, &MapSet.union(&1, affected))
+        else
+          state
+        end
+
       step = %{
         step: stage,
         files_added: added,
@@ -467,10 +478,13 @@ defmodule MutagenEx.SelectedRun do
     reject(state, path, reason)
   end
 
+  defp reject(state, path, :escalation_budget_exhausted) do
+    add_rejection(%{state | stage_missed_files?: true}, path, :escalation_budget_exhausted)
+  end
+
   defp reject(state, path, reason) do
     warning =
       case reason do
-        :escalation_budget_exhausted -> :escalation_budget_exhausted
         :baseline_red -> :escalation_baseline_red
         :baseline_red_in_combination -> :escalation_baseline_red_in_combination
         :baseline_timeout -> :escalation_baseline_timeout
@@ -481,7 +495,11 @@ defmodule MutagenEx.SelectedRun do
         reason when reason in @coverage_errors -> :escalation_coverage_failed
       end
 
-    update_in(state.rejected, &Map.update(&1, warning, [path], fn paths -> [path | paths] end))
+    add_rejection(state, path, warning)
+  end
+
+  defp add_rejection(state, path, reason) do
+    update_in(state.rejected, &Map.update(&1, reason, [path], fn paths -> [path | paths] end))
   end
 
   defp mutate(_step, _plan, [], _config, state, _input, _phases), do: {:ok, state}
@@ -516,11 +534,14 @@ defmodule MutagenEx.SelectedRun do
           if state.escalation_deadline && length(reported) < length(sites) &&
                not state.truncated &&
                not fits?(state, report.meta.timings_ms[:mutant_deadline] || 1) do
-            Enum.reduce(
-              input.test_filter.files,
-              state,
-              &reject(&2, &1, :escalation_budget_exhausted)
-            )
+            # These files ran. The budget stopped only the remaining sites.
+            finished = MapSet.new(reported, & &1.id)
+            unfinished = MapSet.difference(expected, finished)
+            state = update_in(state.unfinished_escalation, &MapSet.union(&1, unfinished))
+
+            Enum.reduce(input.test_filter.files, state, fn file, acc ->
+              add_rejection(acc, file, :escalation_budget_exhausted)
+            end)
           else
             state
           end
@@ -561,7 +582,9 @@ defmodule MutagenEx.SelectedRun do
   end
 
   defp complete(plan, state) do
-    results = collect(plan.sites, state.results)
+    results =
+      plan.sites |> collect(state.results) |> mark_budget_skips(state.unfinished_escalation)
+
     compile_errors = collect(plan.sites, state.compile_errors)
 
     evaluated = MapSet.new(results ++ compile_errors, & &1.id)
@@ -618,7 +641,7 @@ defmodule MutagenEx.SelectedRun do
       if plan[:meta] do
         incomplete = plan.incomplete ++ Enum.map(state.dropped, &Map.take(&1, [:reason, :path]))
 
-        uncovered = ChangedScope.uncovered_lines(plan, state.coverage, evaluated)
+        uncovered = ChangedScope.uncovered_lines(plan, state.coverage, evaluated, pending)
 
         report.meta
         |> Map.put(:since, %{plan.meta | run: MapSet.size(evaluated), uncovered: uncovered})
@@ -671,6 +694,26 @@ defmodule MutagenEx.SelectedRun do
     for entry <- entries, outcome = Map.get(outcomes, entry.id), outcome != nil do
       annotate(outcome, entry)
     end
+  end
+
+  defp mark_budget_skips(results, unfinished) do
+    Enum.map(results, fn
+      %{status: :survived, id: id, selection: selection} = result ->
+        if MapSet.member?(unfinished, id) do
+          selection =
+            Map.merge(selection, %{
+              escalation_incomplete: true,
+              escalation_incomplete_reason: :escalation_budget_exhausted
+            })
+
+          %{result | selection: selection}
+        else
+          result
+        end
+
+      result ->
+        result
+    end)
   end
 
   defp pending_site(entry, reason) do

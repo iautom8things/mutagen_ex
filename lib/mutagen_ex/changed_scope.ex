@@ -302,16 +302,29 @@ defmodule MutagenEx.ChangedScope do
     end
   end
 
-  def uncovered_lines(plan, coverage, evaluated) do
+  def uncovered_lines(plan, coverage, evaluated, pending) do
+    uncovered = MapSet.new(for %{id: id, reason: :uncovered} <- pending, do: id)
+
+    spans_by_file =
+      for %{file: file, id: id, coverage_location: {_, {first, last}, _, _}} <- plan.sites,
+          MapSet.member?(uncovered, id),
+          do: {file, {first, last}}
+
+    spans_by_file = Enum.group_by(spans_by_file, &elem(&1, 0), &elem(&1, 1))
+
     for {path, lines} <- Enum.sort(plan.changed_lines),
         spans = Map.get(plan.multi_line_sites, path, []),
         spans != [],
         {_ast, source} <- List.wrap(plan.cache[path]),
         hit = Map.get(coverage.covered_lines, path, MapSet.new()),
         measured = Map.get(coverage.coverable_lines, path, MapSet.new()),
-        missed = MapSet.difference(measured, hit),
+        uncovered_spans = Map.get(spans_by_file, path, []),
         ranges = evaluated_ranges(lines, spans, evaluated),
-        ranges = code_ranges(source, ranges, &MapSet.member?(missed, &1)),
+        ranges =
+          code_ranges(source, ranges, fn line ->
+            not MapSet.member?(hit, line) and
+              (MapSet.member?(measured, line) or overlaps?({line, line}, uncovered_spans))
+          end),
         ranges != [] do
       row(path, ranges)
     end

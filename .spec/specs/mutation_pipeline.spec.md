@@ -488,7 +488,7 @@ decisions:
 - id: mutagen.mutation_pipeline.r19
   priority: must
   statement: |
-    The default per-mutant deadline is ten times the measured baseline
+    The default per-mutant deadline is five times the measured baseline
     duration with a five-second floor and no ceiling. An explicit
     `--timeout-ms` sets the deadline. A deadline below the measured
     baseline adds the fixed `mutant_deadline_below_baseline` warning.
@@ -626,7 +626,7 @@ decisions:
 - id: mutagen.mutation_pipeline.r30
   priority: must
   statement: |
-    Each mutation pass uses a deadline of ten times the measured baseline
+    Each mutation pass uses a deadline of five times the measured baseline
     duration with a five-second floor.
     An explicit --timeout-ms overrides the calculation. A timeout with
     fail-fast on kills a mutant only when a failure was recorded before
