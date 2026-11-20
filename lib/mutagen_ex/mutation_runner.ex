@@ -859,6 +859,11 @@ defmodule MutagenEx.MutationRunner do
       source_text: source_text
     }
 
+    result =
+      if status == :timeout,
+        do: Map.put(result, :timeout_window, post_meta.timeout_window),
+        else: result
+
     _ = on_site_completed.({:result, result})
 
     {:cont,

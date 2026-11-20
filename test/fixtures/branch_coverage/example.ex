@@ -139,7 +139,9 @@ defmodule ChangedRunFixture.Example do
     with {:ok, y} <- x do
       y
     else
-      _ -> {:error, false}
+      _ ->
+        _ = System.unique_integer()
+        {:error, false}
     end
   end
 

@@ -22,14 +22,17 @@ file for traceability.
   from the report to rerun one mutation. Mutagen exits 0 for a report,
   including partial results, and 2 for an abort. An abort writes the
   reason and hint to both requested reports.
-- The default per-mutant deadline is ten times the baseline duration with
+- The default per-mutant deadline is five times the baseline duration with
   a five-second floor. With a fast baseline, a
   mutant that sleeps for seven seconds now times out where it previously
   could survive. Use `--timeout-ms` to set a deadline explicitly. Mutagen
-  warns when that deadline is shorter than the baseline.
+  warns when that deadline is shorter than the baseline. When three or more
+  mutants time out and their waits take over half the mutation phase, the
+  summary points to `--timeout-ms` and `--budget-ms`.
 - Coverage distinguishes zero-hit counters from lines OTP did not
   instrument. For sites on uninstrumented lines, Mutagen checks the site's
-  own span, then its enclosing clause body if the span has no counters.
+  own span, then its innermost branch body if the span has no counters.
+  Outside a branch, the fallback is the site's own clause body.
 - Use `--json PATH` and `--summary PATH` in CI. The report file stays
   parseable when OTP writes logger fallback messages to stdout.
 - Escalation uses a two-minute budget by default. Only changed test files

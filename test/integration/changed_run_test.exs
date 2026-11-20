@@ -1245,6 +1245,80 @@ defmodule MutagenEx.ChangedRunTest do
     assert report["mutation"]["killed"] == 2
   end
 
+  @tag spec: ["mutagen.cli.r36", "mutagen.json_schema.r34", "mutagen.json_schema.r37"]
+  test "a survivor left by the escalation budget carries its reason and a wider rerun", %{
+    repo: repo
+  } do
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def add(x), do: x + 3
+    end
+    """)
+
+    write(
+      repo,
+      @convention,
+      test_case("WeakAdd", """
+      test "checks the type", do: assert(is_integer(ChangedRunFixture.Example.add(2)))
+      """)
+    )
+
+    candidate = "checks/exact_add_test.exs"
+
+    write(
+      repo,
+      candidate,
+      test_case("ExactAdd", """
+      test "checks the value", do: assert(ChangedRunFixture.Example.add(2) == 4)
+      """)
+    )
+
+    base = commit(repo)
+
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def add(x), do: x + 2
+    end
+    """)
+
+    args = ["--since", base]
+
+    report =
+      run(
+        repo,
+        args ++
+          ["--escalate-budget-ms", "1", "--escalate-max-files", "1", "--summary", "summary.md"]
+      )
+
+    assert [
+             %{
+               "status" => "survived",
+               "selection" => %{
+                 "escalation_incomplete" => true,
+                 "escalation_incomplete_reason" => "escalation_budget_exhausted"
+               }
+             }
+           ] = report["mutation"]["results"]
+
+    assert report["summary"]["check_first"] == []
+
+    assert [%{"rerun" => rerun, "escalation_incomplete" => true}] =
+             report["summary"]["worth_a_look"]
+
+    assert rerun =~ "--escalate-max-files 40"
+    refute rerun =~ "--escalate-budget-ms"
+    assert "escalation_budget_exhausted: #{candidate}" in report["warnings"]
+
+    markdown = File.read!(Path.join(repo, "summary.md"))
+    assert markdown =~ "not fully escalated"
+    assert markdown =~ "the escalation budget ran out"
+    assert markdown =~ "`--escalate-budget-ms`"
+
+    complete = run(repo, args ++ ["--escalate-budget-ms", "0"])
+    assert [%{"status" => "killed", "selection" => selection}] = complete["mutation"]["results"]
+    refute Map.has_key?(selection, "escalation_incomplete")
+  end
+
   @tag spec: ["mutagen.mutation_pipeline.r35", "mutagen.json_schema.r34"]
   test "admits a green six-second test that kills limit mutants", %{repo: repo} do
     original = """

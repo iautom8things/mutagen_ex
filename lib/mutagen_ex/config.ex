@@ -111,6 +111,6 @@ defmodule MutagenEx.Config do
     do: timeout_ms
 
   def mutant_deadline(%__MODULE__{}, baseline_ms) do
-    max(to_timeout(second: 5), 10 * baseline_ms)
+    max(to_timeout(second: 5), 5 * baseline_ms)
   end
 end

@@ -608,7 +608,8 @@ decisions:
     --site ID runs just the selected site, by report ID or by its opaque
     reference. An unknown site produces an abort document. The generated
     command reruns the site with automatic discovery and a larger search
-    allowance. With --since it retains the original merge base.
+    allowance of 40 files per function in each pass and the default time
+    budget. With --since it retains the original merge base.
 
 - id: mutagen.cli.r37
   priority: must

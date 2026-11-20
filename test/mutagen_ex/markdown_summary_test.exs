@@ -72,6 +72,54 @@ defmodule MutagenEx.MarkdownSummaryTest do
     assert text =~ "1 unevaluated · kill rate 100.0% (1/1 evaluated)"
   end
 
+  @tag spec: "mutagen.json_schema.r37"
+  test "gives distinct wording for existing symlinks and submodules under source roots" do
+    meta = %{
+      incomplete_reasons: [
+        %{reason: :preexisting_symlink, path: "lib/linked"},
+        %{reason: :preexisting_gitlink, path: "lib/nested"}
+      ]
+    }
+
+    text = [] |> report(meta: meta) |> MarkdownSummary.render() |> IO.iodata_to_binary()
+    assert text =~ "did not read a symlink under the source root in `lib/linked`"
+    assert text =~ "did not read a submodule under the source root in `lib/nested`"
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "headlines JSON survivors when every survivor has low confidence" do
+    low = %{site(2, :survived) | mutator: :guard_drop}
+    text = [low] |> report() |> MarkdownSummary.render() |> IO.iodata_to_binary()
+
+    assert text =~ "**Mutagen found low-confidence survivors in the JSON (0 ranked).**"
+  end
+
+  @tag spec: "mutagen.json_schema.r40"
+  test "timeout notes require three mutants and more than half the mutation wall time" do
+    first = {0, 100}
+    second = {75, 175}
+    third = {200, 300}
+
+    for {windows, wall_ms, note?} <- [
+          {[first, second], 200, false},
+          {[first, second, third], 550, false},
+          {[first, second, third], 549, true}
+        ] do
+      results =
+        for {{start, stop}, line} <- Enum.with_index(windows, 2) do
+          window = {native_time(start), native_time(stop)}
+          Map.put(site(line, :timeout), :timeout_window, window)
+        end
+
+      doc = report(results, meta: %{timings_ms: %{mutation: wall_ms}})
+      expected = if note?, do: [%{"kind" => "mutation_timeouts_dominate", "count" => 3}], else: []
+      assert doc["summary"]["notes"] == expected
+
+      text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+      assert String.contains?(text, "Consider `--timeout-ms` or `--budget-ms`") == note?
+    end
+  end
+
   @tag spec: "mutagen.json_schema.r38"
   test "names each escalation pass when their share of wall time exceeds half" do
     steps = [
@@ -120,6 +168,8 @@ defmodule MutagenEx.MarkdownSummaryTest do
   end
 
   defp report(results), do: report(results, [])
+
+  defp native_time(ms), do: System.convert_time_unit(ms, :millisecond, :native)
 
   defp since do
     %{
