@@ -53,15 +53,84 @@ defmodule MutagenEx.Pipeline.DefaultIo do
     IO.write(Process.get(:mutagen_report_device, Process.group_leader()), iodata)
   end
 
+  @report_pipe_env "MUTAGEN_INTERNAL_REPORT_PIPE"
+
+  # OTP's erlang:display/1 writes to fd 1 without going through :user.
+  # Give the host VM a separate report descriptor before it starts.
   @doc false
-  def with_report_device(fun) do
-    stdout = Process.group_leader()
+  def report_pipe(argv, ebin) do
+    case System.get_env(@report_pipe_env) do
+      "4" ->
+        System.delete_env(@report_pipe_env)
+        File.open("/dev/fd/4", [:write, :binary, encoding: :utf8])
+
+      _ ->
+        launch_with_report_pipe(argv, ebin)
+    end
+  end
+
+  defp launch_with_report_pipe(argv, ebin) do
+    bin = :elixir |> :code.lib_dir() |> Path.join("../../bin") |> Path.expand()
+    elixir = Path.join(bin, "elixir")
+    mix = Path.join(bin, "mix")
+
+    with true <- File.regular?(elixir) and File.regular?(mix) do
+      # All variable inputs are positional arguments to a fixed shell command.
+      command = [
+        "-c",
+        ~S|exec "$@" 1>&2|,
+        "mutagen",
+        elixir,
+        "-pa",
+        ebin,
+        "-S",
+        mix,
+        "mutagen" | argv
+      ]
+
+      env = [{to_charlist(@report_pipe_env), ~c"4"}, {~c"MIX_ENV", Atom.to_charlist(Mix.env())}]
+
+      # Relay raw chunks, including those that split a UTF-8 character.
+      :ok = :io.setopts(:standard_io, encoding: :latin1)
+
+      # :nouse_stdio leaves fd 0 alone and carries port output on fd 4.
+      port =
+        Port.open({:spawn_executable, "/bin/sh"}, [
+          :binary,
+          :exit_status,
+          :nouse_stdio,
+          args: command,
+          env: env
+        ])
+
+      forward_report(port)
+    else
+      false -> {:error, :missing_mix_executable}
+    end
+  rescue
+    error in ErlangError -> {:error, error.original}
+  end
+
+  defp forward_report(port) do
+    receive do
+      {^port, {:data, data}} ->
+        IO.binwrite(:stdio, data)
+        forward_report(port)
+
+      {^port, {:exit_status, code}} ->
+        System.halt(code)
+    end
+  end
+
+  @doc false
+  def with_report_device(report_device, fun) do
+    original_leader = Process.group_leader()
     user = Process.whereis(:user)
     stderr = Process.whereis(:standard_error)
     proxy = route_device(user, stderr)
     Process.unregister(:user)
     Process.register(proxy, :user)
-    Process.put(:mutagen_report_device, stdout)
+    Process.put(:mutagen_report_device, report_device)
 
     move_group(user, proxy)
     Process.group_leader(self(), proxy)
@@ -73,7 +142,7 @@ defmodule MutagenEx.Pipeline.DefaultIo do
       Process.unregister(:user)
       Process.register(user, :user)
       move_group(proxy, user)
-      Process.group_leader(self(), stdout)
+      Process.group_leader(self(), original_leader)
       send(proxy, :stop)
     end
   end

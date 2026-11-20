@@ -325,11 +325,13 @@ exception type, file and line. Host diagnostics go to stderr. Do not
 publish stderr as a CI artifact. Abort documents repeat this warning in
 `details.note`.
 
-The supported CI mode is `--json PATH`. Native fd 1 writes, including
-`:erlang.display/1` and direct subprocess output, bypass the VM I/O
-routing and can corrupt stdout. Mix can also write to stdout before the
-task starts. Mutagen writes the file with mode 0600. If it cannot safely
-write the file, it warns on stderr and falls back to stdout.
+Use `--json PATH` in CI to keep the report in its own file. Once the task
+starts, Mutagen forwards only reports to stdout. The host VM writes its
+ordinary output to stderr, including OTP logger fallback messages and
+output during cleanup. The CLI starts this VM with a dedicated report
+pipe on POSIX systems. Mix can write to stdout before the task starts.
+Mutagen writes the file with mode 0600. If it cannot safely write the
+file, it warns on stderr and falls back to stdout.
 
 
 ## Entrypoints
@@ -821,6 +823,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `no_tests_match` | A test selector matched no files. |
 | `no_tests_run` | ExUnit executed no tests in coverage or baseline. |
 | `parse_error` | Mutagen could not parse a source or test file. |
+| `report_stdout_unavailable` | The report device could not be opened. |
 | `runtime_load_failed` | The MutagenEx runtime or a report module could not load. |
 | `self_mutation_refused` | The scope targets MutagenEx code in the active VM. |
 | `site_not_found` | The site ID is absent from the current selection. |
