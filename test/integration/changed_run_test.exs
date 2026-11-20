@@ -1,4 +1,4 @@
-defmodule MutagenEx.GateWiringTest do
+defmodule MutagenEx.ChangedRunTest do
   use ExUnit.Case, async: false
 
   alias MutagenEx.{ChangedScope, CLI, GitDiff}
@@ -6,22 +6,22 @@ defmodule MutagenEx.GateWiringTest do
   @moduletag :git_diff_integration
   @moduletag timeout: to_timeout(minute: 2)
 
-  @source "src/gate_fixture/example.ex"
-  @convention "checks/gate_fixture/example_test.exs"
+  @source "src/changed_run_fixture/example.ex"
+  @convention "checks/changed_run_fixture/example_test.exs"
 
   setup do
     suffix = Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
-    repo = Path.join(File.cwd!(), "tmp/gate_fixture_#{suffix}")
+    repo = Path.join(File.cwd!(), "tmp/changed_run_fixture_#{suffix}")
     File.mkdir_p!(repo)
     on_exit(fn -> File.rm_rf!(repo) end)
 
     write(repo, "mix.exs", """
-    defmodule GateFixture.MixProject do
+    defmodule ChangedRunFixture.MixProject do
       use Mix.Project
 
       def project do
         [
-          app: :gate_fixture,
+          app: :changed_run_fixture,
           version: "0.0.0",
           elixirc_paths: ["src"],
           test_paths: ["checks"],
@@ -34,7 +34,7 @@ defmodule MutagenEx.GateWiringTest do
 
     write(repo, "checks/test_helper.exs", """
     ExUnit.start()
-    :persistent_term.put(:gate_fixture_server, Process.whereis(ExUnit.Server))
+    :persistent_term.put(:changed_run_fixture_server, Process.whereis(ExUnit.Server))
     """)
 
     write(repo, ".gitignore", "/_build/\n/deps/\n")
@@ -42,6 +42,263 @@ defmodule MutagenEx.GateWiringTest do
     git(repo, ["config", "user.email", "fixture@example.invalid"])
     git(repo, ["config", "user.name", "Fixture"])
     {:ok, repo: repo}
+  end
+
+  @tag spec: "mutagen.coverage.r14"
+  test "covers guard heads and trailing tuples only through their own clause", %{repo: repo} do
+    source = """
+    defmodule ChangedRunFixture.Example do
+      @moduledoc false
+
+      def discount(price, pct) when pct > 0 and pct <= 100 do
+        div(price * pct, 100)
+      end
+
+      def discount(price, pct) when pct > 100 do
+        price
+      end
+
+      def handle_call({:inc, n}, _from, s) when is_integer(n) and n > 0 do
+        {:reply, :ok, s + n}
+      end
+
+      def handle_call(_, _, s), do: {:reply, :error, s}
+
+      def parse(s) do
+        s = String.trim(s)
+        {:ok, s}
+      end
+    end
+    """
+
+    write(
+      repo,
+      @source,
+      source
+      |> String.replace("pct <= 100", "pct <= 101")
+      |> String.replace("pct > 100", "pct > 101")
+      |> String.replace("and n > 0", "and n >= 0")
+      |> String.replace("{:ok, s}", "{:error, s}")
+    )
+
+    write(
+      repo,
+      @convention,
+      test_case("Clause", """
+        alias ChangedRunFixture.Example
+
+        test "exercises one clause per function" do
+          assert Example.discount(200, 50) == 100
+          assert Example.handle_call({:inc, 1}, nil, 0) == {:reply, :ok, 1}
+          assert Example.handle_call({:inc, 0}, nil, 0) == {:reply, :error, 0}
+          assert Example.parse(" a ") == {:ok, "a"}
+        end
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, source)
+
+    changed = run(repo, ["--since", base, "--tests", @convention])
+    classic = run(repo, ["--scope", @source, "--tests", @convention])
+    audit = run(repo, ["--scope", @source, "--tests", "auto", "--no-escalate"])
+
+    for report <- [changed, classic, audit] do
+      results = report["mutation"]["results"]
+
+      for {fun, mutator} <- [
+            {"discount/2", "compare"},
+            {"handle_call/3", "boolean"},
+            {"parse/1", "result_tuple"}
+          ] do
+        assert Enum.any?(results, fn row ->
+                 row["function"] == "ChangedRunFixture.Example." <> fun and
+                   row["mutator"] == mutator and row["status"] == "killed"
+               end),
+               inspect({fun, mutator, results})
+      end
+
+      refute Enum.any?(results, &(&1["line"] == 8))
+    end
+
+    assert Enum.any?(changed["mutation"]["pending"], &(&1["line"] == 8))
+    refute Enum.any?(audit["mutation"]["pending"], &is_nil(&1["function"]))
+  end
+
+  @tag spec: "mutagen.coverage.r14"
+  test "uses the actual measured lines for multiline sites in classic and changed runs", %{
+    repo: repo
+  } do
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
+
+    write(
+      repo,
+      @convention,
+      test_case("MeasuredLines", """
+        alias ChangedRunFixture.Example
+
+        test "calls a single copy of each shape" do
+          assert Example.guard_live(2) == 3
+          assert Example.call_live(2) == 4
+          assert Example.pipe_live(2) == 14
+          assert Example.tuple_live(" two ") == {:ok, "two"}
+          assert Example.arm_live(:yes, 2) == 3
+        end
+      """)
+    )
+
+    base = commit(repo)
+
+    definitions =
+      for variant <- ["live", "cold"] do
+        """
+        def guard_#{variant}(n) when n > 0 do
+          n + 1
+        end
+
+        def call_#{variant}(n) do
+          max(
+            n + 1,
+            n * 2
+          )
+        end
+
+        def pipe_#{variant}(n) do
+          (n + 1)
+          |> then(&(&1 + 4))
+          |> then(&(&1 * 2))
+        end
+
+        def tuple_#{variant}(s) do
+          s = String.trim(s)
+          {:ok, s}
+        end
+
+        def arm_#{variant}(choice, n) do
+          case choice do
+            :yes -> n + 1
+            :no -> n * 2
+          end
+        end
+        """
+      end
+
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n" <> Enum.join(definitions) <> "end\n"
+    )
+
+    changed = run(repo, ["--since", base, "--tests", @convention])
+    classic = run(repo, ["--scope", @source, "--tests", @convention])
+
+    for report <- [changed, classic] do
+      results = report["mutation"]["results"]
+      assert Enum.any?(results, &(&1["function"] =~ "guard_live/" and &1["mutator"] == "compare"))
+
+      assert Enum.any?(
+               results,
+               &(&1["function"] =~ "tuple_live/" and &1["mutator"] == "result_tuple")
+             )
+
+      for {name, expressions} <- [
+            {"call_live", ["n + 1", "n * 2"]},
+            {"pipe_live", ["n + 1", "&1 + 4", "&1 * 2"]},
+            {"arm_live", ["n + 1"]}
+          ],
+          expression <- expressions do
+        assert Enum.any?(results, fn row ->
+                 row["function"] =~ name and row["mutator"] == "arith" and
+                   row["before"] == expression
+               end),
+               {name, expression} |> inspect()
+      end
+
+      refute Enum.any?(results, &(&1["function"] =~ "_cold/"))
+      refute Enum.any?(results, &(&1["function"] =~ "arm_live/" and &1["before"] == "n * 2"))
+    end
+
+    pending = changed["mutation"]["pending"]
+
+    for name <- ~w(guard call pipe tuple arm) do
+      assert Enum.any?(
+               pending,
+               &(&1["function"] =~ "#{name}_cold/" and &1["reason"] == "uncovered")
+             )
+    end
+
+    assert Enum.any?(pending, &(&1["function"] =~ "arm_live/" and &1["reason"] == "uncovered"))
+  end
+
+  @tag spec: ["mutagen.cli.r5", "mutagen.json_schema.r39"]
+  test "OTP handler crashes reach stdout and leave aggregate and stream files parseable", %{
+    repo: repo
+  } do
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def inc(n), do: n + 2
+    end
+    """)
+
+    test_path = "checks/café_test.exs"
+
+    write(
+      repo,
+      test_path,
+      test_case("Logger", """
+        test "calls the changed function" do
+          assert ChangedRunFixture.Example.inc(3) == 5
+        end
+      """)
+    )
+
+    helper = File.read!(Path.join(repo, "checks/test_helper.exs"))
+
+    write(
+      repo,
+      "checks/test_helper.exs",
+      helper <>
+        """
+        defmodule ChangedRunFixture.FailingLogger do
+          def log(_, _), do: raise("logger fixture")
+        end
+
+        :ok = :logger.add_handler(:early_logger_fixture, ChangedRunFixture.FailingLogger, %{})
+        :logger.warning("early fixture")
+        {:error, {:not_found, :early_logger_fixture}} = :logger.get_handler_config(:early_logger_fixture)
+
+        ExUnit.after_suite(fn _ ->
+          :ok = :logger.add_handler(:late_logger_fixture, ChangedRunFixture.FailingLogger, %{})
+          :logger.warning("late fixture")
+          {:error, {:not_found, :late_logger_fixture}} = :logger.get_handler_config(:late_logger_fixture)
+          File.write!("after-logger", "removed")
+        end)
+        """
+    )
+
+    args = ["--scope", @source, "--tests", test_path]
+    {stdout, 0} = invoke(repo, args ++ ["--json", "report.json"])
+    assert stdout =~ "{removed_failing_handler,early_logger_fixture}"
+    assert stdout =~ "{removed_failing_handler,late_logger_fixture}"
+
+    report = repo |> Path.join("report.json") |> File.read!() |> JSON.decode!()
+    assert report["tests"]["files"] == [test_path]
+    assert [%{"status" => "killed"}] = report["mutation"]["results"]
+
+    {stdout, 0} = invoke(repo, args ++ ["--stream", "--json", "report.ndjson"])
+    assert stdout =~ "{removed_failing_handler,early_logger_fixture}"
+    assert stdout =~ "{removed_failing_handler,late_logger_fixture}"
+
+    records =
+      repo
+      |> Path.join("report.ndjson")
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&JSON.decode!/1)
+
+    assert [%{"kind" => "start"}, %{"kind" => "result"}, %{"kind" => "end"}, aggregate] = records
+    assert aggregate["tests"]["files"] == [test_path]
+    assert File.read!(Path.join(repo, "after-logger")) == "removed"
   end
 
   @tag spec: [
@@ -92,14 +349,26 @@ defmodule MutagenEx.GateWiringTest do
     assert_markdown(repo, "out/narrow.md", "summary_git_narrow", base)
     assert_reruns(repo, report)
 
-    args = ["--since", base, "--scope", "GateFixture.Example.function_pick/1", "--no-escalate"]
+    args = [
+      "--since",
+      base,
+      "--scope",
+      "ChangedRunFixture.Example.function_pick/1",
+      "--no-escalate"
+    ]
+
     scoped = run(repo, args)
     assert scoped["mutation"]["pending"] == []
+    assert scoped["meta"]["since"]["unmapped"] == []
+
+    assert [%{"path" => @source, "ranges" => [[2, 2], [4, 6]]}] =
+             scoped["meta"]["since"]["out_of_scope"]
+
     assert [_ | _] = scoped["mutation"]["results"]
 
     assert Enum.all?(
              scoped["mutation"]["results"],
-             &(&1["function"] == "GateFixture.Example.function_pick/1")
+             &(&1["function"] == "ChangedRunFixture.Example.function_pick/1")
            )
 
     {:ok, config} = CLI.parse(args)
@@ -113,7 +382,7 @@ defmodule MutagenEx.GateWiringTest do
     repo: repo
   } do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def first(x), do: x + 1
       def second(x), do: x + 2
     end
@@ -137,7 +406,7 @@ defmodule MutagenEx.GateWiringTest do
     end
 
     write(repo, @source, original)
-    git(repo, ["mv", @source, "src/gate_fixture/renamed.ex"])
+    git(repo, ["mv", @source, "src/changed_run_fixture/renamed.ex"])
     renamed = run(repo, ["--since", base])
     assert renamed["warnings"] == ["no_runtime_sites"]
     assert_fast(renamed, repo)
@@ -146,7 +415,7 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: ["mutagen.scope_resolution.r11", "mutagen.coverage.r12"]
   test "plans a deletion-only file even with no selected tests", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def first(x) do
         _ignored = x > 0
         x + 1
@@ -161,7 +430,7 @@ defmodule MutagenEx.GateWiringTest do
     report = run(repo, ["--since", base, "--no-escalate"])
     assert report["meta"]["since"]["changed_files"] == 1
 
-    assert [%{"function" => "GateFixture.Example.first/1", "reason" => "uncovered"} | _] =
+    assert [%{"function" => "ChangedRunFixture.Example.first/1", "reason" => "uncovered"} | _] =
              report["mutation"]["pending"]
 
     assert_fast(report, repo)
@@ -170,7 +439,7 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: ["mutagen.scope_resolution.r11", "mutagen.coverage.r12", "mutagen.json_schema.r28"]
   test "uses rename base, deletion anchors and skipped links", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def first(x) do
         _ignored = x > 0
         x + 1
@@ -184,7 +453,7 @@ defmodule MutagenEx.GateWiringTest do
 
     write(repo, @source, original)
     base = commit(repo)
-    renamed = "src/gate_fixture/renamed.ex"
+    renamed = "src/changed_run_fixture/renamed.ex"
     git(repo, ["mv", @source, renamed])
 
     changed =
@@ -194,7 +463,7 @@ defmodule MutagenEx.GateWiringTest do
 
     write(repo, renamed, changed)
 
-    link = "src/gate_fixture/link.ex"
+    link = "src/changed_run_fixture/link.ex"
     File.ln_s!("renamed.ex", Path.join(repo, link))
     git(repo, ["add", link])
 
@@ -203,7 +472,7 @@ defmodule MutagenEx.GateWiringTest do
     assert %{"path" => link, "reason" => "symlink"} in report["meta"]["incomplete_reasons"]
     assert report["mutation"]["results"] == []
 
-    assert [%{"file" => ^renamed, "function" => "GateFixture.Example.first/1"} | _] =
+    assert [%{"file" => ^renamed, "function" => "ChangedRunFixture.Example.first/1"} | _] =
              report["mutation"]["pending"]
 
     assert Enum.all?(report["mutation"]["pending"], &(&1["function"] =~ ".first/1"))
@@ -229,7 +498,18 @@ defmodule MutagenEx.GateWiringTest do
     write(repo, @source, source(2))
 
     changed_test = "checks/changed_test.exs"
-    write(repo, changed_test, test_case("Changed", ~s|test "runs", do: assert(true)|))
+
+    write(
+      repo,
+      changed_test,
+      test_case("Changed", ~s|test "runs", do: assert(true)|) <> "# ChangedRunFixture.Example\n"
+    )
+
+    write(
+      repo,
+      "checks/irrelevant_test.exs",
+      "# unrelated changed test\nraise \"unexpected narrow selection\"\n"
+    )
 
     args = ["--since", base]
     report = run(repo, args ++ ["--summary", "out/escalated.md"])
@@ -271,6 +551,10 @@ defmodule MutagenEx.GateWiringTest do
     assert module_step["baseline"]["passed"] == 1
     assert module_step["files_added"] == ["checks/module_test.exs"]
     assert function_step["files_added"] == ["checks/function_test.exs"]
+
+    assert report["tests"]["files"] ==
+             [@convention, changed_test, "checks/module_test.exs", "checks/function_test.exs"]
+
     assert module_step["survivors_out"] < module_step["survivors_in"]
     assert function_step["survivors_out"] < function_step["survivors_in"]
     refute module_step["capped"]
@@ -298,9 +582,9 @@ defmodule MutagenEx.GateWiringTest do
     assert %{"kind" => "escalation_dropped_after_load", "count" => 2} in notes
 
     assert %{
-             "kind" => "escalation_dropped",
+             "kind" => "baseline_red_files",
              "count" => 1,
-             "reason" => "escalation_baseline_red",
+             "reason" => "baseline_red",
              "files" => ["checks/red_test.exs"]
            } in notes
 
@@ -392,7 +676,7 @@ defmodule MutagenEx.GateWiringTest do
     refute File.exists?(Path.join(repo, "booted"))
 
     write(repo, "mix.exs", """
-    defmodule GateUmbrella.MixProject do
+    defmodule ChangedRunUmbrella.MixProject do
       use Mix.Project
       def project, do: [apps_path: "apps"]
     end
@@ -410,7 +694,7 @@ defmodule MutagenEx.GateWiringTest do
        ]
   test "reports only changed non-runtime code and ignores test support", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       @limit 2
       defmacro add(x), do: quote(do: unquote(x) + 1)
       defguard inside(x) when is_integer(x)
@@ -497,24 +781,32 @@ defmodule MutagenEx.GateWiringTest do
 
   @tag spec: ["mutagen.mutation_pipeline.r31", "mutagen.coverage.r13", "mutagen.json_schema.r31"]
   test "discovers tests without a convention and drops a hanging candidate", %{repo: repo} do
-    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 1\nend\n")
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 1\nend\n"
+    )
 
     write(
       repo,
       "checks/a_hang_test.exs",
       test_case("Hang", """
-      # GateFixture.Example GateFixture.Example
+      # ChangedRunFixture.Example ChangedRunFixture.Example
       test "waits forever", do: Process.sleep(:infinity)
       """)
     )
 
-    write(repo, "checks/a_crash_test.exs", "# GateFixture.Example\nexit(:candidate_crash)\n")
+    write(
+      repo,
+      "checks/a_crash_test.exs",
+      "# ChangedRunFixture.Example\nexit(:candidate_crash)\n"
+    )
 
     write(
       repo,
       "checks/b_green_test.exs",
       test_case("Green", """
-      test "checks the value", do: assert(GateFixture.Example.value(2) == 4)
+      test "checks the value", do: assert(ChangedRunFixture.Example.value(2) == 4)
       """)
     )
 
@@ -522,23 +814,29 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       "checks/c_victim_test.exs",
       test_case("Victim", """
-      # GateFixture.Example
-      test "finds a clean host", do: assert(is_nil(Application.get_env(:gate_fixture, :polluted)))
+      # ChangedRunFixture.Example
+      test "finds a clean host", do: assert(is_nil(Application.get_env(:changed_run_fixture, :polluted)))
       """)
     )
 
     write(
       repo,
       "checks/d_polluter_test.exs",
-      "Application.put_env(:gate_fixture, :polluted, true)\n" <>
+      "Application.put_env(:changed_run_fixture, :polluted, true)\n" <>
         test_case("Polluter", """
-        # GateFixture.Example
+        # ChangedRunFixture.Example
         test "passes alone", do: assert(true)
         """)
     )
 
     base = commit(repo)
-    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 2\nend\n")
+
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 2\nend\n"
+    )
+
     report = run(repo, ["--since", base, "--timeout-ms", "1000"])
     assert report["baseline"]["passed"] == 0
 
@@ -568,12 +866,14 @@ defmodule MutagenEx.GateWiringTest do
 
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_timeout:"))
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_crashed:"))
+    refute Enum.any?(report["warnings"], &String.starts_with?(&1, "no_tests_run"))
+    assert report["tests"]["files"] == ["checks/b_green_test.exs", "checks/c_victim_test.exs"]
   end
 
   @tag spec: ["mutagen.mutation_pipeline.r32", "mutagen.json_schema.r36"]
   test "a countdown timeout stays in the narrow pass", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def countdown(n), do: if(n == 0, do: :done, else: countdown(n - 2))
     end
     """
@@ -584,7 +884,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       @convention,
       test_case("Countdown", """
-      test "counts down", do: assert(GateFixture.Example.countdown(3) == :done)
+      test "counts down", do: assert(ChangedRunFixture.Example.countdown(3) == :done)
       """)
     )
 
@@ -594,7 +894,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       zero_test,
       test_case("Zero", """
-      test "base case", do: assert(GateFixture.Example.countdown(0) == :done)
+      test "base case", do: assert(ChangedRunFixture.Example.countdown(0) == :done)
       """)
     )
 
@@ -627,12 +927,12 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: ["mutagen.mutation_pipeline.r33", "mutagen.json_schema.r34"]
   test "restores rejected candidate environments and marks verdicts after the drop", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def early(x), do: x + 2
       def limit?(x), do: x > 11
 
       def strict_inc(x) do
-        if :persistent_term.get(:gate_fixture_strict, false), do: x + 2, else: 2
+        if :persistent_term.get(:changed_run_fixture_strict, false), do: x + 2, else: 2
       end
     end
     """
@@ -641,7 +941,7 @@ defmodule MutagenEx.GateWiringTest do
 
     write(repo, "checks/test_helper.exs", """
     ExUnit.start()
-    :persistent_term.put(:gate_fixture_server, Process.whereis(ExUnit.Server))
+    :persistent_term.put(:changed_run_fixture_server, Process.whereis(ExUnit.Server))
     System.put_env("MUTAGEN_FIXTURE_ORIGINAL", "original")
     :ok = Application.ensure_loaded(:logger)
     Application.put_env(:logger, :mutagen_fixture_original, :original)
@@ -651,7 +951,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       @convention,
       test_case("NarrowLeak", """
-      alias GateFixture.Example
+      alias ChangedRunFixture.Example
       test "weak for the escalated functions" do
         assert Example.early(1) == 2
         assert is_boolean(Example.limit?(3))
@@ -666,14 +966,14 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       dropper,
       """
-      :persistent_term.put(:gate_fixture_strict, true)
+      :persistent_term.put(:changed_run_fixture_strict, true)
       System.put_env("MUTAGEN_FIXTURE_ADDED", "dropper")
       System.delete_env("MUTAGEN_FIXTURE_ORIGINAL")
       Application.put_env(:logger, :mutagen_fixture_added, :dropper)
       Application.delete_env(:logger, :mutagen_fixture_original)
       """ <>
         test_case("Dropper", """
-        # GateFixture.Example GateFixture.Example
+        # ChangedRunFixture.Example ChangedRunFixture.Example
         test "is red on the original" do
           System.put_env("MUTAGEN_FIXTURE_BODY", "dropper")
           Application.put_env(:logger, :mutagen_fixture_body, :dropper)
@@ -695,9 +995,9 @@ defmodule MutagenEx.GateWiringTest do
         assert Application.get_env(:logger, :mutagen_fixture_original) == :original
         refute Application.get_env(:logger, :mutagen_fixture_added)
         refute Application.get_env(:logger, :mutagen_fixture_body)
-        assert :persistent_term.get(:gate_fixture_strict)
-        assert GateFixture.Example.limit?(11)
-        refute GateFixture.Example.limit?(10)
+        assert :persistent_term.get(:changed_run_fixture_strict)
+        assert ChangedRunFixture.Example.limit?(11)
+        refute ChangedRunFixture.Example.limit?(10)
       end
       """)
     )
@@ -709,7 +1009,7 @@ defmodule MutagenEx.GateWiringTest do
       function_test,
       test_case("FunctionLeak", """
       test "checks strict_inc" do
-        mod = Module.concat(GateFixture, Example)
+        mod = Module.concat(ChangedRunFixture, Example)
         assert mod.strict_inc(1) == 2
       end
       """)
@@ -736,7 +1036,7 @@ defmodule MutagenEx.GateWiringTest do
     assert result_selection(report, "strict_inc")["killed_at"] == "function"
 
     assert Enum.any?(report["mutation"]["results"], fn row ->
-             row["function"] == "GateFixture.Example.limit?/1" and row["status"] == "killed" and
+             row["function"] == "ChangedRunFixture.Example.limit?/1" and row["status"] == "killed" and
                row["selection"]["after_dropped_file"] == true
            end)
   end
@@ -744,7 +1044,7 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: ["mutagen.mutation_pipeline.r34", "mutagen.json_schema.r33"]
   test "group leader death kills each affected mutant and makes a baseline red", %{repo: repo} do
     write(repo, @source, """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def value(x), do: x + 1
     end
     """)
@@ -754,7 +1054,7 @@ defmodule MutagenEx.GateWiringTest do
       @convention,
       test_case("MutantCrash", """
       test "kills its group leader when it detects a mutant" do
-        if GateFixture.Example.value(2) != 3 do
+        if ChangedRunFixture.Example.value(2) != 3 do
           Process.exit(Process.group_leader(), :kill)
           Process.sleep(:infinity)
         end
@@ -773,7 +1073,7 @@ defmodule MutagenEx.GateWiringTest do
       @convention,
       test_case("BaselineCrash", """
       test "kills its group leader outside coverage" do
-        assert GateFixture.Example.value(2) == 3
+        assert ChangedRunFixture.Example.value(2) == 3
 
         if Process.whereis(:cover_server) == nil do
           Process.exit(Process.group_leader(), :kill)
@@ -797,14 +1097,19 @@ defmodule MutagenEx.GateWiringTest do
   test "drops a candidate that kills its group leader and still runs green candidates", %{
     repo: repo
   } do
-    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 2\nend\n")
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 2\nend\n"
+    )
+
     crashed = "checks/crash_test.exs"
 
     write(
       repo,
       crashed,
       test_case("CandidateCrash", """
-      # GateFixture.Example GateFixture.Example
+      # ChangedRunFixture.Example ChangedRunFixture.Example
       test "kills its group leader" do
         Process.exit(Process.group_leader(), :kill)
         Process.sleep(:infinity)
@@ -818,12 +1123,18 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       green,
       test_case("GreenAfterCrash", """
-      test "checks the value", do: assert(GateFixture.Example.value(2) == 3)
+      test "checks the value", do: assert(ChangedRunFixture.Example.value(2) == 3)
       """)
     )
 
     base = commit(repo)
-    write(repo, @source, "defmodule GateFixture.Example do\n  def value(x), do: x + 1\nend\n")
+
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 1\nend\n"
+    )
+
     report = run(repo, ["--since", base, "--timeout-ms", "1000"])
 
     assert [%{"dropped_after_load" => 1, "files_added" => [^green]}] =
@@ -836,7 +1147,7 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: ["mutagen.mutation_pipeline.r35", "mutagen.json_schema.r34"]
   test "admits a green six-second test that kills limit mutants", %{repo: repo} do
     original = """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def limit?(x), do: x > 11
     end
     """
@@ -847,7 +1158,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       @convention,
       test_case("WeakLimit", """
-      test "checks the type", do: assert(is_boolean(GateFixture.Example.limit?(3)))
+      test "checks the type", do: assert(is_boolean(ChangedRunFixture.Example.limit?(3)))
       """)
     )
 
@@ -859,8 +1170,8 @@ defmodule MutagenEx.GateWiringTest do
       test_case("SlowLimit", """
       test "checks the boundary" do
         Process.sleep(to_timeout(second: 6))
-        assert GateFixture.Example.limit?(11)
-        refute GateFixture.Example.limit?(10)
+        assert ChangedRunFixture.Example.limit?(11)
+        refute ChangedRunFixture.Example.limit?(10)
       end
       """)
     )
@@ -885,7 +1196,7 @@ defmodule MutagenEx.GateWiringTest do
   test "counts only untracked files it reads and names the root when that cap is exceeded", %{
     repo: repo
   } do
-    write(repo, @source, "defmodule GateFixture.Example do\nend\n")
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
     base = commit(repo)
 
     for root <- ["src", "checks"] do
@@ -975,19 +1286,209 @@ defmodule MutagenEx.GateWiringTest do
     assert [] == Path.wildcard(Path.join(repo, "out/**/.mutagen-*.tmp"), match_dot: true)
   end
 
+  @tag spec: ["mutagen.json_schema.r31", "mutagen.json_schema.r36", "mutagen.json_schema.r37"]
+  test "reports a changed case arm that none of the selected tests reached", %{repo: repo} do
+    original = """
+    defmodule ChangedRunFixture.Example do
+      def response(value) do
+        case value do
+          :ok -> {:ok, value}
+          nil -> {:error, value}
+        end
+      end
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("CaseArm", """
+        test "reaches the first arm only" do
+          assert ChangedRunFixture.Example.response(:ok) == {:ok, :ok}
+        end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(
+      repo,
+      @source,
+      String.replace(original, "nil -> {:error, value}", "nil -> {:missing, value}")
+    )
+
+    {raw, 0} =
+      invoke(repo, [
+        "--since",
+        base,
+        "--tests",
+        @convention,
+        "--summary",
+        "out/case.md",
+        "--stream"
+      ])
+
+    [start | events] = raw |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+    assert start["kind"] == "start"
+    refute Map.has_key?(start["meta"], "complete")
+
+    assert [%{"kind" => "end", "meta" => %{"complete" => true}} = finish, report] =
+             Enum.take(events, -2)
+
+    assert finish["summary"] == report["summary"]
+    assert report["summary"]["verdict"] == "partly_checked"
+    assert [%{"path" => @source, "ranges" => [[5, 5]]}] = report["meta"]["since"]["uncovered"]
+    assert report["meta"]["since"]["unmapped"] == []
+
+    assert File.read!(Path.join(repo, "out/case.md")) =~
+             "1 changed line uncovered within tested sites"
+  end
+
+  @tag spec: "mutagen.scope_resolution.r13"
+  test "added functions and clauses with sites account for its definition and assignment lines",
+       %{repo: repo} do
+    original = """
+    defmodule ChangedRunFixture.Example do
+      def kept(:skip), do: :skip
+    end
+    """
+
+    write(repo, @source, original)
+    base = commit(repo)
+
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def kept(:skip), do: :skip
+
+      def kept(input) do
+        trimmed = String.trim(input)
+        if trimmed == "keep", do: 1, else: 2
+      end
+
+      def added(input) do
+        trimmed = String.trim(input)
+        if trimmed == "empty", do: 1, else: 2
+      end
+    end
+    """)
+
+    report = run(repo, ["--since", base, "--no-escalate"])
+    assert report["meta"]["since"]["runtime"] > 0
+    assert report["meta"]["since"]["unmapped"] == []
+  end
+
+  @tag spec: ["mutagen.json_schema.r36", "mutagen.json_schema.r37"]
+  test "puts red test files first and suppresses their functions' nothing asserted finding", %{
+    repo: repo
+  } do
+    original = """
+    defmodule ChangedRunFixture.Example do
+      def target(x) do
+        x + 1 + 2 + 3
+      end
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("Green", """
+        test "runs target" do
+          assert is_integer(ChangedRunFixture.Example.target(1))
+        end
+      """)
+    )
+
+    red = "checks/red_test.exs"
+
+    write(
+      repo,
+      red,
+      test_case("RedTarget", """
+        test "expects the old behavior" do
+          assert ChangedRunFixture.Example.target(1) == 7
+        end
+      """)
+    )
+
+    base = commit(repo)
+    write(repo, @source, String.replace(original, "+ 1", "+ 0"))
+
+    summary = "out/red.md"
+    report = run(repo, ["--since", base, "--summary", summary])
+    assert [%{"kind" => "baseline_red_files", "files" => [^red]} | _] = report["summary"]["notes"]
+    assert report["summary"]["verdict"] == "baseline_red"
+    assert report["summary"]["check_first"] == []
+
+    assert String.starts_with?(
+             File.read!(Path.join(repo, summary)),
+             "**Tests failed on the unmutated code**"
+           )
+
+    {body, 2} =
+      invoke(repo, ["--since", base, "--tests", @convention, "--tests", red, "--summary", summary])
+
+    assert JSON.decode!(body)["abort_reason"] == "baseline_red"
+    rendered = File.read!(Path.join(repo, summary))
+    assert rendered =~ "`#{red}`"
+    refute rendered =~ @convention
+    assert rendered =~ "**Mutagen did not run to completion.** `baseline_red`."
+  end
+
+  @tag spec: ["mutagen.json_schema.r30", "mutagen.json_schema.r33", "mutagen.json_schema.r37"]
+  test "abort replaces stale Markdown and retains the baseline and effective deadline", %{
+    repo: repo
+  } do
+    write(repo, @source, source(1))
+    narrow_tests(repo)
+    commit(repo)
+    args = ["--summary", "out/advice.md", "--timeout-ms", "6789"]
+
+    report = run(repo, ["--since", "HEAD" | args])
+    assert %{"baseline" => 0, "mutant_deadline" => 6789} = report["meta"]["timings_ms"]
+    path = Path.join(repo, "out/advice.md")
+    assert File.read!(path) =~ "Mutagen found no mutable changes"
+
+    for {flags, reason} <- [
+          {["--since", "no-such-ref"], "diff_unavailable"},
+          {["--unknown"], "unknown_flag"}
+        ] do
+      {body, 2} = invoke(repo, flags ++ args)
+      report = JSON.decode!(body)
+      assert %{"baseline" => 0, "mutant_deadline" => deadline} = report["meta"]["timings_ms"]
+      assert deadline == 6789
+      assert report["meta"]["complete"] == false
+      rendered = File.read!(path)
+      assert rendered =~ "**Mutagen did not run to completion.** `#{reason}`."
+      assert rendered =~ report["details"]["hint"]
+    end
+  end
+
   defp assert_summary(report, check_first, worth) do
     summary = report["summary"]
-    assert summary["verdict"] == "check_first"
+    assert summary["verdict"] == "partly_checked"
 
     assert Enum.map(summary["check_first"], &{&1["kind"], &1["function"]}) ==
-             Enum.map(check_first, &{"not_executed", "GateFixture.Example.#{&1}/1"})
+             Enum.map(check_first, &{"not_executed", "ChangedRunFixture.Example.#{&1}/1"})
 
     assert Enum.map(summary["worth_a_look"], &{&1["function"], &1["mutator"]}) ==
-             Enum.map(worth, fn {name, mutator} -> {"GateFixture.Example.#{name}/1", mutator} end)
+             Enum.map(worth, fn {name, mutator} ->
+               {"ChangedRunFixture.Example.#{name}/1", mutator}
+             end)
   end
 
   defp assert_markdown(repo, path, golden, base) do
-    actual = repo |> Path.join(path) |> File.read!() |> String.replace(base, "<BASE>")
+    actual =
+      repo
+      |> Path.join(path)
+      |> File.read!()
+      |> String.replace(base, "<BASE>")
+      |> String.replace(~r/^- The (module|function) escalation pass took \d+ ms\.\n/m, "")
+
     golden = Path.join([__DIR__, "../mutagen_ex/golden", "#{golden}.md"])
     if System.get_env("REGEN") == "1", do: File.write!(golden, actual)
     assert actual == File.read!(golden)
@@ -1019,7 +1520,7 @@ defmodule MutagenEx.GateWiringTest do
 
   defp source(n) do
     """
-    defmodule GateFixture.Example do
+    defmodule ChangedRunFixture.Example do
       def module_pick(x), do: x + #{n}
       def function_pick(x), do: x + #{n}
       def always_survives(x), do: x + #{n}
@@ -1035,7 +1536,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       @convention,
       test_case("Narrow", """
-      alias GateFixture.Example
+      alias ChangedRunFixture.Example
 
       test "reaches three changed lines" do
         File.write!("narrow-runs", "run\\n", [:append])
@@ -1055,8 +1556,8 @@ defmodule MutagenEx.GateWiringTest do
       File.write!("module-loads", "once\n", [:append])
       """ <>
         test_case("Module", """
-        # GateFixture.Example GateFixture.Example GateFixture.Example
-        alias GateFixture.Example
+        # ChangedRunFixture.Example ChangedRunFixture.Example ChangedRunFixture.Example
+        alias ChangedRunFixture.Example
 
         test "kills one survivor and covers a new line" do
           assert Example.module_pick(2) == 4
@@ -1073,7 +1574,7 @@ defmodule MutagenEx.GateWiringTest do
       """ <>
         test_case("Function", """
         test "kills a second survivor" do
-          module = Module.concat(GateFixture, Example)
+          module = Module.concat(ChangedRunFixture, Example)
           assert module.function_pick(2) == 4
         end
         """)
@@ -1083,7 +1584,7 @@ defmodule MutagenEx.GateWiringTest do
       repo,
       "checks/red_test.exs",
       test_case("Red", """
-      # GateFixture.Example
+      # ChangedRunFixture.Example
       test "fails on the original code", do: flunk("fixture")
       """)
     )
@@ -1091,17 +1592,17 @@ defmodule MutagenEx.GateWiringTest do
     write(
       repo,
       "checks/broken_test.exs",
-      "# GateFixture.Example\nraise \"fixture load failure\"\n"
+      "# ChangedRunFixture.Example\nraise \"fixture load failure\"\n"
     )
   end
 
   defp test_case(name, body) do
     """
-    defmodule GateFixture.#{name}Test do
+    defmodule ChangedRunFixture.#{name}Test do
       use ExUnit.Case
 
       setup_all do
-        assert Process.whereis(ExUnit.Server) == :persistent_term.get(:gate_fixture_server)
+        assert Process.whereis(ExUnit.Server) == :persistent_term.get(:changed_run_fixture_server)
         :ok
       end
 
@@ -1114,7 +1615,9 @@ defmodule MutagenEx.GateWiringTest do
 
   defp result_selection_for(report, mfa, mutator) do
     report["mutation"]["results"]
-    |> Enum.find(&(&1["function"] == "GateFixture.Example.#{mfa}" and &1["mutator"] == mutator))
+    |> Enum.find(
+      &(&1["function"] == "ChangedRunFixture.Example.#{mfa}" and &1["mutator"] == mutator)
+    )
     |> Map.fetch!("selection")
   end
 
@@ -1128,6 +1631,11 @@ defmodule MutagenEx.GateWiringTest do
 
   defp clean_timings(raw) do
     raw
+    |> String.replace(
+      ~r/\{"kind":"escalation_wall_time","step":"(?:module|function)","wall_ms":\d+\},?/,
+      ""
+    )
+    |> String.replace(",]", "]")
     |> String.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, "")
     |> String.replace(
       ~r/"(wall_ms|baseline_ms|mutant_deadline_ms|candidate_deadline_ms)":\d+/,

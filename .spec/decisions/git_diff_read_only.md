@@ -11,7 +11,7 @@ affects:
 
 ## Context
 
-The CI gate needs new-side changed lines and the merge-base blob for each
+The changed-code run needs new-side changed lines and the merge-base blob for each
 changed file. The working tree can contain uncommitted edits, intent-to-add
 files, and filenames with whitespace or non-ASCII bytes. Git may otherwise
 run configured programs when it reads and compares these files.
