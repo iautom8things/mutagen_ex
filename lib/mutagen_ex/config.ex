@@ -14,7 +14,8 @@ defmodule MutagenEx.Config do
   validation on individual targets (that lives in S3a / S3b — see the
   ticket's Out of Scope (intent) notes).
 
-  Per `mutagen.cli.r3`, `timeout_ms` defaults to 30_000.
+  The internal timeout starts at 30_000 ms. The mutant deadline scales with
+  the measured baseline unless the user supplied a timeout.
   `fail_fast` defaults to `true` and applies to mutation runs.
   Per `mutagen.cli.r4`, `seed` defaults to 0.
   Per `mutagen.cli.r5`, `json_path` is `nil` when output should go to stdout.
@@ -54,6 +55,7 @@ defmodule MutagenEx.Config do
             summary_requested: nil,
             escalate: true,
             escalate_max_files: 20,
+            escalate_budget_ms: 120_000,
             timeout_ms: 30_000,
             timeout_override: false,
             fail_fast: true,
@@ -83,6 +85,7 @@ defmodule MutagenEx.Config do
           summary_requested: Path.t() | nil,
           escalate: boolean(),
           escalate_max_files: non_neg_integer(),
+          escalate_budget_ms: non_neg_integer(),
           timeout_ms: pos_integer(),
           timeout_override: boolean(),
           fail_fast: boolean(),
@@ -107,7 +110,7 @@ defmodule MutagenEx.Config do
   def mutant_deadline(%__MODULE__{timeout_override: true, timeout_ms: timeout_ms}, _baseline_ms),
     do: timeout_ms
 
-  def mutant_deadline(%__MODULE__{timeout_ms: ceiling}, baseline_ms) do
-    min(ceiling, max(to_timeout(second: 5), 10 * baseline_ms))
+  def mutant_deadline(%__MODULE__{}, baseline_ms) do
+    max(to_timeout(second: 5), 10 * baseline_ms)
   end
 end

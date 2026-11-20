@@ -1,8 +1,8 @@
-**Mutagen found functions to check first.** 3 mutants run · 0 killed · 3 survived · 0 unevaluated · kill rate 0.0% · 1 changed file · 1 changed function
+**Mutagen found functions to check first.** 3 mutants run · 0 killed · 3 survived · 0 unevaluated · kill rate 0.0% (0/3 evaluated) · 1 changed file · 1 changed function
 
 ### Check first
 
-- `lib/fixture.ex:1` `Fixture.fixture/1`. All evaluated high-confidence mutants survived (3 mutants, 3 survived, 3 executed).
+- `lib/fixture.ex:1` `Fixture.fixture/1`. Every evaluated mutant survived (3 mutants, 3 survived, 3 executed).
 
   ```diff
   - x + 1

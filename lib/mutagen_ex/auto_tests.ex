@@ -1,6 +1,8 @@
 defmodule MutagenEx.AutoTests do
   @moduledoc false
 
+  alias MutagenEx.FileIdentity
+
   def select(scopes, source_roots, test_roots, changed) do
     convention =
       for file <- Enum.uniq_by(scopes, & &1.file),
@@ -12,17 +14,48 @@ defmodule MutagenEx.AutoTests do
         %{path: path, why: :convention}
       end
 
+    convention_ids = MapSet.new(convention, &file_identity(&1.path))
+
+    modules =
+      for %{module: module} <- scopes, is_atom(module), uniq: true do
+        module_pattern(inspect(module))
+      end
+
     changed
+    |> Enum.filter(fn path ->
+      MapSet.member?(convention_ids, file_identity(path)) or mentions_module?(path, modules)
+    end)
     |> Enum.map(&%{path: &1, why: :changed_in_diff})
     |> Kernel.++(convention)
     |> Enum.uniq_by(&file_identity(&1.path))
     |> Enum.sort_by(& &1.path)
   end
 
+  defp mentions_module?(path, patterns) do
+    case File.read(path) do
+      {:ok, source} -> Enum.any?(patterns, &(count_matches(&1, source) > 0))
+      {:error, _} -> false
+    end
+  end
+
   def discover(stage, sites, paths, tried, cap, reader \\ &File.read/1) do
     case patterns(stage, sites) do
       [] -> {[], false, []}
       patterns -> rank_files(paths, tried, cap, patterns, reader)
+    end
+  end
+
+  def mentioned_functions([], _sites), do: MapSet.new()
+
+  def mentioned_functions(paths, sites) do
+    patterns = patterns(:function, sites)
+
+    for path <- paths,
+        {:ok, source} <- [File.read(path)],
+        {{module, name, arity}, pattern} <- patterns,
+        count_matches(pattern, source) > 0,
+        into: MapSet.new() do
+      "#{module}.#{name}/#{arity}"
     end
   end
 
@@ -74,7 +107,7 @@ defmodule MutagenEx.AutoTests do
   defp file_identity(path) do
     case File.lstat(path) do
       {:ok, %{type: :regular} = stat} ->
-        {stat.major_device, stat.minor_device, stat.inode}
+        FileIdentity.key(stat)
 
       _ ->
         path
@@ -101,9 +134,7 @@ defmodule MutagenEx.AutoTests do
 
     with [_ | _] <- relative,
          true <- String.downcase(Path.join(prefix)) == String.downcase(root),
-         {:ok, stat} <- File.stat(root),
-         {:ok, other} <- File.stat(Path.join(prefix)),
-         true <- stat.inode == other.inode and stat.major_device == other.major_device do
+         true <- FileIdentity.same?(root, Path.join(prefix)) do
       {:ok, Path.join(relative)}
     else
       _ -> :error
@@ -143,6 +174,11 @@ defmodule MutagenEx.AutoTests do
       last = Regex.escape(last)
       {group, pattern(stage, full, parent, last, Regex.escape(name), arity)}
     end)
+  end
+
+  defp module_pattern(module) do
+    {parent, last} = module_parts(module)
+    pattern(:module, "(?:Elixir\\.)?" <> Regex.escape(module), parent, Regex.escape(last), "", "")
   end
 
   defp pattern(:module, full, parent, last, _, _) do
