@@ -387,4 +387,8 @@ decisions:
     - mutagen.coverage.r9
     - mutagen.coverage.r10
     - mutagen.coverage.r11
+- kind: tagged_tests
+  target: test/integration/changed_run_test.exs
+  covers:
+    - mutagen.coverage.r14
 ```
