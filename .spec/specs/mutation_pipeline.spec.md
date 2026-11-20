@@ -898,16 +898,17 @@ decisions:
 - id: mutagen.mutation_pipeline.s21
   covers: [mutagen.mutation_pipeline.r4]
   given:
-    - A per-site deadline of 250 ms.
-    - In one fixture the first test fails and a later test sleeps 800 ms. In another the first test sleeps 800 ms before it fails. In a third the tests finish in time with a failure and an after-suite callback then sleeps 800 ms.
+    - A four-site fixture where only the first mutant can block and all other work finishes within the site deadline.
+    - The first mutant blocks indefinitely in a trailing test after an earlier failure, in its first test before a failure, or in an after-suite callback after a failure, depending on the scenario.
     - A fake runner that returns a clean result, or records a failure, only after it receives the cancellation `:shutdown`.
   when:
-    - Each site reaches its deadline.
+    - The fixture runs in both fail-fast modes, and the fake runner reaches its deadline.
   then:
-    - In the first and third fixtures the failure recorded before the deadline gives `killed` in the default mode and `timeout` with `--no-fail-fast`. The kill carries the warning `deadline exceeded after a test failure`.
-    - The site whose first failure comes after the deadline is `timeout` in both modes.
+    - When a trailing test or after-suite callback blocks after a failure, the first mutant is `killed` in the default mode and `timeout` with `--no-fail-fast`.
+    - When the deadline expires in the callback after a failure, the kill carries the warning `deadline exceeded after a test failure`.
+    - The mutant that blocks before recording a failure is `timeout` in both modes.
     - A clean reply or a failure produced during cancellation leaves the site `timeout`.
-    - "In every case the next result has `tainted_predecessors: true` and the scoped modules were purged."
+    - "After a site reaches its deadline, the next result has `tainted_predecessors: true` and the scoped modules were purged."
 
 - id: mutagen.mutation_pipeline.s22
   covers: [mutagen.mutation_pipeline.r2, mutagen.mutation_pipeline.r10]

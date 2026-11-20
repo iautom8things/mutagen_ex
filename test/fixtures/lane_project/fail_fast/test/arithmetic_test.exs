@@ -41,7 +41,7 @@ defmodule FailFastFixture.TailTest do
     assert is_number(Arithmetic.loose(2, 3))
 
     if scenario == :after_failure and Arithmetic.first(2, 3) != 5 do
-      Process.sleep(800)
+      Process.sleep(:infinity)
     end
 
     if scenario == :benchmark do
