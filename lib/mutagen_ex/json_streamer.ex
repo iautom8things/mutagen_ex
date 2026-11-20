@@ -106,7 +106,8 @@ defmodule MutagenEx.JsonStreamer do
       "survived" => Map.get(mutation, :survived, 0),
       "timeout" => Map.get(mutation, :timeout, 0),
       "compile_error" => Map.get(mutation, :compile_error, 0),
-      "kill_rate" => Map.get(mutation, :kill_rate, nil)
+      "kill_rate" => Map.get(mutation, :kill_rate, nil),
+      "summary" => JsonReporter.summary(report)
     }
 
     write_line(sink, summary)
