@@ -14,28 +14,11 @@ defmodule MutagenEx.AutoTests do
         %{path: path, why: :convention}
       end
 
-    convention_ids = MapSet.new(convention, &file_identity(&1.path))
-
-    modules =
-      for %{module: module} <- scopes, is_atom(module), uniq: true do
-        module_pattern(inspect(module))
-      end
-
     changed
-    |> Enum.filter(fn path ->
-      MapSet.member?(convention_ids, file_identity(path)) or mentions_module?(path, modules)
-    end)
     |> Enum.map(&%{path: &1, why: :changed_in_diff})
     |> Kernel.++(convention)
     |> Enum.uniq_by(&file_identity(&1.path))
     |> Enum.sort_by(& &1.path)
-  end
-
-  defp mentions_module?(path, patterns) do
-    case File.read(path) do
-      {:ok, source} -> Enum.any?(patterns, &(count_matches(&1, source) > 0))
-      {:error, _} -> false
-    end
   end
 
   def discover(stage, sites, paths, tried, cap, reader \\ &File.read/1) do
@@ -176,20 +159,17 @@ defmodule MutagenEx.AutoTests do
     end)
   end
 
-  defp module_pattern(module) do
-    {parent, last} = module_parts(module)
-    pattern(:module, "(?:Elixir\\.)?" <> Regex.escape(module), parent, Regex.escape(last), "", "")
-  end
-
   defp pattern(:module, full, parent, last, _, _) do
-    parent_alias =
-      if parent != "",
-        do:
-          Regex.compile!(
-            "\\balias\\s+(?:Elixir\\.)?" <> Regex.escape(parent) <> "(?![A-Za-z0-9_.])"
-          )
+    abbreviated =
+      if parent != "" do
+        declaration = "\\balias\\s+(?:Elixir\\.)?" <> Regex.escape(parent)
+        direct = "(?![A-Za-z0-9_.])"
+        brace = "\\.\\s*\\{[^}]*?(?<![A-Za-z0-9_.])" <> last <> "\\s*[,}]"
+        Regex.compile!(declaration <> "(?:" <> direct <> "|" <> brace <> ")")
+      end
 
-    {:module, Regex.compile!(boundary(full)), parent_alias, Regex.compile!(whole_word(last))}
+    {:module, Regex.compile!(boundary(full)), abbreviated, Regex.compile!(whole_word(last)),
+     named_alias(full)}
   end
 
   defp pattern(:function, full, parent, last, name, arity) do
@@ -197,9 +177,6 @@ defmodule MutagenEx.AutoTests do
     local = call_pattern("", name, arity)
     short = call_pattern(last <> "\\.", name, arity)
     qualified = call_pattern(full <> "\\.", name, arity)
-
-    named_alias =
-      Regex.compile!("\\balias\\s+" <> full <> "\\s*,\\s*as:\\s*([A-Z][A-Za-z0-9_]*)")
 
     # A literal Module.concat assignment also gives a statically named receiver.
     computed_alias =
@@ -210,8 +187,11 @@ defmodule MutagenEx.AutoTests do
         )
       end
 
-    {:function, short, qualified, imported, local, named_alias, computed_alias, name, arity}
+    {:function, short, qualified, imported, local, named_alias(full), computed_alias, name, arity}
   end
+
+  defp named_alias(full),
+    do: Regex.compile!("\\balias\\s+" <> full <> "\\s*,\\s*as:\\s*([A-Z][A-Za-z0-9_]*)")
 
   defp call_pattern(receiver, name, arity) do
     head = receiver <> name
@@ -229,13 +209,19 @@ defmodule MutagenEx.AutoTests do
     {Enum.join(Enum.reverse(parent), "."), last}
   end
 
-  defp count_matches({:module, full, parent_alias, last}, source) do
-    case Regex.scan(full, source) do
-      [] ->
-        if parent_alias && Regex.match?(parent_alias, source), do: count(last, source), else: 0
+  defp count_matches({:module, full, abbreviated, last, named}, source) do
+    full_count = count(full, source)
 
-      matches ->
-        length(matches)
+    if (full_count == 0 and abbreviated) && Regex.match?(abbreviated, source) do
+      count(last, source)
+    else
+      names = Regex.scan(named, source, capture: :all_but_first) |> Enum.uniq()
+
+      full_count +
+        Enum.sum_by(names, fn [name] ->
+          references = Regex.compile!("(?<![A-Za-z0-9_.])" <> Regex.escape(name) <> "\\.")
+          count(references, source)
+        end)
     end
   end
 

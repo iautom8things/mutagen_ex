@@ -445,6 +445,7 @@ defmodule MutagenEx.Pipeline.Phases do
 
     %{
       total: total,
+      planned_sites: length(enum_result.sites),
       completed: completed,
       killed: killed,
       survived: survived,

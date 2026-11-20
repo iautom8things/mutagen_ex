@@ -244,7 +244,10 @@ decisions:
     rescue and catch clauses, and comprehension bodies. An arm's
     arrow line counts as part of that arm. If that branch
     has no counter, the site stays uncovered. Without an enclosing
-    branch, use the site's own function clause body. A guard that fails
+    branch, use the site's own function clause body. If that body has
+    no coverable line, use the hit count on that clause's definition line.
+    A nested branch cannot use the definition line of the outer function.
+    A guard that fails
     while its clause body never runs is reported as uncovered. Both
     coverage and zero-call entries are retained through automatic escalation.
 

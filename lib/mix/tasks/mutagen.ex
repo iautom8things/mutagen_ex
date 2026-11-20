@@ -113,7 +113,7 @@ defmodule Mix.Tasks.Mutagen do
       the arguments on the `test` entry and the return values of alias
       functions. It warns if the alias has entries and no `test` entry.
     * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
-      By default the deadline is five times the baseline duration, with a
+      By default the deadline is three times the baseline duration, with a
       5000 ms floor. Mutagen warns if a requested timeout is shorter than
       the baseline.
     * `--no-fail-fast` runs the full cited suite for each mutant.

@@ -16,7 +16,8 @@ defmodule MutagenEx.ReportSummaryTest do
     summary =
       report(two ++ three ++ mixed ++ timed ++ [low, tainted])["summary"]
 
-    assert summary["verdict"] == "partly_checked"
+    assert summary["verdict"] == "check_first"
+    assert %{"status" => "partial", "uncovered" => 0, "unevaluated" => 1} = summary["checked"]
 
     assert [
              %{
@@ -69,6 +70,14 @@ defmodule MutagenEx.ReportSummaryTest do
              changed["check_first"]
 
     assert Enum.map(changed["worth_a_look"], & &1["id"]) == [reached.id, unrelated.id]
+    assert changed["verdict"] == "check_first"
+
+    assert changed["checked"] == %{
+             "status" => "partial",
+             "total" => 7,
+             "uncovered" => 3,
+             "unevaluated" => 2
+           }
 
     assert %{"count" => 5, "uncovered" => 3, "not_run" => 1, "timeout" => 1} =
              changed["unevaluated"]
@@ -132,11 +141,15 @@ defmodule MutagenEx.ReportSummaryTest do
     killed = site("covered", 2, :killed)
     assert report([killed], [], meta: since())["summary"]["verdict"] == "nothing_to_check"
 
-    for {results, pending} <- [
-          {[killed], [pending("uncovered", 3)]},
-          {[site("timeout", 2, :timeout)], []}
+    for {results, pending, verdict} <- [
+          {[killed], [pending("uncovered", 3)], "check_first"},
+          {[site("timeout", 2, :timeout)], [], "nothing_to_check"},
+          {[site("worth", 2, :survived), site("error", 3, :error)], [], "worth_a_look"}
         ] do
-      assert %{"summary" => %{"verdict" => "partly_checked"}, "meta" => %{"complete" => true}} =
+      assert %{
+               "summary" => %{"verdict" => ^verdict, "checked" => %{"status" => "partial"}},
+               "meta" => %{"complete" => true}
+             } =
                report(results, pending, meta: since())
     end
 
@@ -156,6 +169,19 @@ defmodule MutagenEx.ReportSummaryTest do
 
     assert %{"verdict" => "low_confidence_survivors", "worth_a_look" => []} =
              report([low])["summary"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "a file that fails alone leads the verdict even with uncovered sites" do
+    warnings = [{:escalation_rejected, :escalation_baseline_red, ["test/red_test.exs"]}]
+
+    summary =
+      report([], [pending("uncovered", 2)], meta: since(), warnings: warnings)["summary"]
+
+    assert %{"verdict" => "baseline_red", "checked" => %{"status" => "partial"}} = summary
+
+    assert [%{"kind" => "baseline_red_files", "files" => ["test/red_test.exs"]}] =
+             summary["notes"]
   end
 
   @tag spec: "mutagen.json_schema.r36"

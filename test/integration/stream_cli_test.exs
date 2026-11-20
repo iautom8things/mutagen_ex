@@ -272,7 +272,7 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert timings["coverage"] > 0
     assert timings["baseline"] > 0
     assert timings["mutation"] > 0
-    assert timings["mutant_deadline"] == max(5_000, 5 * timings["baseline"])
+    assert timings["mutant_deadline"] == max(5_000, 3 * timings["baseline"])
     measured = Map.drop(timings, ["total", "mutant_deadline"])
     assert timings["total"] >= Enum.sum(Map.values(measured))
     assert Map.delete(aggregate["meta"], "timings_ms") == start_line["meta"]

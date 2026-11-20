@@ -1,6 +1,6 @@
 **Tests failed on the unmutated code** `checks/red_test.exs`.
 
-**Mutagen checked only part of the selected code.** 4 mutants run · 3 killed · 1 survived · 1 unevaluated · kill rate 75.0% (3/4 evaluated) · 1 changed file · 5 changed functions
+**Mutagen found failing baseline tests.** 1 of 5 changed sites could not be checked. 4 mutants run · 3 killed · 1 survived · 1 unevaluated · kill rate 75.0% (3/4 evaluated) · 1 changed file · 5 changed functions
 
 ### Check first
 

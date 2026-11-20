@@ -36,7 +36,8 @@ defmodule MutagenEx.ReportSummary do
     groups = group_functions(sites)
 
     interrupted? = report.aborted or report.truncated
-    red = red_files(report)
+    rejections = rejected_files(report.warnings)
+    red = Map.get(rejections, :escalation_baseline_red, [])
     red_functions = Map.get(meta, :red_functions, MapSet.new())
 
     check_first =
@@ -56,13 +57,13 @@ defmodule MutagenEx.ReportSummary do
       end
 
     ranked = worth |> Enum.sort_by(&rank/1) |> Enum.take(report.summary_max)
-    unevaluated = unevaluated(counts)
-    unchecked? = unevaluated["count"] > 0 or (since || %{})[:uncovered] not in [nil, []]
+    total = length(sites)
+    missing = max(0, Map.get(mutation, :planned_sites, total) - total)
+    unevaluated = counts |> Map.update(:not_run, missing, &(&1 + missing)) |> unevaluated()
 
     verdict =
       cond do
         incomplete?(report) -> "incomplete"
-        unchecked? -> "partly_checked"
         red != [] -> "baseline_red"
         check_first != [] -> "check_first"
         ranked != [] -> "worth_a_look"
@@ -85,15 +86,25 @@ defmodule MutagenEx.ReportSummary do
 
     %{
       "verdict" => verdict,
+      "checked" => checked(total + missing, unevaluated),
       "counts" => if(skipped > 0, do: Map.put(totals, "skipped", skipped), else: totals),
       "changed_functions" => if(since, do: changed_functions(groups, mutation)),
       "check_first" => Enum.map(check_first, &elem(&1, 1)),
       "worth_a_look" => Enum.map(ranked, &example(&1, report)),
       "worth_a_look_omitted" => length(worth) - length(ranked),
       "unevaluated" => unevaluated,
-      "notes" => notes(report, results, length(low), red),
+      "notes" => notes(report, results, length(low), red, rejections),
       "by_function" => by_function(groups, report),
       "source" => report.source
+    }
+  end
+
+  defp checked(total, %{"count" => unchecked, "uncovered" => uncovered}) do
+    %{
+      "status" => if(unchecked > 0, do: "partial", else: "full"),
+      "total" => total,
+      "uncovered" => uncovered,
+      "unevaluated" => unchecked - uncovered
     }
   end
 
@@ -294,7 +305,7 @@ defmodule MutagenEx.ReportSummary do
     Map.put(counts, "count", Enum.sum(Map.values(counts)))
   end
 
-  defp notes(report, results, low, red) do
+  defp notes(report, results, low, red, rejections) do
     tainted = Enum.count(results, &(&1[:tainted_predecessors] == true))
 
     kills_after_drop =
@@ -308,8 +319,8 @@ defmodule MutagenEx.ReportSummary do
       |> Enum.sum_by(&Map.get(&1, :dropped_after_load, 0))
 
     rejected =
-      for {:escalation_rejected, reason, paths} <- Enum.uniq(report.warnings || []),
-          reason not in red_reasons(),
+      for {reason, paths} <- Enum.sort(rejections),
+          reason != :escalation_baseline_red,
           do: rejection(reason, paths, report)
 
     short_deadlines =
@@ -393,14 +404,11 @@ defmodule MutagenEx.ReportSummary do
       else: note
   end
 
-  defp red_reasons, do: [:escalation_baseline_red, :escalation_baseline_red_in_combination]
+  defp rejected_files(warnings) do
+    files =
+      for {:escalation_rejected, reason, paths} <- warnings, path <- paths, do: {reason, path}
 
-  defp red_files(report) do
-    for {:escalation_rejected, reason, paths} <- report.warnings,
-        reason in red_reasons(),
-        path <- paths,
-        uniq: true,
-        do: path
+    Enum.group_by(files, &elem(&1, 0), &elem(&1, 1))
   end
 
   defp red_note([], _report), do: []
