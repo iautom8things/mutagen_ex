@@ -1,4 +1,4 @@
-**Mutagen checked only part of the selected code.** 3 mutants run · 0 killed · 3 survived · 2 unevaluated · kill rate 0.0% (0/3 evaluated) · 1 changed file · 5 changed functions
+**Mutagen found functions to check first.** 2 of 5 changed sites could not be checked. 3 mutants run · 0 killed · 3 survived · 2 unevaluated · kill rate 0.0% (0/3 evaluated) · 1 changed file · 5 changed functions
 
 ### Check first
 
