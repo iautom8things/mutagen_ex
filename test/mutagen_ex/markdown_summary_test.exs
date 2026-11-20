@@ -6,7 +6,9 @@ defmodule MutagenEx.MarkdownSummaryTest do
 
   @tag spec: "mutagen.json_schema.r37"
   test "clean changed run has a two-line golden" do
-    assert_golden("summary_clean", report([site(2, :killed)], meta: since()))
+    doc = report([site(2, :killed)], meta: since())
+    refute doc |> MarkdownSummary.render() |> IO.iodata_to_binary() =~ "A survivor means"
+    assert_golden("summary_clean", doc)
   end
 
   @tag spec: "mutagen.json_schema.r37"
@@ -71,9 +73,28 @@ defmodule MutagenEx.MarkdownSummaryTest do
     text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
 
     assert text =~
-             "**Mutagen found nothing to check.** 1 of 2 changed sites could not be checked."
+             "**Mutagen found nothing in the sites it could check.** 1 of 2 changed sites could not be checked."
+
+    refute text =~ "Mutagen found nothing to check."
 
     assert text =~ "1 unevaluated · kill rate 100.0% (1/1 evaluated)"
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "a partial report with a finding keeps the finding first and labels low confidence" do
+    low = %{site(2, :survived) | mutator: :guard_drop}
+
+    text =
+      [low, site(3, :timeout)]
+      |> report(meta: since())
+      |> MarkdownSummary.render()
+      |> IO.iodata_to_binary()
+
+    assert text =~
+             "**Mutagen found changes worth a look.** 1 of 2 changed sites could not be checked."
+
+    assert text =~ "`guard_drop` survived (low confidence, narrow)"
+    assert text =~ "--tests auto --escalate --escalate-max-files 40"
   end
 
   @tag spec: "mutagen.json_schema.r37"
@@ -98,17 +119,53 @@ defmodule MutagenEx.MarkdownSummaryTest do
   end
 
   @tag spec: "mutagen.json_schema.r37"
-  test "gives distinct wording for existing symlinks and submodules under source roots" do
-    meta = %{
-      incomplete_reasons: [
-        %{reason: :preexisting_symlink, path: "lib/linked"},
-        %{reason: :preexisting_gitlink, path: "lib/nested"}
-      ]
-    }
+  test "preexisting links under source roots leave the finding first and checked partial" do
+    for {reason, label} <- [
+          {:preexisting_symlink, "symlink"},
+          {:preexisting_gitlink, "submodule"}
+        ] do
+      meta = %{since() | incomplete_reasons: [%{reason: reason, path: "lib/linked"}]}
+      doc = report([site(2, :survived)], meta: meta)
 
+      assert %{"verdict" => "worth_a_look", "checked" => %{"status" => "partial", "total" => 1}} =
+               doc["summary"]
+
+      assert doc["meta"]["complete"] == false
+      text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+      assert String.starts_with?(text, "**Mutagen found changes worth a look.**")
+
+      assert text =~
+               "### Notes\n\n- Mutagen did not read a #{label} under the source root in `lib/linked`"
+
+      refute text =~ "0 of 1 changed site could not be checked"
+    end
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "shows the survivor explanation only with a visible survivor and separates the paragraph" do
+    row = Map.put(site(2, :survived), :tainted_predecessors, true)
+    text = [row] |> report() |> MarkdownSummary.render() |> IO.iodata_to_binary()
+
+    assert text =~
+             "This mutant ran after a state-leak warning. Rerun alone to confirm.\n  Rerun with"
+
+    assert text =~ "\n\n**What this means.** A survivor means"
+    assert text =~ "1 result followed a timeout or host state change"
+
+    hidden = [row] |> report(summary_max: 0) |> MarkdownSummary.render() |> IO.iodata_to_binary()
+    refute hidden =~ "A survivor means"
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "reports when single-site escalation admits no tests" do
+    step = %{step: :module, files_added: [], capped: false, survivors_in: 1, survivors_out: 1}
+    meta = %{single_site: true, escalation: [step], tests_selected: []}
     text = [] |> report(meta: meta) |> MarkdownSummary.render() |> IO.iodata_to_binary()
-    assert text =~ "did not read a symlink under the source root in `lib/linked`"
-    assert text =~ "did not read a submodule under the source root in `lib/nested`"
+    assert text =~ "Single-site escalation admitted no test files."
+
+    meta = put_in(meta.escalation, [%{step | files_added: ["test/fixture_test.exs"]}])
+    text = [] |> report(meta: meta) |> MarkdownSummary.render() |> IO.iodata_to_binary()
+    refute text =~ "admitted no test files"
   end
 
   @tag spec: "mutagen.json_schema.r37"
@@ -188,6 +245,19 @@ defmodule MutagenEx.MarkdownSummaryTest do
   end
 
   defp report(results, opts) do
+    opts =
+      case opts[:meta] do
+        %{since: _} = meta ->
+          Keyword.put(
+            opts,
+            :meta,
+            Map.put(meta, :changed_line_sites, MapSet.new(results, & &1.id))
+          )
+
+        _ ->
+          opts
+      end
+
     struct!(Report, Keyword.put(opts, :mutation, %{results: results}))
     |> JsonReporter.to_wire()
   end

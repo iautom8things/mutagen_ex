@@ -29,9 +29,12 @@ defmodule MutagenEx.CLI do
     * `--summary <path>` writes Markdown within the project root, as with
       `--json`. Use `--unsafe-json-outside-project` to allow a path outside it.
     * `--summary-max <int>` caps the individual findings. Defaults to five.
-    * `--no-escalate` — disable survivor escalation with automatic selection.
+    * `--escalate` — widen automatic test selection after the narrow pass.
+      `--no-escalate` is accepted with no effect for one release.
     * `--escalate-max-files <int>` — non-negative cap per step, default 20.
     * `--escalate-budget-ms <int>` — total time for the extra passes, default 120000.
+      Single-site runs cap it at the larger of 30 seconds and ten times
+      the narrow baseline duration.
       Use 0 to remove the escalation time limit.
     * `--timeout-ms <int>` — positive per-mutant deadline override.
     * `--seed <int>` — non-negative integer, default 0.
@@ -164,7 +167,7 @@ defmodule MutagenEx.CLI do
          site: site,
          summary_path: summary_path,
          summary_max: summary_max,
-         escalate: Keyword.get(parsed, :escalate, true),
+         escalate: true in Keyword.get_values(parsed, :escalate),
          escalate_max_files: escalate_max_files,
          escalate_budget_ms: escalate_budget_ms,
          timeout_ms: timeout_ms,
@@ -246,7 +249,7 @@ defmodule MutagenEx.CLI do
     site: :string,
     summary: :string,
     summary_max: :integer,
-    escalate: :boolean,
+    escalate: [:boolean, :keep],
     escalate_max_files: :integer,
     escalate_budget_ms: :integer,
     timeout_ms: :integer,
