@@ -578,11 +578,13 @@ Top-level keys, all present in every variant unless noted:
     first identifies a function with only uncovered sites in a changed-code
     run or at least three evaluated high-confidence sites with complete
     escalation evidence, no kill
-    at any confidence and no rejected red test file that mentions the
-    function. Uncovered or unevaluated sites yield partly_checked when
-    the run is otherwise complete. A changed, uncovered line within
-    an evaluated multi-line site also yields partly_checked. These lines
-    include zero-hit lines and lines in the span of an uncovered site.
+    at any confidence and no test file that failed alone and mentions
+    the function. The verdict keeps incomplete and no_mutable_changes
+    and prioritizes baseline_red, check_first, worth_a_look, the unranked
+    survivor verdicts and nothing_to_check. summary.checked names the
+    status (full or partial), total sites, uncovered sites, and sites
+    left unevaluated for reasons other than lack of coverage.
+    Uncovered lines inside evaluated sites appear separately in meta.since.
     Validator skips are counted separately from unevaluated mutants.
     A run with surviving sites never says nothing_to_check.
     Remaining high-confidence survivors are ranked by escalation
@@ -609,8 +611,12 @@ Top-level keys, all present in every variant unless noted:
     when the escalation budget runs out and labels survivors with
     incomplete escalation as not fully escalated. Preexisting symlinks
     and submodules under a source root have distinct wording.
-    It leads with a note naming test
-    files that failed on the unmutated code. An abort replaces the
+    The headline names the finding first and gives the unchecked count
+    and site total when checked is partial.
+    It leads with a note for escalation candidates that failed alone
+    on the unmutated code. Candidates that failed in combination
+    appear in the notes. The escalation budget note counts a file once
+    per run. An abort replaces the
     summary with the fixed abort reason and hint. A single-line excerpt
     can show the full line before and after to distinguish repeated
     literals. A clean run renders two lines.
@@ -913,6 +919,7 @@ the envelope fields and add `kind`.
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
 | `summary.verdict` | Tool vocabulary | Keep |
+| `summary.checked.status` | Tool coverage vocabulary | Keep |
 | `summary.check_first[].kind` | Tool vocabulary | Keep |
 | `summary.check_first[].file` | Project source path | Omit with --no-source |
 | `summary.check_first[].function` | Source definition | Omit with --no-source |

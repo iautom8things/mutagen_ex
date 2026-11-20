@@ -37,7 +37,7 @@ defmodule MutagenEx.ChangedRun do
              :ok <- check_scope(plan.scopes, config, report),
              :ok <- check_site_cap(plan, config, report) do
           selection =
-            if config.tests == ["auto"], do: AutoTests.select(plan.scopes, roots, paths, [])
+            if config.tests == ["auto"], do: auto_selection(plan, roots, paths, [])
 
           run_selected(Map.put(plan, :selection, selection), config, report, phases, state)
         end
@@ -66,6 +66,15 @@ defmodule MutagenEx.ChangedRun do
     end
   end
 
+  defp prepare_tests(%{sites: []} = plan, config, report, phases, _boot, _roots, paths) do
+    plan = Map.put(plan, :selection, if(config.tests == ["auto"], do: []))
+
+    run_selected(plan, config, changed_report(report, plan), phases, %{
+      test_paths: paths,
+      exunit: []
+    })
+  end
+
   defp prepare_tests(plan, config, report, phases, boot, roots, paths) do
     discovery =
       if config.tests == ["auto"] and paths != [],
@@ -75,12 +84,12 @@ defmodule MutagenEx.ChangedRun do
     case discovery do
       {:ok, changed, skipped} ->
         selection =
-          if config.tests == ["auto"], do: AutoTests.select(plan.scopes, roots, paths, changed)
+          if config.tests == ["auto"], do: auto_selection(plan, roots, paths, changed)
 
         plan = Map.put(%{plan | incomplete: plan.incomplete ++ skipped}, :selection, selection)
         report = changed_report(report, plan)
 
-        if plan.sites == [] or (selection == [] and (not config.escalate or paths == [])) do
+        if selection == [] and (not config.escalate or paths == []) do
           run_selected(plan, config, report, phases, %{test_paths: paths, exunit: []})
         else
           boot.(report, &run_selected(plan, config, &1, phases, &2))
@@ -90,6 +99,11 @@ defmodule MutagenEx.ChangedRun do
         abort(report, config, reason, details)
     end
   end
+
+  defp auto_selection(%{sites: []}, _roots, _paths, _changed), do: []
+
+  defp auto_selection(plan, roots, paths, changed),
+    do: AutoTests.select(plan.scopes, roots, paths, changed)
 
   defp site_scopes(%{scopes: [], site: site}, roots) when is_binary(site),
     do: Enum.flat_map(roots, &Path.wildcard(Path.join(&1, "**/*.ex")))

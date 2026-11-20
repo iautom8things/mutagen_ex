@@ -165,4 +165,50 @@ defmodule ChangedRunFixture.Example do
       |> Enum.take(1)
     end
   end
+
+  def head_list_live do
+    [
+      true,
+      0
+    ]
+  end
+
+  def head_list_cold do
+    [
+      false,
+      1
+    ]
+  end
+
+  def head_map_live,
+    do: %{
+      enabled: true,
+      count: 0
+    }
+
+  def head_map_cold,
+    do: %{
+      enabled: false,
+      count: 1
+    }
+
+  def head_tuple_live(value) do
+    {:ok, value}
+  end
+
+  def head_tuple_cold(value) do
+    {:ok, value}
+  end
+
+  def head_pipe_live(items),
+    do:
+      items
+      |> Enum.sort()
+      |> Enum.reverse()
+
+  def head_pipe_cold(items),
+    do:
+      items
+      |> Enum.sort()
+      |> Enum.reverse()
 end

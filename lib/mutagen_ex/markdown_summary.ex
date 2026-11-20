@@ -8,7 +8,6 @@ defmodule MutagenEx.MarkdownSummary do
     "worth_a_look" => "Mutagen found changes worth a look",
     "low_confidence_survivors" => "Mutagen found low-confidence survivors in the JSON (0 ranked)",
     "unranked_survivors" => "Mutagen listed survivors in the JSON (0 ranked)",
-    "partly_checked" => "Mutagen checked only part of the selected code",
     "incomplete" => "Mutagen has incomplete results",
     "no_mutable_changes" => "Mutagen found no mutable changes"
   }
@@ -110,6 +109,7 @@ defmodule MutagenEx.MarkdownSummary do
       "**",
       Map.fetch!(@headlines, summary["verdict"]),
       ".** ",
+      checked_count(summary["checked"], since),
       "#{quantity(counts["run"], "mutant")} run · #{counts["killed"]} killed · #{counts["survived"]} survived",
       " · #{summary["unevaluated"]["count"]} unevaluated",
       if(counts["skipped"], do: " · #{counts["skipped"]} skipped by the validator", else: ""),
@@ -119,6 +119,14 @@ defmodule MutagenEx.MarkdownSummary do
       "\n"
     ]
   end
+
+  defp checked_count(%{"status" => "partial"} = checked, since) do
+    unchecked = checked["uncovered"] + checked["unevaluated"]
+    sites = if since, do: "changed site", else: "site"
+    "#{unchecked} of #{quantity(checked["total"], sites)} could not be checked. "
+  end
+
+  defp checked_count(_checked, _since), do: []
 
   defp uncovered_count(since) do
     lines =

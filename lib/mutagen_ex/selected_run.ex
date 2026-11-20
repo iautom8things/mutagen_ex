@@ -618,12 +618,10 @@ defmodule MutagenEx.SelectedRun do
 
     rejected =
       for {reason, paths} <- Enum.sort(state.rejected) do
-        {:escalation_rejected, reason, Enum.reverse(paths)}
+        {:escalation_rejected, reason, paths |> Enum.reverse() |> Enum.uniq()}
       end
 
-    red =
-      [:escalation_baseline_red, :escalation_baseline_red_in_combination]
-      |> Enum.flat_map(&Map.get(state.rejected, &1, []))
+    red = Map.get(state.rejected, :escalation_baseline_red, [])
 
     report = %{
       state.report
