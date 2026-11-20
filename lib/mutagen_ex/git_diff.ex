@@ -126,6 +126,7 @@ defmodule MutagenEx.GitDiff do
   @type sha :: String.t()
   @type line_range :: {pos_integer(), pos_integer()}
   @type change_set :: %{
+          optional(:deletion_anchors) => %{optional(binary()) => [non_neg_integer()]},
           base: sha(),
           head: sha() | nil,
           files: %{optional(binary()) => [line_range()]},
@@ -144,6 +145,13 @@ defmodule MutagenEx.GitDiff do
   `:kill_cmd` can inject that same interface for timeout cleanup.
   `:renames` maps each selected destination to its old path, including pure
   renames. Git detects renames within the selected roots.
+  Set `:deletion_anchors` to return a separate map of new-side line
+  numbers from zero-line hunks. An anchor of 0 is before the first line.
+  Set `file_kind: :test` to select changed `*_test.exs` files, including
+  pure renames. The default kind is `:source` (`.ex`).
+  With `:allow_missing_roots`, a missing root is part of the working-tree
+  snapshot and an empty roots list selects no paths. Set `:untracked` to
+  include unignored working files without requiring intent-to-add.
   """
   @spec changed_lines(binary(), keyword()) :: {:ok, change_set()} | error()
   def changed_lines(ref, opts) do
@@ -153,7 +161,7 @@ defmodule MutagenEx.GitDiff do
            :ok <- check_version(git),
            {:ok, false} <- shallow?(git) do
         git
-        |> read_changes(ref, roots)
+        |> read_changes(ref, roots, opts)
         |> with_shallow(false)
       else
         {:ok, true} ->
@@ -189,36 +197,169 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp read_changes(git, ref, roots, retry? \\ true) do
-    case read_changes_once(git, ref, roots) do
-      {:retry, _error} when retry? -> read_changes(git, ref, roots, false)
+  defp read_changes(git, ref, roots, opts, retry? \\ true) do
+    case read_changes_once(git, ref, roots, opts) do
+      {:retry, _error} when retry? -> read_changes(git, ref, roots, opts, false)
       {:retry, error} -> error
       result -> result
     end
   end
 
-  defp read_changes_once(git, ref, roots) do
-    with {:ok, git} <- repository_context(git),
+  defp read_changes_once(git, ref, roots, opts) do
+    kind = Keyword.get(opts, :file_kind, :source)
+    anchors? = Keyword.get(opts, :deletion_anchors, false)
+    allow_missing? = Keyword.get(opts, :allow_missing_roots, false)
+    git = Map.put(git, :file_kind, kind)
+
+    with :ok <- validate_kind(kind),
+         {:ok, git} <- repository_context(git),
          :ok <- check_info_attributes(git),
          :ok <- reject_ambiguous(git, ref),
          {:ok, since} <- resolve_commit(git, ref, :resolve_ref, :unresolvable_ref),
          {:ok, head} <- resolve_commit(git, "HEAD", :resolve_head, :unresolvable_head),
          {:ok, base} <- merge_base(git, since, head),
-         {:ok, snapshot} <- snapshot_roots(git, roots, base),
+         {:ok, snapshot} <- snapshot_roots(git, roots, base, allow_missing?),
          git = probe_case(git),
          git = put_git_env(git, "GIT_ATTR_SOURCE", object_id("tree", "", head)),
          {:ok, paths, index} <- tracked_scope(git, base, roots),
+         {:ok, untracked} <- untracked_paths(git, paths, roots, opts[:untracked]),
          before = snapshot_index_dirs(git, index, snapshot),
-         args = ["diff" | @diff_flags] ++ [base, "--" | paths],
-         {:ok, output} <- command(git, args, :diff, @max_diff_bytes),
+         before = Enum.reduce(untracked, before, &snapshot_parent(git.cd, &1, &2)),
+         {:ok, output} <- diff_output(git, base, paths),
          {:ok, changes, changed_paths} <- parse_diff(output, roots, git),
-         :ok <- verify_directories(git, roots, snapshot, before, changed_paths),
-         :ok <- validate_ranges(git, changes.files) do
+         all_paths = Enum.uniq(changed_paths ++ untracked),
+         :ok <- check_untracked_limit(changed_paths, untracked, roots, git),
+         :ok <- verify_directories(git, roots, snapshot, before, all_paths),
+         {:ok, changes} <- add_untracked(git, changes, untracked),
+         :ok <- validate_ranges(git, changes, anchors?),
+         :ok <- verify_untracked_directories(git, roots, snapshot, before, untracked) do
       changes = %{changes | skipped: changes.skipped ++ index_links(index, git)}
-      warnings = if changes.files == %{} and changes.skipped == [], do: [:empty_diff], else: []
+      changes = if anchors?, do: changes, else: Map.delete(changes, :deletion_anchors)
+
+      warnings =
+        if changes.files == %{} and Map.get(changes, :deletion_anchors, %{}) == %{} and
+             changes.skipped == [],
+           do: [:empty_diff],
+           else: []
+
       {:ok, Map.merge(changes, %{base: base, head: head, warnings: warnings})}
     end
   end
+
+  defp validate_kind(kind) when kind in [:source, :test], do: :ok
+  defp validate_kind(_kind), do: unavailable(:invalid_file_kind, :diff)
+
+  defp diff_output(_git, _base, []), do: {:ok, ""}
+
+  defp diff_output(git, base, paths) do
+    args = ["diff" | @diff_flags] ++ [base, "--" | paths]
+    command(git, args, :diff, @max_diff_bytes)
+  end
+
+  defp untracked_paths(_git, _paths, _roots, flag) when flag != true, do: {:ok, []}
+  defp untracked_paths(_git, [], _roots, true), do: {:ok, []}
+
+  defp untracked_paths(git, paths, roots, true) do
+    args = ["ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--" | paths]
+
+    with {:ok, output} <- command(repo_git(git), args, :untracked, @max_diff_bytes),
+         ["" | names] <- Enum.reverse(:binary.split(output, <<0>>, [:global])) do
+      names
+      |> Enum.reverse()
+      |> Enum.reduce_while({:ok, []}, fn name, {:ok, acc} ->
+        path = project_relative(String.trim_trailing(name, "/"), git)
+
+        if is_binary(path) and safe_git_path?(path) and
+             root_match(path, roots, git.ignore_case?) == :below do
+          if selected_file?(path, git.file_kind) or String.ends_with?(name, "/"),
+            do: {:cont, {:ok, [path | acc]}},
+            else: {:cont, {:ok, acc}}
+        else
+          {:halt, unavailable(:invalid_path, :untracked)}
+        end
+      end)
+    else
+      {:error, _, _} = error -> error
+      _ -> unavailable(:invalid_output, :untracked)
+    end
+  end
+
+  defp check_untracked_limit(changed, untracked, roots, git) do
+    files = Enum.filter(untracked, &selected_file?(&1, git.file_kind))
+
+    case Enum.fetch(files, @max_files - length(changed)) do
+      :error ->
+        :ok
+
+      {:ok, path} ->
+        root = Enum.find(roots, &(root_match(path, [&1], git.ignore_case?) == :below))
+        unavailable(:file_limit, :untracked, %{limit_files: @max_files, root: root})
+    end
+  end
+
+  defp add_untracked(git, changes, paths) do
+    Enum.reduce_while(paths, {:ok, changes}, fn path, {:ok, changes} ->
+      case untracked_change(git, changes, path) do
+        {:ok, changes} -> {:cont, {:ok, changes}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp untracked_change(git, changes, path) do
+    case File.lstat(Path.join(git.cd, path)) do
+      {:ok, %{type: :symlink}} ->
+        add_skipped(changes, path, :symlink)
+
+      {:ok, %{type: :directory}} ->
+        add_skipped(changes, path, :nested_git_checkout)
+
+      {:ok, %{type: :regular}} ->
+        if selected_file?(path, git.file_kind) do
+          with {:ok, absolute} <- regular_working_path(git.cd, path),
+               {:ok, {:ok, last}} <-
+                 File.open(absolute, [:read, :binary], &count_lines(&1, 0, 0, false)) do
+            ranges = if last == 0, do: [], else: [{1, last}]
+            {:ok, put_in(changes.files[path], ranges)}
+          else
+            {:error, :diff_unavailable, _} = error -> error
+            {:ok, {:error, _, _} = error} -> error
+            _ -> unavailable(:working_file_unavailable, :untracked)
+          end
+        else
+          {:ok, changes}
+        end
+
+      _ ->
+        unavailable(:working_file_unavailable, :untracked)
+    end
+  end
+
+  defp count_lines(io, size, lines, partial?) do
+    case IO.binread(io, 64 * 1024) do
+      :eof ->
+        {:ok, lines + if(partial?, do: 1, else: 0)}
+
+      chunk when is_binary(chunk) and size + byte_size(chunk) <= @max_working_bytes ->
+        count_lines(
+          io,
+          size + byte_size(chunk),
+          lines + length(:binary.matches(chunk, "\n")),
+          :binary.last(chunk) != ?\n
+        )
+
+      chunk when is_binary(chunk) ->
+        unavailable(:working_file_limit, :untracked, %{limit_bytes: @max_working_bytes})
+
+      _ ->
+        unavailable(:working_file_unavailable, :untracked)
+    end
+  end
+
+  defp verify_untracked_directories(_git, _roots, _snapshot, _before, []), do: :ok
+
+  defp verify_untracked_directories(git, roots, snapshot, before, paths),
+    do: verify_directories(git, roots, snapshot, before, paths)
 
   defp read_base_file(git, sha, path, roots) do
     with {:ok, git} <- repository_context(git),
@@ -317,9 +458,10 @@ defmodule MutagenEx.GitDiff do
   defp roots(opts) do
     roots = Keyword.get(opts, :roots, ["lib"])
 
-    if is_list(roots) and roots != [] and Enum.all?(roots, &relative_path?/1),
-      do: {:ok, roots},
-      else: unavailable(:invalid_roots, :repository)
+    if is_list(roots) and (roots != [] or opts[:allow_missing_roots] == true) and
+         Enum.all?(roots, &relative_path?/1),
+       do: {:ok, roots},
+       else: unavailable(:invalid_roots, :repository)
   end
 
   defp relative_path?(path) when is_binary(path) do
@@ -362,6 +504,8 @@ defmodule MutagenEx.GitDiff do
 
   # Git's literal pathspecs preserve the index and tree's exact spelling.
   # Select the root aliases before requesting a patch or detecting renames.
+  defp tracked_scope(_git, _base, []), do: {:ok, [], []}
+
   defp tracked_scope(git, base, roots) do
     paths = Enum.map(roots, &(git.prefix <> &1))
 
@@ -506,8 +650,8 @@ defmodule MutagenEx.GitDiff do
 
   defp file_identity(stat), do: {stat.major_device, stat.minor_device, stat.inode}
 
-  defp snapshot_roots(git, roots, base) do
-    case scan_roots(git.cd, roots) do
+  defp snapshot_roots(git, roots, base, allow_missing?) do
+    case scan_roots(git.cd, roots, allow_missing?) do
       {:ok, _} = snapshot ->
         snapshot
 
@@ -519,11 +663,20 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp scan_roots(cd, roots) do
+  defp scan_roots(cd, roots, allow_missing?) do
     Enum.reduce_while(roots, {:ok, %{}}, fn root, {:ok, snapshots} ->
       case scan_components(cd, path_segments(root), "", []) do
-        {:ok, entries} -> {:cont, {:ok, Map.put(snapshots, root, entries)}}
-        {cause, component, type} -> {:halt, {cause, root, component, type}}
+        {:ok, entries} ->
+          {:cont, {:ok, Map.put(snapshots, root, entries)}}
+
+        {:missing, entries} when allow_missing? ->
+          {:cont, {:ok, Map.put(snapshots, root, entries)}}
+
+        {:missing, [{component, _} | _]} ->
+          {:halt, {:invalid_root, root, component, :missing}}
+
+        {cause, component, type} ->
+          {:halt, {cause, root, component, type}}
       end
     end)
   end
@@ -536,6 +689,9 @@ defmodule MutagenEx.GitDiff do
     case directory_snapshot(Path.join(cd, component)) do
       {:ok, _} = snapshot ->
         scan_components(cd, rest, component, [{component, snapshot} | snapshots])
+
+      {:invalid_root, :missing} = missing ->
+        {:missing, [{component, missing} | snapshots]}
 
       {cause, type} ->
         {cause, component, type}
@@ -1296,7 +1452,7 @@ defmodule MutagenEx.GitDiff do
   defp unavailable(cause, step, details \\ %{}),
     do: {:error, :diff_unavailable, Map.merge(details, %{cause: cause, step: step})}
 
-  defp empty_changes, do: %{files: %{}, renames: %{}, skipped: []}
+  defp empty_changes, do: %{files: %{}, deletion_anchors: %{}, renames: %{}, skipped: []}
 
   defp parse_diff("", _roots, _git), do: {:ok, empty_changes(), []}
 
@@ -1411,7 +1567,7 @@ defmodule MutagenEx.GitDiff do
   defp patches(patch, [{path, old_path, status, mode} | records], roots, git, result) do
     with {:ok, ranges, binary?, rest} <- patch_for(patch, status),
          entry = {project_relative(path, git), project_relative(old_path, git), status, mode},
-         {:ok, result} <- put_change(entry, ranges, binary?, roots, git.ignore_case?, result) do
+         {:ok, result} <- put_change(entry, ranges, binary?, roots, git, result) do
       patches(rest, records, roots, git, result)
     end
   end
@@ -1450,10 +1606,11 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp put_change({_path, _, "D", _}, _ranges, _binary?, _roots, _ignore_case?, result),
+  defp put_change({_path, _, "D", _}, _ranges, _binary?, _roots, _git, result),
     do: {:ok, result}
 
-  defp put_change({path, old_path, status, mode}, ranges, binary?, roots, ignore_case?, result) do
+  defp put_change({path, old_path, status, mode}, ranges, binary?, roots, git, result) do
+    ignore_case? = git.ignore_case?
     relation = root_match(path, roots, ignore_case?)
 
     cond do
@@ -1465,11 +1622,10 @@ defmodule MutagenEx.GitDiff do
 
         add_skipped(result, path, skip_reason(status, mode, binary?))
 
-      relation == :below and String.ends_with?(path, ".ex") ->
+      relation == :below and selected_file?(path, git.file_kind) ->
         with {:ok, result} <- put_rename(result, path, old_path, status, roots, ignore_case?) do
           case skip_reason(status, mode, binary?) do
-            nil when ranges == [] -> {:ok, result}
-            nil -> {:ok, put_in(result.files[path], ranges)}
+            nil -> {:ok, put_ranges(result, path, ranges, git.file_kind)}
             reason -> add_skipped(result, path, reason)
           end
         end
@@ -1477,6 +1633,16 @@ defmodule MutagenEx.GitDiff do
       true ->
         {:ok, result}
     end
+  end
+
+  defp selected_file?(path, :source), do: String.ends_with?(path, ".ex")
+  defp selected_file?(path, :test), do: String.ends_with?(path, "_test.exs")
+
+  defp put_ranges(result, path, hunks, kind) do
+    {anchors, ranges} = Enum.split_with(hunks, &is_integer/1)
+    result = if anchors == [], do: result, else: put_in(result.deletion_anchors[path], anchors)
+
+    if ranges != [] or kind == :test, do: put_in(result.files[path], ranges), else: result
   end
 
   defp add_skipped(result, path, reason) do
@@ -1544,7 +1710,7 @@ defmodule MutagenEx.GitDiff do
          {from, count} <- parse_range(from, count),
          true <- (old_from > 0 or old_count == 0) and (from > 0 or count == 0),
          {:ok, rest} <- hunk_body(rest, old_count, count) do
-      ranges = if count == 0, do: ranges, else: [{from, from + count - 1} | ranges]
+      ranges = [if(count == 0, do: from, else: {from, from + count - 1}) | ranges]
       hunks(rest, ranges, binary?)
     else
       {:error, _, _} = error -> error
@@ -1566,10 +1732,26 @@ defmodule MutagenEx.GitDiff do
     end
   end
 
-  defp validate_ranges(git, files) do
-    Enum.reduce_while(files, :ok, fn {path, ranges}, :ok ->
-      last_line = Enum.reduce(ranges, 0, fn {_from, to}, last -> max(to, last) end)
+  defp validate_ranges(git, changes, anchors?) do
+    last_lines =
+      Map.new(changes.files, fn {path, ranges} ->
+        {path, Enum.reduce(ranges, 0, fn {_from, to}, last -> max(to, last) end)}
+      end)
 
+    last_lines =
+      if anchors? do
+        last_lines =
+          Enum.reduce(changes.deletion_anchors, last_lines, fn {path, anchors}, acc ->
+            last = Enum.max(anchors)
+            Map.update(acc, path, last, &max(&1, last))
+          end)
+
+        Enum.reduce(Map.keys(changes.renames), last_lines, &Map.put_new(&2, &1, 0))
+      else
+        last_lines
+      end
+
+    Enum.reduce_while(last_lines, :ok, fn {path, last_line}, :ok ->
       case validate_file_range(git.cd, path, last_line) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}

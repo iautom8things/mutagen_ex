@@ -1,5 +1,5 @@
 defmodule Mix.Tasks.Mutagen do
-  @shortdoc "Run mutation testing against a scope, gated by cited tests"
+  @shortdoc "Run mutation testing against a scope and selected tests"
 
   @moduledoc """
   # mix mutagen
@@ -37,12 +37,19 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Flags
 
-    * `--scope <target>` (required, repeatable) — what to mutate. One of:
+    * `--scope <target>` (repeatable, required without `--since`) — what to mutate. One of:
       a file path ending in `.ex`, a module name (`Module.Name`), or
       `Module.Name.function/arity`. Repeat the flag to add more targets.
-    * `--tests <target>` (required, repeatable) — which tests judge the
+    * `--tests <target>` (repeatable, required without `--since`) — which tests judge the
       mutations. One of: a test file path, a `file:line` reference, or
-      `tag:<name>`. Repeat the flag to add more targets.
+      `tag:<name>`. Repeat the flag to add more targets, or use `auto`.
+    * `--since <ref>` plans the runtime mutations touched since the merge
+      base with the given ref. `--scope` intersects the diff when supplied.
+      Test selection defaults to `auto`.
+    * `--tests auto` selects conventional test files and, with `--since`,
+      changed test files. It searches for more tests if mutants survive.
+    * `--no-escalate` disables discovery after the first test selection.
+    * `--escalate-max-files <int>` caps each escalation pass. Default 20.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
       compilation and the deadline for each cleanup callback. Each
       coverage and baseline pass gets the greater of this timeout and
@@ -55,8 +62,9 @@ defmodule Mix.Tasks.Mutagen do
     * `--no-test-alias` skips the host test alias pre-steps. Mutagen ignores
       the arguments on the `test` entry and the return values of alias
       functions. It warns if the alias has entries and no `test` entry.
-    * `--timeout-ms <int>` — wall-clock budget per mutation run, in
-      milliseconds. Default `30000`. Must be a positive integer.
+    * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
+      By default the deadline is ten times the baseline duration, with a
+      5000 ms floor and a 30000 ms ceiling.
     * `--no-fail-fast` runs the full cited suite for each mutant.
       By default, the mutation phase
       stops executing tests on the first failure. A failure recorded
@@ -235,7 +243,7 @@ defmodule Mix.Tasks.Mutagen do
 
   use Mix.Task
 
-  alias MutagenEx.CLI
+  alias MutagenEx.{ChangedRun, CLI, MutationRunner}
   alias MutagenEx.Config
   alias MutagenEx.Runtime
   alias MutagenEx.JsonReporter.Report
@@ -624,15 +632,47 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp run_configured_pipeline(:prepared, config, report, dispatch, output, _argv) do
-    do_pipeline(config, report, dispatch, output, %{test_paths: ["test"], exunit: []})
-  end
-
   defp run_configured_pipeline({:host, {:error, reason, details}}, config, report, _, _, _) do
     {:abort, report, %{config | stream: false}, reason, details}
   end
 
-  defp run_configured_pipeline({:host, :ok}, config, report, dispatch, output, argv) do
+  defp run_configured_pipeline(
+         mode,
+         %Config{since: since} = config,
+         report,
+         dispatch,
+         output,
+         argv
+       )
+       when is_binary(since) or config.tests == ["auto"] do
+    ChangedRun.run(config, report, %{
+      command: host_command(argv),
+      boot: &with_host(mode, config, &1, argv, &2),
+      scope: &phase_scope(config, dispatch, &1),
+      ast_cache: &phase_ast_cache(config, &1, &2, dispatch, &3),
+      tests: &phase_tests(config, dispatch, &1, &2),
+      phases: &selected_phases(&1, config, dispatch, output, &2),
+      report_tests: &test_filter_to_wire/1,
+      report_mutation: &mutation_to_report/2,
+      stream_sink: fn -> stream_sink(config, output.stdout) end
+    })
+  end
+
+  defp run_configured_pipeline(mode, config, report, dispatch, output, argv) do
+    with_host(mode, config, report, argv, fn report, state ->
+      do_pipeline(config, report, dispatch, output, state)
+    end)
+  end
+
+  defp with_host(:prepared, _config, report, _argv, pipeline) do
+    pipeline.(report, %{test_paths: Runtime.test_paths(), exunit: []})
+  end
+
+  defp with_host({:host, :ok}, config, report, argv, pipeline) do
+    run_host(config, report, argv, pipeline)
+  end
+
+  defp run_host(config, report, argv, pipeline) do
     started_at = System.monotonic_time()
 
     boot =
@@ -642,7 +682,7 @@ defmodule Mix.Tasks.Mutagen do
         boot_timeout_ms: config.boot_timeout_ms,
         redirect_logger: true,
         defer_cleanup: true,
-        command: Enum.join(["MIX_ENV=test mix mutagen" | Enum.map(argv, &shell_arg/1)], " ")
+        command: host_command(argv)
       )
 
     preloaded = preload_report_modules()
@@ -652,7 +692,7 @@ defmodule Mix.Tasks.Mutagen do
       {:ok, {:ok, state}} ->
         install_redact_patterns(state)
         report = add_warnings(report, state.warnings)
-        {:cleanup, do_pipeline(config, report, dispatch, output, state), state}
+        {:cleanup, pipeline.(report, state), state}
 
       {:ok, {:error, reason, details, state}} ->
         install_redact_patterns(state)
@@ -679,6 +719,9 @@ defmodule Mix.Tasks.Mutagen do
 
   defp add_warnings(report, warnings), do: %{report | warnings: report.warnings ++ warnings}
 
+  defp host_command(argv),
+    do: Enum.join(["MIX_ENV=test mix mutagen" | Enum.map(argv, &shell_arg/1)], " ")
+
   defp shell_arg(arg) do
     if String.match?(arg, ~r/\A[\w\/.:-]+\z/),
       do: arg,
@@ -699,9 +742,41 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
+  defp selected_phases(plan, config, dispatch, output, state) do
+    %{
+      coverage: fn filter, modules, report ->
+        time_phase(:coverage, report, fn ->
+          phase_coverage(config, plan.scopes, filter, dispatch, report, state, modules)
+        end)
+      end,
+      test_input: &phase_test_modules(config, &1, &2, &3),
+      baseline: fn input, report ->
+        case time_baseline(report, dispatch, fn ->
+               phase_baseline(config, input, dispatch, report, state)
+             end) do
+          {:ok, baseline, report} ->
+            report = %{report | baseline: baseline_to_report(baseline)}
+            {:ok, baseline, add_warnings(report, baseline.warnings)}
+
+          abort ->
+            abort
+        end
+      end,
+      mutation: fn input, sites, budget, report ->
+        pass = %{config | stream: false, budget_ms: budget}
+        report = put_mutant_deadline(report, config)
+
+        time_phase(:mutation, report, fn ->
+          phase_mutation(pass, input, plan.cache, sites, plan.scopes, dispatch, report, output)
+        end)
+      end
+    }
+  end
+
   defp do_pipeline(config, %Report{} = report1, dispatch, output, state) do
     with {:ok, scope_records} <- phase_scope(config, dispatch, report1),
          report2 = %Report{report1 | scope: scope_records},
+         :ok <- check_self_scope(scope_records, config, report2),
          {:ok, test_filter} <- phase_tests(config, dispatch, report2, state.test_paths),
          test_filter =
            MutagenEx.TestSelector.merge_helper_filters(
@@ -721,7 +796,7 @@ defmodule Mix.Tasks.Mutagen do
            phase_enumerator(config, ast_cache, scope_records, coverage_result, dispatch, report4),
          {:ok, test_input} <- phase_test_modules(config, coverage_result, test_filter, report4),
          {:ok, baseline_result, %Report{} = report4} <-
-           time_phase(:baseline, report4, fn ->
+           time_baseline(report4, dispatch, fn ->
              phase_baseline(config, test_input, dispatch, report4, state)
            end),
          report5 = %Report{
@@ -729,6 +804,7 @@ defmodule Mix.Tasks.Mutagen do
            | baseline: baseline_to_report(baseline_result),
              warnings: report4.warnings ++ baseline_result.warnings
          },
+         report5 = put_mutant_deadline(report5, config),
          {:ok, mutation_result, %Report{} = report5} <-
            time_phase(:mutation, report5, fn ->
              phase_mutation(
@@ -758,16 +834,39 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp time_phase(phase, report, run) do
-    started_at = System.monotonic_time()
+  defp check_self_scope(scopes, config, report) do
+    case MutationRunner.check_scope(scopes) do
+      :ok -> :ok
+      {:error, reason, details} -> {:abort, report, config, reason, details}
+    end
+  end
+
+  defp time_baseline(report, dispatch, run) do
+    time_phase(
+      :baseline,
+      report,
+      run,
+      Map.get(dispatch, :baseline_clock, &System.monotonic_time/0)
+    )
+  end
+
+  defp time_phase(phase, report, run, clock \\ &System.monotonic_time/0) do
+    started_at = clock.()
 
     case run.() do
       {:ok, result} ->
-        {:ok, result, put_timing(report, phase, started_at)}
+        {:ok, result, put_elapsed_timing(report, phase, clock.() - started_at)}
 
       {:abort, partial, config, reason, details} ->
-        {:abort, put_timing(partial, phase, started_at), config, reason, details}
+        {:abort, put_elapsed_timing(partial, phase, clock.() - started_at), config, reason,
+         details}
     end
+  end
+
+  defp put_mutant_deadline(report, config) do
+    baseline_ms = report.meta.timings_ms.baseline
+    deadline = Config.mutant_deadline(config, baseline_ms)
+    put_in(report.meta.timings_ms[:mutant_deadline], deadline)
   end
 
   defp put_total_timing({:cleanup, result, state}, started_at),
@@ -776,8 +875,11 @@ defmodule Mix.Tasks.Mutagen do
   defp put_total_timing(result, started_at),
     do: put_elem(result, 1, put_timing(elem(result, 1), :total, started_at))
 
-  defp put_timing(%Report{meta: meta} = report, phase, started_at) do
-    elapsed = System.monotonic_time() - started_at
+  defp put_timing(report, phase, started_at) do
+    put_elapsed_timing(report, phase, System.monotonic_time() - started_at)
+  end
+
+  defp put_elapsed_timing(%Report{meta: meta} = report, phase, elapsed) do
     elapsed_ms = System.convert_time_unit(elapsed, :native, :millisecond)
     %{report | meta: put_in(meta.timings_ms[phase], elapsed_ms)}
   end
@@ -926,7 +1028,8 @@ defmodule Mix.Tasks.Mutagen do
          test_filter,
          dispatch,
          report,
-         state
+         state,
+         modules \\ nil
        ) do
     mod = Map.fetch!(dispatch, :coverage)
 
@@ -936,6 +1039,8 @@ defmodule Mix.Tasks.Mutagen do
       |> Enum.uniq()
 
     input = %{seed: seed, in_scope_modules: in_scope_modules, test_filter: test_filter}
+
+    input = if modules == nil, do: input, else: Map.put(input, :test_modules, modules)
 
     case run_suite_phase(state, config, :coverage, fn -> mod.run(input) end) do
       {:ok, result} ->
@@ -1001,7 +1106,19 @@ defmodule Mix.Tasks.Mutagen do
 
     input = Map.put(test_input, :seed, seed)
 
-    case run_suite_phase(state, config, :baseline, fn -> mod.run(input) end) do
+    baseline =
+      case {input, state} do
+        {%{escalation_timeout_ms: timeout}, _} ->
+          Runtime.bounded_baseline(timeout, fn -> mod.run(input) end)
+
+        {_, %{worker: _}} ->
+          Runtime.bounded_baseline(suite_timeout(config), fn -> mod.run(input) end, :release)
+
+        _ ->
+          mod.run(input)
+      end
+
+    case baseline do
       {:ok, result} ->
         {:ok, result}
 
@@ -1026,27 +1143,28 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp run_suite_phase(%{worker: _}, config, phase, fun) do
-    timeout = max(config.boot_timeout_ms, 10 * config.timeout_ms)
+  defp run_suite_phase(%{worker: _}, config, :coverage, fun) do
+    timeout = suite_timeout(config)
 
-    case Runtime.with_deadline(timeout, fun) do
+    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, :release) do
       {:ok, result} ->
         result
 
       :timeout ->
-        reason = if phase == :coverage, do: :coverage_timeout, else: :baseline_timeout
-        {:error, reason, %{phase: phase, limit: timeout}}
+        {:error, :coverage_timeout, %{phase: :coverage, limit: timeout}}
 
       {:exit, reason} ->
         {:error, :ex_unit_run_failed,
-         %{phase: phase, message: "Suite worker exited: #{inspect(reason)}"}}
+         %{phase: :coverage, message: "Suite worker exited: #{inspect(reason)}"}}
     end
   end
 
-  defp run_suite_phase(_state, _config, _phase, fun), do: fun.()
+  defp run_suite_phase(_state, _config, :coverage, fun), do: fun.()
+
+  defp suite_timeout(config), do: max(config.boot_timeout_ms, 10 * config.timeout_ms)
 
   defp phase_mutation(
-         %Config{seed: seed, timeout_ms: timeout_ms, budget_ms: budget_ms} = config,
+         %Config{seed: seed, budget_ms: budget_ms} = config,
          test_input,
          ast_cache,
          sites,
@@ -1131,7 +1249,7 @@ defmodule Mix.Tasks.Mutagen do
     input =
       Map.merge(test_input, %{
         seed: seed,
-        timeout_ms: timeout_ms,
+        timeout_ms: report.meta.timings_ms.mutant_deadline,
         fail_fast: config.fail_fast,
         budget_ms: budget_ms,
         ast_cache: ast_cache,

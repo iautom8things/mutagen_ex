@@ -27,6 +27,7 @@ kind: module
 status: active
 summary: Parses CLI flags, validates them, and gates entry into the pipeline; owns exit-code discipline.
 surface:
+  - lib/mutagen_ex/changed_run.ex
   - lib/mutagen_ex/config.ex
   - lib/mix/tasks/mutagen.ex
   - lib/mutagen_ex/cli.ex
@@ -36,6 +37,8 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
+  - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.serial_execution_and_seed
   - mutagen.decision.per_mutant_fail_fast
@@ -52,25 +55,25 @@ decisions:
 - id: mutagen.cli.r1
   priority: must
   statement: |
-    `mix mutagen` accepts `--scope <target>` (required, repeatable) where each
+    `mix mutagen` accepts `--scope <target>` (repeatable) where each
     target is a file path, a module name, or `Module.fun/arity`. Targets are
-    accumulated into a list on `%Config{}`. If `--scope` is omitted, the task
+    accumulated into a list on `%Config{}`. Without `--since`, if `--scope` is omitted, the task
     exits with an error-JSON document (per mutagen.json_schema) and a non-zero
     exit code.
 
 - id: mutagen.cli.r2
   priority: must
   statement: |
-    `mix mutagen` accepts `--tests <target>` (required, repeatable) where each
+    `mix mutagen` accepts `--tests <target>` (repeatable) where each
     target is a file path, a `file:line` pair, or `tag:<name>`. Targets are
-    accumulated into a list on `%Config{}`. If `--tests` is omitted, the task
+    accumulated into a list on `%Config{}`. Without `--since`, if `--tests` is omitted, the task
     exits with an error-JSON document and a non-zero exit code.
 
 - id: mutagen.cli.r3
   priority: must
   statement: |
     `--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.
-    Default is 30000. Non-positive or non-integer values cause an error-JSON
+    The default ceiling is 30000. Non-positive or non-integer values cause an error-JSON
     exit before any pipeline phase runs.
 
 - id: mutagen.cli.r4
@@ -572,6 +575,21 @@ decisions:
     `abort_reason: "unsupported_elixir_version"` to the selected destination.
     The project's archive allows Mix to load the task so it can report
     this error itself.
+- id: mutagen.cli.r33
+  priority: must
+  statement: |
+    --since REF permits an omitted --scope and defaults to --tests auto.
+    Auto is a standalone test target. Escalation defaults on, --no-escalate
+    disables it, and --escalate-max-files takes a non-negative integer
+    with a default of 20. Fail-fast remains on unless disabled.
+
+- id: mutagen.cli.r34
+  priority: must
+  statement: |
+    A changed-code run checks the Mix environment and refuses an umbrella
+    root before reading Git or starting the host. A plan that names Mutagen
+    modules refuses self mutation before coverage and baseline.
+
 ```
 
 ```spec-scenarios
