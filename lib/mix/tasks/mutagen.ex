@@ -6,7 +6,7 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Synopsis
 
-      MIX_ENV=test mix mutagen --scope <target> --tests <target> [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
+      MIX_ENV=test mix mutagen [--scope <target>] [--tests <target|auto>] [--since REF] [--site ID] [--summary PATH] [--summary-max N] [--no-escalate] [--escalate-max-files N] [--escalate-budget-ms N] [--timeout-ms N] [--no-fail-fast] [--seed N] [--json PATH] [--stream] [--no-progress] [--unsafe-json-outside-project] [--max-sites N] [--budget-ms N] [--max-concurrency N] [--no-host-app] [--no-test-alias] [--boot-timeout-ms N] [--no-source] [--include-host-output]
 
   Run mutation testing against one or more scope targets, judged by a chosen
   set of tests. The final JSON document goes to stdout or `--json <path>`.
@@ -17,27 +17,32 @@ defmodule Mix.Tasks.Mutagen do
       MIX_ENV=test mix mutagen --since origin/main --summary mutagen.md --json mutagen.json
 
   The JSON and Markdown reports give advice for one run. Check first marks
-  functions whose changed sites went unexecuted or where at least three
-  evaluated high-confidence mutants all survived. Worth a look lists
-  remaining high-confidence survivors. Low-confidence survivors stay in the
-  detailed results. Timeouts are counted as unevaluated.
+  functions with only uncovered sites or with at least three evaluated
+  high-confidence mutants and no kills. Worth a look lists remaining
+  high-confidence survivors. Low-confidence survivors stay in the detailed
+  results. Timeouts are counted as unevaluated.
 
   Copy a printed `--site <id>` command to rerun one site with wider
   automatic test discovery. Use the same checkout.
 
   ## Audit mode
 
-      MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json
+      MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json --summary billing.md
       jq '.summary.by_function[]' billing.json
-      find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \\; > audit.ndjson
-      jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+      find lib/my_app -name '*.ex' | while IFS= read -r file; do
+        MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
+      done
+      find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
 
   ## Running in CI
 
   Check out full history (`fetch-depth: 0`). A shallow checkout aborts.
-  Use the changed-code command above, append the Markdown to
-  `$GITHUB_STEP_SUMMARY` when present, and upload the JSON. Use
-  `continue-on-error: true` for aborts. See the README for a GitHub Actions
+  Set `MUTAGEN_BASE` to the pull request's base commit.
+
+      MIX_ENV=test mix mutagen --since "$MUTAGEN_BASE" --json mutagen.json --summary mutagen.md
+
+  Append the Markdown to `$GITHUB_STEP_SUMMARY` when present and upload
+  the JSON. Use `continue-on-error: true` for aborts. See the README for a GitHub Actions
   example. The unmapped list shows changed lines outside runtime mutation
   sites, including attributes and macros. Each run is advisory.
 
@@ -61,8 +66,16 @@ defmodule Mix.Tasks.Mutagen do
   contain secrets committed in the repository. Pattern redaction of opted-in
   host diagnostics is best-effort.
 
-  Use `--json PATH` for CI. Native fd 1 writes and Mix messages emitted
-  before this task starts can still reach stdout. Do not publish stderr.
+  `--json PATH` is the guaranteed report channel. The file contains exactly
+  one JSON document, or NDJSON with `--stream`, regardless of host output.
+
+  Without `--json`, Mutagen writes the report to stdout and routes the
+  `:user` device and known console logger handlers to stderr. The VM can
+  write directly to file descriptor 1, including when an OTP logger
+  handler crashes. In-process I/O routing cannot intercept those writes.
+  Use `--json PATH` and `--summary PATH` in CI.
+
+  Mix can also write to stdout before the task starts. Do not publish stderr.
 
   ## Flags
 
@@ -73,8 +86,9 @@ defmodule Mix.Tasks.Mutagen do
       `tag:<name>`. Repeat it to add targets, or use `auto` on its own.
       Required unless you use `--since` or `--site`.
     * `--summary <path>` writes Markdown to a file alongside the JSON report.
-      The files must have distinct paths. The path follows the JSON path
-      safety rules. Use a filename instead of `-`.
+      The files must have distinct paths. As with `--json`, the path must stay
+      within the project root unless `--unsafe-json-outside-project` is set.
+      Use a filename instead of `-`.
     * `--summary-max <int>` caps the Worth a look list. Default 5, minimum 0.
     * `--site <id>` selects one report site. It defaults to automatic tests.
     * `--since <ref>` plans the runtime mutations touched since the merge
@@ -83,7 +97,9 @@ defmodule Mix.Tasks.Mutagen do
     * `--tests auto` selects conventional test files and, with `--since`,
       changed test files. It searches for more tests if mutants survive.
     * `--no-escalate` disables discovery after the first test selection.
-    * `--escalate-max-files <int>` caps each escalation pass. Default 20.
+    * `--escalate-max-files <int>` caps files per function in each pass. Default 20.
+    * `--escalate-budget-ms <int>` limits time spent on the extra passes. Default
+      120000. Zero removes the escalation time limit.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
       compilation and the deadline for each cleanup callback. Each
       coverage and baseline pass gets the greater of this timeout and
@@ -98,7 +114,8 @@ defmodule Mix.Tasks.Mutagen do
       functions. It warns if the alias has entries and no `test` entry.
     * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
       By default the deadline is ten times the baseline duration, with a
-      5000 ms floor and a 30000 ms ceiling.
+      5000 ms floor. Mutagen warns if a requested timeout is shorter than
+      the baseline.
     * `--no-fail-fast` runs the full cited suite for each mutant.
       By default, the mutation phase
       stops executing tests on the first failure. A failure recorded
@@ -281,6 +298,7 @@ defmodule Mix.Tasks.Mutagen do
   alias MutagenEx.{ChangedRun, CLI, JsonReporter, MutationRunner}
   alias MutagenEx.Config
   alias MutagenEx.Runtime
+  alias MutagenEx.Pipeline.Phases
   alias MutagenEx.JsonReporter.Report
 
   @typedoc """
@@ -342,6 +360,8 @@ defmodule Mix.Tasks.Mutagen do
           optional(:cli) => module(),
           optional(:otp_release) => String.t(),
           optional(:elixir_version) => String.t(),
+          optional(:project_root) => Path.t(),
+          optional(:clock) => (atom() -> integer()),
           optional(:scope) => module(),
           optional(:tests) => module(),
           optional(:ast_cache) => module(),
@@ -373,6 +393,7 @@ defmodule Mix.Tasks.Mutagen do
     MutagenEx.JsonReporter.Provenance,
     MutagenEx.Mutators,
     MutagenEx.Pipeline.DefaultIo,
+    MutagenEx.Pipeline.Phases,
     MutagenEx.JsonReporter.Sanitizer,
     MutagenEx.JsonPath,
     MutagenEx.Test.RunGroup
@@ -482,7 +503,14 @@ defmodule Mix.Tasks.Mutagen do
   #
   defp run_pipeline(argv, dispatch, mode \\ :prepared) do
     started_at = System.monotonic_time()
-    output = %{stdout: Process.group_leader(), progress: build_progress_reporter(argv)}
+    stdout = Process.group_leader()
+
+    output = %{
+      stdout: stdout,
+      progress: build_progress_reporter(argv),
+      root: Map.get_lazy(dispatch, :project_root, &File.cwd!/0),
+      clock: Map.get(dispatch, :clock, fn _phase -> System.monotonic_time() end)
+    }
 
     pipeline = fn ->
       argv
@@ -543,8 +571,25 @@ defmodule Mix.Tasks.Mutagen do
       stdout
     )
 
+    write_abort_summary(report, config, reason, details)
     emit_abort(report, config, reason, details, dispatch)
   end
+
+  defp write_abort_summary(report, %{summary_requested: path} = config, reason, details)
+       when is_binary(path) and reason != :summary_write_failed do
+    files = details[:failing_files] || []
+    paths = if report.source, do: Enum.map(files, &JsonReporter.Sanitizer.clean/1), else: []
+    red = %{count: length(files), files: paths}
+    hint = JsonReporter.abort_hint(reason, details)
+    document = MutagenEx.MarkdownSummary.render_abort(to_string(reason), hint, red)
+
+    case MutagenEx.Pipeline.DefaultIo.write_summary(document, config) do
+      :ok -> :ok
+      {:error, _} -> IO.puts(:stderr, "warning: summary_write_failed")
+    end
+  end
+
+  defp write_abort_summary(_report, _config, _reason, _details), do: :ok
 
   defp write_summary(_report, %{summary_path: nil}), do: :ok
 
@@ -628,10 +673,12 @@ defmodule Mix.Tasks.Mutagen do
     }
   end
 
-  defp maybe_emit_stream_end(%Report{} = report, %Config{stream: true} = config, stdout) do
-    if Process.delete(:mutagen_stream_open) do
-      MutagenEx.JsonStreamer.emit_end(stream_sink(config, stdout), report)
-    end
+  defp maybe_emit_stream_end(
+         %Report{stream_end: true} = report,
+         %Config{stream: true} = config,
+         stdout
+       ) do
+    MutagenEx.JsonStreamer.emit_end(Phases.stream_sink(config, stdout), report)
   end
 
   defp maybe_emit_stream_end(_, _, _), do: :ok
@@ -647,7 +694,7 @@ defmodule Mix.Tasks.Mutagen do
         prepare_supported_pipeline(argv, dispatch, output, mode)
 
       {reason, actual} ->
-        {report, config} = abort_report_options(argv)
+        {report, config} = abort_report_options(argv, output.root)
         report = update_in(report.meta, &%{&1 | otp_version: otp, elixir_version: elixir})
         {:abort, report, config, reason, %{step: :startup, actual: actual}}
     end
@@ -669,22 +716,39 @@ defmodule Mix.Tasks.Mutagen do
       {:ok, config} ->
         report = with_meta(base_report(nil), config)
 
-        with {:ok, config} <- phase_json_path(config, report),
-             {:ok, config} <- phase_summary_path(config, report) do
-          run_configured_pipeline(mode, config, report, dispatch, output, argv)
+        case phase_json_path(config, report, output.root) do
+          {:ok, config} ->
+            with {:ok, config} <- phase_summary_path(config, report, output.root) do
+              run_configured_pipeline(mode, config, report, dispatch, output, argv)
+            end
+
+          {:abort, _, config, reason, details} ->
+            config =
+              case phase_summary_path(config, report, output.root) do
+                {:ok, config} -> config
+                {:abort, _, config, _, _} -> config
+              end
+
+            {:abort, report, config, reason, details}
         end
 
       {:error, reason, details} ->
-        {report, config} = abort_report_options(argv)
+        {report, config} = abort_report_options(argv, output.root)
         {:abort, report, config, reason, Map.put(details, :step, :cli)}
     end
   end
 
-  defp abort_report_options(argv) do
+  defp abort_report_options(argv, root) do
     config = CLI.report_options(argv)
     report = with_meta(base_report(nil), config)
 
-    case phase_json_path(config, report) do
+    config =
+      case phase_json_path(config, report, root) do
+        {:ok, config} -> config
+        {:abort, _, config, _, _} -> config
+      end
+
+    case phase_summary_path(config, report, root) do
       {:ok, config} -> {report, config}
       {:abort, _, config, _, _} -> {report, config}
     end
@@ -703,33 +767,54 @@ defmodule Mix.Tasks.Mutagen do
          argv
        )
        when is_binary(since) or config.tests == ["auto"] or is_binary(config.site) do
-    ChangedRun.run(config, report, %{
-      command: host_command(argv),
-      boot: &with_host(mode, config, &1, argv, &2),
-      scope: fn report, roots ->
-        config = %{config | scopes: default_site_scopes(config, roots)}
-        phase_scope(config, dispatch, report)
-      end,
-      ast_cache: &phase_ast_cache(config, &1, &2, dispatch, &3),
-      tests: &phase_tests(config, dispatch, &1, &2),
-      phases: &selected_phases(&1, config, dispatch, output, &2),
-      report_tests: &test_filter_to_wire/1,
-      report_mutation: &mutation_to_report/2,
-      stream_sink: fn -> stream_sink(config, output.stdout) end
-    })
+    phases = %Phases{config: config, dispatch: dispatch, output: output}
+    ChangedRun.run(phases, report, host_command(argv), &with_host(mode, config, &1, argv, &2))
   end
 
   defp run_configured_pipeline(mode, config, report, dispatch, output, argv) do
     with_host(mode, config, report, argv, fn report, state ->
-      do_pipeline(config, report, dispatch, output, state)
+      phases = %Phases{config: config, dispatch: dispatch, output: output, host: state}
+      run_classic(phases, report)
     end)
   end
 
-  defp default_site_scopes(%Config{scopes: [], site: site}, roots) when is_binary(site) do
-    Enum.flat_map(roots, &Path.wildcard(Path.join(&1, "**/*.ex")))
-  end
+  defp run_classic(%Phases{config: config, host: state} = phases, report) do
+    with {:ok, scopes} <- Phases.scope(phases, report),
+         report = %{report | scope: scopes},
+         :ok <- check_self_scope(scopes, config, report),
+         {:ok, filter} <- Phases.tests(phases, report, state.test_paths),
+         filter =
+           MutagenEx.TestSelector.merge_helper_filters(
+             filter,
+             state.exunit,
+             Map.get(state, :helper_tags, MapSet.new())
+           ),
+         report = %{report | tests: Phases.report_tests(filter)},
+         {:ok, cache} <- Phases.ast_cache(phases, scopes, filter, report),
+         {:ok, coverage, report} <- Phases.coverage(phases, scopes, filter, nil, report),
+         report = %{
+           report
+           | coverage: Phases.report_coverage(coverage),
+             stream_end: config.stream
+         },
+         {:ok, enumeration} <- Phases.enumerate(phases, cache, scopes, coverage, report),
+         {:ok, input} <- Phases.test_input(phases, coverage, filter, report),
+         {:ok, _baseline, report} <- Phases.baseline(phases, input, report),
+         plan = %{cache: cache, scopes: scopes},
+         {:ok, outcome, report} <-
+           Phases.mutation(phases, plan, input, enumeration.sites, config.budget_ms, report) do
+      warnings = report.warnings ++ Phases.enumerator_warnings(enumeration) ++ outcome.warnings
 
-  defp default_site_scopes(config, _roots), do: config.scopes
+      report = %{
+        report
+        | mutation: Phases.report_mutation(outcome, enumeration),
+          warnings: warnings,
+          truncated: Map.get(outcome, :truncated, false) == true
+      }
+
+      {:ok, report, config}
+    end
+  end
 
   defp with_host(:prepared, _config, report, _argv, pipeline) do
     pipeline.(report, %{test_paths: Runtime.test_paths(), exunit: []})
@@ -809,98 +894,6 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp selected_phases(plan, config, dispatch, output, state) do
-    %{
-      coverage: fn filter, modules, report ->
-        time_phase(:coverage, report, fn ->
-          phase_coverage(config, plan.scopes, filter, dispatch, report, state, modules)
-        end)
-      end,
-      test_input: &phase_test_modules(config, &1, &2, &3),
-      baseline: fn input, report ->
-        case time_baseline(report, dispatch, fn ->
-               phase_baseline(config, input, dispatch, report, state)
-             end) do
-          {:ok, baseline, report} ->
-            report = %{report | baseline: baseline_to_report(baseline)}
-            {:ok, baseline, add_warnings(report, baseline.warnings)}
-
-          abort ->
-            abort
-        end
-      end,
-      mutation: fn input, sites, budget, report ->
-        pass = %{config | stream: false, budget_ms: budget}
-        report = put_mutant_deadline(report, config)
-
-        time_phase(:mutation, report, fn ->
-          phase_mutation(pass, input, plan.cache, sites, plan.scopes, dispatch, report, output)
-        end)
-      end
-    }
-  end
-
-  defp do_pipeline(config, %Report{} = report1, dispatch, output, state) do
-    with {:ok, scope_records} <- phase_scope(config, dispatch, report1),
-         report2 = %Report{report1 | scope: scope_records},
-         :ok <- check_self_scope(scope_records, config, report2),
-         {:ok, test_filter} <- phase_tests(config, dispatch, report2, state.test_paths),
-         test_filter =
-           MutagenEx.TestSelector.merge_helper_filters(
-             test_filter,
-             state.exunit,
-             Map.get(state, :helper_tags, MapSet.new())
-           ),
-         report3 = %Report{report2 | tests: test_filter_to_wire(test_filter)},
-         {:ok, ast_cache} <-
-           phase_ast_cache(config, scope_records, test_filter, dispatch, report3),
-         {:ok, coverage_result, %Report{} = report3} <-
-           time_phase(:coverage, report3, fn ->
-             phase_coverage(config, scope_records, test_filter, dispatch, report3, state)
-           end),
-         report4 = %Report{report3 | coverage: coverage_to_report(coverage_result)},
-         {:ok, enum_result} <-
-           phase_enumerator(config, ast_cache, scope_records, coverage_result, dispatch, report4),
-         {:ok, test_input} <- phase_test_modules(config, coverage_result, test_filter, report4),
-         {:ok, baseline_result, %Report{} = report4} <-
-           time_baseline(report4, dispatch, fn ->
-             phase_baseline(config, test_input, dispatch, report4, state)
-           end),
-         report5 = %Report{
-           report4
-           | baseline: baseline_to_report(baseline_result),
-             warnings: report4.warnings ++ baseline_result.warnings
-         },
-         report5 = put_mutant_deadline(report5, config),
-         {:ok, mutation_result, %Report{} = report5} <-
-           time_phase(:mutation, report5, fn ->
-             phase_mutation(
-               config,
-               test_input,
-               ast_cache,
-               enum_result.sites,
-               scope_records,
-               dispatch,
-               report5,
-               output
-             )
-           end) do
-      report = %Report{
-        report5
-        | mutation: mutation_to_report(mutation_result, enum_result),
-          warnings:
-            report5.warnings ++ enumerator_warnings(enum_result) ++ mutation_result.warnings,
-          aborted: false,
-          abort_reason: nil,
-          truncated: Map.get(mutation_result, :truncated, false) == true
-      }
-
-      {:ok, report, config}
-    else
-      {:abort, _report, _config, _reason, _details} = abort -> abort
-    end
-  end
-
   defp check_self_scope(scopes, config, report) do
     case MutationRunner.check_scope(scopes) do
       :ok -> :ok
@@ -908,39 +901,18 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp time_baseline(report, dispatch, run) do
-    time_phase(
-      :baseline,
-      report,
-      run,
-      Map.get(dispatch, :baseline_clock, &System.monotonic_time/0)
-    )
-  end
-
-  defp time_phase(phase, report, run, clock \\ &System.monotonic_time/0) do
-    started_at = clock.()
-
-    case run.() do
-      {:ok, result} ->
-        {:ok, result, put_elapsed_timing(report, phase, clock.() - started_at)}
-
-      {:abort, partial, config, reason, details} ->
-        {:abort, put_elapsed_timing(partial, phase, clock.() - started_at), config, reason,
-         details}
-    end
-  end
-
-  defp put_mutant_deadline(report, config) do
-    baseline_ms = report.meta.timings_ms.baseline
-    deadline = Config.mutant_deadline(config, baseline_ms)
-    put_in(report.meta.timings_ms[:mutant_deadline], deadline)
-  end
-
   defp put_total_timing({:cleanup, result, state}, started_at),
     do: {:cleanup, put_total_timing(result, started_at), state}
 
-  defp put_total_timing(result, started_at),
-    do: put_elem(result, 1, put_timing(elem(result, 1), :total, started_at))
+  defp put_total_timing(result, started_at) do
+    report =
+      result
+      |> elem(1)
+      |> put_timing(:total, started_at)
+      |> Phases.put_mutant_deadline(elem(result, 2))
+
+    put_elem(result, 1, report)
+  end
 
   defp put_timing(report, phase, started_at) do
     put_elapsed_timing(report, phase, System.monotonic_time() - started_at)
@@ -971,18 +943,9 @@ defmodule Mix.Tasks.Mutagen do
   # When `unsafe_json_outside_project: true` is set, a startup warning
   # lands on stderr per `mutagen.cli.r10`. The warning is emitted exactly
   # once per run, at this phase.
-  defp phase_json_path(%Config{json_path: nil} = config, _report), do: {:ok, config}
+  defp phase_json_path(%Config{json_path: nil} = config, _report, _root), do: {:ok, config}
 
-  defp phase_json_path(%Config{json_path: path} = config, report) do
-    # Project root resolution: production uses `File.cwd!/0`. Tests
-    # may override via the calling process's dictionary
-    # (`Process.put(:mutagen_json_path_project_root, "/tmp/...")`) so
-    # they can plant symlinks in an isolated tmp dir without changing
-    # cwd — which would race with parallel ExUnit test loading. The
-    # process dictionary scope is the test process itself; no global
-    # state, no cross-test contamination.
-    project_root = Process.get(:mutagen_json_path_project_root) || File.cwd!()
-
+  defp phase_json_path(%Config{json_path: path} = config, report, project_root) do
     opts = [
       project_root: project_root,
       unsafe_outside_project: config.unsafe_json_outside_project
@@ -1007,10 +970,9 @@ defmodule Mix.Tasks.Mutagen do
     end
   end
 
-  defp phase_summary_path(%Config{summary_path: nil} = config, _report), do: {:ok, config}
+  defp phase_summary_path(%Config{summary_path: nil} = config, _report, _root), do: {:ok, config}
 
-  defp phase_summary_path(%Config{summary_path: path} = config, report) do
-    root = config.json_root || Process.get(:mutagen_json_path_project_root) || File.cwd!()
+  defp phase_summary_path(%Config{summary_path: path} = config, report, root) do
     opts = [project_root: root, unsafe_outside_project: config.unsafe_json_outside_project]
 
     case MutagenEx.JsonPath.canonicalize(path, opts) do
@@ -1022,358 +984,6 @@ defmodule Mix.Tasks.Mutagen do
 
       {:error, _, _} ->
         {:abort, report, config, :unsafe_summary_path, %{step: :report_path}}
-    end
-  end
-
-  # Per-target scope resolution. The accumulator holds **reversed** chunks
-  # of records so the per-target merge is O(records_per_target) rather
-  # than O(total_records_so_far) — the `acc ++ records` shape this
-  # replaced was O(n²) over the cumulative record count (bw mutagen-wrd.22
-  # / F28). We prepend each new chunk (already in the same order as it
-  # came out of the resolver), and flatten-reverse at the end via
-  # `:lists.append(:lists.reverse(acc))` which preserves the original
-  # input order while staying linear.
-  defp phase_scope(%Config{scopes: scopes} = config, dispatch, %Report{} = report) do
-    mod = Map.fetch!(dispatch, :scope)
-
-    result =
-      Enum.reduce_while(scopes, {:ok, []}, fn target, {:ok, acc} ->
-        case mod.resolve(target, []) do
-          {:ok, records} ->
-            {:cont, {:ok, [records | acc]}}
-
-          {:error, reason, details} ->
-            partial = %Report{report | scope: :lists.append(:lists.reverse(acc))}
-
-            {:halt,
-             {:abort, partial, config, reason,
-              Map.merge(%{target: target, step: :scope}, details)}}
-        end
-      end)
-
-    case result do
-      {:ok, chunks_reversed} ->
-        {:ok, :lists.append(:lists.reverse(chunks_reversed))}
-
-      {:abort, _, _, _, _} = abort ->
-        abort
-    end
-  end
-
-  defp phase_tests(%Config{tests: tests} = config, dispatch, report, paths) do
-    mod = Map.fetch!(dispatch, :tests)
-
-    case mod.resolve(tests, test_paths: paths) do
-      {:ok, filter} ->
-        {:ok, filter}
-
-      {:error, %{reason: reason} = details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :test_selection)}
-
-      {:error, reason, details} when is_atom(reason) ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :test_selection)}
-    end
-  end
-
-  # Post-`.25.3` (F18 / F40): the AST cache now covers BOTH scope files
-  # AND the cited test files in a single load step. Baseline's
-  # async-module detection (see baseline.ex) consumes the cached test-file
-  # ASTs directly so it does not re-read those files from disk.
-  #
-  # The flat `files` list is the union of scope files + test files (deduped).
-  # The `categories` opt is input-only diagnostic metadata per
-  # mutagen.coverage.r9 — the cache entry shape stays
-  # `{Macro.t(), String.t()}`. There is no category tag in entries and no
-  # `files_by_category/2` consumer API (decision: lookups stay by file path).
-  #
-  # The test set is `test_filter.files` (the resolved cited test files
-  # from phase_tests), NOT the full `test/**/*.exs` tree (F19 was
-  # explicitly descoped — see mutagen.decision.f19_descoped).
-  defp phase_ast_cache(config, scope_records, test_filter, dispatch, report) do
-    mod = Map.fetch!(dispatch, :ast_cache)
-
-    scope_files = scope_records |> Enum.map(& &1.file) |> Enum.uniq()
-    test_files = test_filter.files |> Enum.uniq()
-    files = (scope_files ++ test_files) |> Enum.uniq()
-
-    opts = [categories: %{scope: scope_files, test: test_files}]
-
-    case mod.load(files, opts) do
-      {:ok, cache} ->
-        {:ok, cache}
-
-      {:error, reason, details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :ast_cache)}
-    end
-  end
-
-  defp phase_coverage(
-         %Config{seed: seed} = config,
-         scope_records,
-         test_filter,
-         dispatch,
-         report,
-         state,
-         modules \\ nil
-       ) do
-    mod = Map.fetch!(dispatch, :coverage)
-
-    in_scope_modules =
-      scope_records
-      |> Enum.map(&{&1.module, &1.file})
-      |> Enum.uniq()
-
-    input = %{seed: seed, in_scope_modules: in_scope_modules, test_filter: test_filter}
-
-    input = if modules == nil, do: input, else: Map.put(input, :test_modules, modules)
-
-    case run_suite_phase(state, config, :coverage, fn -> mod.run(input) end) do
-      {:ok, result} ->
-        {:ok, result}
-
-      {:error, reason, details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :coverage)}
-    end
-  end
-
-  # `--max-sites` flows in here so an over-budget enumeration aborts
-  # before the runner even starts. The enumerator returns
-  # `{:error, :too_many_sites, details}` when the produced sites would
-  # exceed `Config.max_sites`; that becomes an abort-JSON document so
-  # the user gets a structured "your scope is too large, narrow it"
-  # signal rather than an OOM.
-  defp phase_enumerator(
-         %Config{max_sites: max_sites} = config,
-         ast_cache,
-         scope_records,
-         coverage_result,
-         dispatch,
-         %Report{} = report
-       ) do
-    # From here on, a streamed run ends with an end line, even when it
-    # aborts before the start line (mutagen.json_schema.r14).
-    if config.stream, do: Process.put(:mutagen_stream_open, true)
-
-    mod = Map.fetch!(dispatch, :enumerator)
-
-    covered_lines = coverage_result.covered_lines
-
-    case mod.enumerate(ast_cache, scope_records, covered_lines,
-           max_sites: max_sites,
-           source: config.source
-         ) do
-      %{sites: _, skipped: _, warnings: _} = enum_result ->
-        {:ok, enum_result}
-
-      {:error, :too_many_sites, details} ->
-        {:abort, report, config, :too_many_sites, Map.put_new(details, :step, :enumeration)}
-    end
-  end
-
-  defp phase_test_modules(config, coverage, test_filter, report) do
-    case MutagenEx.TestModuleDiscovery.for_tests(Map.put(coverage, :test_filter, test_filter)) do
-      modules when is_list(modules) ->
-        {:ok, %{test_filter: test_filter, test_modules: modules}}
-
-      {:error, reason, details} ->
-        {:abort, report, config, reason, details}
-    end
-  end
-
-  defp phase_baseline(
-         %Config{seed: seed} = config,
-         test_input,
-         dispatch,
-         %Report{} = report,
-         state
-       ) do
-    mod = Map.fetch!(dispatch, :baseline)
-
-    input = Map.put(test_input, :seed, seed)
-
-    baseline =
-      case {input, state} do
-        {%{escalation_timeout_ms: timeout}, _} ->
-          Runtime.bounded_baseline(timeout, fn -> mod.run(input) end)
-
-        {_, %{worker: _}} ->
-          Runtime.bounded_baseline(suite_timeout(config), fn -> mod.run(input) end, :release)
-
-        _ ->
-          mod.run(input)
-      end
-
-    case baseline do
-      {:ok, result} ->
-        {:ok, result}
-
-      {:error, :baseline_red, details} ->
-        # r1: baseline failures populate `baseline` on the abort report.
-        # The ExUnit counts feed the after-suite callbacks, not the document.
-        {suite_stats, details} = Map.pop(details, :suite_stats)
-
-        partial_baseline = %{
-          "passed" => Map.get(details, :passed, 0),
-          "failed" => Map.get(details, :failed, length(Map.get(details, :failures, []))),
-          "failures" => Enum.map(Map.get(details, :failures, []), &failure_to_wire/1),
-          suite_stats: suite_stats
-        }
-
-        partial = %Report{report | baseline: partial_baseline}
-
-        {:abort, partial, config, :baseline_red, Map.put_new(details, :step, :baseline)}
-
-      {:error, reason, details} ->
-        {:abort, report, config, reason, Map.put_new(details, :step, :baseline)}
-    end
-  end
-
-  defp run_suite_phase(%{worker: _}, config, :coverage, fun) do
-    timeout = suite_timeout(config)
-
-    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, :release) do
-      {:ok, result} ->
-        result
-
-      :timeout ->
-        {:error, :coverage_timeout, %{phase: :coverage, limit: timeout}}
-
-      {:exit, reason} ->
-        {:error, :ex_unit_run_failed,
-         %{phase: :coverage, message: "Suite worker exited: #{inspect(reason)}"}}
-    end
-  end
-
-  defp run_suite_phase(_state, _config, :coverage, fun), do: fun.()
-
-  defp suite_timeout(config), do: max(config.boot_timeout_ms, 10 * config.timeout_ms)
-
-  defp phase_mutation(
-         %Config{seed: seed, budget_ms: budget_ms} = config,
-         test_input,
-         ast_cache,
-         sites,
-         scope_records,
-         dispatch,
-         report,
-         %{stdout: stdout, progress: progress_reporter}
-       ) do
-    mod = Map.fetch!(dispatch, :mutation)
-
-    # `budget_ms` (from `--budget-ms`, mutagen.cli.r13) is an optional
-    # aggregate wall-clock cap. `nil` means unbounded.
-    #
-    # Per `mutagen.mutation_pipeline.r15`, `--max-concurrency` is
-    # threaded into the runner here. Both the Mix task and the runner
-    # resolve `Config.max_concurrency == nil` to `1` (fully-serial,
-    # v1.0-equivalent); callers opt in to parallelism by passing
-    # `--max-concurrency N` (N > 1) explicitly. Default-1 is the
-    # honest reflection of the in-process pipeline's shared ExUnit /
-    # Code.Server / cover state — see the caveat paragraph in r15.
-    #
-    # The `:on_site_completed` seam fires once per completed site (in
-    # input order, both `--max-concurrency 1` and `> 1`). It is the
-    # single per-site observation point: when `--stream` is set it
-    # emits one NDJSON line per site to the same sink the final
-    # document goes to, and when progress is enabled (TTY auto-detect,
-    # not `--no-progress`) it draws the per-site progress feed on
-    # stderr. The two consumers are independent and compose here — a
-    # run can stream, show progress, both, or neither.
-    site_sink = stream_sink(config, stdout)
-
-    if config.stream do
-      MutagenEx.JsonStreamer.emit_start(
-        site_sink,
-        length(sites),
-        (report.meta || %{})
-        |> Map.put_new(:tool_version, "0.0.0-dev")
-      )
-    end
-
-    total = length(sites)
-
-    stream_fn =
-      if config.stream do
-        fn
-          {:result, result_map} ->
-            MutagenEx.JsonStreamer.emit_result(
-              site_sink,
-              result_map,
-              config
-            )
-
-          {:compile_error, entry} ->
-            MutagenEx.JsonStreamer.emit_compile_error(site_sink, entry, config)
-        end
-      else
-        fn _ -> :ok end
-      end
-
-    on_site_completed =
-      fn payload ->
-        stream_fn.(payload)
-        if progress_reporter, do: progress_reporter.(payload, total)
-        :ok
-      end
-
-    # The in-process pipeline shares ExUnit globals, the Code.Server,
-    # and `:cover` across all per-site tasks. Two parallel tasks
-    # mutating the same module's bytecode collide on
-    # `Code.compile_quoted/1`; two parallel `ExUnit.run/0` calls
-    # interleave the global `ExUnit.Server` state. Real-world
-    # parallelism therefore requires either per-task ExUnit servers
-    # (out of scope for v1.1) or strict per-site serialization.
-    #
-    # Setting `--max-concurrency 1` explicitly is equivalent to the
-    # default; setting `--max-concurrency N` (N > 1) is the opt-in
-    # path. The runner itself enforces ordered collection so the
-    # byte-identical-output gate (`mutagen.mutation_pipeline.r15`)
-    # holds independent of N on deterministic input.
-    resolved_max_concurrency = config.max_concurrency || 1
-
-    input =
-      Map.merge(test_input, %{
-        seed: seed,
-        timeout_ms: report.meta.timings_ms.mutant_deadline,
-        fail_fast: config.fail_fast,
-        budget_ms: budget_ms,
-        ast_cache: ast_cache,
-        sites: sites,
-        scope_records: scope_records,
-        max_concurrency: resolved_max_concurrency,
-        on_site_completed: on_site_completed
-      })
-
-    case mod.run(input) do
-      {:ok, result} ->
-        {:ok, result}
-
-      {:error, reason, details} ->
-        {warnings, details} = Map.pop(details, :host_warnings, [])
-
-        {:abort, add_warnings(report, warnings), config, reason,
-         Map.put_new(details, :step, :mutation)}
-    end
-  end
-
-  # The streaming sink resolves to the same destination as the final
-  # aggregate document: stdout when `--json` is not set, otherwise the
-  # canonicalised file path. The `--stream` mode appends per-site
-  # lines AND the final aggregate document; consumers reading the
-  # destination see N+2 JSON values (start, N per-site, end) followed
-  # by one aggregate doc. The dispatch's `:io` key is the production
-  # default's sink for the aggregate; the streamer writes incrementally
-  # so we keep an open append handle for file outputs.
-  defp stream_sink(%Config{json_path: nil}, stdout), do: stdout
-
-  defp stream_sink(%Config{json_path: path}, _stdout) when is_binary(path) do
-    # Use a process-local accumulator the IO step flushes at end-of-run.
-    # Keeping a file open across the mutation phase introduces a leak
-    # surface; building up iodata in the process dictionary is the
-    # simplest, contention-free shape.
-    fn iodata ->
-      acc = Process.get(:mutagen_stream_buffer, [])
-      Process.put(:mutagen_stream_buffer, [acc, iodata])
     end
   end
 
@@ -1422,96 +1032,14 @@ defmodule Mix.Tasks.Mutagen do
       host_app: config.host_app,
       test_alias: config.test_alias,
       fail_fast: config.fail_fast,
-      escalate_max_files: config.escalate_max_files
+      escalate_max_files: config.escalate_max_files,
+      escalate_budget_ms: config.escalate_budget_ms
     }
   end
 
   defp otp_version do
     :erlang.system_info(:otp_release) |> to_string()
   end
-
-  defp test_filter_to_wire(%MutagenEx.TestSelector.TestFilter{} = f) do
-    %{
-      include: MutagenEx.TestSelector.report_filters(f, :include),
-      exclude: MutagenEx.TestSelector.report_filters(f, :exclude),
-      files: f.files
-    }
-  end
-
-  defp test_filter_to_wire(other), do: other
-
-  defp coverage_to_report(%{covered_lines: covered} = result) do
-    %{covered_lines: covered, suite_stats: result[:suite_stats]}
-  end
-
-  defp baseline_to_report(%{passed: p, failed: f, failures: fails} = result) do
-    %{passed: p, failed: f, failures: fails, suite_stats: result[:suite_stats]}
-  end
-
-  # Per `mutagen.json_schema.r3`:
-  #   total      = killed + survived + timeout + error  (all completed
-  #                non-compile-error sites)
-  #   completed  = same set
-  #   kill_rate  = killed / (total - compile_error) when denominator > 0
-  #
-  # In v1 we model `total` as the count of non-skipped, non-compile-error
-  # sites the runner attempted — exactly the four classifying outcomes.
-  defp mutation_to_report(mutation_result, enum_result) do
-    results = mutation_result.results
-    compile_errors = mutation_result.compile_errors
-
-    {killed, survived, timeout, errored} =
-      Enum.reduce(results, {0, 0, 0, 0}, fn r, {k, s, t, e} ->
-        case r.status do
-          :killed -> {k + 1, s, t, e}
-          :survived -> {k, s + 1, t, e}
-          :timeout -> {k, s, t + 1, e}
-          :error -> {k, s, t, e + 1}
-        end
-      end)
-
-    completed = killed + survived + timeout + errored
-    compile_error_count = length(compile_errors)
-    total = completed
-
-    kill_rate =
-      cond do
-        total == 0 -> nil
-        true -> killed / total
-      end
-
-    %{
-      total: total,
-      completed: completed,
-      killed: killed,
-      survived: survived,
-      timeout: timeout,
-      compile_error: compile_error_count,
-      kill_rate: kill_rate,
-      results: results,
-      skipped: enum_result.skipped,
-      compile_errors: compile_errors,
-      state_drift_warning: mutation_result.state_drift_warning
-    }
-  end
-
-  defp enumerator_warnings(%{warnings: ws}) when is_list(ws) do
-    Enum.map(ws, fn
-      {:no_mutation_candidates, mod} ->
-        "no_mutation_candidates: #{inspect(mod)}"
-
-      other ->
-        inspect(other)
-    end)
-  end
-
-  defp enumerator_warnings(_), do: []
-
-  defp failure_to_wire({module, name}),
-    do: %{"module" => inspect(module), "name" => to_string(name)}
-
-  defp failure_to_wire(%{module: module, name: name}),
-    do: %{"module" => inspect(module), "name" => to_string(name)}
 
   # ---------------------------------------------------------------------------
   # Emission

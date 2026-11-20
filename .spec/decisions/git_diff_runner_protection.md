@@ -25,6 +25,10 @@ clean failure for input the reader cannot parse. Report skipped changes.
 
 ## Consequences
 
-Keep the read-only and tracked-scope checks in place. Pull-request change
-visibility has value for the advice, and resisting deliberate concealment
-is outside the scope of this reader.
+Validate each configured root before reading the diff. Keep argument lists,
+environment and configuration isolation, driver and filter suppression,
+the pinned attribute source, ownership checks, promisor and shallow
+checkout checks, optional locks disabled, and time, file, and byte limits.
+Keep paths inside the checkout and report skipped symlinks and Git links.
+The reader makes one pass over the checkout and validates the paths
+and ranges it reads.

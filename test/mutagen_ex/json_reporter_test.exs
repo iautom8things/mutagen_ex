@@ -46,9 +46,68 @@ defmodule MutagenEx.JsonReporterTest do
              assert %{"aborted" => true, "abort_reason" => ^reason} = report
              assert get_in(report, ["meta", "complete"]) == false
 
+             assert [%{"reason" => ^reason, "path" => nil}] =
+                      get_in(report, ["meta", "incomplete_reasons"])
+
              code
            end)
            |> Enum.uniq() == [2]
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "summary identifies the changed literal when identical tokens share a line" do
+    definition = "def read(value), do: {0, value, 0}"
+    source = "# unchanged comment\n" <> definition <> "\n"
+    [_, span] = :binary.matches(source, "0")
+
+    example = %{
+      id: "token",
+      file: "lib/fixture.ex",
+      function: "Fixture.read/1",
+      status: :survived,
+      line: 2,
+      column: 31,
+      source_line: 2,
+      source_text: source,
+      source_span: span,
+      mutator: :literal,
+      original_ast: 0,
+      mutated_ast: 1
+    }
+
+    report = %Report{mutation: %{results: [example]}}
+    wire = JsonReporter.to_wire(report)
+
+    assert [%{"before_line" => ^definition, "after_line" => "def read(value), do: {0, value, 1}"}] =
+             wire["summary"]["worth_a_look"]
+
+    markdown = wire |> MutagenEx.MarkdownSummary.render() |> IO.iodata_to_binary()
+    assert markdown =~ "- " <> definition
+    assert markdown =~ "+ def read(value), do: {0, value, 1}"
+
+    source = "# unchanged comment\n" <> String.duplicate(" ", 170) <> definition <> "\n"
+    [_, span] = :binary.matches(source, "0")
+    longer = %{example | source_text: source, source_span: span}
+    longer = JsonReporter.to_wire(%{report | mutation: %{results: [longer]}})
+
+    assert longer |> MutagenEx.MarkdownSummary.render() |> IO.iodata_to_binary() =~
+             "{0, value, 1}"
+
+    hidden = JsonReporter.to_wire(%{report | source: false})
+    assert [entry] = hidden["summary"]["worth_a_look"]
+    refute Map.has_key?(entry, "before_line")
+    refute Map.has_key?(entry, "after_line")
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "abort summaries use the same fixed hints as JSON" do
+    details = %{cause: :shallow_repository, shallow: true}
+    assert JsonReporter.abort_hint(:diff_unavailable, details) =~ "fetch-depth: 0"
+
+    details = %{cause: :file_limit, root: "lib"}
+
+    assert JsonReporter.abort_hint(:diff_unavailable, details) ==
+             "Untracked files under lib exceeded the file limit. Ignore the directory to fix it."
   end
 
   # ---------------------------------------------------------------------------

@@ -11,6 +11,32 @@ file for traceability.
 
 ## [Unreleased]
 
+### Changed-code mutation advice
+
+- Use `--since REF` to inspect runtime mutation sites near source changes
+  since the Git merge base. Add `--scope` to narrow the report. Automatic
+  test selection starts with conventional and changed test files, then
+  searches for more tests for surviving or uncovered sites.
+- Use `--summary PATH` for a Markdown report with unchecked lines, failed
+  baseline tests, and survivors worth reviewing. Copy a `--site` command
+  from the report to rerun one mutation. Mutagen exits 0 for a report,
+  including partial results, and 2 for an abort. An abort writes the
+  reason and hint to both requested reports.
+- The default per-mutant deadline is ten times the baseline duration with
+  a five-second floor. With a fast baseline, a
+  mutant that sleeps for seven seconds now times out where it previously
+  could survive. Use `--timeout-ms` to set a deadline explicitly. Mutagen
+  warns when that deadline is shorter than the baseline.
+- Coverage distinguishes zero-hit counters from lines OTP did not
+  instrument. For sites on uninstrumented lines, Mutagen checks the site's
+  own span, then its enclosing clause body if the span has no counters.
+- Use `--json PATH` and `--summary PATH` in CI. The report file stays
+  parseable when OTP writes logger fallback messages to stdout.
+- Escalation uses a two-minute budget by default. Only changed test files
+  that match a scoped module or its convention enter the narrow pass.
+- Changed-code reports account for each planned runtime site once. Abort
+  reports include the abort reason in the incomplete reasons.
+
 ### Final review fixes
 
 - Timed-out sites reap traced descendants even when a worker switched its
@@ -40,7 +66,7 @@ file for traceability.
   and a same-named table takes its place within one site.
 - Public fixtures use neutral example names.
 - The README publishes the anonymized survivor measurement and the
-  follow-up across other test files. CI gating remains advisory.
+  follow-up across other test files. CI runs remain advisory.
 
 - Source positions preserve expressions on lines with multi-codepoint
   graphemes in quoted text. The reporter checks the slice against the

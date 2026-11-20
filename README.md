@@ -30,7 +30,7 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
 
 - **JSON output.** `mix mutagen` writes the aggregate document to stdout or
   `--json <path>`. Use `--stream` to receive per-site JSON lines before
-  the aggregate, or pipe the aggregate through `jq` to inspect it.
+  the aggregate. Read the `--json` file with `jq` to inspect it.
   [Output format decision](.spec/decisions/no_pretty_output_v1.md).
 
 - **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
@@ -279,10 +279,7 @@ Run `MIX_ENV=test mix mutagen` with either install method. This loads
 `config/test.exs` and compiles test support. Explicit environments such as
 `MIX_ENV=ci` are allowed when the host configures them for tests. A host
 can also set `def cli, do: [preferred_envs: [mutagen: :test]]` in `mix.exs`.
-Mix may print dependency discovery output before the task runs. Use
-`MIX_QUIET=1` for a dependency install when parsing stdout directly.
-The task routes the VM user device, the default console Logger handler,
-and ExUnit output to stderr.
+Mix may print dependency discovery output before the task runs.
 
 After compiling, the task loads runtime config and runs the host `test`
 alias entries before the `test` task. A Phoenix alias can create and migrate
@@ -325,11 +322,17 @@ exception type, file and line. Host diagnostics go to stderr. Do not
 publish stderr as a CI artifact. Abort documents repeat this warning in
 `details.note`.
 
-The supported CI mode is `--json PATH`. Native fd 1 writes, including
-`:erlang.display/1` and direct subprocess output, bypass the VM I/O
-routing and can corrupt stdout. Mix can also write to stdout before the
-task starts. Mutagen writes the file with mode 0600. If it cannot safely
-write the file, it warns on stderr and falls back to stdout.
+`--json PATH` is the guaranteed report channel. The file contains exactly
+one JSON document, or NDJSON with `--stream`, regardless of host output.
+
+Without `--json`, Mutagen writes the report to stdout and routes the
+`:user` device and known console logger handlers to stderr. The VM can
+write directly to file descriptor 1, including when an OTP logger
+handler crashes. In-process I/O routing cannot intercept those writes.
+Use `--json PATH` and `--summary PATH` in CI.
+
+Mutagen writes the file with mode 0600. If it cannot safely write the
+file, it warns on stderr and falls back to stdout.
 
 
 ## Entrypoints
@@ -398,7 +401,7 @@ wider `--tests` selection before writing a test.
 ## Changed-code runs
 
 ```bash
-MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json
+MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json --summary out/mutagen.md
 ```
 
 Mutagen compares the working tree with the merge base of the ref and HEAD.
@@ -426,16 +429,22 @@ Mutagen tests each candidate on the original code. It allows ten times
 the narrow baseline duration, with a thirty-second floor capped by the
 host boot and mutant timeouts. Each step reports `candidate_deadline_ms`.
 If a batch fails, Mutagen keeps the files that pass together in score order.
-A pass judges its mutants with the files admitted in that pass. Only
-survivors and uncovered sites advance. A timeout stays unevaluated and
+The module and function passes share a two-minute budget, including
+candidate probes. Mutagen estimates each pass from the candidate baselines
+and reports files that exceed the budget as `escalation_budget_exhausted`.
+When escalation takes more than half the run, summary notes give the
+time spent in each pass. A pass judges mutants with the files admitted
+in that pass. Only survivors and uncovered sites advance. A timeout stays unevaluated and
 keeps the step that recorded it.
 
 `meta.since` records the ref, merge base, and site counts.
 `meta.complete` and `meta.incomplete_reasons` record missing evidence from
 skipped or unreadable paths and sites that the runner dropped.
-Every abort sets `meta.complete` to false. `meta.since.unmapped` lists
-changed code without runtime sites and omits blank, comment and structural
-lines.
+Every abort sets `meta.complete` to false and adds its reason to
+`meta.incomplete_reasons`. An accounting mismatch between planned sites
+and the final outcome records also marks the report incomplete.
+`meta.since.unmapped` lists changed code without runtime sites and omits
+blank, comment and structural lines.
 `mutation.pending` shows sites with no outcome, including uncovered sites
 and covered sites left unrun. Coverage includes green
 tests added during escalation. `meta.tests_selected` lists why each test
@@ -459,9 +468,15 @@ pull request. The JSON always includes the same findings under `summary`.
 Both output paths use the project-root boundary by default.
 
 - **Check first** groups findings by function. `not_executed` means the tests
-  selected in a changed-code run reached none of its in-scope sites.
+  selected in a changed-code run covered none of its in-scope sites. A site
+  is covered when its line runs. If that line has no cover counter, a hit
+  in the site's own span counts. If its entire span has no counters, a hit
+  in its enclosing clause body counts. An instrumented line with zero
+  hits stays uncovered.
   `nothing_asserted` means at least three high-confidence mutants ran in
-  that function and every evaluated high-confidence mutant survived.
+  that function and every evaluated mutant survived. If a dropped test
+  file mentions the function and failed on the unmutated code, the summary
+  leads with the failed test file instead.
 - **Worth a look** lists individual high-confidence survivors outside those
   functions. The provisional [precision sample](docs/precision/blind-2026-11.csv)
   puts boolean, else removal, result tuples and comparisons first, followed
@@ -496,8 +511,10 @@ Run each source file in a directory and rank the reported modules by kill
 rate, with zero first and unevaluated runs last.
 
 ```sh
-find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \; > audit.ndjson
-jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+find lib/my_app -name '*.ex' | while IFS= read -r file; do
+  MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
+done
+find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
 ```
 
 ## Running in CI
@@ -506,7 +523,11 @@ Mutagen is advisory. Each run reports the current checkout and uses no
 repository state from previous runs. A shallow checkout aborts because the
 diff needs the merge base. Use `fetch-depth: 0`. The unmapped list names
 changed lines Mutagen could not map to a runtime site, such as attributes
-and macros. Upload the JSON report and keep stderr out of artifacts.
+and macros. A separate list shows changed lines outside an explicit
+`--scope`. The summary names changed lines that tests missed inside
+evaluated sites and reports partial coverage. Use `--json PATH` and
+`--summary PATH` in CI. Upload the JSON file and keep stderr out of
+artifacts.
 
 ```yaml
 name: Mutation advice
@@ -528,16 +549,18 @@ jobs:
           version-type: strict
       - name: Collect mutation advice
         continue-on-error: true
+        env:
+          MUTAGEN_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           MIX_ENV="test" mix deps.get
-          MIX_ENV="test" mix mutagen --since origin/main --summary mutagen.md --json mutagen.json
+          MIX_ENV=test mix mutagen --since "$MUTAGEN_BASE" --json mutagen.json --summary mutagen.md
       - name: Add advice to the job summary
         if: always()
         run: |
           if [ -f mutagen.md ]; then
             cat mutagen.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: mutagen
@@ -546,7 +569,7 @@ jobs:
 
 A successful tool run exits 0 even when tests miss mutations. The
 `continue-on-error` setting also allows the job to proceed after a tool
-abort. To post the Markdown on a same-repository pull request, grant
+abort. The job summary includes the abort reason and its hint. To post the Markdown on a same-repository pull request, grant
 `pull-requests: write` to the job and set `GH_TOKEN` and `PR_NUMBER` for an
 optional step. Run `gh pr comment "$PR_NUMBER" --body-file mutagen.md`
 when the file exists.
@@ -565,7 +588,7 @@ the average cost per mutant.
 
 | Flag | Purpose |
 |---|---|
-| `--summary <path>` | Write a Markdown summary to a separate file. Use `--json` for a JSON file or leave it off for JSON on stdout. |
+| `--summary <path>` | Write a Markdown summary to a separate file. As with `--json`, the path must stay within the project root unless `--unsafe-json-outside-project` is set. |
 | `--summary-max <int>` | Maximum entries in Worth a look. Default 5. Zero keeps only the omitted count. |
 | `--site <id>` | Rerun one site using the report ID or opaque reference. |
 | `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required unless you use `--since` or `--site`. Repeatable up to 100 occurrences. |
@@ -578,7 +601,8 @@ the average cost per mutant.
 | `--since <ref>` | Plan changed runtime sites from the merge base. Defaults to `--tests auto`. |
 | `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
 | `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
-| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor and a 30000 ms ceiling. |
+| `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the escalation time limit. |
+| `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses ten times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
 | `--no-fail-fast` | Run the full cited suite for each mutant. By default, mutation runs stop executing tests at the first failure. |
 | `--seed <int>` | ExUnit seed, propagated to every test-running phase. Default `0`. Controls test ordering only, not mutation enumeration order. |
 | `--json <path>` | Write the final JSON document to `<path>` instead of stdout. The document always ends with a single newline. Path is canonicalised before any mutation runs: `..` segments and NUL bytes are refused at parse time, and the resolved path must stay inside the project root unless `--unsafe-json-outside-project` is also passed. |
@@ -780,6 +804,7 @@ An `after_suite` callback can therefore leave a completed report with
 | `cover_module_unavailable` | The OTP coverage module failed to load. |
 | `coverage_timeout` | The coverage phase exceeded its deadline. |
 | `diff_unavailable` | Git cannot provide a usable diff for the changed-code run. |
+| `escalation_crashed` | An unexpected exception ended automatic test discovery. |
 | `ex_unit_run_failed` | ExUnit raised, threw, or exited while running a suite. |
 | `file_not_found` | A selected source or test file does not exist. |
 | `file_read_failed` | Mutagen could not read a required file. |
@@ -843,8 +868,9 @@ the [per-site events](#ndjson-streaming---stream).
 `meta.timings_ms` measures elapsed milliseconds for boot, coverage,
 baseline and mutation. The total also includes work between phases such
 as enumeration, through report assembly. A phase that did not run shows
-zero. `meta.timings_ms` is the only report field whose values Mutagen
-itself makes non-deterministic. Captured host output can contain
+zero. `meta.timings_ms.mutant_deadline` records the effective per-mutant
+deadline in milliseconds. Escalation records the baseline duration and
+deadline for each pass that runs mutants. Captured host output can contain
 timestamps, process identifiers, and references.
 
 ### Successful run
@@ -1126,9 +1152,9 @@ fingerprint. An edit to a module attribute such as `@limit`, a
 `defguard`, a `defmacro`, a `defdelegate` target, `alias`, `import`,
 `use` options, or `defstruct` defaults can change runtime behavior and
 still plan zero runtime sites. Callers of a changed private helper
-keep their own fingerprints. Pure deletions, including removed clauses
-and guards, can also plan zero sites because the diff may supply no
-new-side lines.
+keep their own fingerprints. For a deletion hunk, Mutagen considers
+the remaining lines next to the deletion. A deletion can plan zero sites
+when neither neighbor touches a runtime site.
 
 Runtime classification uses syntax. A named `def` or `defp` outside
 `quote` qualifies even if only compile-time code calls it. An expression
