@@ -760,6 +760,14 @@ defmodule MutagenEx.JsonReporter do
   defp put_complete(wire, report) do
     incomplete? = MutagenEx.ReportSummary.incomplete?(report)
 
+    wire =
+      if report.aborted and report.abort_reason do
+        row = %{"reason" => abort_reason_to_wire(report.abort_reason), "path" => nil}
+        Map.update(wire, "incomplete_reasons", [row], &Enum.uniq(&1 ++ [row]))
+      else
+        wire
+      end
+
     if incomplete? or Map.has_key?(wire, "since"),
       do: Map.put(wire, "complete", not incomplete?),
       else: wire
