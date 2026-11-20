@@ -1162,4 +1162,27 @@ defmodule MutagenEx.MutationEnumeratorTest do
       end
     end
   end
+
+  @tag spec: "mutagen.mutation_enumeration.r18"
+  test "a later clause's mutation carries the first definition line" do
+    file = "lib/definition_position.ex"
+
+    source = """
+    defmodule DefinitionPosition do
+      def value(:special), do: :special
+      def value(x) do
+        x + 2
+      end
+    end
+    """
+
+    assert {:ok, {ast, _}} = MutagenEx.AstCache.parse(file, source)
+    scopes = MutagenEx.ScopeResolver.file_scopes(file, ast)
+    cache = %{file => {ast, source}}
+
+    assert %{sites: [_ | _] = sites} =
+             MutagenEx.MutationEnumerator.enumerate(cache, scopes, %{file => MapSet.new([4])})
+
+    assert Enum.all?(sites, &(&1.line == 4 and &1.definition_line == 2))
+  end
 end
