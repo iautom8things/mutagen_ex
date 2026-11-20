@@ -1,7 +1,7 @@
 defmodule MutagenEx.Pipeline.Phases do
   @moduledoc false
 
-  alias MutagenEx.{Config, Runtime}
+  alias MutagenEx.{Config, MutationEnumerator, Probe, Runtime}
   alias MutagenEx.JsonReporter.Report
 
   @enforce_keys [:config, :dispatch, :output]
@@ -44,6 +44,80 @@ defmodule MutagenEx.Pipeline.Phases do
         abort
     end
   end
+
+  def probe(_phases, _plan, [], _input, report),
+    do: {:ok, %{evidence: %{}, baseline_ms: nil}, report}
+
+  def probe(_phases, _plan, sites, %{test_filter: %{files: []}}, report) do
+    evidence = Map.new(sites, &{&1.id, {:could_not_tell, :probe_no_tests}})
+    {:ok, %{evidence: evidence, baseline_ms: nil}, report}
+  end
+
+  def probe(phases, plan, sites, input, report) do
+    time_phase(:probe, report, phases.output.clock, fn ->
+      input = Map.put(input, :escalation_timeout_ms, suite_timeout(phases.config))
+
+      case Probe.run(sites, plan, fn ->
+             case baseline(phases, input, report) do
+               {:ok, %{passed: passed}, verified} when passed > 0 ->
+                 {:ok, verified.meta.timings_ms.baseline}
+
+               _ ->
+                 :failed
+             end
+           end) do
+        {:ok, result} -> {:ok, result}
+        {:error, reason, details} -> {:abort, report, phases.config, reason, details}
+      end
+    end)
+  end
+
+  def confirm_classic(
+        %{dispatch: %{enumerator: MutationEnumerator}} = phases,
+        plan,
+        enumeration,
+        input,
+        report
+      ) do
+    lines = Map.new(plan.scopes, &{&1.file, [{1, 1}]})
+
+    lines =
+      Enum.reduce(plan.scopes, lines, fn scope, acc ->
+        Map.update!(acc, scope.file, fn [{1, last}] -> [{1, max(last, scope.line_range.last)}] end)
+      end)
+
+    %{sites: planned} =
+      MutationEnumerator.enumerate(plan.cache, plan.scopes, %{},
+        planned: lines,
+        source: phases.config.source
+      )
+
+    covered = MapSet.new(enumeration.sites, & &1.id)
+    missing = Enum.filter(planned, &(&1.runtime? and not MapSet.member?(covered, &1.id)))
+    count = MapSet.size(covered) + length(missing)
+
+    if count > phases.config.max_sites do
+      {:abort, report, phases.config, :too_many_sites,
+       %{step: :enumeration, count: count, cap: phases.config.max_sites}}
+    else
+      with {:ok, outcome, report} <- probe(phases, plan, missing, input, report) do
+        {executed, pending} =
+          Enum.split_with(missing, &(outcome.evidence[&1.id] == {:probe, :executed}))
+
+        sites =
+          Enum.map(enumeration.sites, &%{&1 | execution: :cover}) ++
+            Enum.map(executed, &MutationEnumerator.to_site(Map.put(&1, :execution, :probe)))
+
+        enumeration = %{enumeration | sites: sites}
+        rows = Enum.map(pending, &Probe.pending(&1, Map.fetch!(outcome.evidence, &1.id)))
+        result = if rows == [], do: enumeration, else: Map.put(enumeration, :pending, rows)
+        {:ok, result, report}
+      end
+    end
+  end
+
+  def confirm_classic(_phases, _plan, enumeration, _input, report),
+    do: {:ok, enumeration, report}
 
   def mutation(phases, plan, input, sites, budget, report) do
     config = %{phases.config | budget_ms: budget}
@@ -445,6 +519,7 @@ defmodule MutagenEx.Pipeline.Phases do
 
     %{
       total: total,
+      planned_sites: length(enum_result.sites) + length(Map.get(enum_result, :pending, [])),
       completed: completed,
       killed: killed,
       survived: survived,

@@ -276,6 +276,66 @@ defmodule MutagenEx.SelectedRunTest do
   end
 
   @tag :tmp_dir
+  @tag spec: ["mutagen.mutation_pipeline.r36", "mutagen.json_schema.r34"]
+  test "marks only unfinished survivors when an admitted pass runs out of time", %{tmp_dir: dir} do
+    candidate = write_candidate(dir, "candidate")
+    phases = callbacks(self(), candidate, false, :ok)
+    file = "src/store.ex"
+    narrow = "checks/narrow_test.exs"
+    filter = %TestSelector.TestFilter{files: [narrow], include: [], exclude: []}
+
+    entries =
+      for id <- ["finished", "unfinished"],
+          do: entry(id, file) |> Map.put(:function, "Fixture.Store.get/2")
+
+    plan = %{sites: entries, selection: [%{path: narrow, why: :convention}]}
+    report = %Report{meta: %{timings_ms: %{mutation: 0, baseline: 42}}}
+
+    phases = %{
+      phases
+      | mutation: fn input, sites, _, report ->
+          {sites, report} =
+            case input.test_filter.files do
+              [^narrow] ->
+                {sites, report}
+
+              [^candidate] ->
+                {Enum.take(sites, 1), put_in(report.meta.timings_ms[:mutant_deadline], 20_000)}
+            end
+
+          results = for site <- sites, do: %{id: site.id, status: :survived}
+
+          {:ok, %{results: results, compile_errors: [], warnings: [], state_drift_warning: %{}},
+           report}
+        end
+    }
+
+    config = %Config{scopes: [], tests: ["auto"], escalate_budget_ms: 10_000}
+
+    assert {:ok, _, outcome} =
+             SelectedRun.run(
+               plan,
+               report,
+               config,
+               filter,
+               [Path.relative_to_cwd(dir)],
+               {TestPhases, phases}
+             )
+
+    assert [%{id: "finished", selection: finished}, %{id: "unfinished", selection: unfinished}] =
+             outcome.results
+
+    assert finished.steps_run == [:narrow, :module]
+    refute Map.has_key?(finished, :escalation_incomplete)
+
+    assert %{
+             steps_run: [:narrow],
+             escalation_incomplete: true,
+             escalation_incomplete_reason: :escalation_budget_exhausted
+           } = unfinished
+  end
+
+  @tag :tmp_dir
   @tag spec: "mutagen.mutation_pipeline.r28"
   test "marks the report incomplete when the runner returns duplicate or unexpected site IDs", %{
     tmp_dir: dir
