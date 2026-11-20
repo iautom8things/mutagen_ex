@@ -115,3 +115,23 @@ jobs:
             SPEC_BASE="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD)"
           fi
           mix spec.check --base "$SPEC_BASE"
+
+  end-to-end:
+    name: Slow end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Elixir / OTP
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          version-file: .tool-versions
+          version-type: strict
+
+      - run: mix deps.get
+      - run: mix test test/mutagen_ex/end_to_end_test.exs test/mutagen_ex/determinism_test.exs --only e2e_slow
