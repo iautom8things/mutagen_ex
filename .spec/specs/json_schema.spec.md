@@ -548,7 +548,8 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     Redaction of oversized text has bounded work after the input cap.
     A megabyte of adversarial text takes less than eight times the
-    duration for the same capped prefix, measured in the same test.
+    duration for its prefix of exactly the configured input limit
+    (currently 64 KiB), measured in the same test.
 
 - id: mutagen.json_schema.r33
   priority: must
