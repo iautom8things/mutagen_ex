@@ -42,6 +42,9 @@ defmodule MutagenEx.MutationRunnerTest do
   alias MutagenEx.ScopeResolver.Scope
   alias MutagenEx.TestSelector.TestFilter
 
+  @site_timeout to_timeout(second: 3)
+  @stub_timeout to_timeout(second: 1)
+
   # Forward aliases for inner stub modules so bare references in tests
   # (e.g. `ExUnitFake`, `CompilerStub`) resolve to our test-local
   # definitions rather than `Elixir.ExUnitFake`.
@@ -125,6 +128,8 @@ defmodule MutagenEx.MutationRunnerTest do
       Process.sleep(:infinity)
     end
 
+    defp handle_next(:hang), do: Process.sleep(:infinity)
+
     defp handle_next({:sleep_then, ms, r}) do
       Process.sleep(ms)
       r
@@ -143,8 +148,7 @@ defmodule MutagenEx.MutationRunnerTest do
       receive do
         {:EXIT, _from, :shutdown} -> r
       after
-        # Defensive ceiling so a buggy fake doesn't hang the suite.
-        5_000 -> r
+        5_000 -> raise "shutdown was not received"
       end
     end
 
@@ -161,17 +165,14 @@ defmodule MutagenEx.MutationRunnerTest do
       end
     end
 
-    # Sleeps even when receiving a :shutdown signal. Used to drive the
-    # brutal-kill escalation path: trap exits and explicitly ignore
-    # :shutdown, so phase 1 of the cooperative-cancel sequence cannot
-    # finish — only phase 2 (brutal_kill) actually clears the task.
-    defp handle_next({:trap_and_ignore_shutdown, ms, r}) do
+    defp handle_next({:ignore_shutdown, observer}) do
       Process.flag(:trap_exit, true)
-      deadline = System.monotonic_time(:millisecond) + ms
 
-      drain_shutdowns_until(deadline)
-
-      r
+      receive do
+        {:EXIT, _from, :shutdown} ->
+          send(observer, {:ignored_shutdown, self()})
+          Process.sleep(:infinity)
+      end
     end
 
     # Intentionally leak a named process so `Process.registered/0`'s
@@ -199,25 +200,6 @@ defmodule MutagenEx.MutationRunnerTest do
       pid = spawn(fn -> Process.sleep(:infinity) end)
       true = Process.register(pid, name)
       r
-    end
-
-    # Helper for `{:trap_and_ignore_shutdown, ms, _}`. Kept private to
-    # the fake and below all `handle_next/1` clauses so the
-    # multiple-clauses-not-grouped lint stays quiet.
-    defp drain_shutdowns_until(deadline_ms) do
-      remaining = deadline_ms - System.monotonic_time(:millisecond)
-
-      cond do
-        remaining <= 0 ->
-          :ok
-
-        true ->
-          receive do
-            {:EXIT, _from, :shutdown} -> drain_shutdowns_until(deadline_ms)
-          after
-            remaining -> :ok
-          end
-      end
     end
   end
 
@@ -414,7 +396,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
     %{
       seed: 0,
-      timeout_ms: Keyword.get(opts, :timeout_ms, 500),
+      timeout_ms: Keyword.get(opts, :timeout_ms, @site_timeout),
       test_filter: %TestFilter{include: [], exclude: [:test], files: []},
       ast_cache: ast_cache,
       sites: sites,
@@ -596,11 +578,10 @@ defmodule MutagenEx.MutationRunnerTest do
       site1 = build_site(id: "t1", line: 2, column: 13)
       site2 = build_site(id: "t2", line: 2, column: 13)
 
-      cfg = base_cfg([site1, site2], timeout_ms: 50)
+      cfg = base_cfg([site1, site2], timeout_ms: @stub_timeout)
 
       ExUnitFake.set_results([
-        # Site 1: sleep past the 50ms budget to trigger a timeout.
-        {:sleep_then, 200, %{failures: 0, total: 1, excluded: 0, skipped: 0}},
+        :hang,
         # Site 2: normal pass.
         {:result, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
       ])
@@ -609,6 +590,7 @@ defmodule MutagenEx.MutationRunnerTest do
       assert r1.status == :timeout
       assert r1.tainted_predecessors == false
 
+      assert r2.status == :survived
       assert r2.tainted_predecessors == true
     end
 
@@ -628,8 +610,12 @@ defmodule MutagenEx.MutationRunnerTest do
         caller = self()
 
         cfg =
-          base_cfg([first, second], timeout_ms: 50)
-          |> Map.merge(%{fail_fast: fail_fast, code_purge: &send(caller, {:purged, &1})})
+          base_cfg([first, second], timeout_ms: @stub_timeout)
+          |> Map.merge(%{
+            fail_fast: fail_fast,
+            code_purge: &send(caller, {:purged, &1}),
+            cancel_grace_ms: @stub_timeout
+          })
 
         ExUnitFake.set_results([
           {:trap_then_yield_on_shutdown, %{failures: 0, total: 1}},
@@ -649,41 +635,30 @@ defmodule MutagenEx.MutationRunnerTest do
       site = build_site(id: "late-failure", line: 2, column: 13)
       ExUnitFake.set_results([{:late_failure_on_shutdown, self()}])
 
-      assert {:ok, %{results: [%{status: :timeout}]}} =
-               MutationRunner.run(base_cfg(site, timeout_ms: 50))
+      cfg =
+        site
+        |> base_cfg(timeout_ms: @stub_timeout)
+        |> Map.put(:cancel_grace_ms, @stub_timeout)
 
+      assert {:ok, %{results: [%{status: :timeout}]}} = MutationRunner.run(cfg)
       assert_receive :late_failure_recorded
     end
 
     @tag spec: "mutagen.mutation_pipeline.r4"
-    test "brutal-kill escalation: task that ignores :shutdown still terminates via :brutal_kill and classifies :timeout" do
+    test "a timed-out task that ignores cooperative shutdown is terminated" do
       clear_stubs()
       site = build_site(id: "brutal", line: 2, column: 13)
 
-      cfg = base_cfg(site, timeout_ms: 50)
+      cfg =
+        site
+        |> base_cfg(timeout_ms: @stub_timeout)
+        |> Map.put(:cancel_grace_ms, @stub_timeout)
 
-      # The task traps exits and DRAINS :shutdown signals for 1s before
-      # exiting. The cooperative phase (default grace 100ms) cannot
-      # finish; the loop must escalate to brutal_kill — that's the
-      # only path that actually clears the task.
-      ExUnitFake.set_results([
-        {:trap_and_ignore_shutdown, 1_000, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
-      ])
+      ExUnitFake.set_results([{:ignore_shutdown, self()}])
 
-      start_ms = System.monotonic_time(:millisecond)
-      assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
-      elapsed_ms = System.monotonic_time(:millisecond) - start_ms
-
-      assert r.status == :timeout,
-             "task that ignores :shutdown must still classify :timeout via brutal_kill; got #{inspect(r.status)}"
-
-      # The cooperative phase consumes ~100ms (the default grace),
-      # then brutal_kill clears within milliseconds. The whole site
-      # should finish well under the 1_000ms drain ceiling — proof
-      # that escalation actually fired rather than us waiting out
-      # the drain.
-      assert elapsed_ms < 800,
-             "brutal-kill escalation should clear the site in under 800ms; got #{elapsed_ms}ms — phase 2 likely did not fire"
+      assert {:ok, %{results: [%{status: :timeout}]}} = MutationRunner.run(cfg)
+      assert_received {:ignored_shutdown, pid}
+      refute Process.alive?(pid)
     end
 
     @tag spec: "mutagen.mutation_pipeline.r4"
@@ -705,21 +680,18 @@ defmodule MutagenEx.MutationRunnerTest do
       cfg =
         site
         |> base_cfg(
-          timeout_ms: 50,
+          timeout_ms: @stub_timeout,
           scope_records: [
             %Scope{file: site.file, line_range: 1..10, module: scope_module}
           ]
         )
-        |> Map.put(:code_purge, code_purge)
+        |> Map.merge(%{code_purge: code_purge, cancel_grace_ms: @stub_timeout})
 
-      ExUnitFake.set_results([
-        # Force a brutal-kill path so we KNOW the timeout actually
-        # fired with the cancel_mode that justifies the purge.
-        {:trap_and_ignore_shutdown, 1_000, %{failures: 0, total: 1, excluded: 0, skipped: 0}}
-      ])
+      ExUnitFake.set_results([{:ignore_shutdown, self()}])
 
       assert {:ok, %{results: [r]}} = MutationRunner.run(cfg)
       assert r.status == :timeout
+      assert_received {:ignored_shutdown, _pid}
 
       purged = :ets.tab2list(purge_calls) |> Enum.map(fn {_, m} -> m end)
 
@@ -782,7 +754,7 @@ defmodule MutagenEx.MutationRunnerTest do
     ExUnitFake.set_results([{:kill_host_and_wait, pid}])
 
     assert {:ok, %{results: [first, second, third], warnings: warnings}} =
-             MutationRunner.run(base_cfg(sites))
+             MutationRunner.run(base_cfg(sites, timeout_ms: @stub_timeout))
 
     assert first.status == :timeout
     refute first.tainted_predecessors
@@ -863,10 +835,8 @@ defmodule MutagenEx.MutationRunnerTest do
         end
       end)
 
-      # 500ms timeout is the base_cfg default; the leak completes in
-      # microseconds (synchronous spawn+register) so `:timeout` is NOT
-      # the mechanism driving taint here. That is the entire point of
-      # this test: prove `grew?` carries the taint independently.
+      # The synchronous spawn and register finish within the deadline so
+      # the test can check that snapshot growth causes the taint.
       cfg = base_cfg([site1, site2])
 
       ExUnitFake.set_results([
@@ -1531,7 +1501,7 @@ defmodule MutagenEx.MutationRunnerTest do
 
         cfg = %{
           seed: 0,
-          timeout_ms: 500,
+          timeout_ms: @site_timeout,
           test_filter: %TestFilter{include: [], exclude: [:test], files: []},
           ast_cache: ast_cache,
           sites: [site],
@@ -1613,7 +1583,7 @@ defmodule MutagenEx.MutationRunnerTest do
       # three. We set `budget_ms` to 50ms and make site 1 sleep for 100ms;
       # by the time site 1's result is recorded, the budget check at the
       # top of the next iteration fires and the loop bails before site 2.
-      cfg = base_cfg([site1, site2, site3], timeout_ms: 500)
+      cfg = base_cfg([site1, site2, site3])
       cfg = Map.put(cfg, :budget_ms, 50)
 
       ExUnitFake.set_results([
@@ -1660,7 +1630,7 @@ defmodule MutagenEx.MutationRunnerTest do
       site1 = build_site(id: "g1")
       site2 = build_site(id: "g2")
 
-      cfg = base_cfg([site1, site2], timeout_ms: 500)
+      cfg = base_cfg([site1, site2])
       # 10 seconds is comfortably more than two stubbed sites take.
       cfg = Map.put(cfg, :budget_ms, 10_000)
 
