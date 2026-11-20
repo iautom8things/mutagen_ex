@@ -5,7 +5,7 @@ defmodule MutagenEx.GitDiff do
   Diff roots must be real directories within the resolved project directory.
   Scope compares normalized root spellings and folds case when Git config or
   the disk indicates case-insensitivity. Results keep Git's path spelling,
-  including case and normalization. The gate wiring should use those keys
+  including case and normalization. The caller should use those keys
   directly and name the reason and path for each skipped entry when marking
   a read incomplete.
 
@@ -1048,7 +1048,7 @@ defmodule MutagenEx.GitDiff do
 
   defp inside_submodule do
     unavailable(:inside_submodule, :worktree, %{
-      hint: "Running the gate from inside a submodule checkout is not supported."
+      hint: "Running Mutagen from inside a submodule checkout is not supported."
     })
   end
 

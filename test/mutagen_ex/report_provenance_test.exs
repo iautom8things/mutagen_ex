@@ -193,12 +193,25 @@ defmodule MutagenEx.ReportProvenanceTest do
     assert get_in(wire, ["meta", "escalation", Access.at(0), "files_added"]) == [path]
     assert get_in(wire, ["tests", "files"]) == [path]
     assert wire["warnings"] == ["escalation_baseline_red: #{path}"]
+
+    assert [%{"files" => [^path], "reason" => "escalation_baseline_red"}] =
+             wire["summary"]["notes"]
+
     hidden = abort(%{report | include_host_output: true, source: false})
     assert hidden["warnings"] == ["escalation_baseline_red: 1"]
+
+    assert [
+             %{
+               "kind" => "escalation_dropped",
+               "count" => 1,
+               "reason" => "escalation_baseline_red"
+             }
+           ] = hidden["summary"]["notes"]
+
     refute inspect(hidden) =~ @canary
   end
 
-  @tag spec: "mutagen.json_schema.r22"
+  @tag spec: ["mutagen.json_schema.r22", "mutagen.json_schema.r37"]
   test "all default strings in a maximal aggregate and its stream have declared provenance" do
     file = "lib/site.ex"
     location = {:location, {file, 1}}
@@ -221,6 +234,15 @@ defmodule MutagenEx.ReportProvenanceTest do
     }
 
     compile_error = Map.merge(site, %{exception: CompileError, message: @canary})
+
+    pending =
+      site
+      |> Map.drop([:status, :selection])
+      |> Map.merge(%{id: "pending-id", function: "Example.pending/1", reason: :uncovered})
+
+    survivor = %{site | id: "survivor-id", function: "Example.survives/1", status: :survived}
+    survivor = Map.put(survivor, :tainted_predecessors, true)
+    weak = for i <- 1..3, do: %{survivor | id: "weak-#{i}", function: "Example.weak/1"}
     failures = [{ExampleTest, "test generated #{@canary}"}]
 
     report = %Report{
@@ -250,13 +272,17 @@ defmodule MutagenEx.ReportProvenanceTest do
       coverage: %{covered_lines: %{file => [1]}},
       baseline: %{passed: 0, failed: 1, failures: failures},
       mutation: %{
-        results: [site],
-        pending: [Map.put(site, :reason, :uncovered)],
+        results: [site, survivor | weak],
+        pending: [pending],
         compile_errors: [compile_error],
         skipped: [%{site_id: "id", file: file, reason: :validate_refused, mutator: :arith}],
         state_drift_warning: %{Example => [GenServer]}
       },
-      warnings: ["test_alias_skipped"],
+      warnings: [
+        "test_alias_skipped",
+        {:host_output, @canary},
+        {:escalation_rejected, :escalation_baseline_red, ["test/skipped_test.exs"]}
+      ],
       details: %{
         file: file,
         origin_file: file,
@@ -307,7 +333,12 @@ defmodule MutagenEx.ReportProvenanceTest do
         end
       end)
 
-    assert MapSet.new(["kind" | paths(wire, "") ++ stream_fields]) == declared
+    {body, 0} = JsonReporter.emit_report(report)
+    success = body |> IO.iodata_to_binary() |> JSON.decode!()
+    refute inspect(success["summary"]) =~ @canary
+
+    assert MapSet.new(["kind" | paths(wire, "") ++ paths(success, "") ++ stream_fields]) ==
+             declared
   end
 
   defp paths(value, "mutation.results[].excerpt_line" = path) when is_integer(value), do: [path]

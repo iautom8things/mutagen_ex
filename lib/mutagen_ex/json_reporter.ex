@@ -285,7 +285,10 @@ defmodule MutagenEx.JsonReporter.Report do
             details: nil,
             truncated: false,
             source: true,
-            include_host_output: false
+            include_host_output: false,
+            summary: nil,
+            summary_max: 5,
+            rerun_options: %{}
 
   @type t :: %__MODULE__{
           meta: map() | nil,
@@ -300,7 +303,10 @@ defmodule MutagenEx.JsonReporter.Report do
           details: map() | nil,
           truncated: boolean(),
           source: boolean(),
-          include_host_output: boolean()
+          include_host_output: boolean(),
+          summary: map() | nil,
+          summary_max: non_neg_integer(),
+          rerun_options: map()
         }
 end
 
@@ -320,7 +326,7 @@ defmodule MutagenEx.JsonReporter do
 
     * `emit_report(report)` — full pipeline result. Returns `{iodata, 0}`.
     * `emit_error(report, abort_reason)` — abort variant. Returns
-      `{iodata, exit_code}` where `exit_code != 0`.
+      `{iodata, 2}`.
 
   Per `mutagen.json_schema.r6`, neither function performs I/O. They return
   iodata so the calling Mix task can choose between `IO.write/1` and
@@ -348,7 +354,7 @@ defmodule MutagenEx.JsonReporter do
   """
 
   alias MutagenEx.JsonReporter.{Provenance, Report, Sanitizer}
-  alias MutagenEx.Mutators
+  alias MutagenEx.{Mutators, ReportSummary}
 
   @behaviour MutagenEx.Pipeline.ReporterOkFacade
   @behaviour MutagenEx.Pipeline.ReporterErrorFacade
@@ -391,6 +397,8 @@ defmodule MutagenEx.JsonReporter do
     "invalid_mix_env" => "Run the command with MIX_ENV=test.",
     "invalid_redact_config" => "Set :mutagen_ex, :redact to a list of valid regular expressions.",
     "invalid_seed" => "Pass a non-negative integer to --seed.",
+    "invalid_site" => "Pass a site ID or a reference from the report.",
+    "invalid_summary_max" => "Pass a non-negative integer to --summary-max.",
     "invalid_since_ref" => "Pass a valid Git ref to --since.",
     "invalid_tag_name" => "Check the spelling and format of the test tag.",
     "invalid_target" => "Use a test file, file:line or tag:name as the test target.",
@@ -405,7 +413,11 @@ defmodule MutagenEx.JsonReporter do
     "runtime_load_failed" =>
       "Reinstall the mutagen_ex archive and check for module name collisions.",
     "self_mutation_refused" =>
-      "Run Mutagen from a separate host project or restrict the scope to host modules.",
+      "For changes to Mutagen itself, run mix test and mix test.integration. Use --since from a host project to inspect that project's changes.",
+    "site_not_found" => "Check the site ID against the current source and scope.",
+    "summary_path_conflict" => "Choose different paths for --summary and --json.",
+    "summary_write_failed" => "Check whether the summary destination can be written.",
+    "unsafe_summary_path" => "Choose a summary file inside the project root.",
     "test_alias_failed" => "Run the host test alias and check its setup steps.",
     "test_file_load_failed" => "Check that the reported test file loads after test_helper.exs.",
     "test_helper_load_failed" => "Check the test helper at the reported location.",
@@ -460,9 +472,14 @@ defmodule MutagenEx.JsonReporter do
   `1` ExUnit failure exit and from `0` success.
   """
   @impl MutagenEx.Pipeline.ReporterErrorFacade
-  @spec emit_error(Report.t(), abort_reason()) :: {iodata(), pos_integer()}
+  @spec emit_error(Report.t(), abort_reason()) :: {iodata(), 2}
   def emit_error(%Report{} = report, abort_reason) when is_atom(abort_reason) do
-    aborted_report = %Report{report | aborted: true, abort_reason: Atom.to_string(abort_reason)}
+    aborted_report = %Report{
+      report
+      | aborted: true,
+        abort_reason: Atom.to_string(abort_reason),
+        summary: nil
+    }
 
     {encode(aborted_report), 2}
   end
@@ -537,7 +554,11 @@ defmodule MutagenEx.JsonReporter do
     [?{, entries, ?}]
   end
 
-  defp to_wire(%Report{} = r) do
+  @doc false
+  def summary(%Report{} = report), do: report.summary || ReportSummary.build(report)
+
+  @doc false
+  def to_wire(%Report{} = r) do
     %{
       "version" => @schema_version,
       "meta" => aggregate_meta_to_wire(r.meta, r),
@@ -546,6 +567,7 @@ defmodule MutagenEx.JsonReporter do
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation, r),
+      "summary" => summary(r),
       "warnings" => report_warnings(r),
       "aborted" => r.aborted == true,
       "abort_reason" => abort_reason_to_wire(r.abort_reason),
@@ -1197,6 +1219,17 @@ defmodule MutagenEx.JsonReporter do
     |> String.graphemes()
     |> Enum.drop(start)
     |> Enum.join()
+  end
+
+  @doc false
+  def summary_site_to_wire(site, options) do
+    wire =
+      site
+      |> site_to_wire(options)
+      |> put_source(render_result(site, options.source), options)
+      |> Map.take(~w(id file function line excerpt_line mutator before_source after))
+
+    if options.source, do: Map.put_new(wire, "excerpt_line", site.line), else: wire
   end
 
   defp site_to_wire(site, options) do

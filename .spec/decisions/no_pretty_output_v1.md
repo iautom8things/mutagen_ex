@@ -1,6 +1,7 @@
 ---
 id: mutagen.decision.no_pretty_output_v1
-status: accepted
+status: superseded
+superseded_by: mutagen.decision.advisory_only
 date: 2026-05-13
 affects:
   - mutagen.cli
