@@ -577,8 +577,8 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     The aggregate and stream end carry the same additive summary. Check
-    first identifies a function with only uncovered sites in a changed-code
-    run or at least three evaluated high-confidence sites with complete
+    first identifies a function with only probe-confirmed uncovered sites
+    or at least three evaluated high-confidence sites with complete
     escalation evidence, no kill
     at any confidence and no test file that failed alone and mentions
     the function. The verdict keeps incomplete and no_mutable_changes
@@ -593,13 +593,19 @@ Top-level keys, all present in every variant unless noted:
     note and stays out of Check first.
     Uncovered lines inside evaluated sites appear separately in meta.since.
     Validator skips are counted separately from unevaluated mutants.
-    A run with surviving sites never says nothing_to_check.
-    Remaining high-confidence survivors are ranked by escalation
-    completeness, provisional mutator order, file, line and ID.
-    The report records the number omitted by the cap. Only a nonempty
-    ranked list can yield worth_a_look. If every survivor is low-confidence,
-    the unranked verdict is low_confidence_survivors. If the cap hides a
-    nonempty ranking, the unranked verdict is unranked_survivors.
+    In changed-code runs, Worth a look includes only survivors with a
+    source span that overlaps a changed diff line. High-confidence
+    survivors precede low-confidence survivors. Each group sorts by file,
+    line and ID. Low-confidence entries carry confidence: low. Survivors
+    elsewhere in changed functions remain in mutation results and add to
+    the off_changed_line_survivors note. A changed-code run with only
+    those survivors can yield nothing_to_check.
+    Classic and audit Worth a look entries remain high-confidence and
+    sort by escalation completeness, provisional mutator order, file,
+    line and ID. When all their survivors have low confidence, their
+    verdict is low_confidence_survivors. The report records the number
+    omitted by the cap. Only a nonempty list yields worth_a_look. If the
+    cap hides all eligible entries, the verdict is unranked_survivors.
     Timeouts are unevaluated. Taint is counted as a note.
     Kills marked selection.after_dropped_file still count as kills and carry
     a run-level note with their count. Each step's dropped_after_load count
@@ -619,7 +625,10 @@ Top-level keys, all present in every variant unless noted:
     incomplete escalation as not fully escalated. Preexisting symlinks
     and submodules under a source root have distinct wording.
     The headline names the finding first and gives the unchecked count
-    and site total when checked is partial.
+    and site total when checked is partial. With nothing_to_check and
+    partial evidence it says Mutagen found nothing in the sites it could
+    check. It says Mutagen found nothing to check only when checked is
+    full. Worth a look labels low-confidence entries low confidence.
     It leads with a note for escalation candidates that failed alone
     on the unmutated code. Candidates that failed in combination
     appear in the notes. The escalation budget note counts a file once
@@ -942,6 +951,7 @@ the envelope fields and add `kind`.
 | `summary.worth_a_look[].file` | Project source path | Omit with --no-source |
 | `summary.worth_a_look[].function` | Source definition | Omit with --no-source |
 | `summary.worth_a_look[].mutator` | Tool mutator name | Keep |
+| `summary.worth_a_look[].confidence` | Low-confidence changed-line survivor label | Keep |
 | `summary.worth_a_look[].before_source` | Source excerpt | Cap and omit with --no-source |
 | `summary.worth_a_look[].after` | Mutant source | Cap and omit with --no-source |
 | `summary.worth_a_look[].steps_run[]` | Tool step name | Keep |

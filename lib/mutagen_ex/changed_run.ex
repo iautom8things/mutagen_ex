@@ -125,7 +125,11 @@ defmodule MutagenEx.ChangedRun do
 
   defp changed_report(report, plan) do
     meta =
-      Map.merge(report.meta, %{since: plan.meta, incomplete_reasons: Enum.uniq(plan.incomplete)})
+      Map.merge(report.meta, %{
+        since: plan.meta,
+        changed_line_sites: Map.get(plan, :changed_line_sites, MapSet.new()),
+        incomplete_reasons: Enum.uniq(plan.incomplete)
+      })
 
     meta =
       case plan do

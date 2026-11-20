@@ -188,7 +188,7 @@ defmodule MutagenEx.SelectedRunTest do
       end
     }
 
-    config = %Config{scopes: [], tests: ["auto"]}
+    config = %Config{scopes: [], tests: ["auto"], escalate: true}
 
     assert {:ok, _, outcome} =
              SelectedRun.run(
@@ -235,7 +235,14 @@ defmodule MutagenEx.SelectedRunTest do
         end
     }
 
-    config = %Config{scopes: [], tests: ["auto"], since: "HEAD", escalate_budget_ms: 10_000}
+    config = %Config{
+      scopes: [],
+      tests: ["auto"],
+      since: "HEAD",
+      escalate: true,
+      escalate_budget_ms: 10_000
+    }
+
     {report, outcome} = exercise(dir, config.tests, phases, config)
 
     assert_received {:candidate_baseline, [^expensive]}
@@ -310,7 +317,7 @@ defmodule MutagenEx.SelectedRunTest do
         end
     }
 
-    config = %Config{scopes: [], tests: ["auto"], escalate_budget_ms: 10_000}
+    config = %Config{scopes: [], tests: ["auto"], escalate: true, escalate_budget_ms: 10_000}
 
     assert {:ok, _, outcome} =
              SelectedRun.run(
@@ -365,7 +372,15 @@ defmodule MutagenEx.SelectedRunTest do
   @tag spec: ["mutagen.mutation_pipeline.r35", "mutagen.json_schema.r34"]
   test "scales the deadline for every candidate from the narrow baseline", %{tmp_dir: dir} do
     candidate = write_candidate(dir, "candidate")
-    config = %Config{scopes: [], tests: ["auto"], timeout_ms: 60_000, boot_timeout_ms: 80_000}
+
+    config = %Config{
+      scopes: [],
+      tests: ["auto"],
+      escalate: true,
+      timeout_ms: 60_000,
+      boot_timeout_ms: 80_000
+    }
+
     phases = callbacks(self(), candidate, false, :ok)
     report_baseline = phases.baseline
 
@@ -399,7 +414,7 @@ defmodule MutagenEx.SelectedRunTest do
   end
 
   defp run_selected(dir, tests, phases, config) do
-    config = config || %Config{scopes: [], tests: tests, since: "HEAD"}
+    config = config || %Config{scopes: [], tests: tests, since: "HEAD", escalate: true}
     file = "checks/narrow_test.exs"
     entry = Map.put(entry("id", "src/store.ex"), :function, "Fixture.Store.get/2")
 

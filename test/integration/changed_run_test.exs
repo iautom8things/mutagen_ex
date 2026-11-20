@@ -101,7 +101,7 @@ defmodule MutagenEx.ChangedRunTest do
 
     changed = run(repo, ["--since", base, "--tests", @convention])
     classic = run(repo, ["--scope", @source, "--tests", @convention])
-    audit = run(repo, ["--scope", @source, "--tests", "auto", "--no-escalate"])
+    audit = run(repo, ["--scope", @source, "--tests", "auto"])
 
     for report <- [changed, classic, audit] do
       results = report["mutation"]["results"]
@@ -499,7 +499,7 @@ defmodule MutagenEx.ChangedRunTest do
     base = commit(repo)
     write(repo, @source, source(2))
 
-    report = run(repo, ["--since", "HEAD", "--no-escalate", "--summary", "out/narrow.md"])
+    report = run(repo, ["--since", "HEAD", "--summary", "out/narrow.md"])
     assert %{"ref" => "HEAD", "base" => ^base, "changed_files" => 1} = report["meta"]["since"]
     assert report["meta"]["since"]["planned"] == report["meta"]["since"]["in_scope"]
     assert report["meta"]["since"]["runtime"] > report["meta"]["since"]["run"]
@@ -539,8 +539,7 @@ defmodule MutagenEx.ChangedRunTest do
       "--since",
       base,
       "--scope",
-      "ChangedRunFixture.Example.function_pick/1",
-      "--no-escalate"
+      "ChangedRunFixture.Example.function_pick/1"
     ]
 
     scoped = run(repo, args)
@@ -657,7 +656,7 @@ defmodule MutagenEx.ChangedRunTest do
     write(repo, "checks/formatted_test.exs", "# whitespace only\n" <> formatted)
     write(repo, "checks/new_test.exs", test_case("New", ~s|test "new", do: assert(true)|))
 
-    report = run(repo, ["--since", base, "--no-escalate", "--summary", "out/selection.md"])
+    report = run(repo, ["--since", base, "--summary", "out/selection.md"])
     paths = ["checks/brace_test.exs", "checks/indirect_test.exs", "checks/new_test.exs"]
     assert report["tests"]["files"] == paths
 
@@ -682,7 +681,7 @@ defmodule MutagenEx.ChangedRunTest do
     base = commit(repo)
     write(repo, @source, String.replace(original, "    _ignored = x > 0\n", ""))
 
-    report = run(repo, ["--since", base, "--no-escalate"])
+    report = run(repo, ["--since", base])
     assert report["meta"]["since"]["changed_files"] == 1
 
     assert [
@@ -725,7 +724,7 @@ defmodule MutagenEx.ChangedRunTest do
     File.ln_s!("renamed.ex", Path.join(repo, link))
     git(repo, ["add", link])
 
-    report = run(repo, ["--since", base, "--no-escalate"])
+    report = run(repo, ["--since", base])
     assert report["meta"]["since"]["changed_files"] == 1
     assert %{"path" => link, "reason" => "symlink"} in report["meta"]["incomplete_reasons"]
     assert report["mutation"]["results"] == []
@@ -770,7 +769,18 @@ defmodule MutagenEx.ChangedRunTest do
       "# unrelated changed test\nraise \"unexpected narrow selection\"\n"
     )
 
-    args = ["--since", base]
+    narrow = run(repo, ["--since", base])
+    assert narrow["tests"]["files"] == [@convention, changed_test]
+    assert narrow["meta"]["escalation"] == []
+    assert result_selection(narrow, "module_pick")["steps_run"] == ["narrow"]
+
+    for marker <- ["module-loads", "function-loads"] do
+      refute File.exists?(Path.join(repo, marker))
+    end
+
+    File.rm!(Path.join(repo, "narrow-runs"))
+
+    args = ["--since", base, "--escalate"]
     report = run(repo, args ++ ["--summary", "out/escalated.md"])
 
     assert %{"path" => changed_test, "why" => "changed_in_diff"} in report["meta"][
@@ -862,8 +872,96 @@ defmodule MutagenEx.ChangedRunTest do
     assert [%{"capped" => true, "files_added" => ["checks/module_test.exs"]} | _] =
              capped["meta"]["escalation"]
 
-    assert clean_timings(raw_run(repo, ["--since", base])) ==
-             clean_timings(raw_run(repo, ["--since", base]))
+    assert clean_timings(raw_run(repo, ["--since", base, "--escalate"])) ==
+             clean_timings(raw_run(repo, ["--since", base, "--escalate"]))
+  end
+
+  @tag spec: [
+         "mutagen.scope_resolution.r14",
+         "mutagen.json_schema.r36",
+         "mutagen.json_schema.r37"
+       ]
+  test "shows on-diff low-confidence and multiline survivors but keeps deletion-neighbor survivors in JSON",
+       %{repo: repo} do
+    original = """
+    defmodule ChangedRunFixture.Example do
+      def guarded(x) when x > 0, do: x
+
+      def anchored(x) do
+        _ignored = x > 0
+        x + 1
+      end
+
+      def wrapped(x) do
+        if x do
+          :before
+        else
+          :after
+        end
+      end
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("ChangedLines", """
+      alias ChangedRunFixture.Example
+      test "runs each function without asserting the changed behavior" do
+        assert is_integer(Example.guarded(4))
+        assert is_integer(Example.anchored(4))
+        assert is_atom(Example.wrapped(true))
+      end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(
+      repo,
+      @source,
+      original
+      |> String.replace("when x > 0", "when x > 1")
+      |> String.replace("    _ignored = x > 0\n", "")
+      |> String.replace(":before", ":changed")
+    )
+
+    args = ["--since", base, "--summary", "out/overlap.md"]
+    report = run(repo, args)
+    results = report["mutation"]["results"]
+    summary = report["summary"]
+
+    assert [_, _] =
+             away =
+             for(
+               %{"function" => "ChangedRunFixture.Example.anchored/1"} = row <- results,
+               row["status"] == "survived",
+               do: row["id"]
+             )
+
+    refute Enum.any?(summary["worth_a_look"], &(&1["id"] in away))
+    assert %{"kind" => "off_changed_line_survivors", "count" => 2} in summary["notes"]
+
+    assert Enum.any?(summary["worth_a_look"], fn entry ->
+             entry["mutator"] == "else_removal" and entry["line"] == 9
+           end)
+
+    assert %{"mutator" => "guard_drop", "confidence" => "low"} =
+             List.last(summary["worth_a_look"])
+
+    text = File.read!(Path.join(repo, "out/overlap.md"))
+    assert text =~ "survived (low confidence, narrow)"
+
+    assert text =~
+             "2 survivors in changed functions, away from the changed lines, are in the JSON"
+
+    hidden = run(repo, args ++ ["--no-source"])
+    assert hidden["summary"]["notes"] == summary["notes"]
+
+    assert Enum.map(hidden["summary"]["worth_a_look"], & &1["mutator"]) ==
+             Enum.map(summary["worth_a_look"], & &1["mutator"])
   end
 
   @tag spec: "mutagen.json_schema.r28"
@@ -872,7 +970,7 @@ defmodule MutagenEx.ChangedRunTest do
     base = commit(repo)
     write(repo, @source, source(1))
 
-    report = run(repo, ["--since", base, "--no-escalate"])
+    report = run(repo, ["--since", base])
 
     assert %{"path" => @source, "reason" => "base_parse_error"} in report["meta"][
              "incomplete_reasons"
@@ -1096,7 +1194,17 @@ defmodule MutagenEx.ChangedRunTest do
       "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 2\nend\n"
     )
 
-    report = run(repo, ["--since", base, "--timeout-ms", "1000", "--summary", "out/combined.md"])
+    report =
+      run(repo, [
+        "--since",
+        base,
+        "--escalate",
+        "--timeout-ms",
+        "1000",
+        "--summary",
+        "out/combined.md"
+      ])
+
     assert report["baseline"]["passed"] == 0
 
     assert [
@@ -1164,10 +1272,10 @@ defmodule MutagenEx.ChangedRunTest do
     base = commit(repo)
     write(repo, @source, String.replace(original, "n - 2", "n - 1"))
     args = ["--since", base, "--timeout-ms", "1000"]
-    auto = run(repo, args)
+    auto = run(repo, args ++ ["--escalate"])
     assert %{"files_added" => [^zero_test]} = hd(auto["meta"]["escalation"])
 
-    explicit = run(repo, args ++ ["--tests", @convention, "--tests", zero_test, "--no-escalate"])
+    explicit = run(repo, args ++ ["--tests", @convention, "--tests", zero_test])
     assert statuses(auto) == statuses(explicit)
 
     timeouts = Enum.filter(auto["mutation"]["results"], &(&1["before_source"] in ["n - 1", "1"]))
@@ -1286,7 +1394,7 @@ defmodule MutagenEx.ChangedRunTest do
       original |> String.replace("x + 2", "x + 1") |> String.replace("> 11", "> 10")
     )
 
-    report = run(repo, ["--since", base])
+    report = run(repo, ["--since", base, "--escalate"])
 
     assert [
              %{"step" => "module", "dropped_after_load" => 1, "files_added" => [^keeper]},
@@ -1398,7 +1506,7 @@ defmodule MutagenEx.ChangedRunTest do
       "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 1\nend\n"
     )
 
-    report = run(repo, ["--since", base, "--timeout-ms", "1000"])
+    report = run(repo, ["--since", base, "--escalate", "--timeout-ms", "1000"])
 
     assert [%{"dropped_after_load" => 1, "files_added" => [^green]}] =
              report["meta"]["escalation"]
@@ -1443,7 +1551,7 @@ defmodule MutagenEx.ChangedRunTest do
     end
     """)
 
-    args = ["--since", base]
+    args = ["--since", base, "--escalate"]
 
     report =
       run(
@@ -1467,7 +1575,7 @@ defmodule MutagenEx.ChangedRunTest do
     assert [%{"rerun" => rerun, "escalation_incomplete" => true}] =
              report["summary"]["worth_a_look"]
 
-    assert rerun =~ "--escalate-max-files 40"
+    assert rerun =~ "--escalate --escalate-max-files 40"
     refute rerun =~ "--escalate-budget-ms"
     assert "escalation_budget_exhausted: #{candidate}" in report["warnings"]
 
@@ -1515,7 +1623,7 @@ defmodule MutagenEx.ChangedRunTest do
 
     base = commit(repo)
     write(repo, @source, String.replace(original, "> 11", "> 10"))
-    report = run(repo, ["--since", base])
+    report = run(repo, ["--since", base, "--escalate"])
 
     assert [
              %{
@@ -1573,7 +1681,7 @@ defmodule MutagenEx.ChangedRunTest do
     assert hint =~ "Ignore the directory"
 
     write(repo, ".gitignore", "/_build/\n/deps/\n/checks/vendor/\n")
-    assert_fast(run(repo, ["--since", base, "--no-escalate"]), repo)
+    assert_fast(run(repo, ["--since", base]), repo)
   end
 
   defp statuses(report) do
@@ -1587,7 +1695,7 @@ defmodule MutagenEx.ChangedRunTest do
     base = commit(repo)
     write(repo, @source, source(2))
 
-    changed = ["--since", base, "--no-escalate"]
+    changed = ["--since", base]
     classic = ["--scope", @source, "--tests", @convention]
     write(repo, "out/directory/keep", "sentinel")
     File.ln_s!("directory/keep", Path.join(repo, "out/same.md"))
@@ -1717,7 +1825,7 @@ defmodule MutagenEx.ChangedRunTest do
     end
     """)
 
-    report = run(repo, ["--since", base, "--no-escalate"])
+    report = run(repo, ["--since", base])
     assert report["meta"]["since"]["runtime"] > 0
     assert report["meta"]["since"]["unmapped"] == []
   end
@@ -1762,7 +1870,7 @@ defmodule MutagenEx.ChangedRunTest do
     write(repo, @source, String.replace(original, "+ 1", "+ 0"))
 
     summary = "out/red.md"
-    report = run(repo, ["--since", base, "--summary", summary])
+    report = run(repo, ["--since", base, "--escalate", "--summary", summary])
     assert [%{"kind" => "baseline_red_files", "files" => [^red]} | _] = report["summary"]["notes"]
     assert report["summary"]["verdict"] == "baseline_red"
     assert report["summary"]["check_first"] == []
@@ -1773,7 +1881,17 @@ defmodule MutagenEx.ChangedRunTest do
            )
 
     {body, 2} =
-      invoke(repo, ["--since", base, "--tests", @convention, "--tests", red, "--summary", summary])
+      invoke(repo, [
+        "--since",
+        base,
+        "--escalate",
+        "--tests",
+        @convention,
+        "--tests",
+        red,
+        "--summary",
+        summary
+      ])
 
     assert JSON.decode!(body)["abort_reason"] == "baseline_red"
     rendered = File.read!(Path.join(repo, summary))
