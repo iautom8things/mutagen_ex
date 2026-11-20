@@ -2,7 +2,7 @@ defmodule MutagenEx.JsonStreamer do
   @moduledoc """
   Per-site NDJSON line emitter for `mix mutagen --stream`.
 
-  Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
+  Contract: [`mutagen.json_schema`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/json_schema.spec.md)
   r14 (NDJSON line shape, byte-equal to the equivalent entry in the
   final aggregate document's `mutation.results` / `mutation.compile_errors`).
 

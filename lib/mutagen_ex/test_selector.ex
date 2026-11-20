@@ -3,7 +3,7 @@ defmodule MutagenEx.TestSelector do
   Resolves user-supplied `--tests` targets into the `{include, exclude, files}`
   shape ExUnit's filter system expects.
 
-  Contract: [`mutagen.test_selection`](../../.spec/specs/test_selection.spec.md).
+  Contract: [`mutagen.test_selection`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/test_selection.spec.md).
 
   Three target shapes are recognised:
 

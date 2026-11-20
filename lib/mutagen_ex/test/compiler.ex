@@ -4,8 +4,7 @@ defmodule MutagenEx.Test.Compiler do
   over `Code.compile_quoted/2`.
 
   Tests swap a different module via the `:compiler` config key (preferred)
-  or a legacy `{mod, fun}` tuple (back-compat path in
-  `MutagenEx.MutationRunner.compiler_module/1`).
+  or a legacy `{mod, fun}` tuple.
   """
 
   @behaviour MutagenEx.Test.CompilerFacade

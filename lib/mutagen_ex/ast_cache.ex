@@ -3,7 +3,7 @@ defmodule MutagenEx.AstCache do
   Immutable cache of `{quoted_ast, source_text}` tuples for the in-scope
   source files of a `mix mutagen` run.
 
-  Contract: [`mutagen.coverage`](../../.spec/specs/coverage.spec.md) r6, r9.
+  Contract: [`mutagen.coverage`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/coverage.spec.md) r6, r9.
 
   ## Why both AST and verbatim source text
 

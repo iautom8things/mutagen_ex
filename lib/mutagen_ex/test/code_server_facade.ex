@@ -2,7 +2,7 @@ defmodule MutagenEx.Test.CodeServerFacade do
   @moduledoc """
   Behaviour for the `:code` module seam used by `MutagenEx.BeamCache`.
 
-  Per [`mutagen.decision.code_server_facade`](../../../.spec/decisions/code_server_facade.md),
+  Per [`mutagen.decision.code_server_facade`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/code_server_facade.md),
   `MutagenEx.MutationRunner`'s restore path now performs a binary swap via
   `:code.load_binary/3` from a snapshot taken via `:code.get_object_code/1`.
   Both functions mutate global BEAM state (the loaded-module table and the

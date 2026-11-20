@@ -17,13 +17,12 @@ ensured three things before any phase ran: host BEAMs loaded
 (`loadpaths` + `compile`), `:ex_unit` started, and `:mutagen_ex` started
 (so `MutagenEx.TaskSup` is alive for `MutationLoop`).
 
-Two independent Phoenix/Ecto efficacy studies (atlas, builder) then found
+Two independent Phoenix/Ecto studies found
 the same adoption blocker: the preamble never starts the **consumer
 project's own** OTP application. Cited tests that need `Repo`/Ecto Sandbox,
 `Mox.Server`, `Phoenix.PubSub`, or any supervised GenServer abort at
-baseline because the host supervision tree is not running. On builder this
-left ~76% of the test surface unreachable to mutagen; atlas worked around
-it with a hand-rolled `MutagenApp` shim. Structurally this is the same
+baseline because the host supervision tree is not running. One application could run only about 24% of its tests. The other
+worked around the issue with a custom application shim. Structurally this is the same
 shape as wrd.40: the runtime preamble assumed more host state than was
 actually present.
 

@@ -6,7 +6,7 @@ defmodule MutagenEx.Ast do
   positions for the scope resolver, enumerator, and runner.
 
   Implements the behavioural contract in
-  [`mutagen.ast`](../../.spec/specs/ast.spec.md).
+  [`mutagen.ast`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/ast.spec.md).
 
   ## Atom safety
 
