@@ -404,7 +404,8 @@ defmodule MutagenEx.JsonReporter do
     "parse_error" => "Fix the syntax at the reported file and line.",
     "runtime_load_failed" =>
       "Reinstall the mutagen_ex archive and check for module name collisions.",
-    "self_mutation_refused" => "Choose a scope outside MutagenEx.",
+    "self_mutation_refused" =>
+      "Run Mutagen from a separate host project or restrict the scope to host modules.",
     "test_alias_failed" => "Run the host test alias and check its setup steps.",
     "test_file_load_failed" => "Check that the reported test file loads after test_helper.exs.",
     "test_helper_load_failed" => "Check the test helper at the reported location.",
@@ -539,9 +540,9 @@ defmodule MutagenEx.JsonReporter do
   defp to_wire(%Report{} = r) do
     %{
       "version" => @schema_version,
-      "meta" => aggregate_meta_to_wire(r.meta),
+      "meta" => aggregate_meta_to_wire(r.meta, r),
       "scope" => scope_to_wire(r.scope),
-      "tests" => tests_to_wire(r.tests, r.include_host_output),
+      "tests" => tests_to_wire(r.tests, r),
       "baseline" => baseline_to_wire(r.baseline, r.include_host_output),
       "coverage" => coverage_to_wire(r.coverage),
       "mutation" => mutation_to_wire(r.mutation, r),
@@ -570,7 +571,7 @@ defmodule MutagenEx.JsonReporter do
 
   @structured_details ~w(file line column origin_file origin_line module exception reason phase step
                           note flag site_id passed failed failures excluded skipped include exclude
-                          limit cap count actual max_sites)a
+                          limit cap count actual max_sites cause shallow root limit_files)a
 
   # The version values come from the runtime. Avoid compiled Regex structs,
   # which an older Elixir may be unable to read when loading an archive.
@@ -650,6 +651,22 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_hint(details, nil), do: details
 
+  defp put_hint(%{"cause" => "file_limit", "root" => root} = details, "diff_unavailable") do
+    Map.put(
+      details,
+      "hint",
+      "Untracked files under #{root} exceeded the file limit. Ignore the directory to fix it."
+    )
+  end
+
+  defp put_hint(%{"shallow" => true} = details, "diff_unavailable") do
+    details
+    |> Map.delete("shallow")
+    |> put_hint("diff_unavailable")
+    |> Map.put("shallow", true)
+    |> Map.put("hint", "Fetch full Git history. In GitHub Actions set fetch-depth: 0.")
+  end
+
   defp put_hint(details, reason) do
     details
     |> Map.put("hint", hint(reason) || "Check the inputs and diagnostics on stderr.")
@@ -705,12 +722,85 @@ defmodule MutagenEx.JsonReporter do
     }
   end
 
-  defp aggregate_meta_to_wire(%{timings_ms: timings} = meta) do
-    wire_timings = Map.new(timings, fn {phase, ms} -> {to_string(phase), ms} end)
-    Map.put(meta_to_wire(meta), "timings_ms", wire_timings)
+  defp put_abort_complete(wire, %Report{aborted: true}), do: Map.put(wire, "complete", false)
+  defp put_abort_complete(wire, _options), do: wire
+
+  defp aggregate_meta_to_wire(meta, options) do
+    meta
+    |> meta_to_wire()
+    |> put_timing_wire(meta)
+    |> put_selected_meta(meta, options)
+    |> put_abort_complete(options)
   end
 
-  defp aggregate_meta_to_wire(meta), do: meta_to_wire(meta)
+  @doc false
+  def stream_meta_to_wire(meta, options) do
+    meta =
+      case meta do
+        %{escalation: steps} ->
+          %{
+            meta
+            | escalation:
+                Enum.map(steps, &Map.drop(&1, [:wall_ms, :baseline_ms, :mutant_deadline_ms]))
+          }
+
+        _ ->
+          meta
+      end
+
+    meta |> meta_to_wire() |> put_selected_meta(meta, options) |> put_abort_complete(options)
+  end
+
+  defp put_timing_wire(wire, %{timings_ms: timings}) do
+    Map.put(wire, "timings_ms", Map.new(timings, fn {phase, ms} -> {to_string(phase), ms} end))
+  end
+
+  defp put_timing_wire(wire, _meta), do: wire
+
+  defp put_selected_meta(wire, %{since: since, incomplete_reasons: incomplete} = meta, options) do
+    paths =
+      Enum.map(incomplete, fn %{reason: reason, path: path} ->
+        %{"reason" => to_string(reason), "path" => test_path(path, options.source)}
+      end)
+
+    since =
+      Map.update(since, :unmapped, [], fn rows ->
+        Enum.map(rows, fn row -> %{row | path: test_path(row.path, options.source)} end)
+      end)
+
+    wire
+    |> Map.put("since", detail_value_to_wire(since))
+    |> Map.put("complete", incomplete == [])
+    |> Map.put("incomplete_reasons", paths)
+    |> put_auto_meta(meta, options)
+  end
+
+  defp put_selected_meta(wire, meta, options), do: put_auto_meta(wire, meta, options)
+
+  defp put_auto_meta(wire, %{tests_selected: selected, escalation: steps}, options) do
+    reveal? = options.source
+
+    selection =
+      for %{path: path, why: why} <- selected do
+        %{"path" => test_path(path, reveal?), "why" => to_string(why)}
+      end
+
+    escalation =
+      for step <- steps do
+        step
+        |> Map.update!(:files_added, fn files -> Enum.map(files, &test_path(&1, reveal?)) end)
+        |> detail_value_to_wire()
+      end
+
+    wire |> Map.put("tests_selected", selection) |> Map.put("escalation", escalation)
+  end
+
+  defp put_auto_meta(wire, _meta, _options), do: wire
+
+  defp test_path(path, reveal?) do
+    [rendered] = render_host_names(:test_path, [path], reveal?)
+    rendered
+  end
 
   defp scope_to_wire(nil), do: []
 
@@ -725,13 +815,25 @@ defmodule MutagenEx.JsonReporter do
     end)
   end
 
-  defp tests_to_wire(nil, _include_host_output), do: nil
+  defp tests_to_wire(nil, _options), do: nil
 
-  defp tests_to_wire(%{include: include, exclude: exclude, files: files}, include_host_output) do
+  defp tests_to_wire(
+         %{include: include, exclude: exclude, files: files} = tests,
+         options
+       ) do
+    include_host_output = options.include_host_output
+
+    files =
+      if Map.get(tests, :host_paths?, false) do
+        render_host_names(:test_path, files, options.source)
+      else
+        Enum.map(files, &Sanitizer.clean(to_string(&1)))
+      end
+
     %{
       "include" => Enum.map(include, &filter_to_wire(&1, include_host_output)),
       "exclude" => Enum.map(exclude, &filter_to_wire(&1, include_host_output)),
-      "files" => Enum.map(files, &Sanitizer.clean(to_string(&1)))
+      "files" => files
     }
   end
 
@@ -826,7 +928,7 @@ defmodule MutagenEx.JsonReporter do
   defp mutation_to_wire(nil, _options), do: nil
 
   defp mutation_to_wire(%{} = m, options) do
-    %{
+    wire = %{
       "total" => Map.get(m, :total, 0),
       "completed" => Map.get(m, :completed, 0),
       "killed" => Map.get(m, :killed, 0),
@@ -840,6 +942,19 @@ defmodule MutagenEx.JsonReporter do
         Enum.map(Map.get(m, :compile_errors, []), &compile_error_to_wire(&1, options)),
       "state_drift_warning" => state_drift_to_wire(Map.get(m, :state_drift_warning, %{}))
     }
+
+    case Map.fetch(m, :pending) do
+      {:ok, pending} ->
+        rows =
+          for site <- pending do
+            site |> site_to_wire(options) |> Map.put("reason", to_string(site.reason))
+          end
+
+        Map.put(wire, "pending", rows)
+
+      :error ->
+        wire
+    end
   end
 
   @doc false
@@ -852,7 +967,13 @@ defmodule MutagenEx.JsonReporter do
       "warnings" => warnings_to_wire(Map.get(result, :warnings, []), options)
     })
     |> put_source(render_result(result, options.source), options)
+    |> put_selection(result)
   end
+
+  defp put_selection(wire, %{selection: selection}),
+    do: Map.put(wire, "selection", detail_value_to_wire(selection))
+
+  defp put_selection(wire, _result), do: wire
 
   @doc false
   def render_result(r, source? \\ true)
@@ -864,22 +985,23 @@ defmodule MutagenEx.JsonReporter do
 
   def render_result(r, true) do
     before_binary = Macro.to_string(r.original_ast)
-    before_source = verified_source(r) || before_binary
+    {before_source, excerpt_line} = verified_source(r) || {before_binary, nil}
 
     Map.merge(r, %{
       before: before_binary,
       before_source: before_source,
+      excerpt_line: excerpt_line,
       after: Macro.to_string(r.mutated_ast)
     })
   end
 
   defp verified_source(result) do
-    with slice when is_binary(slice) <- source_slice(result),
+    with {slice, line} <- source_slice(result),
          true <- String.valid?(slice),
          {:ok, ast} <-
            Code.string_to_quoted(slice, emit_warnings: false, existing_atoms_only: true),
          true <- without_metadata(ast) == without_metadata(result.original_ast) do
-      slice
+      {slice, line}
     else
       _ -> nil
     end
@@ -892,10 +1014,13 @@ defmodule MutagenEx.JsonReporter do
     end)
   end
 
-  defp source_slice(%{source_span: {start, length}, source_text: source})
+  defp source_slice(%{source_span: {start, length}, source_text: source} = result)
        when is_binary(source) and is_integer(start) and is_integer(length) and
               start >= 0 and length > 0 and start + length <= byte_size(source) do
-    binary_part(source, start, length)
+    line =
+      result[:source_line] || length(:binary.matches(binary_part(source, 0, start), "\n")) + 1
+
+    {binary_part(source, start, length), line}
   end
 
   defp source_slice(%{source_span: {_, _}}), do: nil
@@ -918,7 +1043,7 @@ defmodule MutagenEx.JsonReporter do
           {start_line, start_column}
           when is_integer(start_line) and is_integer(start_column) ->
             case slice_source(source_text, start_line, start_column, end_line, end_column) do
-              {:ok, slice} -> slice
+              {:ok, slice} -> {slice, start_line}
               :error -> nil
             end
 
@@ -1085,6 +1210,15 @@ defmodule MutagenEx.JsonReporter do
       "confidence" => mutator |> Mutators.confidence() |> Atom.to_string()
     }
 
+    wire =
+      case site do
+        %{in_scope: reason} ->
+          Map.put(wire, "in_scope", to_string(reason))
+
+        _ ->
+          wire
+      end
+
     if options.source do
       Map.merge(wire, %{
         "file" => Sanitizer.clean(to_string(Map.fetch!(site, :file))),
@@ -1096,6 +1230,12 @@ defmodule MutagenEx.JsonReporter do
   end
 
   defp put_source(wire, result, %{source: true}) do
+    wire =
+      case result do
+        %{excerpt_line: line} when is_integer(line) -> Map.put(wire, "excerpt_line", line)
+        _ -> wire
+      end
+
     Enum.reduce([:before, :before_source, :after], wire, fn key, acc ->
       Map.put(acc, Atom.to_string(key), Sanitizer.source(Map.fetch!(result, key)))
     end)
@@ -1121,6 +1261,9 @@ defmodule MutagenEx.JsonReporter do
         {:host_names, kind, names} ->
           render_host_names(kind, names, options.include_host_output)
 
+        {:escalation_rejected, kind, paths} ->
+          render_host_names(kind, paths, options.source)
+
         {:host_supervisor_changed, name} ->
           [Sanitizer.clean("host_supervisor_changed: #{name}")]
 
@@ -1135,6 +1278,8 @@ defmodule MutagenEx.JsonReporter do
   to apply this policy at the JSON boundary.
   """
   def render_host_names(_kind, [], _include_host_output), do: []
+  def render_host_names(:test_path, paths, true), do: Enum.map(paths, &Sanitizer.clean/1)
+  def render_host_names(:test_path, paths, false), do: Enum.map(paths, fn _ -> nil end)
 
   def render_host_names(:state_leak, sites, include_host_output?) do
     for {site_id, groups} <- sites do

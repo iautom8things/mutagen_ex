@@ -42,12 +42,15 @@ defmodule MutagenEx.JsonStreamer do
   Elixir/OTP version, ExUnit seed, and fail-fast setting), without timings.
   """
   @spec emit_start(sink(), pos_integer() | non_neg_integer(), map()) :: :ok
-  def emit_start(sink, total, meta) do
+  def emit_start(sink, total, meta), do: emit_start(sink, total, meta, %Report{})
+
+  @doc false
+  def emit_start(sink, total, meta, options) do
     write_line(sink, %{
       "version" => JsonReporter.schema_version(),
       "kind" => "start",
       "total" => total,
-      "meta" => JsonReporter.meta_to_wire(meta)
+      "meta" => JsonReporter.stream_meta_to_wire(meta, options)
     })
   end
 
@@ -93,7 +96,7 @@ defmodule MutagenEx.JsonStreamer do
     summary = %{
       "version" => JsonReporter.schema_version(),
       "kind" => "end",
-      "meta" => JsonReporter.meta_to_wire(report.meta),
+      "meta" => JsonReporter.stream_meta_to_wire(report.meta, report),
       "aborted" => report.aborted == true,
       "abort_reason" => JsonReporter.abort_reason_to_wire(report.abort_reason),
       "truncated" => report.truncated == true,

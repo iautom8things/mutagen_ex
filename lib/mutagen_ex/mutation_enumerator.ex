@@ -52,7 +52,8 @@ defmodule MutagenEx.MutationEnumerator.Site do
     function: nil,
     end_line: nil,
     end_column: nil,
-    source_span: nil
+    source_span: nil,
+    source_line: nil
   ]
 
   @type path_step ::
@@ -70,7 +71,8 @@ defmodule MutagenEx.MutationEnumerator.Site do
           function: String.t() | nil,
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil,
-          source_span: {non_neg_integer(), pos_integer()} | nil
+          source_span: {non_neg_integer(), pos_integer()} | nil,
+          source_line: pos_integer() | nil
         }
 end
 
@@ -296,14 +298,17 @@ defmodule MutagenEx.MutationEnumerator do
 
         spans =
           Map.new(file_sites, fn %{path: path} ->
-            {path, MutagenEx.JsonReporter.Source.span(index, path)}
+            {path, MutagenEx.JsonReporter.Source.located_span(index, path)}
           end)
 
         {file, spans}
       end
 
     Enum.map(sites, fn site ->
-      %{site | source_span: spans_by_file[site.file][site.path]}
+      case spans_by_file[site.file][site.path] do
+        {span, line} -> %{site | source_span: span, source_line: line}
+        nil -> site
+      end
     end)
   end
 
