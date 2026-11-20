@@ -150,7 +150,8 @@ defmodule MutagenEx.GitDiff do
   Set `file_kind: :test` to select changed `*_test.exs` files, including
   pure renames. The default kind is `:source` (`.ex`).
   With `:allow_missing_roots`, a missing root is part of the working-tree
-  snapshot and an empty roots list selects no paths.
+  snapshot and an empty roots list selects no paths. Set `:untracked` to
+  include unignored working files without requiring intent-to-add.
   """
   @spec changed_lines(binary(), keyword()) :: {:ok, change_set()} | error()
   def changed_lines(ref, opts) do
@@ -221,11 +222,17 @@ defmodule MutagenEx.GitDiff do
          git = probe_case(git),
          git = put_git_env(git, "GIT_ATTR_SOURCE", object_id("tree", "", head)),
          {:ok, paths, index} <- tracked_scope(git, base, roots),
+         {:ok, untracked} <- untracked_paths(git, paths, roots, opts[:untracked]),
          before = snapshot_index_dirs(git, index, snapshot),
+         before = Enum.reduce(untracked, before, &snapshot_parent(git.cd, &1, &2)),
          {:ok, output} <- diff_output(git, base, paths),
          {:ok, changes, changed_paths} <- parse_diff(output, roots, git),
-         :ok <- verify_directories(git, roots, snapshot, before, changed_paths),
-         :ok <- validate_ranges(git, changes, anchors?) do
+         all_paths = Enum.uniq(changed_paths ++ untracked),
+         :ok <- check_file_limit(all_paths),
+         :ok <- verify_directories(git, roots, snapshot, before, all_paths),
+         {:ok, changes} <- add_untracked(git, changes, untracked),
+         :ok <- validate_ranges(git, changes, anchors?),
+         :ok <- verify_untracked_directories(git, roots, snapshot, before, untracked) do
       changes = %{changes | skipped: changes.skipped ++ index_links(index, git)}
       changes = if anchors?, do: changes, else: Map.delete(changes, :deletion_anchors)
 
@@ -248,6 +255,96 @@ defmodule MutagenEx.GitDiff do
     args = ["diff" | @diff_flags] ++ [base, "--" | paths]
     command(git, args, :diff, @max_diff_bytes)
   end
+
+  defp untracked_paths(_git, _paths, _roots, flag) when flag != true, do: {:ok, []}
+  defp untracked_paths(_git, [], _roots, true), do: {:ok, []}
+
+  defp untracked_paths(git, paths, roots, true) do
+    args = ["ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--" | paths]
+
+    with {:ok, output} <- command(repo_git(git), args, :untracked, @max_diff_bytes),
+         ["" | names] <- Enum.reverse(:binary.split(output, <<0>>, [:global])) do
+      names
+      |> Enum.reverse()
+      |> Enum.reduce_while({:ok, []}, fn name, {:ok, acc} ->
+        path = project_relative(String.trim_trailing(name, "/"), git)
+
+        if is_binary(path) and safe_git_path?(path) and
+             root_match(path, roots, git.ignore_case?) == :below do
+          {:cont, {:ok, [path | acc]}}
+        else
+          {:halt, unavailable(:invalid_path, :untracked)}
+        end
+      end)
+    else
+      {:error, _, _} = error -> error
+      _ -> unavailable(:invalid_output, :untracked)
+    end
+  end
+
+  defp add_untracked(git, changes, paths) do
+    Enum.reduce_while(paths, {:ok, changes}, fn path, {:ok, changes} ->
+      case untracked_change(git, changes, path) do
+        {:ok, changes} -> {:cont, {:ok, changes}}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp untracked_change(git, changes, path) do
+    case File.lstat(Path.join(git.cd, path)) do
+      {:ok, %{type: :symlink}} ->
+        add_skipped(changes, path, :symlink)
+
+      {:ok, %{type: :directory}} ->
+        add_skipped(changes, path, :nested_git_checkout)
+
+      {:ok, %{type: :regular}} ->
+        if selected_file?(path, git.file_kind) do
+          with {:ok, absolute} <- regular_working_path(git.cd, path),
+               {:ok, {:ok, last}} <-
+                 File.open(absolute, [:read, :binary], &count_lines(&1, 0, 0, false)) do
+            ranges = if last == 0, do: [], else: [{1, last}]
+            {:ok, put_in(changes.files[path], ranges)}
+          else
+            {:error, :diff_unavailable, _} = error -> error
+            {:ok, {:error, _, _} = error} -> error
+            _ -> unavailable(:working_file_unavailable, :untracked)
+          end
+        else
+          {:ok, changes}
+        end
+
+      _ ->
+        unavailable(:working_file_unavailable, :untracked)
+    end
+  end
+
+  defp count_lines(io, size, lines, partial?) do
+    case IO.binread(io, 64 * 1024) do
+      :eof ->
+        {:ok, lines + if(partial?, do: 1, else: 0)}
+
+      chunk when is_binary(chunk) and size + byte_size(chunk) <= @max_working_bytes ->
+        count_lines(
+          io,
+          size + byte_size(chunk),
+          lines + length(:binary.matches(chunk, "\n")),
+          :binary.last(chunk) != ?\n
+        )
+
+      chunk when is_binary(chunk) ->
+        unavailable(:working_file_limit, :untracked, %{limit_bytes: @max_working_bytes})
+
+      _ ->
+        unavailable(:working_file_unavailable, :untracked)
+    end
+  end
+
+  defp verify_untracked_directories(_git, _roots, _snapshot, _before, []), do: :ok
+
+  defp verify_untracked_directories(git, roots, snapshot, before, paths),
+    do: verify_directories(git, roots, snapshot, before, paths)
 
   defp read_base_file(git, sha, path, roots) do
     with {:ok, git} <- repository_context(git),

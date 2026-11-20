@@ -404,7 +404,8 @@ defmodule MutagenEx.JsonReporter do
     "parse_error" => "Fix the syntax at the reported file and line.",
     "runtime_load_failed" =>
       "Reinstall the mutagen_ex archive and check for module name collisions.",
-    "self_mutation_refused" => "Choose a scope outside MutagenEx.",
+    "self_mutation_refused" =>
+      "Run Mutagen from a separate host project or restrict the scope to host modules.",
     "test_alias_failed" => "Run the host test alias and check its setup steps.",
     "test_file_load_failed" => "Check that the reported test file loads after test_helper.exs.",
     "test_helper_load_failed" => "Check the test helper at the reported location.",
@@ -650,6 +651,14 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_hint(details, nil), do: details
 
+  defp put_hint(%{"shallow" => true} = details, "diff_unavailable") do
+    details
+    |> Map.delete("shallow")
+    |> put_hint("diff_unavailable")
+    |> Map.put("shallow", true)
+    |> Map.put("hint", "Fetch full Git history. In GitHub Actions set fetch-depth: 0.")
+  end
+
   defp put_hint(details, reason) do
     details
     |> Map.put("hint", hint(reason) || "Check the inputs and diagnostics on stderr.")
@@ -736,22 +745,28 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_timing_wire(wire, _meta), do: wire
 
-  defp put_selected_meta(wire, %{since: since, incomplete: incomplete} = meta, options) do
+  defp put_selected_meta(wire, %{since: since, incomplete_reasons: incomplete} = meta, options) do
     paths =
       Enum.map(incomplete, fn %{reason: reason, path: path} ->
-        %{"reason" => to_string(reason), "path" => if(options.source, do: Sanitizer.clean(path))}
+        %{"reason" => to_string(reason), "path" => test_path(path, options.source)}
+      end)
+
+    since =
+      Map.update(since, :unmapped, [], fn rows ->
+        Enum.map(rows, fn row -> %{row | path: test_path(row.path, options.source)} end)
       end)
 
     wire
     |> Map.put("since", detail_value_to_wire(since))
-    |> Map.put("incomplete", paths)
+    |> Map.put("complete", incomplete == [])
+    |> Map.put("incomplete_reasons", paths)
     |> put_auto_meta(meta, options)
   end
 
   defp put_selected_meta(wire, meta, options), do: put_auto_meta(wire, meta, options)
 
   defp put_auto_meta(wire, %{tests_selected: selected, escalation: steps}, options) do
-    reveal? = options.source and options.include_host_output
+    reveal? = options.source
 
     selection =
       for %{path: path, why: why} <- selected do
@@ -798,7 +813,7 @@ defmodule MutagenEx.JsonReporter do
 
     files =
       if Map.get(tests, :host_paths?, false) do
-        render_host_names(:test_path, files, options.source and include_host_output)
+        render_host_names(:test_path, files, options.source)
       else
         Enum.map(files, &Sanitizer.clean(to_string(&1)))
       end
@@ -1185,8 +1200,8 @@ defmodule MutagenEx.JsonReporter do
 
     wire =
       case site do
-        %{fingerprint: fingerprint, in_scope: reason} ->
-          Map.merge(wire, %{"fingerprint" => fingerprint, "in_scope" => to_string(reason)})
+        %{in_scope: reason} ->
+          Map.put(wire, "in_scope", to_string(reason))
 
         _ ->
           wire

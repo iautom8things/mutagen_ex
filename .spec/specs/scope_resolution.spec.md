@@ -31,6 +31,7 @@ surface:
   - lib/mutagen_ex/changed_scope.ex
   - lib/mutagen_ex/scope_resolver.ex
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.mutation_site_paths
   - mutagen.decision.scope_syntax_simplified
@@ -150,6 +151,14 @@ decisions:
     same-path merge-base source. It intersects with explicit scope when
     present. Deletion anchors touch the existing line on each side.
     A pure rename or formatting-only change has no in-scope entries.
+
+- id: mutagen.scope_resolution.r12
+  priority: must
+  statement: |
+    Changed-code planning rejects missing source roots and excludes test
+    roots and test support paths. It counts only entries whose source
+    spans overlap changed lines. A failed base read records an incomplete
+    reason. A later test diff must use the same HEAD and merge base.
 
 ```
 

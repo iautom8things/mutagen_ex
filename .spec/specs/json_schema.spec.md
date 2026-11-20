@@ -53,6 +53,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
   - mutagen.decision.mutation_site_paths
@@ -424,7 +425,7 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     The reporter maintains the abort reason vocabulary and a fixed hint for
     every reason. The README and schema tables match the reporter's list.
-    The list includes the reserved CI gate reasons diff_unavailable and
+    The list includes the changed-code reasons diff_unavailable and
     invalid_since_ref before the CLI wiring emits them.
     Test builds reject unregistered abort reasons, including values passed
     through variables. A registered abort emits its string and exit code 2.
@@ -495,8 +496,8 @@ Top-level keys, all present in every variant unless noted:
     Changed-code reports include the requested ref, resolved base and
     counts in meta.since. Incomplete paths have fixed reasons. A Git abort
     reports a fixed cause without command diagnostics. Evaluated sites
-    carry fingerprints and scope reasons, and outstanding runtime sites
-    are listed as uncovered or not_run.
+    carry scope reasons, and outstanding runtime sites are listed as
+    uncovered or not_run.
 
 - id: mutagen.json_schema.r29
   priority: must
@@ -514,6 +515,24 @@ Top-level keys, all present in every variant unless noted:
     deadline when it runs mutants. A verified before_source slice has a
     one-based excerpt_line at its first byte, omitted with --no-source.
     AST-rendered fallbacks have no excerpt_line.
+
+- id: mutagen.json_schema.r31
+  priority: must
+  statement: |
+    Changed-code reports have meta.complete and meta.incomplete_reasons.
+    An incomplete run exits 0. Changed ranges without runtime sites
+    appear in meta.since.unmapped without making the run incomplete.
+    The aggregate baseline describes the narrow pass. Each escalation
+    step records its own baseline and uses null when no files ran.
+    Selected test paths follow the source flag. Group fingerprints stay
+    internal to planning.
+
+- id: mutagen.json_schema.r32
+  priority: must
+  statement: |
+    Redaction of oversized text has bounded work after the input cap.
+    A megabyte of adversarial text takes less than eight times the
+    duration for the same capped prefix, measured in the same test.
 
 ```
 
@@ -755,8 +774,7 @@ Top-level keys, all present in every variant unless noted:
 ## Default string provenance
 
 Automatically selected test paths in `meta.tests_selected`,
-`meta.escalation`, and `tests.files` default to null. Host output and
-source reporting must both be enabled to expose them.
+`meta.escalation`, and `tests.files` follow the source flag.
 
 Static JSON keys are schema constants. The table uses `[]` for an array
 element and `{}` for a dynamic map entry. NDJSON result and compile
@@ -774,16 +792,18 @@ the envelope fields and add `kind`.
 | `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
 | `meta.since.ref` | CLI ref | Keep after Git resolves it |
 | `meta.since.base` | Verified Git object ID | Keep |
-| `meta.incomplete[].path` | Repository path | Keep with source enabled |
-| `meta.incomplete[].reason` | Git or runner failure vocabulary | Keep |
+| `meta.incomplete_reasons[].path` | Repository path | Keep with source enabled |
+| `meta.incomplete_reasons[].reason` | Git or runner failure vocabulary | Keep |
 | `meta.tests_selected[].why` | Mutagen selection vocabulary | Keep |
+| `meta.since.unmapped[].path` | Repository path | Keep with source enabled |
+| `meta.since.unmapped[].kind` | Mutagen scope vocabulary | Keep |
+| `meta.tests_selected[].path` | Repository path | Keep with source enabled |
+| `meta.escalation[].files_added[]` | Repository path | Keep with source enabled |
 | `meta.escalation[].step` | Mutagen escalation vocabulary | Keep |
 | `mutation.results[].excerpt_line` | Verified repository slice start | Keep with source enabled |
-| `mutation.results[].fingerprint` | MD5 of normalized group AST | Keep |
 | `mutation.results[].in_scope` | Mutagen scope vocabulary | Keep |
 | `mutation.results[].selection.killed_at` | Mutagen selection step | Keep |
 | `mutation.results[].selection.steps_run[]` | Mutagen selection steps | Keep |
-| `mutation.compile_errors[].fingerprint` | MD5 of normalized group AST | Keep |
 | `mutation.compile_errors[].in_scope` | Mutagen scope vocabulary | Keep |
 | `mutation.pending[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
 | `mutation.pending[].file` | Repository path | Keep with source enabled |
@@ -791,7 +811,6 @@ the envelope fields and add `kind`.
 | `mutation.pending[].mutator` | Mutagen catalog | Keep |
 | `mutation.pending[].confidence` | Mutagen catalog | Keep |
 | `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
-| `mutation.pending[].fingerprint` | MD5 of normalized group AST | Keep |
 | `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
 | `details.cause` | Git reader failure vocabulary | Keep |
 | `scope[].file` | Repository or CLI path | Keep |

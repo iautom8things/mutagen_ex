@@ -6,6 +6,39 @@ defmodule MutagenEx.GitDiffIntegrationTest do
   @moduletag :git_diff_integration
 
   @tag :tmp_dir
+  @tag spec: "mutagen.git_diff.r10"
+  test "finds untracked sources and tests while respecting ignores", %{tmp_dir: repo} do
+    init!(repo)
+    write!(repo, "lib/base.ex", "# base\n")
+    write!(repo, "checks/test_helper.exs", "ExUnit.start()\n")
+    write!(repo, ".gitignore", "ignored*\n")
+    commit!(repo, "Base")
+    base = sha(repo)
+
+    write!(repo, "lib/new.ex", "first\nsecond")
+    write!(repo, "lib/ignored.ex", "# ignored")
+    write!(repo, "checks/new_test.exs", "# a test\n")
+    File.ln_s!("new.ex", Path.join(repo, "lib/link.ex"))
+
+    assert {:ok,
+            %{
+              files: %{"lib/new.ex" => [{1, 2}]},
+              skipped: [%{path: "lib/link.ex", reason: :symlink}]
+            }} =
+             GitDiff.changed_lines(base, cd: repo, untracked: true)
+
+    assert {:ok, %{files: %{"checks/new_test.exs" => [{1, 1}]}}} =
+             GitDiff.changed_lines(base,
+               cd: repo,
+               roots: ["checks"],
+               file_kind: :test,
+               untracked: true
+             )
+
+    assert git!(repo, ~w(diff --cached --name-only)) == ""
+  end
+
+  @tag :tmp_dir
   @tag spec: "mutagen.git_diff.r9"
   test "preserves deletion anchors at BOF, EOF and an emptied file", %{tmp_dir: repo} do
     init!(repo)

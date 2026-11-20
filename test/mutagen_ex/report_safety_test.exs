@@ -200,7 +200,7 @@ defmodule MutagenEx.ReportSafetyTest do
              "https://[REDACTED]@db/path?sig=[REDACTED]&ok=1"
   end
 
-  @tag spec: "mutagen.json_schema.r17"
+  @tag spec: ["mutagen.json_schema.r17", "mutagen.json_schema.r32"]
   @tag timeout: to_timeout(minute: 1)
   test "redaction handles a megabyte of adversarial text without stalling" do
     for line <- [
@@ -210,8 +210,13 @@ defmodule MutagenEx.ReportSafetyTest do
           "password: \"" <> String.duplicate("a\\", 524_288),
           String.duplicate("a_", 524_288) <> "token=fixture"
         ] do
-      {microseconds, cleaned} = :timer.tc(fn -> Sanitizer.clean(line, patterns: []) end)
-      assert microseconds < to_timeout(second: 8) * 1_000
+      control = binary_part(line, 0, 32 * 1024)
+      sample = fn input -> :timer.tc(fn -> Sanitizer.clean(input, patterns: []) end) end
+      sample.(control)
+      {before, _} = sample.(control)
+      {elapsed, cleaned} = sample.(line)
+      {after_, _} = sample.(control)
+      assert elapsed < 8 * max(before, after_)
       assert byte_size(cleaned) <= 4136
     end
   end

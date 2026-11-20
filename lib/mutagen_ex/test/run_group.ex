@@ -5,6 +5,53 @@ defmodule MutagenEx.Test.RunGroup do
     spawn_link(fn -> forward_io(destination, MapSet.new()) end)
   end
 
+  def with_deadline(timeout, fun) do
+    caller = self()
+    ref = make_ref()
+    host = snapshot()
+    group = start(Process.group_leader())
+
+    {worker, monitor} =
+      spawn_monitor(fn ->
+        receive do
+          ^ref ->
+            Process.group_leader(self(), group)
+            send(caller, {ref, fun.()})
+        end
+      end)
+
+    tracker = track(group, worker)
+    send(worker, ref)
+
+    try do
+      receive do
+        {^ref, result} ->
+          Process.demonitor(monitor, [:flush])
+          {:ok, result}
+
+        {:DOWN, ^monitor, :process, ^worker, reason} ->
+          {:exit, reason}
+      after
+        timeout ->
+          Process.exit(worker, :kill)
+
+          receive do
+            {:DOWN, ^monitor, :process, ^worker, _} -> :ok
+          end
+
+          receive do
+            {^ref, _} -> :ok
+          after
+            0 -> :ok
+          end
+
+          :timeout
+      end
+    after
+      stop(group, :reap, host.processes, tracker)
+    end
+  end
+
   # Spawn tracing retains ancestry even when a test or module worker has
   # already exited by the time we enumerate the remaining group members.
   def track(group, runner) do

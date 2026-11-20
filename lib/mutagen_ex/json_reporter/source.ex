@@ -116,6 +116,18 @@ defmodule MutagenEx.JsonReporter.Source do
 
   def located_span(nil, _path), do: nil
 
+  def line_range({ast, _ranges}, path) do
+    with node when not is_nil(node) <- at_path(ast, path),
+         {first, _} <- start_position(node),
+         {last, _} <- last_token(node) do
+      {first, last}
+    else
+      _ -> nil
+    end
+  end
+
+  def line_range(nil, _path), do: nil
+
   defp at_path(node, []), do: node
 
   defp at_path({:__block__, meta, [literal]}, path) do

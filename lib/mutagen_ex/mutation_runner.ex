@@ -225,7 +225,7 @@ defmodule MutagenEx.MutationRunner do
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
-         :ok <- ensure_no_self_mutation(cfg) do
+         :ok <- check_scope(cfg.scope_records) do
       run_with_exunit(cfg)
     end
   end
@@ -251,9 +251,10 @@ defmodule MutagenEx.MutationRunner do
   # r3: self-mutation refusal
   # ---------------------------------------------------------------------------
 
-  defp ensure_no_self_mutation(cfg) do
+  @doc false
+  def check_scope(scopes) do
     offenders =
-      cfg.scope_records
+      scopes
       |> Enum.map(& &1.module)
       |> Enum.filter(&self_mutation?/1)
 
