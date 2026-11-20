@@ -230,7 +230,17 @@ decisions:
   statement: |
     Automatic escalation tries unresolved runtime sites even if the
     narrow selection is empty. A site is uncovered if no accepted test
-    pass executes its line.
+    pass covers it under the clause rule in mutagen.coverage.r14.
+
+- id: mutagen.coverage.r14
+  priority: must
+  statement: |
+    In classic and changed-code runs, an instrumented site line with
+    zero calls stays uncovered. If the site's line has no coverage
+    entry, any hit within the site's source span covers the site.
+    If the entire span has no coverage entry, any hit in the same
+    clause body covers the site. Both coverage and zero-call entries
+    are retained through automatic escalation.
 
 ```
 
@@ -378,4 +388,8 @@ decisions:
     - mutagen.coverage.r9
     - mutagen.coverage.r10
     - mutagen.coverage.r11
+- kind: tagged_tests
+  target: test/integration/changed_run_test.exs
+  covers:
+    - mutagen.coverage.r14
 ```

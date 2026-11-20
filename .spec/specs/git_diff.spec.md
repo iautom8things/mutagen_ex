@@ -47,20 +47,10 @@ decisions:
     pure renames. Whitespace and non-ASCII bytes in Git paths are preserved.
     Absolute paths and paths with a parent traversal segment are rejected.
     Roots and base-file paths are relative to the resolved working directory.
-    The reader requires a Git working tree outside a submodule. A Git
-    directory below another Git directory's modules directory also
-    identifies a submodule, as does a gitlink in an enclosing checkout that
-    matches the checkout path after case folding and NFC normalization. A
-    project directory reached through a symlink inside the checkout is
-    rejected with a distinct cause. In a nested project, so is a tracked
-    symlink that resolves to the project directory or one of its ancestors
-    within the checkout. Each component of a configured diff root must be a
-    real directory without a .git entry. Invalid components report their
-    path and type. An unchanged symlinked root and a directory replaced
-    during the diff have distinct causes. The recheck after the diff covers
-    the root components and every directory of each in-scope changed path.
-    A directory that keeps its type and identity while its entries or times
-    change retries the whole read once. A change during the retry aborts.
+    The reader requires a Git working tree. Each configured root must be
+    a directory inside the checkout with no symlink components. A bad
+    root reports its path and type. The reader validates changed files
+    before opening them.
     Matching normalizes tracked paths and roots to NFC. It also folds case
     when core.ignorecase is true or when the checkout's .git entry and its
     uppercase spelling name the same file. Results retain the tracked
@@ -125,9 +115,7 @@ decisions:
   statement: |
     Git enforces ownership checks using the standard global safe.directory
     configuration. Dubious ownership has a distinct cause and a hint with the
-    resolved checkout and the command to authorize it explicitly. Dubious
-    ownership of an enclosing checkout also fails the read, and its hint
-    names that checkout.
+    resolved checkout and the command to authorize it explicitly.
     Every Git call has a configurable deadline, defaulting to 30 seconds.
     A timeout attempts to terminate the Git process group and returns :timeout
     as its cause even if the signal cannot be sent. In that case the details
@@ -144,8 +132,7 @@ decisions:
     working file's line count. Anchor-only files suppress empty_diff.
     The :file_kind option selects either .ex source or *_test.exs files
     under the same Git read safeguards. With allow_missing_roots, a missing
-    root is snapshotted as absent and a root that appears during the read
-    fails the snapshot recheck. An empty roots list selects no paths.
+    root contributes no files. An empty roots list selects no paths.
 
 - id: mutagen.git_diff.r10
   priority: must
@@ -185,7 +172,7 @@ decisions:
     - mutagen.git_diff.r7
     - mutagen.git_diff.r8
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.git_diff.r11
 ```

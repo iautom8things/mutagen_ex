@@ -1,8 +1,20 @@
 defmodule MutagenEx.SelectedRun do
   @moduledoc false
 
-  alias MutagenEx.{AutoTests, MutationEnumerator, TestModuleDiscovery}
+  alias MutagenEx.{
+    AutoTests,
+    ChangedScope,
+    Config,
+    CoverageRunner,
+    MutationEnumerator,
+    TestModuleDiscovery
+  }
+
   alias MutagenEx.Test.ExUnitServer
+
+  @candidate_errors ~w(baseline_red baseline_timeout ex_unit_run_failed no_tests_run test_file_load_failed)a
+  @coverage_errors ~w(coverage_timeout no_tests_run ex_unit_run_failed test_file_load_failed
+                      cover_already_running cover_compile_failed cover_module_unavailable module_beam_missing)a
 
   def run(plan, report, config, filter, test_paths, phases) do
     state = %{
@@ -10,23 +22,28 @@ defmodule MutagenEx.SelectedRun do
       filter: filter,
       selection: plan.selection,
       tried: MapSet.new(filter.files),
+      files: filter.files,
+      no_tests: nil,
+      stopped: nil,
       rejected: %{},
       loads: %{},
+      candidate_ms: %{},
+      escalation_deadline: nil,
       dropped_files: MapSet.new(),
-      coverage: %{},
+      coverage: %{covered_lines: %{}, coverable_lines: %{}},
       results: %{},
       compile_errors: %{},
       dropped: [],
       drift: %{},
       escalation: [],
       mutation_ms: 0,
+      accounting_mismatch: false,
       truncated: false,
       tainted: false
     }
 
-    with {:ok, narrow} <- narrow(plan, config, state, phases) do
-      state = escalate_or_keep(plan, config, narrow, test_paths, phases)
-
+    with {:ok, narrow} <- narrow(plan, config, state, phases),
+         {:ok, state} <- run_escalation(plan, config, narrow, test_paths, phases) do
       state =
         state
         |> put_in([:report, Access.key!(:meta), :timings_ms], %{
@@ -39,39 +56,36 @@ defmodule MutagenEx.SelectedRun do
     end
   end
 
-  defp escalate_or_keep(plan, config, narrow, paths, phases) do
-    case escalate(plan, config, narrow, paths, phases) do
-      {:ok, state} -> state
-      _abort -> warn(narrow, "escalation_failed")
-    end
+  defp run_escalation(plan, config, state, paths, phases) do
+    escalate(plan, config, state, paths, phases)
   rescue
-    _ -> warn(narrow, "escalation_failed")
-  catch
-    _, _ -> warn(narrow, "escalation_failed")
+    exception ->
+      {:abort, state.report, config, :escalation_crashed,
+       %{step: :escalation, exception: inspect(exception.__struct__)}}
   end
 
   defp narrow(%{sites: []}, _config, state, _phases), do: {:ok, state}
 
   defp narrow(_plan, _config, %{filter: %{files: []}} = state, _phases) do
-    {:ok, warn(state, "no_tests_run")}
+    {:ok, %{state | no_tests: "no_tests_run"}}
   end
 
-  defp narrow(plan, config, state, phases) do
-    case phases.coverage.(state.filter, nil, state.report) do
+  defp narrow(plan, config, state, {mod, phases} = execution) do
+    case mod.coverage(phases, plan[:scopes], state.filter, nil, state.report) do
       {:ok, coverage, report} ->
-        state = %{state | report: report, coverage: coverage.covered_lines}
+        state = %{state | report: report, coverage: CoverageRunner.line_coverage(coverage)}
 
-        with {:ok, input} <- phases.test_input.(coverage, state.filter, report),
-             {:ok, _baseline, report} <- phases.baseline.(input, report) do
-          sites = Enum.filter(plan.sites, &covered?(&1, state.coverage))
-          mutate(:narrow, sites, config, %{state | report: report}, input, phases)
+        with {:ok, input} <- mod.test_input(phases, coverage, state.filter, report),
+             {:ok, _baseline, report} <- mod.baseline(phases, input, report) do
+          sites = Enum.filter(plan.sites, &MutationEnumerator.covered?(&1, state.coverage))
+          mutate(:narrow, plan, sites, config, %{state | report: report}, input, execution)
         end
 
       {:abort, report, _, :no_tests_run, details} ->
         warning =
           "no_tests_run: coverage excluded #{details[:excluded] || 0}, skipped #{details[:skipped] || 0}"
 
-        {:ok, warn(%{state | report: report}, warning)}
+        {:ok, %{state | report: report, no_tests: warning}}
 
       abort ->
         abort
@@ -80,6 +94,14 @@ defmodule MutagenEx.SelectedRun do
 
   defp escalate(plan, %{tests: ["auto"], escalate: true} = config, state, test_paths, phases) do
     timeout = candidate_timeout(config, state.report.meta.timings_ms[:baseline] || 0)
+
+    state =
+      if config.escalate_budget_ms > 0,
+        do: %{
+          state
+          | escalation_deadline: System.monotonic_time(:millisecond) + config.escalate_budget_ms
+        },
+        else: state
 
     Enum.reduce_while([:module, :function], {:ok, state}, fn stage, {:ok, current} ->
       candidates = remaining_sites(plan, current)
@@ -90,6 +112,7 @@ defmodule MutagenEx.SelectedRun do
         case escalate_stage(stage, candidates, plan, config, current, test_paths, timeout, phases) do
           {:ok, next} -> {:cont, {:ok, next}}
           {:stop, next} -> {:halt, {:ok, next}}
+          {:abort, _, _, _, _} = abort -> {:halt, abort}
         end
       end
     end)
@@ -108,67 +131,114 @@ defmodule MutagenEx.SelectedRun do
 
     state = Enum.reduce(unreadable, state, &reject(&2, &1, :test_read_failed))
 
-    {admitted, state} = admit(files, timeout, state, phases)
+    with {:ok, admitted, state, probe_timeout} <- admit(files, timeout, state, phases),
+         {admitted, state} <- fit_budget(admitted, state, config, length(candidates)),
+         {:ok, state, added} <- run_stage(stage, admitted, plan, config, timeout, state, phases) do
+      step = %{
+        step: stage,
+        files_added: added,
+        capped: capped?,
+        survivors_in: survivors_in,
+        survivors_out: length(survivors(state)),
+        dropped_after_load: MapSet.size(state.dropped_files) - dropped_in,
+        candidate_deadline_ms: probe_timeout,
+        wall_ms: elapsed(started),
+        baseline:
+          if(added != [],
+            do: Map.take(state.report.baseline || %{}, [:passed, :failed, :failures])
+          ),
+        baseline_ms: if(added != [], do: state.report.meta.timings_ms.baseline),
+        mutant_deadline_ms: if(added != [], do: state.report.meta.timings_ms[:mutant_deadline])
+      }
 
-    {result, state, added} =
-      case run_stage(stage, admitted, plan, config, timeout, state, phases) do
-        {:ok, state, added} ->
-          {:ok, state, added}
-
-        {:abort, _, _, reason, _} ->
-          state = Enum.reduce(admitted, state, &reject_loaded(&2, &1, reason))
-          {:stop, warn(state, "escalation_failed"), []}
-      end
-
-    baseline =
-      if added != [], do: Map.take(state.report.baseline || %{}, [:passed, :failed, :failures])
-
-    step = %{
-      step: stage,
-      files_added: added,
-      capped: capped?,
-      survivors_in: survivors_in,
-      survivors_out: length(survivors(state)),
-      dropped_after_load: MapSet.size(state.dropped_files) - dropped_in,
-      candidate_deadline_ms: if(files != [], do: timeout),
-      wall_ms: elapsed(started),
-      baseline: baseline,
-      baseline_ms: if(added != [], do: state.report.meta.timings_ms.baseline),
-      mutant_deadline_ms: if(added != [], do: state.report.meta.timings_ms[:mutant_deadline])
-    }
-
-    {result, %{state | escalation: [step | state.escalation]}}
+      result = if state.stopped, do: :stop, else: :ok
+      {result, %{state | escalation: [step | state.escalation]}}
+    end
   end
 
   defp admit(candidates, timeout, state, phases) do
     state = %{state | tried: Enum.reduce(candidates, state.tried, &MapSet.put(&2, &1))}
 
-    {accepted, state} =
-      Enum.reduce(candidates, {[], state}, fn path, {accepted, state} ->
-        filter = %{state.filter | files: [path]}
-        input = %{test_filter: filter, escalation_timeout_ms: timeout}
+    Enum.reduce_while(candidates, {:ok, [], state, nil}, fn path, {:ok, accepted, state, limit} ->
+      case bounded_timeout(state, timeout) do
+        0 ->
+          {:cont, {:ok, accepted, reject(state, path, :escalation_budget_exhausted), limit}}
 
-        case probe_candidate(input, state, phases) do
-          {{:ok, _baseline, _report}, _attempted?, effects} ->
-            {[path | accepted], put_in(state.loads[path], effects)}
+        deadline ->
+          case admit_candidate(path, deadline, timeout, state, phases) do
+            {:ok, state} -> {:cont, {:ok, [path | accepted], state, limit || deadline}}
+            {:rejected, state} -> {:cont, {:ok, accepted, state, limit || deadline}}
+            abort -> {:halt, abort}
+          end
+      end
+    end)
+    |> case do
+      {:ok, accepted, state, limit} -> {:ok, Enum.reverse(accepted), state, limit}
+      abort -> abort
+    end
+  end
 
-          {{:abort, _report, _, reason, _details}, attempted?, _effects} ->
-            if reason == :test_file_load_failed, do: ExUnitServer.discard_pending_modules()
+  defp admit_candidate(path, deadline, timeout, state, phases) do
+    filter = %{state.filter | files: [path]}
+    input = %{test_filter: filter, escalation_timeout_ms: deadline}
+    started = System.monotonic_time(:millisecond)
 
-            state =
-              if attempted?,
-                do: reject_loaded(state, path, reason),
-                else: reject(state, path, reason)
+    case probe_candidate(input, state, phases) do
+      {{:ok, _baseline, report}, _attempted?, effects} ->
+        duration = max(1, max(elapsed(started), report.meta.timings_ms[:baseline] || 0))
+        state = put_in(state.candidate_ms[path], duration)
+        {:ok, put_in(state.loads[path], effects)}
 
-            {accepted, state}
-        end
+      {{:abort, _report, _, reason, _details}, attempted?, _effects}
+      when reason in @candidate_errors ->
+        if reason == :test_file_load_failed, do: ExUnitServer.discard_pending_modules()
+
+        reason =
+          if reason == :baseline_timeout and deadline < timeout,
+            do: :escalation_budget_exhausted,
+            else: reason
+
+        state =
+          if attempted?, do: reject_loaded(state, path, reason), else: reject(state, path, reason)
+
+        {:rejected, state}
+
+      {{:abort, _, _, _, _} = abort, _attempted?, _effects} ->
+        abort
+    end
+  end
+
+  defp fit_budget(paths, %{escalation_deadline: nil} = state, _config, _site_count),
+    do: {paths, state}
+
+  defp fit_budget(paths, state, config, site_count) do
+    {accepted, state, _duration} =
+      Enum.reduce(paths, {[], state, 0}, fn path, {accepted, state, duration} ->
+        next_duration = duration + Map.fetch!(state.candidate_ms, path)
+        estimate = stage_cost(config, next_duration, 2, site_count)
+
+        if fits?(state, estimate),
+          do: {[path | accepted], state, next_duration},
+          else: {accepted, reject_loaded(state, path, :escalation_budget_exhausted), duration}
       end)
 
     {Enum.reverse(accepted), state}
   end
 
+  defp stage_cost(config, baseline_ms, suites, sites) do
+    (suites + sites - 1) * baseline_ms + Config.mutant_deadline(config, baseline_ms)
+  end
+
+  defp fits?(state, cost), do: bounded_timeout(state, cost) == cost
+
+  defp bounded_timeout(%{escalation_deadline: nil}, timeout), do: timeout
+
+  defp bounded_timeout(%{escalation_deadline: deadline}, timeout) do
+    min(timeout, max(0, deadline - System.monotonic_time(:millisecond)))
+  end
+
   # Capture load-time changes separately from changes made by test bodies.
-  defp probe_candidate(input, state, phases) do
+  defp probe_candidate(input, state, {mod, phases}) do
     before = environment()
     caller = self()
     ref = make_ref()
@@ -181,7 +251,7 @@ defmodule MutagenEx.SelectedRun do
     end
 
     try do
-      outcome = phases.baseline.(Map.put(input, :test_loader, loader), state.report)
+      outcome = mod.baseline(phases, Map.put(input, :test_loader, loader), state.report)
 
       attempted? =
         receive do
@@ -259,58 +329,97 @@ defmodule MutagenEx.SelectedRun do
       {:ok, input, report} ->
         run_green_stage(step, plan, config, state, input, report, phases)
 
-      {:abort, _, _, _, _} ->
-        {state, accepted} =
-          Enum.reduce(files, {state, nil}, fn path, {state, accepted} ->
-            prefix = if accepted, do: elem(accepted, 0).test_filter.files, else: []
+      {:abort, _, _, :escalation_budget_exhausted, _} ->
+        {:ok, skip_budget_files(state, files), []}
 
-            case combined_baseline(prefix ++ [path], config, timeout, state, phases) do
-              {:ok, input, report} ->
-                {state, {input, report}}
-
-              {:abort, _, _, :baseline_red, _} ->
-                {reject_loaded(state, path, :baseline_red_in_combination), accepted}
-
-              {:abort, _, _, reason, _} ->
-                {reject_loaded(state, path, reason), accepted}
-            end
-          end)
-
-        case accepted do
-          {input, report} -> run_green_stage(step, plan, config, state, input, report, phases)
-          nil -> {:ok, state, []}
+      {:abort, _, _, reason, _} when reason in @candidate_errors ->
+        with {:ok, state, accepted} <- admit_combined(files, config, timeout, state, phases) do
+          case accepted do
+            {input, report} -> run_green_stage(step, plan, config, state, input, report, phases)
+            nil -> {:ok, state, []}
+          end
         end
+
+      abort ->
+        abort
     end
   end
 
-  defp combined_baseline(files, config, timeout, state, phases) do
-    filter = %{state.filter | files: files}
-    modules = TestModuleDiscovery.discover(files)
-    input = %{test_filter: filter, test_modules: modules}
-    timeout = min(config.boot_timeout_ms, timeout * length(files))
+  defp admit_combined(files, config, timeout, state, phases) do
+    Enum.reduce_while(files, {:ok, state, nil}, fn path, {:ok, state, accepted} ->
+      prefix = if accepted, do: elem(accepted, 0).test_filter.files, else: []
 
-    with_file_env(state, files, fn ->
-      case phases.baseline.(Map.put(input, :escalation_timeout_ms, timeout), state.report) do
-        {:ok, _baseline, report} -> {:ok, input, report}
-        abort -> abort
+      case combined_baseline(prefix ++ [path], config, timeout, state, phases) do
+        {:ok, input, report} ->
+          {:cont, {:ok, state, {input, report}}}
+
+        {:abort, _, _, :escalation_budget_exhausted, _} ->
+          {:cont, {:ok, reject_loaded(state, path, :escalation_budget_exhausted), accepted}}
+
+        {:abort, _, _, :baseline_red, _} ->
+          {:cont, {:ok, reject_loaded(state, path, :baseline_red_in_combination), accepted}}
+
+        {:abort, _, _, reason, _} when reason in @candidate_errors ->
+          {:cont, {:ok, reject_loaded(state, path, reason), accepted}}
+
+        abort ->
+          {:halt, abort}
       end
     end)
   end
 
-  defp run_green_stage(step, plan, config, state, input, report, phases) do
-    with_file_env(state, input.test_filter.files, fn ->
-      run_green_files(step, plan, config, state, input, report, phases)
-    end)
+  defp combined_baseline(files, config, timeout, state, {mod, phases}) do
+    filter = %{state.filter | files: files}
+    modules = TestModuleDiscovery.discover(files)
+    input = %{test_filter: filter, test_modules: modules}
+    timeout = min(config.boot_timeout_ms, timeout * length(files))
+    estimate = Enum.sum_by(files, &Map.fetch!(state.candidate_ms, &1))
+    bounded = bounded_timeout(state, timeout)
+
+    if bounded > 0 and fits?(state, estimate) do
+      with_file_env(state, files, fn ->
+        case mod.baseline(phases, Map.put(input, :escalation_timeout_ms, bounded), state.report) do
+          {:ok, _baseline, report} ->
+            {:ok, input, report}
+
+          {:abort, partial, _, :baseline_timeout, details} when bounded < timeout ->
+            {:abort, partial, config, :escalation_budget_exhausted, details}
+
+          abort ->
+            abort
+        end
+      end)
+    else
+      {:abort, state.report, config, :escalation_budget_exhausted, %{}}
+    end
   end
 
-  defp run_green_files(step, plan, config, state, input, report, phases) do
-    %{test_filter: filter, test_modules: modules} = input
+  defp run_green_stage(step, plan, config, state, input, report, phases) do
+    files = input.test_filter.files
+    baseline_ms = max(1, report.meta.timings_ms[:baseline] || 0)
+    estimate = stage_cost(config, baseline_ms, 1, length(remaining_sites(plan, state)))
 
-    with {:ok, coverage, report} <- phases.coverage.(filter, modules, report) do
+    if fits?(state, estimate) do
+      with_file_env(state, files, fn ->
+        run_green_files(step, plan, config, state, input, report, phases)
+      end)
+    else
+      {:ok, skip_budget_files(state, files), []}
+    end
+  end
+
+  defp run_green_files(step, plan, config, state, input, report, {mod, phases} = execution) do
+    %{test_filter: filter, test_modules: modules} = input
+    coverage_phases = Map.put(phases, :escalation_deadline, state.escalation_deadline)
+
+    with {:ok, coverage, report} <-
+           mod.coverage(coverage_phases, plan[:scopes], filter, modules, report) do
+      coverage = CoverageRunner.line_coverage(coverage)
+
       sites =
         Enum.filter(remaining_sites(plan, state), fn site ->
           match?(%{status: :survived}, state.results[site.id]) or
-            covered?(site, coverage.covered_lines)
+            MutationEnumerator.covered?(site, coverage)
         end)
 
       why = if step == :module, do: :escalation_module, else: :escalation_function
@@ -320,14 +429,37 @@ defmodule MutagenEx.SelectedRun do
         state
         | report: report,
           selection: selection,
-          coverage:
-            Map.merge(state.coverage, coverage.covered_lines, fn _, a, b -> MapSet.union(a, b) end)
+          files: Enum.uniq(state.files ++ filter.files),
+          no_tests: nil,
+          coverage: CoverageRunner.merge_lines(state.coverage, coverage)
       }
 
-      with {:ok, state} <- mutate(step, sites, config, state, input, phases) do
+      with {:ok, state} <- mutate(step, plan, sites, config, state, input, execution) do
         {:ok, state, filter.files}
       end
+    else
+      {:abort, _, _, :coverage_timeout, _} when state.escalation_deadline != nil ->
+        if fits?(state, 1) do
+          stop_coverage(state, filter.files, :coverage_timeout)
+        else
+          {:ok, skip_budget_files(state, filter.files), []}
+        end
+
+      {:abort, _, _, reason, _} when reason in @coverage_errors ->
+        stop_coverage(state, filter.files, reason)
+
+      abort ->
+        abort
     end
+  end
+
+  defp stop_coverage(state, files, reason) do
+    state = Enum.reduce(files, state, &reject_loaded(&2, &1, reason))
+    {:ok, %{state | stopped: reason}, []}
+  end
+
+  defp skip_budget_files(state, files) do
+    Enum.reduce(files, state, &reject_loaded(&2, &1, :escalation_budget_exhausted))
   end
 
   defp reject_loaded(state, path, reason) do
@@ -338,21 +470,23 @@ defmodule MutagenEx.SelectedRun do
   defp reject(state, path, reason) do
     warning =
       case reason do
+        :escalation_budget_exhausted -> :escalation_budget_exhausted
         :baseline_red -> :escalation_baseline_red
         :baseline_red_in_combination -> :escalation_baseline_red_in_combination
         :baseline_timeout -> :escalation_baseline_timeout
         :test_file_load_failed -> :escalation_test_file_load_failed
         :test_read_failed -> :escalation_test_read_failed
         :no_tests_run -> :escalation_no_tests_run
-        _ -> :escalation_baseline_crashed
+        :ex_unit_run_failed -> :escalation_baseline_crashed
+        reason when reason in @coverage_errors -> :escalation_coverage_failed
       end
 
     update_in(state.rejected, &Map.update(&1, warning, [path], fn paths -> [path | paths] end))
   end
 
-  defp mutate(_step, [], _config, state, _input, _phases), do: {:ok, state}
+  defp mutate(_step, _plan, [], _config, state, _input, _phases), do: {:ok, state}
 
-  defp mutate(step, entries, config, state, input, phases) do
+  defp mutate(step, plan, entries, config, state, input, {mod, phases}) do
     sites = Enum.map(entries, &MutationEnumerator.to_site(Map.delete(&1, :in_scope)))
     budget = config.budget_ms && max(0, config.budget_ms - state.mutation_ms)
     started = System.monotonic_time(:millisecond)
@@ -360,11 +494,38 @@ defmodule MutagenEx.SelectedRun do
     if budget == 0 do
       {:ok, %{state | truncated: true}}
     else
-      input = Map.put(input, :tainted_predecessors, state.tainted)
+      input =
+        input
+        |> Map.put(:tainted_predecessors, state.tainted)
+        |> Map.put(:escalation_deadline_ms, state.escalation_deadline)
 
-      with {:ok, result, report} <- phases.mutation.(input, sites, budget, state.report) do
+      with {:ok, result, report} <- mod.mutation(phases, plan, input, sites, budget, state.report) do
         state = %{state | report: report, mutation_ms: state.mutation_ms + elapsed(started)}
-        {:ok, record_run(state, step, result)}
+        expected = MapSet.new(sites, & &1.id)
+        reported = result.results ++ result.compile_errors ++ Map.get(result, :dropped, [])
+
+        mismatch? =
+          reported
+          |> Enum.frequencies_by(& &1.id)
+          |> Enum.any?(fn {id, count} -> count != 1 or not MapSet.member?(expected, id) end)
+
+        state = %{state | accounting_mismatch: state.accounting_mismatch or mismatch?}
+        state = record_run(state, step, result)
+
+        state =
+          if state.escalation_deadline && length(reported) < length(sites) &&
+               not state.truncated &&
+               not fits?(state, report.meta.timings_ms[:mutant_deadline] || 1) do
+            Enum.reduce(
+              input.test_filter.files,
+              state,
+              &reject(&2, &1, :escalation_budget_exhausted)
+            )
+          else
+            state
+          end
+
+        {:ok, state}
       end
     end
   end
@@ -403,30 +564,50 @@ defmodule MutagenEx.SelectedRun do
     results = collect(plan.sites, state.results)
     compile_errors = collect(plan.sites, state.compile_errors)
 
+    evaluated = MapSet.new(results ++ compile_errors, & &1.id)
+    dropped = MapSet.new(state.dropped, & &1.id)
+
     partitions =
-      MutationEnumerator.partition_planned_runtime_sites(plan.sites, %{
+      MutationEnumerator.partition_planned_runtime_sites(Enum.uniq_by(plan.sites, & &1.id), %{
         results: results,
         compile_errors: compile_errors,
         skipped: []
       })
 
     pending =
-      Enum.map(partitions.uncovered_candidate, fn site ->
-        pending_site(site, if(covered?(site, state.coverage), do: :not_run, else: :uncovered))
-      end)
+      for site <- partitions.uncovered_candidate do
+        if MapSet.member?(dropped, site.id) or MutationEnumerator.covered?(site, state.coverage),
+          do: pending_site(site, :not_run),
+          else: pending_site(site, :uncovered)
+      end
 
-    not_run = Enum.map(partitions.not_run, &pending_site(&1, :not_run))
+    skipped = Map.get(plan, :skipped, [])
+    planned = Enum.map(plan.sites, & &1.id) ++ Enum.map(skipped, & &1.site_id)
+
+    accounted =
+      Enum.map(results ++ compile_errors ++ pending, & &1.id) ++ Enum.map(skipped, & &1.site_id)
+
+    mismatch? =
+      state.accounting_mismatch or
+        Enum.frequencies(planned) != Enum.frequencies(accounted) or
+        length(planned) != MapSet.size(MapSet.new(planned)) or
+        Enum.any?(pending, &(&1.reason not in [:uncovered, :not_run]))
 
     rejected =
       for {reason, paths} <- Enum.sort(state.rejected) do
         {:escalation_rejected, reason, Enum.reverse(paths)}
       end
 
+    red =
+      [:escalation_baseline_red, :escalation_baseline_red_in_combination]
+      |> Enum.flat_map(&Map.get(state.rejected, &1, []))
+
     report = %{
       state.report
-      | warnings: state.report.warnings ++ rejected,
+      | tests: add_test_files(state.report.tests, state.files),
+        warnings: state.report.warnings ++ List.wrap(state.no_tests) ++ rejected,
         coverage: %{
-          covered_lines: state.coverage,
+          covered_lines: state.coverage.covered_lines,
           suite_stats: get_in(state.report.coverage, [:suite_stats])
         },
         baseline: state.report.baseline || %{passed: 0, failed: 0, failures: []},
@@ -437,8 +618,10 @@ defmodule MutagenEx.SelectedRun do
       if plan[:meta] do
         incomplete = plan.incomplete ++ Enum.map(state.dropped, &Map.take(&1, [:reason, :path]))
 
+        uncovered = ChangedScope.uncovered_lines(plan, state.coverage, evaluated)
+
         report.meta
-        |> Map.put(:since, %{plan.meta | run: length(results) + length(compile_errors)})
+        |> Map.put(:since, %{plan.meta | run: MapSet.size(evaluated), uncovered: uncovered})
         |> Map.put(:incomplete_reasons, Enum.uniq(incomplete))
       else
         report.meta
@@ -457,11 +640,32 @@ defmodule MutagenEx.SelectedRun do
       results: results,
       compile_errors: compile_errors,
       state_drift_warning: state.drift,
-      pending: pending ++ not_run
+      pending: pending
     }
+
+    meta = Map.put(meta, :red_functions, AutoTests.mentioned_functions(red, plan.sites))
+
+    meta =
+      if state.stopped do
+        reason = %{reason: :escalation_stopped, path: nil}
+        Map.update(meta, :incomplete_reasons, [reason], &(&1 ++ [reason]))
+      else
+        meta
+      end
+
+    meta =
+      if mismatch? do
+        reason = %{reason: :site_accounting_mismatch, path: nil}
+        Map.update(meta, :incomplete_reasons, [reason], &(&1 ++ [reason]))
+      else
+        meta
+      end
 
     {:ok, %{report | meta: meta}, outcome}
   end
+
+  defp add_test_files(nil, _files), do: nil
+  defp add_test_files(tests, files), do: %{tests | files: files}
 
   defp collect(entries, outcomes) do
     for entry <- entries, outcome = Map.get(outcomes, entry.id), outcome != nil do
@@ -488,7 +692,8 @@ defmodule MutagenEx.SelectedRun do
           status in [:survived, :uncovered]
 
         nil ->
-          not covered?(site, state.coverage) and not Map.has_key?(state.compile_errors, site.id) and
+          not MutationEnumerator.covered?(site, state.coverage) and
+            not Map.has_key?(state.compile_errors, site.id) and
             not MapSet.member?(terminal, site.id)
       end
     end)
@@ -496,13 +701,6 @@ defmodule MutagenEx.SelectedRun do
 
   defp survivors(state) do
     state.results |> Map.values() |> Enum.filter(&(&1.status == :survived))
-  end
-
-  defp covered?(%{file: file} = site, bitmap) do
-    case bitmap do
-      %{^file => lines} -> MapSet.member?(lines, site.line)
-      _ -> false
-    end
   end
 
   defp warn(state, warnings) do

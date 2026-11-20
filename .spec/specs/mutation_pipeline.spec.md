@@ -30,6 +30,7 @@ status: active
 summary: Baseline + per-mutation execution with timeout, restore, classification, and taint tracking.
 surface:
   - lib/mutagen_ex/selected_run.ex
+  - lib/mutagen_ex/pipeline/phases.ex
   - lib/mutagen_ex/baseline.ex
   - lib/mutagen_ex/beam_cache.ex
   - lib/mutagen_ex/mutation_runner.ex
@@ -472,10 +473,10 @@ decisions:
     When the resolved `max_concurrency == 1`, the runner is SILENT: no
     EXPERIMENTAL warning is written to stderr.
 
-    This is the gate half of the parallel-mode fork: the default
+    In parallel mode, the default
     remains the fully-serial, v1.0-equivalent `max_concurrency == 1`
     (r15), and `> 1` is offered as a warned, opt-in path rather than
-    blocked. The user-facing documentation mirrors the gate: `mix help
+    rejected. The user-facing documentation mirrors this behavior: `mix help
     mutagen` (the `Mix.Tasks.Mutagen` `@moduledoc` / `--max-concurrency`
     option text) and the README both mark `--max-concurrency > 1`
     EXPERIMENTAL with the same risk language. The real fix for the
@@ -487,16 +488,11 @@ decisions:
 - id: mutagen.mutation_pipeline.r19
   priority: must
   statement: |
-    The per-mutation timeout the pipeline enforces (r4's `Config.timeout_ms`)
-    has a default of `30_000` ms when `--timeout-ms` is not supplied. The
-    default is tuned for app-shaped (Phoenix/Ecto) projects, where a single
-    mutation cycle's setup plus supplemental tests can exceed five seconds
-    and would otherwise be spuriously classified `:timeout`. The
-    `Mix.Tasks.Mutagen` `@moduledoc` / `--timeout-ms` option text and the
-    README both state the `30_000` ms default and the app-shaped rationale.
-    The value is the CLI default only — it does not change the timeout
-    mechanism (r4) or any classification contract; callers still override it
-    per run via `--timeout-ms`.
+    The default per-mutant deadline is ten times the measured baseline
+    duration with a five-second floor and no ceiling. An explicit
+    `--timeout-ms` sets the deadline. A deadline below the measured
+    baseline adds the fixed `mutant_deadline_below_baseline` warning.
+    Help and README state the default and override.
 
 - id: mutagen.mutation_pipeline.r20
   priority: must
@@ -612,7 +608,11 @@ decisions:
     boot and coverage. A skipped Git path, failed source read or parse,
     or a site dropped by the runner makes the run incomplete. An uncovered
     site can supply an example mutation and a single-site rerun in the
-    advisory summary.
+    advisory summary. Each planned in-scope runtime site appears exactly
+    once in the final result, compile error, pending or skipped records.
+    Pending records carry a reason. Duplicate or unexpected runner IDs,
+    or any mismatch in the final accounting, make the report incomplete
+    with site_accounting_mismatch.
 
 - id: mutagen.mutation_pipeline.r29
   priority: must
@@ -627,7 +627,7 @@ decisions:
   priority: must
   statement: |
     Each mutation pass uses a deadline of ten times the measured baseline
-    duration with a five-second floor and the configured ceiling.
+    duration with a five-second floor.
     An explicit --timeout-ms overrides the calculation. A timeout with
     fail-fast on kills a mutant only when a failure was recorded before
     its effective deadline.
@@ -639,9 +639,11 @@ decisions:
     unloadable, crashed and timed-out candidates leave the run. If
     otherwise green files fail together, add them in ranked order while
     the combined baseline stays green. Replay accepted files' load-time environment
-    changes for the selected batch. If a step cannot
-    complete, retain the narrow results and warn. Explicit tests and mutation budget
-    truncation disable escalation. Taint carries into later passes.
+    changes for the selected batch. A known coverage failure during
+    escalation leaves earlier results intact and marks the run incomplete.
+    Unexpected exceptions abort with an escalation error. Explicit tests
+    and mutation budget truncation disable escalation. Taint carries
+    into later passes.
 
 - id: mutagen.mutation_pipeline.r32
   priority: must
@@ -669,6 +671,16 @@ decisions:
     with a thirty-second floor, capped by the configured host boot and
     mutant timeout ceilings. A combined baseline gets the single-candidate
     deadline per file, capped by the host boot timeout.
+
+- id: mutagen.mutation_pipeline.r36
+  priority: must
+  statement: |
+    Auto escalation shares a wall-clock budget across module and function
+    passes. Candidate probes use at most the remaining time. Before each
+    pass, measured candidate baselines estimate its combined baseline,
+    coverage and mutation cost. Files that cannot fit are omitted with
+    escalation_budget_exhausted. The pass starts only with files that fit.
+    A site only starts when its full mutant deadline fits.
 
 ```
 
@@ -991,7 +1003,7 @@ decisions:
     - mutagen.mutation_pipeline.r34
     - mutagen.mutation_pipeline.r35
 - kind: tagged_tests
-  target: test/integration/gate_wiring_test.exs
+  target: test/integration/changed_run_test.exs
   covers:
     - mutagen.mutation_pipeline.r32
     - mutagen.mutation_pipeline.r33

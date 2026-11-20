@@ -12,15 +12,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       inside-root check and writes a one-shot stderr warning naming the
       resolved path
 
-  These tests cannot use `File.cd!/2` because ExUnit's parallel test
-  loader reads `File.cwd!/0` to require_file other test modules — a
-  cd-during-test races with that. Instead the production code reads its
-  project root override from the calling process's dictionary
-  (`Process.put(:mutagen_json_path_project_root, ...)`), which is
-  test-process-local and safe.
-
-  The tests still run `async: true` because the process-dictionary
-  override is per-test-process.
+  The task receives an explicit project root so these tests can run
+  concurrently without changing the working directory.
   """
 
   use ExUnit.Case, async: true
@@ -41,9 +34,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       escape = Path.join(tmp, "escape.json")
       File.ln_s!("/etc/hosts", escape)
 
-      Process.put(:mutagen_json_path_project_root, tmp)
-
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       assert {:aborted, :unsafe_json_path, _report} =
                Mix.Tasks.Mutagen.run(
@@ -80,8 +71,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       escape_parent = Path.join(tmp, "data")
       File.ln_s!("/tmp", escape_parent)
 
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       assert {:aborted, :unsafe_json_path, _report} =
                Mix.Tasks.Mutagen.run(
@@ -118,8 +108,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
       link = Path.join(tmp, "inside.json")
       File.ln_s!(target, link)
 
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       Mix.Tasks.Mutagen.run(
         [
@@ -143,8 +132,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
     test "literal-safe path in a non-existent subdirectory passes (final tail is allowed to not exist)" do
       tmp = isolated_project_root()
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       Mix.Tasks.Mutagen.run(
         [
@@ -169,8 +157,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
     test "absolute path outside project root aborts" do
       tmp = isolated_project_root()
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       assert {:aborted, :unsafe_json_path, _report} =
                Mix.Tasks.Mutagen.run(
@@ -202,8 +189,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
     test "outside-root absolute path succeeds with the flag set" do
       tmp = isolated_project_root()
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       outside =
         Path.join(System.tmp_dir!(), "mutagen-ci-#{System.unique_integer([:positive])}.json")
@@ -239,8 +225,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
     test "without the flag, the same outside-root path is refused" do
       tmp = isolated_project_root()
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       outside =
         Path.join(System.tmp_dir!(), "mutagen-ci-#{System.unique_integer([:positive])}.json")
@@ -271,8 +256,7 @@ defmodule MutagenEx.JsonCanonicalisationTest do
   describe "phase_json_path — no --json flag (control)" do
     test "no canonicalisation phase work happens when json_path is nil" do
       tmp = isolated_project_root()
-      Process.put(:mutagen_json_path_project_root, tmp)
-      dispatch = capture_full_dispatch(scope: &fail_scope/2)
+      dispatch = capture_full_dispatch(project_root: tmp, scope: &fail_scope/2)
 
       Mix.Tasks.Mutagen.run(
         ["--scope", "lib/foo.ex", "--tests", "test/foo_test.exs"],
@@ -319,7 +303,8 @@ defmodule MutagenEx.JsonCanonicalisationTest do
 
     %{
       scope: PhaseStubs.Scope,
-      io: PhaseStubs.Io
+      io: PhaseStubs.Io,
+      project_root: Keyword.fetch!(overrides, :project_root)
     }
   end
 
