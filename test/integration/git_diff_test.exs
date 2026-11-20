@@ -1116,6 +1116,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       root = Path.join(repo, "lib")
 
       for touches <- [1, 2] do
+        File.touch!(root, {{2000, 1, 1}, {0, 0, 0}})
         counter = :atomics.new(1, [])
 
         cmd =
