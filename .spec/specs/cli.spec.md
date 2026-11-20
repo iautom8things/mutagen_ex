@@ -2,7 +2,7 @@
 
 The user-facing surface of `mutagen_ex`. `mix mutagen` is the only entry point:
 it parses flags, validates them, hands off to the orchestration pipeline, and
-emits a single JSON document to stdout (or to `--json <path>` if requested).
+writes the report to the requested `--json` file or stdout.
 
 ## Intent
 
@@ -37,6 +37,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
+  - mutagen.decision.json_report_channel
   - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
@@ -74,7 +75,7 @@ decisions:
   priority: must
   statement: |
     `--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.
-    The default ceiling is 30000. Non-positive or non-integer values cause an error-JSON
+    Non-positive or non-integer values cause an error-JSON
     exit before any pipeline phase runs.
 
 - id: mutagen.cli.r4
@@ -89,16 +90,17 @@ decisions:
 - id: mutagen.cli.r5
   priority: must
   statement: |
-    `--json <path>` writes the final JSON document to `<path>` instead of
-    stdout. If the flag is absent, the document is written to stdout. In
-    either case the document is terminated by a single newline. When the
-    file cannot be written safely, the document goes to stdout instead
-    (r23).
+    `--json PATH` is the guaranteed report channel. The file contains exactly
+    one JSON document, or NDJSON with `--stream`, regardless of host output.
 
-    While `Mix.Tasks.Mutagen.run/1` executes, Mix tasks, host code, test
-    helpers, ExUnit formatters, and the default `:logger` console handler
-    write to stderr. Stdout carries only the final document and, with
-    `--stream` and no `--json`, the NDJSON lines before it.
+    Without `--json`, Mutagen writes the report to stdout and routes the
+    `:user` device and known console logger handlers to stderr. The VM can
+    write directly to file descriptor 1, including when an OTP logger
+    handler crashes. In-process I/O routing cannot intercept those writes.
+    Use `--json PATH` and `--summary PATH` in CI.
+
+    The aggregate document ends with a single newline. A failed file
+    write warns on stderr and falls back to stdout (r23).
 
 - id: mutagen.cli.r6
   priority: must
@@ -136,7 +138,7 @@ decisions:
     equivalent mutants, mix-format ID stability under scheme 2,
     no `--no-json` in v1, `--seed` controls ExUnit ordering, scope colon
     syntax dropped, self-mutation refused, the `--json` path-safety
-    contract (r10), and the `tag:NAME` charset gate (r11).
+    contract (r10), and the `tag:NAME` character check (r11).
 
 - id: mutagen.cli.r10
   priority: must
@@ -176,9 +178,9 @@ decisions:
     before any test selector resolution runs. This is the front-door bound
     for the atom-table-DOS risk (mutagen-wrd.20): even with a downstream
     string-comparison fallback in `mutagen.test_selection` (r7), the
-    charset gate keeps adversarial CI loops (`mix mutagen --tests
+    character check keeps adversarial CI loops (`mix mutagen --tests
     tag:$(uuidgen)`) from reaching the resolver at all. Non-`tag:` `--tests`
-    targets (file paths, `file:line`) are not gated by this rule — they
+    targets (file paths, `file:line`) are outside this rule — they
     don't feed atom resolution.
 
 - id: mutagen.cli.r12
@@ -192,7 +194,7 @@ decisions:
          error-JSON `details` map carries `flag: "--scope"`, `kind:
          :scope`, `cap: 100`, and `count: <n>`. The cap is structural
          — enforced before any scope resolution. The `tag:NAME` charset
-         gate (r11) runs before this cap, so invalid tag names are
+         check (r11) runs before this cap, so invalid tag names are
          rejected at parse time regardless of count.
       2. `--tests` accepts at most 100 occurrences with the same shape
          (`flag: "--tests"`, `kind: :tests`).
@@ -343,7 +345,7 @@ decisions:
     destination of r5 and r19, and the task exits non-zero per r6. It
     MUST NOT raise a `MatchError` or put a traceback in the document.
 
-    The repair branch is gated by the failure-tuple shape from
+    The repair branch depends on the failure-tuple shape from
     `Application.ensure_all_started/1`. It runs zero code on the
     `path:` / `hex` / `git` dep adoption paths covered by r14, because
     those paths return `{:ok, _apps}` from the first attempt and never
@@ -597,6 +599,8 @@ decisions:
     project boundary as --json. The summary must have its own file.
     A summary path or write failure emits an abort document and exits 2.
     --summary-max accepts a non-negative integer and defaults to five.
+    Mix help and the README flag entry state that summary paths stay within
+    the project root unless --unsafe-json-outside-project is set.
 
 - id: mutagen.cli.r36
   priority: must
@@ -605,6 +609,13 @@ decisions:
     reference. An unknown site produces an abort document. The generated
     command reruns the site with automatic discovery and a larger search
     allowance. With --since it retains the original merge base.
+
+- id: mutagen.cli.r37
+  priority: must
+  statement: |
+    --escalate-budget-ms sets the total time limit for automatic escalation.
+    It accepts non-negative milliseconds, defaults to 120000, and removes
+    the time limit when set to zero.
 ```
 
 ```spec-scenarios

@@ -46,7 +46,7 @@ defmodule MutagenEx.ReportProvenanceTest do
   end
 
   @tag spec: ["mutagen.json_schema.r22", "mutagen.mutation_pipeline.r7"]
-  test "state leak warnings keep deltas and gate names on host output" do
+  test "state leak warnings keep deltas and show host names only with host output enabled" do
     names = [
       processes: %{@canary => 1},
       ets: %{@canary => 2, :another => 3},
@@ -194,7 +194,7 @@ defmodule MutagenEx.ReportProvenanceTest do
     assert get_in(wire, ["tests", "files"]) == [path]
     assert wire["warnings"] == ["escalation_baseline_red: #{path}"]
 
-    assert [%{"files" => [^path], "reason" => "escalation_baseline_red"}] =
+    assert [%{"files" => [^path], "kind" => "baseline_red_files", "reason" => "baseline_red"}] =
              wire["summary"]["notes"]
 
     hidden = abort(%{report | include_host_output: true, source: false})
@@ -202,9 +202,9 @@ defmodule MutagenEx.ReportProvenanceTest do
 
     assert [
              %{
-               "kind" => "escalation_dropped",
+               "kind" => "baseline_red_files",
                "count" => 1,
-               "reason" => "escalation_baseline_red"
+               "reason" => "baseline_red"
              }
            ] = hidden["summary"]["notes"]
 
@@ -257,7 +257,7 @@ defmodule MutagenEx.ReportProvenanceTest do
         },
         incomplete_reasons: [%{reason: :symlink, path: file}],
         tests_selected: [%{path: file, why: :convention}],
-        escalation: [%{step: :module, files_added: [file]}],
+        escalation: [%{step: :module, files_added: [file], wall_ms: 6}],
         timings_ms: %{
           boot: 1,
           coverage: 2,

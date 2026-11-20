@@ -1,4 +1,4 @@
-**Mutagen found changes worth a look.** 2 mutants run · 1 killed · 1 survived · 0 unevaluated · kill rate 50.0%
+**Mutagen found changes worth a look.** 2 mutants run · 1 killed · 1 survived · 0 unevaluated · kill rate 50.0% (1/2 evaluated)
 
 ### Worth a look
 

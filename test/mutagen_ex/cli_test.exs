@@ -54,12 +54,38 @@ defmodule MutagenEx.CLITest do
     assert {:error, :invalid_input, _} = CLI.parse(~w(--since main --escalate-max-files -1))
   end
 
+  @tag spec: "mutagen.cli.r37"
+  test "escalation budget defaults to two minutes and accepts zero or a positive limit" do
+    assert {:ok, %{escalate_budget_ms: 120_000}} = CLI.parse(~w(--since HEAD))
+    assert {:ok, %{escalate_budget_ms: 0}} = CLI.parse(~w(--since HEAD --escalate-budget-ms 0))
+
+    assert {:ok, %{escalate_budget_ms: 450}} =
+             CLI.parse(~w(--since HEAD --escalate-budget-ms 450))
+
+    for invalid <- ["-1", "soon"] do
+      assert {:error, :invalid_input, %{flag: "--escalate-budget-ms"}} =
+               CLI.parse(["--since", "HEAD", "--escalate-budget-ms", invalid])
+    end
+  end
+
+  @tag spec: "mutagen.cli.r35"
+  test "help and README flag entries describe the summary project boundary" do
+    assert {:docs_v1, _, _, _, %{"en" => help}, _, _} = Code.fetch_docs(Mix.Tasks.Mutagen)
+    readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+    assert help =~
+             ~r/--summary <path>`.*?within the project root unless `--unsafe-json-outside-project`/s
+
+    assert readme =~ ~r/\| `--summary <path>` \| [^
+]+within the project root unless `--unsafe-json-outside-project`/
+  end
+
   @tag spec: "mutagen.mutation_pipeline.r30"
   test "scales the deadline with measured baseline input and honors the explicit override" do
     assert {:ok, config} = CLI.parse(~w(--since HEAD))
     assert Config.mutant_deadline(config, 0) == 5_000
     assert Config.mutant_deadline(config, 1_200) == 12_000
-    assert Config.mutant_deadline(config, 10_000) == 30_000
+    assert Config.mutant_deadline(config, 57_000) == 570_000
 
     assert {:ok, overridden} = CLI.parse(~w(--since HEAD --timeout-ms 500))
     assert Config.mutant_deadline(overridden, 10_000) == 500
@@ -544,7 +570,7 @@ defmodule MutagenEx.CLITest do
     end
   end
 
-  describe "parse/1 — tag:NAME charset gate (mutagen.cli.r11, s11, s12)" do
+  describe "parse/1 — tag name character validation (mutagen.cli.r11, s11, s12)" do
     @describetag spec: "mutagen.cli.r11"
 
     @describetag :tag_charset
@@ -1068,7 +1094,7 @@ defmodule MutagenEx.CLITest do
         "ExUnit ordering",
         "colon syntax",
         "Self-mutation",
-        # mutagen.cli.r11 — tag:NAME charset gate
+        # mutagen.cli.r11 — tag name character validation
         "tag:NAME"
       ]
 

@@ -43,7 +43,7 @@ replaces whole-repository patch generation on case-insensitive checkouts.
 ## Consequences
 
 Unrelated patches stay outside the output, file, and working-file caps. A
-move into scope is an addition. The gate consumes the tracked spelling in
+move into scope is an addition. The planner uses the tracked spelling in
 each result key. It treats a skipped entry as an incomplete read and names
 the reason and path, because a committed symlink under a root is always
 listed. An enclosing checkout that Git refuses for ownership fails the read.
