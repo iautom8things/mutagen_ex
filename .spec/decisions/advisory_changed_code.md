@@ -45,3 +45,17 @@ shows survivors whose expression span intersects a changed line. Entries
 sort by path and line within each confidence group, with high confidence
 first. The remaining survivors stay in the JSON. Audit runs keep the
 provisional whole-file ordering.
+
+## Report the evidence available for each run
+
+An empty test selection has its own note and remedy. Preexisting source
+links leave evidence partial and let any finding lead. A single-site rerun
+limits the time it spends searching for additional tests using its narrow
+baseline and reports an unsuccessful search.
+
+## Provisional exception for pipeline survivors
+
+Keep pipeline survivors in the changed-code JSON and count them in the
+notes. Pipeline had the lowest share of real gaps on every judged set.
+On-line survivors from with_swap and guard_drop still qualify with a
+low-confidence label.

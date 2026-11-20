@@ -141,8 +141,9 @@ decisions:
     A --since auto run with runtime sites selects every new test file and
     every changed test file whose normalized AST differs from the merge
     base. Renamed files compare against their old path. A file with an
-    unavailable comparison stays eligible. Convention files can still
-    join by path. With no runnable runtime sites the run selects no tests
+    unavailable comparison stays eligible. Convention files join by path
+    only for source files with runnable runtime sites in the plan.
+    With no runnable runtime sites the run selects no tests
     and skips host setup.
 
 - id: mutagen.test_selection.r10

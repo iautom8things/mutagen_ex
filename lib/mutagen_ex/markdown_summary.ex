@@ -55,11 +55,11 @@ defmodule MutagenEx.MarkdownSummary do
     [
       Enum.map(red_notes(summary), &red_tests(&1["count"], &1["files"] || [])),
       headline(summary, meta["since"]),
+      no_test_selection(summary),
       section("Check first", summary["check_first"], &finding/1),
       section("Worth a look", summary["worth_a_look"], &mutant/1),
       omitted(summary["worth_a_look_omitted"], meta["since"]),
-      meaning_separator(summary),
-      "**What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.\n",
+      survivor_explanation(summary),
       if(notes == [], do: [], else: ["\n### Notes\n\n", notes])
     ]
   end
@@ -77,6 +77,13 @@ defmodule MutagenEx.MarkdownSummary do
 
   defp red_notes(summary),
     do: Enum.filter(summary["notes"], &(&1["kind"] == "baseline_red_files"))
+
+  defp no_test_selection(summary) do
+    if Enum.any?(summary["notes"], &(&1["kind"] == "no_test_files_selected")),
+      do:
+        "\nNo test file was selected for these changes. Pass `--tests PATH` or add `--escalate`.\n",
+      else: []
+  end
 
   defp red_tests(count, paths) do
     files = Enum.map_intersperse(paths, ", ", &inline/1)
@@ -128,7 +135,10 @@ defmodule MutagenEx.MarkdownSummary do
   defp checked_count(%{"status" => "partial"} = checked, since) do
     unchecked = checked["uncovered"] + checked["unevaluated"]
     sites = if since, do: "changed site", else: "site"
-    "#{unchecked} of #{quantity(checked["total"], sites)} could not be checked. "
+
+    if unchecked > 0,
+      do: "#{unchecked} of #{quantity(checked["total"], sites)} could not be checked. ",
+      else: []
   end
 
   defp checked_count(_checked, _since), do: []
@@ -195,7 +205,16 @@ defmodule MutagenEx.MarkdownSummary do
   defp location(%{"line" => line}), do: "Line #{line}."
 
   defp details(entry) do
-    [diff(entry), "  Rerun with ", inline(entry["rerun"]), ".\n"]
+    [
+      diff(entry),
+      if(entry["tainted_predecessors"],
+        do: "  This mutant ran after a state-leak warning. Rerun alone to confirm.\n",
+        else: []
+      ),
+      "  Rerun with ",
+      inline(entry["rerun"]),
+      ".\n"
+    ]
   end
 
   defp diff(%{"before_line" => before, "after_line" => after_source}),
@@ -224,8 +243,13 @@ defmodule MutagenEx.MarkdownSummary do
     ["\n#{quantity(count, unit)} in the JSON.\n"]
   end
 
-  defp meaning_separator(summary) do
-    if no_findings?(summary) and summary["worth_a_look_omitted"] == 0, do: [], else: "\n"
+  defp survivor_explanation(summary) do
+    if summary["worth_a_look"] != [] or
+         Enum.any?(summary["check_first"], &(&1["kind"] == "nothing_asserted")) do
+      "\n**What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.\n"
+    else
+      []
+    end
   end
 
   defp no_findings?(summary), do: summary["check_first"] == [] and summary["worth_a_look"] == []
@@ -263,7 +287,7 @@ defmodule MutagenEx.MarkdownSummary do
     ordinary_notes =
       Enum.reject(
         summary["notes"],
-        &(&1["kind"] in ~w(baseline_red_files mutation_budget_exhausted))
+        &(&1["kind"] in ~w(baseline_red_files mutation_budget_exhausted no_test_files_selected))
       )
 
     incomplete ++ changes ++ timeouts ++ Enum.map(ordinary_notes, &note/1) ++ source
@@ -308,13 +332,17 @@ defmodule MutagenEx.MarkdownSummary do
 
   defp note(%{"kind" => "execution_could_not_tell", "count" => count} = note) do
     names = Enum.map_intersperse(note["functions"] || [], ", ", &inline/1)
+    verb = if count == 1, do: "has", else: "have"
 
     [
-      "- Probe evidence was inconclusive for #{quantity(count, "function")}",
-      if(names == [], do: [], else: [" (", names, ")"]),
-      ".\n"
+      "- #{quantity(count, "function")} #{verb} sites the probe could not reach.",
+      if(names == [], do: [], else: [" These include ", names, "."]),
+      "\n"
     ]
   end
+
+  defp note(%{"kind" => "site_escalation_no_files"}),
+    do: "- Single-site escalation admitted no test files.\n"
 
   defp note(%{"kind" => "tainted_predecessors", "count" => count}),
     do: "- #{quantity(count, "result")} followed a timeout or host state change.\n"
@@ -328,6 +356,9 @@ defmodule MutagenEx.MarkdownSummary do
 
   defp note(%{"kind" => "low_confidence_survivors", "count" => count}),
     do: "- Only the JSON results list #{quantity(count, "low-confidence survivor")}.\n"
+
+  defp note(%{"kind" => "pipeline_survivors", "count" => count}),
+    do: "- The JSON lists #{quantity(count, "pipeline survivor")} on changed lines.\n"
 
   defp note(%{"kind" => "off_changed_line_survivors", "count" => 1}),
     do: "- 1 survivor in a changed function, away from the changed lines, is in the JSON.\n"

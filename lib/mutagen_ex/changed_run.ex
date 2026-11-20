@@ -102,8 +102,11 @@ defmodule MutagenEx.ChangedRun do
 
   defp auto_selection(%{sites: []}, _roots, _paths, _changed), do: []
 
-  defp auto_selection(plan, roots, paths, changed),
-    do: AutoTests.select(plan.scopes, roots, paths, changed)
+  defp auto_selection(plan, roots, paths, changed) do
+    files = MapSet.new(plan.sites, & &1.file)
+    scopes = Enum.filter(plan.scopes, &MapSet.member?(files, &1.file))
+    AutoTests.select(scopes, roots, paths, changed)
+  end
 
   defp site_scopes(%{scopes: [], site: site}, roots) when is_binary(site),
     do: Enum.flat_map(roots, &Path.wildcard(Path.join(&1, "**/*.ex")))
@@ -201,7 +204,13 @@ defmodule MutagenEx.ChangedRun do
   defp run_selected(plan, config, report, phases, state) do
     with {:ok, filter} <- selected_filter(plan, phases, report, state) do
       tests = filter |> Phases.report_tests() |> Map.put(:host_paths?, plan.selection != nil)
-      report = %{report | tests: tests}
+
+      report = %{
+        report
+        | tests: tests,
+          meta: Map.put(report.meta, :single_site, config.site != nil)
+      }
+
       paths = project_paths(state.test_paths)
 
       execution = %{phases | config: %{config | stream: false}, host: state}
