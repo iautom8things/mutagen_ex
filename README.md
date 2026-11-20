@@ -30,7 +30,7 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
 
 - **JSON output.** `mix mutagen` writes the aggregate document to stdout or
   `--json <path>`. Use `--stream` to receive per-site JSON lines before
-  the aggregate, or pipe the aggregate through `jq` to inspect it.
+  the aggregate. Read the `--json` file with `jq` to inspect it.
   [Output format decision](.spec/decisions/no_pretty_output_v1.md).
 
 - **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
@@ -279,10 +279,7 @@ Run `MIX_ENV=test mix mutagen` with either install method. This loads
 `config/test.exs` and compiles test support. Explicit environments such as
 `MIX_ENV=ci` are allowed when the host configures them for tests. A host
 can also set `def cli, do: [preferred_envs: [mutagen: :test]]` in `mix.exs`.
-Mix may print dependency discovery output before the task runs. Use
-`MIX_QUIET=1` for a dependency install when parsing stdout directly.
-The task routes the VM user device, the default console Logger handler,
-and ExUnit output to stderr.
+Mix may print dependency discovery output before the task runs.
 
 After compiling, the task loads runtime config and runs the host `test`
 alias entries before the `test` task. A Phoenix alias can create and migrate
@@ -325,11 +322,15 @@ exception type, file and line. Host diagnostics go to stderr. Do not
 publish stderr as a CI artifact. Abort documents repeat this warning in
 `details.note`.
 
-Use `--json PATH` in CI to keep the report in its own file. Once the task
-starts, Mutagen forwards only reports to stdout. The host VM writes its
-ordinary output to stderr, including OTP logger fallback messages and
-output during cleanup. The CLI starts this VM with a dedicated report
-pipe on POSIX systems. Mix can write to stdout before the task starts.
+`--json PATH` is the guaranteed report channel. The file contains exactly
+one JSON document, or NDJSON with `--stream`, regardless of host output.
+
+Without `--json`, Mutagen writes the report to stdout and routes the
+`:user` device and known console logger handlers to stderr. The VM can
+write directly to file descriptor 1, including when an OTP logger
+handler crashes. In-process I/O routing cannot intercept those writes.
+Use `--json PATH` and `--summary PATH` in CI.
+
 Mutagen writes the file with mode 0600. If it cannot safely write the
 file, it warns on stderr and falls back to stdout.
 
@@ -400,7 +401,7 @@ wider `--tests` selection before writing a test.
 ## Changed-code runs
 
 ```bash
-MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json
+MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json --summary out/mutagen.md
 ```
 
 Mutagen compares the working tree with the merge base of the ref and HEAD.
@@ -510,8 +511,10 @@ Run each source file in a directory and rank the reported modules by kill
 rate, with zero first and unevaluated runs last.
 
 ```sh
-find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \; > audit.ndjson
-jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+find lib/my_app -name '*.ex' | while IFS= read -r file; do
+  MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
+done
+find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
 ```
 
 ## Running in CI
@@ -522,8 +525,9 @@ diff needs the merge base. Use `fetch-depth: 0`. The unmapped list names
 changed lines Mutagen could not map to a runtime site, such as attributes
 and macros. A separate list shows changed lines outside an explicit
 `--scope`. The summary names changed lines that tests missed inside
-evaluated sites and reports partial coverage. Upload the JSON report
-and keep stderr out of artifacts.
+evaluated sites and reports partial coverage. Use `--json PATH` and
+`--summary PATH` in CI. Upload the JSON file and keep stderr out of
+artifacts.
 
 ```yaml
 name: Mutation advice
@@ -549,7 +553,7 @@ jobs:
           MUTAGEN_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           MIX_ENV="test" mix deps.get
-          MIX_ENV="test" mix mutagen --since "$MUTAGEN_BASE" --summary mutagen.md --json mutagen.json
+          MIX_ENV=test mix mutagen --since "$MUTAGEN_BASE" --json mutagen.json --summary mutagen.md
       - name: Add advice to the job summary
         if: always()
         run: |
@@ -832,7 +836,6 @@ An `after_suite` callback can therefore leave a completed report with
 | `no_tests_match` | A test selector matched no files. |
 | `no_tests_run` | ExUnit executed no tests in coverage or baseline. |
 | `parse_error` | Mutagen could not parse a source or test file. |
-| `report_stdout_unavailable` | The report device could not be opened. |
 | `runtime_load_failed` | The MutagenEx runtime or a report module could not load. |
 | `self_mutation_refused` | The scope targets MutagenEx code in the active VM. |
 | `site_not_found` | The site ID is absent from the current selection. |

@@ -27,17 +27,22 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Audit mode
 
-      MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json
+      MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json --summary billing.md
       jq '.summary.by_function[]' billing.json
-      find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \\; > audit.ndjson
-      jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+      find lib/my_app -name '*.ex' | while IFS= read -r file; do
+        MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
+      done
+      find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
 
   ## Running in CI
 
   Check out full history (`fetch-depth: 0`). A shallow checkout aborts.
-  Use the changed-code command above, append the Markdown to
-  `$GITHUB_STEP_SUMMARY` when present, and upload the JSON. Use
-  `continue-on-error: true` for aborts. See the README for a GitHub Actions
+  Set `MUTAGEN_BASE` to the pull request's base commit.
+
+      MIX_ENV=test mix mutagen --since "$MUTAGEN_BASE" --json mutagen.json --summary mutagen.md
+
+  Append the Markdown to `$GITHUB_STEP_SUMMARY` when present and upload
+  the JSON. Use `continue-on-error: true` for aborts. See the README for a GitHub Actions
   example. The unmapped list shows changed lines outside runtime mutation
   sites, including attributes and macros. Each run is advisory.
 
@@ -61,9 +66,16 @@ defmodule Mix.Tasks.Mutagen do
   contain secrets committed in the repository. Pattern redaction of opted-in
   host diagnostics is best-effort.
 
-  Use `--json PATH` to keep the CI report in its own file. During the task,
-  the host VM sends native output and OTP logger fallback messages to stderr.
-  Mix can write to stdout before the task starts. Do not publish stderr.
+  `--json PATH` is the guaranteed report channel. The file contains exactly
+  one JSON document, or NDJSON with `--stream`, regardless of host output.
+
+  Without `--json`, Mutagen writes the report to stdout and routes the
+  `:user` device and known console logger handlers to stderr. The VM can
+  write directly to file descriptor 1, including when an OTP logger
+  handler crashes. In-process I/O routing cannot intercept those writes.
+  Use `--json PATH` and `--summary PATH` in CI.
+
+  Mix can also write to stdout before the task starts. Do not publish stderr.
 
   ## Flags
 
@@ -286,7 +298,7 @@ defmodule Mix.Tasks.Mutagen do
   alias MutagenEx.{ChangedRun, CLI, JsonReporter, MutationRunner}
   alias MutagenEx.Config
   alias MutagenEx.Runtime
-  alias MutagenEx.Pipeline.{DefaultIo, Phases}
+  alias MutagenEx.Pipeline.Phases
   alias MutagenEx.JsonReporter.Report
 
   @typedoc """
@@ -368,22 +380,7 @@ defmodule Mix.Tasks.Mutagen do
   def run(argv) do
     Mix.Local.append_archives()
 
-    ebin = __MODULE__ |> :code.which() |> Path.dirname()
-
-    case DefaultIo.report_pipe(argv, ebin) do
-      {:ok, device} ->
-        run_pipeline(argv, default_dispatch(), {:host, preload_report_modules()}, device)
-
-      {:error, _reason} ->
-        dispatch = default_dispatch()
-        {report, config} = abort_report_options(argv, File.cwd!())
-
-        emit_result(
-          {:abort, report, config, :report_stdout_unavailable, %{}},
-          dispatch,
-          Process.group_leader()
-        )
-    end
+    run_pipeline(argv, default_dispatch(), {:host, preload_report_modules()})
   end
 
   @report_modules [
@@ -504,8 +501,9 @@ defmodule Mix.Tasks.Mutagen do
   # either returns `{:ok, update}` (continue) or
   # `{:error, phase, reason, details, partial_report}` (emit abort, halt).
   #
-  defp run_pipeline(argv, dispatch, mode \\ :prepared, stdout \\ Process.group_leader()) do
+  defp run_pipeline(argv, dispatch, mode \\ :prepared) do
     started_at = System.monotonic_time()
+    stdout = Process.group_leader()
 
     output = %{
       stdout: stdout,
@@ -526,7 +524,7 @@ defmodule Mix.Tasks.Mutagen do
         pipeline.()
 
       {:host, _preloaded} ->
-        DefaultIo.with_report_device(stdout, fn ->
+        MutagenEx.Pipeline.DefaultIo.with_report_device(fn ->
           Runtime.route_default_logger()
           previous = Process.put(MutagenEx.JsonReporter.Sanitizer, [])
 

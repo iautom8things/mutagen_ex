@@ -55,6 +55,7 @@ surface:
   - test/mutagen_ex/golden/mutation_with_skipped.json
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
+  - mutagen.decision.json_report_channel
   - mutagen.decision.escalation_outcomes
   - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
@@ -605,6 +606,18 @@ Top-level keys, all present in every variant unless noted:
     notes can vary between invocations and appear in both aggregate and
     stream summaries.
 
+- id: mutagen.json_schema.r39
+  priority: must
+  statement: |
+    `--json PATH` is the guaranteed report channel. The file contains exactly
+    one JSON document, or NDJSON with `--stream`, regardless of host output.
+
+    Without `--json`, Mutagen writes the report to stdout and routes the
+    `:user` device and known console logger handlers to stderr. The VM can
+    write directly to file descriptor 1, including when an OTP logger
+    handler crashes. In-process I/O routing cannot intercept those writes.
+    Use `--json PATH` and `--summary PATH` in CI.
+
 ```
 
 ```spec-scenarios
@@ -1027,7 +1040,6 @@ exception names. Pattern redaction is best-effort.
 | `no_tests_match` |
 | `no_tests_run` |
 | `parse_error` |
-| `report_stdout_unavailable` |
 | `runtime_load_failed` |
 | `self_mutation_refused` |
 | `site_not_found` |
