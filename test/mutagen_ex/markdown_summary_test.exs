@@ -64,12 +64,37 @@ defmodule MutagenEx.MarkdownSummaryTest do
   end
 
   @tag spec: "mutagen.json_schema.r37"
-  test "timeouts keep the verdict partial even when every completed mutant was killed" do
-    doc = report([site(2, :killed), site(3, :timeout)])
-    assert doc["summary"]["verdict"] == "partly_checked"
+  test "timeouts keep coverage partial even when every evaluated mutant was killed" do
+    doc = report([site(2, :killed), site(3, :timeout)], meta: since())
+    assert doc["summary"]["verdict"] == "nothing_to_check"
 
     text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+
+    assert text =~
+             "**Mutagen found nothing to check.** 1 of 2 changed sites could not be checked."
+
     assert text =~ "1 unevaluated · kill rate 100.0% (1/1 evaluated)"
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "counts a budget-skipped file only once across passes" do
+    one = "test/first_test.exs"
+    two = "test/second_test.exs"
+    reason = :escalation_budget_exhausted
+
+    warnings = [
+      {:escalation_rejected, reason, [one]},
+      {:escalation_rejected, reason, [one, two, one]}
+    ]
+
+    doc = report([], warnings: warnings)
+
+    assert [%{"kind" => "escalation_dropped", "count" => 2, "files" => [^one, ^two]}] =
+             doc["summary"]["notes"]
+
+    text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
+    assert text =~ "Skipped 2 test files during escalation"
+    assert length(Regex.scan(~r/first_test\.exs/, text)) == 1
   end
 
   @tag spec: "mutagen.json_schema.r37"

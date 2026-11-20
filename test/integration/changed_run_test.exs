@@ -277,7 +277,15 @@ defmodule MutagenEx.ChangedRunTest do
             {"cond_tuple/1", "result_tuple", "{:error, 0}", false},
             {"with_else/1", "result_tuple", "{:error, false}", false},
             {"with_else_taken/1", "result_tuple", "{:error, false}", true},
-            {"nested_branch/3", "result_tuple", "{:error, {false, 0}}", false}
+            {"nested_branch/3", "result_tuple", "{:error, {false, 0}}", false},
+            {"head_list_live/0", "literal", "true", true},
+            {"head_list_cold/0", "literal", "false", false},
+            {"head_map_live/0", "literal", "true", true},
+            {"head_map_cold/0", "literal", "false", false},
+            {"head_tuple_live/1", "result_tuple", "{:ok, value}", true},
+            {"head_tuple_cold/1", "result_tuple", "{:ok, value}", false},
+            {"head_pipe_live/1", "pipeline", "Enum.reverse()", true},
+            {"head_pipe_cold/1", "pipeline", "Enum.reverse()", false}
           ] do
         assert Enum.any?(results, fn row ->
                  row["function"] == "ChangedRunFixture.Example." <> name and
@@ -285,6 +293,79 @@ defmodule MutagenEx.ChangedRunTest do
                end) == covered?,
                inspect({name, mutator, excerpt, covered?})
       end
+    end
+  end
+
+  @tag spec: ["mutagen.coverage.r15", "mutagen.json_schema.r36"]
+  test "probes counterless expressions in both branches and leaves guard evidence inconclusive",
+       %{repo: repo} do
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
+
+    write(
+      repo,
+      @convention,
+      test_case("Probe", """
+      alias ChangedRunFixture.Example
+      test "calls live branch and rejects a guard" do
+        assert Example.branch(true) == {:ok, true}
+        assert Example.guarded(2) == :fallback
+      end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def branch(flag) do
+        if flag do
+          {:ok, true}
+        else
+          {:error, false}
+        end
+      end
+
+      def guarded(n) when n > 10 do
+        n * 2
+      end
+
+      def guarded(_), do: :fallback
+    end
+    """)
+
+    for args <- [["--since", base], ["--scope", @source]] do
+      report = run(repo, args ++ ["--tests", @convention, "--summary", "out/probe.md"])
+      assert report["meta"]["timings_ms"]["probe"] >= 0
+      results = report["mutation"]["results"]
+
+      assert Enum.any?(
+               results,
+               &(&1["before"] == "{:ok, true}" and &1["execution"] == "probe" and
+                   &1["status"] == "killed")
+             )
+
+      refute Enum.any?(results, &(&1["before"] == "{:error, false}"))
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "result_tuple" and &1["reason"] == "uncovered" and
+                   &1["execution"] == "probe")
+             )
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "compare" and &1["reason"] == "could_not_tell" and
+                   &1["probe_reason"] == "probe_unwrappable")
+             )
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "arith" and &1["reason"] == "uncovered" and
+                   &1["execution"] == "probe")
+             )
+
+      refute Enum.any?(report["summary"]["check_first"], &(&1["function"] =~ ".guarded/1"))
+      assert File.read!(Path.join(repo, "out/probe.md")) =~ "Probe evidence was inconclusive"
     end
   end
 
@@ -325,7 +406,8 @@ defmodule MutagenEx.ChangedRunTest do
     refute Enum.any?(report["mutation"]["results"], &(&1["before"] == "{:error, :zero}"))
     assert [%{"path" => @source, "ranges" => ranges}] = report["meta"]["since"]["uncovered"]
     assert [4, 4] in ranges
-    assert report["summary"]["verdict"] == "partly_checked"
+    assert report["summary"]["verdict"] == "worth_a_look"
+    assert report["summary"]["checked"]["status"] == "partial"
 
     assert File.read!(Path.join(repo, "summary.md")) =~
              "uncovered within tested sites"
@@ -435,7 +517,10 @@ defmodule MutagenEx.ChangedRunTest do
       refute row["function"] =~ "unchanged"
     end
 
-    assert Enum.all?(report["mutation"]["pending"], &(&1["reason"] == "uncovered"))
+    assert Enum.all?(
+             report["mutation"]["pending"],
+             &(&1["reason"] == "uncovered" and &1["execution"] == "probe")
+           )
 
     assert_summary(
       report,
@@ -478,7 +563,11 @@ defmodule MutagenEx.ChangedRunTest do
              File.cd!(repo, fn -> ChangedScope.plan(config, ["src"]) end)
   end
 
-  @tag spec: ["mutagen.scope_resolution.r11", "mutagen.mutation_pipeline.r28"]
+  @tag spec: [
+         "mutagen.scope_resolution.r11",
+         "mutagen.mutation_pipeline.r28",
+         "mutagen.test_selection.r9"
+       ]
   test "empty, formatting, comment, moved function and rename changes skip host boot", %{
     repo: repo
   } do
@@ -490,6 +579,15 @@ defmodule MutagenEx.ChangedRunTest do
     """
 
     write(repo, @source, original)
+
+    write(
+      repo,
+      @convention,
+      test_case("First", """
+      test "calls first", do: assert(ChangedRunFixture.Example.first(2) == 3)
+      """)
+    )
+
     base = commit(repo)
 
     assert_fast(run(repo, ["--since", base]), repo)
@@ -503,7 +601,10 @@ defmodule MutagenEx.ChangedRunTest do
           |> String.replace("  def first(x), do: x + 1", "  def first(x) do\n    x + 1\n  end")
         ] do
       write(repo, @source, changed)
-      assert_fast(run(repo, ["--since", base]), repo)
+      report = run(repo, ["--since", base])
+      assert report["tests"]["files"] == []
+      assert report["meta"]["tests_selected"] == []
+      assert_fast(report, repo)
     end
 
     write(repo, @source, original)
@@ -511,6 +612,59 @@ defmodule MutagenEx.ChangedRunTest do
     renamed = run(repo, ["--since", base])
     assert renamed["warnings"] == ["no_runtime_sites"]
     assert_fast(renamed, repo)
+  end
+
+  @tag spec: "mutagen.test_selection.r9"
+  test "changed tests join narrow before escalation even when they call through another module",
+       %{repo: repo} do
+    original = """
+    defmodule ChangedRunFixture.Example do
+      def value(x), do: x + 2
+    end
+    """
+
+    write(repo, @source, original)
+
+    write(repo, "src/entry.ex", """
+    defmodule ChangedRunFixture.Entry do
+      def value(x), do: ChangedRunFixture.Example.value(x)
+    end
+    """)
+
+    brace =
+      test_case("Brace", """
+      alias ChangedRunFixture.{Example, Entry}
+      test "calls the aliased modules", do: assert(Example.value(2) == Entry.value(2))
+      """)
+
+    indirect =
+      test_case("Indirect", """
+      test "calls through an entry point", do: assert(ChangedRunFixture.Entry.value(2) == 4)
+      """)
+
+    formatted =
+      test_case("Formatted", """
+      test "mentions ChangedRunFixture.Example", do: assert(true)
+      """)
+
+    write(repo, "checks/brace_test.exs", brace)
+    write(repo, "checks/indirect_test.exs", indirect)
+    write(repo, "checks/formatted_test.exs", formatted)
+    base = commit(repo)
+    write(repo, @source, String.replace(original, "x + 2", "x + 3"))
+    write(repo, "checks/brace_test.exs", String.replace(brace, "value(2)", "value(3)"))
+    write(repo, "checks/indirect_test.exs", String.replace(indirect, "== 4", "== 5"))
+    write(repo, "checks/formatted_test.exs", "# whitespace only\n" <> formatted)
+    write(repo, "checks/new_test.exs", test_case("New", ~s|test "new", do: assert(true)|))
+
+    report = run(repo, ["--since", base, "--no-escalate", "--summary", "out/selection.md"])
+    paths = ["checks/brace_test.exs", "checks/indirect_test.exs", "checks/new_test.exs"]
+    assert report["tests"]["files"] == paths
+
+    assert report["meta"]["tests_selected"] ==
+             Enum.map(paths, &%{"path" => &1, "why" => "changed_in_diff"})
+
+    assert report["mutation"]["killed"] == 1
   end
 
   @tag spec: ["mutagen.scope_resolution.r11", "mutagen.coverage.r12"]
@@ -531,7 +685,10 @@ defmodule MutagenEx.ChangedRunTest do
     report = run(repo, ["--since", base, "--no-escalate"])
     assert report["meta"]["since"]["changed_files"] == 1
 
-    assert [%{"function" => "ChangedRunFixture.Example.first/1", "reason" => "uncovered"} | _] =
+    assert [
+             %{"function" => "ChangedRunFixture.Example.first/1", "reason" => "could_not_tell"}
+             | _
+           ] =
              report["mutation"]["pending"]
 
     assert_fast(report, repo)
@@ -595,6 +752,7 @@ defmodule MutagenEx.ChangedRunTest do
     write(repo, @source, source(1))
     narrow_tests(repo)
     escalation_tests(repo)
+    write(repo, "checks/irrelevant_test.exs", "raise \"unexpected narrow selection\"\n")
     base = commit(repo)
     write(repo, @source, source(2))
 
@@ -672,11 +830,11 @@ defmodule MutagenEx.ChangedRunTest do
              &String.contains?(&1, "escalation_test_file_load_failed: checks/broken_test.exs")
            )
 
-    assert File.read!(Path.join(repo, "narrow-runs")) == String.duplicate("run\n", 5)
+    assert File.read!(Path.join(repo, "narrow-runs")) == String.duplicate("run\n", 6)
     assert File.read!(Path.join(repo, "module-loads")) == "once\n"
     assert File.read!(Path.join(repo, "function-loads")) == "once\n"
 
-    assert_summary(report, ["never_called"], [{"always_survives", "arith"}])
+    assert_summary(report, ["never_called"], [{"always_survives", "arith"}], "baseline_red")
 
     notes = report["summary"]["notes"]
     assert %{"kind" => "kills_after_dropped_file", "count" => 3} in notes
@@ -938,7 +1096,7 @@ defmodule MutagenEx.ChangedRunTest do
       "defmodule ChangedRunFixture.Example do\n  def value(x), do: x + 2\nend\n"
     )
 
-    report = run(repo, ["--since", base, "--timeout-ms", "1000"])
+    report = run(repo, ["--since", base, "--timeout-ms", "1000", "--summary", "out/combined.md"])
     assert report["baseline"]["passed"] == 0
 
     assert [
@@ -969,6 +1127,10 @@ defmodule MutagenEx.ChangedRunTest do
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_crashed:"))
     refute Enum.any?(report["warnings"], &String.starts_with?(&1, "no_tests_run"))
     assert report["tests"]["files"] == ["checks/b_green_test.exs", "checks/c_victim_test.exs"]
+    assert report["summary"]["verdict"] == "nothing_to_check"
+    markdown = File.read!(Path.join(repo, "out/combined.md"))
+    assert markdown =~ "tests failed when run together"
+    refute markdown =~ "Tests failed on the unmutated code"
   end
 
   @tag spec: ["mutagen.mutation_pipeline.r32", "mutagen.json_schema.r36"]
@@ -1382,6 +1544,12 @@ defmodule MutagenEx.ChangedRunTest do
 
     assert_fast(run(repo, ["--since", base]), repo)
 
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def value(x), do: x + 1
+    end
+    """)
+
     vendor = Path.join(repo, "checks/vendor")
     for n <- 1..2_001, do: File.write!(Path.join(vendor, "#{n}_test.exs"), "# a test")
 
@@ -1405,7 +1573,7 @@ defmodule MutagenEx.ChangedRunTest do
     assert hint =~ "Ignore the directory"
 
     write(repo, ".gitignore", "/_build/\n/deps/\n/checks/vendor/\n")
-    assert_fast(run(repo, ["--since", base]), repo)
+    assert_fast(run(repo, ["--since", base, "--no-escalate"]), repo)
   end
 
   defp statuses(report) do
@@ -1513,7 +1681,7 @@ defmodule MutagenEx.ChangedRunTest do
              Enum.take(events, -2)
 
     assert finish["summary"] == report["summary"]
-    assert report["summary"]["verdict"] == "partly_checked"
+    assert report["summary"]["verdict"] == "worth_a_look"
     assert [%{"path" => @source, "ranges" => [[5, 5]]}] = report["meta"]["since"]["uncovered"]
     assert report["meta"]["since"]["unmapped"] == []
 
@@ -1643,9 +1811,10 @@ defmodule MutagenEx.ChangedRunTest do
     end
   end
 
-  defp assert_summary(report, check_first, worth) do
+  defp assert_summary(report, check_first, worth, verdict \\ "check_first") do
     summary = report["summary"]
-    assert summary["verdict"] == "partly_checked"
+    assert summary["verdict"] == verdict
+    assert summary["checked"]["status"] == "partial"
 
     assert Enum.map(summary["check_first"], &{&1["kind"], &1["function"]}) ==
              Enum.map(check_first, &{"not_executed", "ChangedRunFixture.Example.#{&1}/1"})

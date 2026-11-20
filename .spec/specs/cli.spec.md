@@ -591,6 +591,8 @@ decisions:
     A changed-code run checks the Mix environment and refuses an umbrella
     root before reading Git or starting the host. A plan that names Mutagen
     modules refuses self mutation before coverage and baseline.
+    With no runnable runtime sites, it returns an empty test selection
+    without reading the test diff or starting the host.
 
 - id: mutagen.cli.r35
   priority: must

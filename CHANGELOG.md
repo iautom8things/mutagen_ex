@@ -22,7 +22,7 @@ file for traceability.
   from the report to rerun one mutation. Mutagen exits 0 for a report,
   including partial results, and 2 for an abort. An abort writes the
   reason and hint to both requested reports.
-- The default per-mutant deadline is five times the baseline duration with
+- The default per-mutant deadline is three times the baseline duration with
   a five-second floor. With a fast baseline, a
   mutant that sleeps for seven seconds now times out where it previously
   could survive. Use `--timeout-ms` to set a deadline explicitly. Mutagen
