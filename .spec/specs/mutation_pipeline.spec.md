@@ -617,8 +617,9 @@ decisions:
 - id: mutagen.mutation_pipeline.r29
   priority: must
   statement: |
-    Each auto escalation pass runs only survivors and newly covered sites
-    against the newly selected files. Each added file must pass an
+    With --escalate and automatic test selection, each escalation pass runs
+    only survivors and newly covered sites against the newly selected files.
+    Each added file must pass an
     unmutated baseline. Red or unloadable files
     are omitted with a fixed warning. Accepted test cases register for
     later runs without reloading their modules or restarting ExUnit.Server.

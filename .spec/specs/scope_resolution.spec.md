@@ -172,6 +172,15 @@ decisions:
     changed code without a runtime site, including attributes, macros,
     defguard declarations, struct fields and delegates.
 
+- id: mutagen.scope_resolution.r14
+  priority: must
+  statement: |
+    For changed-code summaries, the planner distinguishes runtime mutations
+    whose own expression span intersects a changed diff line from sites
+    included only by deletion anchors. A multiline expression can overlap
+    a changed line after its first line. The distinction also applies with
+    --no-source.
+
 ```
 
 ```spec-scenarios
@@ -329,4 +338,5 @@ decisions:
   target: test/integration/changed_run_test.exs
   covers:
     - mutagen.scope_resolution.r13
+    - mutagen.scope_resolution.r14
 ```

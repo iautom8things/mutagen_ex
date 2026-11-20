@@ -57,7 +57,7 @@ defmodule MutagenEx.MarkdownSummary do
       headline(summary, meta["since"]),
       section("Check first", summary["check_first"], &finding/1),
       section("Worth a look", summary["worth_a_look"], &mutant/1),
-      omitted(summary["worth_a_look_omitted"]),
+      omitted(summary["worth_a_look_omitted"], meta["since"]),
       meaning_separator(summary),
       "**What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.\n",
       if(notes == [], do: [], else: ["\n### Notes\n\n", notes])
@@ -107,7 +107,7 @@ defmodule MutagenEx.MarkdownSummary do
 
     [
       "**",
-      Map.fetch!(@headlines, summary["verdict"]),
+      headline_text(summary),
       ".** ",
       checked_count(summary["checked"], since),
       "#{quantity(counts["run"], "mutant")} run · #{counts["killed"]} killed · #{counts["survived"]} survived",
@@ -119,6 +119,11 @@ defmodule MutagenEx.MarkdownSummary do
       "\n"
     ]
   end
+
+  defp headline_text(%{"verdict" => "nothing_to_check", "checked" => %{"status" => "partial"}}),
+    do: "Mutagen found nothing in the sites it could check"
+
+  defp headline_text(%{"verdict" => verdict}), do: Map.fetch!(@headlines, verdict)
 
   defp checked_count(%{"status" => "partial"} = checked, since) do
     unchecked = checked["uncovered"] + checked["unevaluated"]
@@ -170,6 +175,7 @@ defmodule MutagenEx.MarkdownSummary do
   defp mutant(entry) do
     steps = entry["steps_run"]
     steps = if entry["escalation_incomplete"], do: steps ++ ["not fully escalated"], else: steps
+    steps = if entry["confidence"] == "low", do: ["low confidence" | steps], else: steps
 
     [
       "- ",
@@ -211,10 +217,12 @@ defmodule MutagenEx.MarkdownSummary do
     ]
   end
 
-  defp omitted(0), do: []
+  defp omitted(0, _since), do: []
 
-  defp omitted(count),
-    do: ["\n#{quantity(count, "additional high-confidence survivor")} in the JSON.\n"]
+  defp omitted(count, since) do
+    unit = if since, do: "additional survivor", else: "additional high-confidence survivor"
+    ["\n#{quantity(count, unit)} in the JSON.\n"]
+  end
 
   defp meaning_separator(summary) do
     if no_findings?(summary) and summary["worth_a_look_omitted"] == 0, do: [], else: "\n"
@@ -320,6 +328,13 @@ defmodule MutagenEx.MarkdownSummary do
 
   defp note(%{"kind" => "low_confidence_survivors", "count" => count}),
     do: "- Only the JSON results list #{quantity(count, "low-confidence survivor")}.\n"
+
+  defp note(%{"kind" => "off_changed_line_survivors", "count" => 1}),
+    do: "- 1 survivor in a changed function, away from the changed lines, is in the JSON.\n"
+
+  defp note(%{"kind" => "off_changed_line_survivors", "count" => count}),
+    do:
+      "- #{count} survivors in changed functions, away from the changed lines, are in the JSON.\n"
 
   defp path(nil), do: []
   defp path(file), do: [" in ", inline(file)]

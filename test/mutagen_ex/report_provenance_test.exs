@@ -267,6 +267,8 @@ defmodule MutagenEx.ReportProvenanceTest do
         escalation_incomplete_reason: :escalation_budget_exhausted
       })
 
+    low = %{survivor | id: "low-id", function: "Example.guard/1", mutator: :guard_drop}
+
     failures = [{ExampleTest, "test generated #{@canary}"}]
 
     report = %Report{
@@ -279,6 +281,7 @@ defmodule MutagenEx.ReportProvenanceTest do
           base: String.duplicate("b", 40),
           unmapped: [%{path: file, ranges: [[1, 1]], kind: :no_runtime_site}]
         },
+        changed_line_sites: MapSet.new([survivor.id, low.id]),
         incomplete_reasons: [%{reason: :symlink, path: file}],
         tests_selected: [%{path: file, why: :convention}],
         escalation: [%{step: :module, files_added: [file], wall_ms: 6}],
@@ -296,7 +299,7 @@ defmodule MutagenEx.ReportProvenanceTest do
       coverage: %{covered_lines: %{file => [1]}},
       baseline: %{passed: 0, failed: 1, failures: failures},
       mutation: %{
-        results: [site, survivor | weak],
+        results: [site, survivor, low | weak],
         pending: [pending, uncertain],
         compile_errors: [compile_error],
         skipped: [%{site_id: "id", file: file, reason: :validate_refused, mutator: :arith}],
