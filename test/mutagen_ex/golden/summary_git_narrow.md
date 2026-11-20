@@ -2,51 +2,51 @@
 
 ### Check first
 
-- `src/gate_fixture/example.ex:5` `GateFixture.Example.newly_covered/1`. Selected tests executed none of the in-scope sites (1 mutant, 0 survived, 0 executed).
+- `src/changed_run_fixture/example.ex:5` `ChangedRunFixture.Example.newly_covered/1`. Selected tests executed none of the in-scope sites (1 mutant, 0 survived, 0 executed).
 
   ```diff
   - x + 2
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/gate_fixture/example.ex:c7eaa19069074b1282d2d3d83a1e974d:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:8f7c759c724c3bf10264b21069e71f80:arith --tests auto --escalate-max-files 40 --since <BASE>`.
 
-- `src/gate_fixture/example.ex:6` `GateFixture.Example.never_called/1`. Selected tests executed none of the in-scope sites (1 mutant, 0 survived, 0 executed).
+- `src/changed_run_fixture/example.ex:6` `ChangedRunFixture.Example.never_called/1`. Selected tests executed none of the in-scope sites (1 mutant, 0 survived, 0 executed).
 
   ```diff
   - x + 2
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/gate_fixture/example.ex:dab159fa6e04209b0670e10554a66ea8:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:42835329c8a1a315d3879a23a7504b21:arith --tests auto --escalate-max-files 40 --since <BASE>`.
 
 ### Worth a look
 
-- `src/gate_fixture/example.ex:2` `GateFixture.Example.module_pick/1`. `arith` survived (narrow).
+- `src/changed_run_fixture/example.ex:2` `ChangedRunFixture.Example.module_pick/1`. `arith` survived (narrow).
 
   ```diff
   - x + 2
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/gate_fixture/example.ex:68473d13b48c0156cab8d1931ca78885:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:1a0e2c8663f33b65a0173e0f51774771:arith --tests auto --escalate-max-files 40 --since <BASE>`.
 
-- `src/gate_fixture/example.ex:3` `GateFixture.Example.function_pick/1`. `arith` survived (narrow).
-
-  ```diff
-  - x + 2
-  + x - 2
-  ```
-
-  Rerun with `MIX_ENV=test mix mutagen --site src/gate_fixture/example.ex:dfc37f255b1707c29356593b8e52ce66:arith --tests auto --escalate-max-files 40 --since <BASE>`.
-
-- `src/gate_fixture/example.ex:4` `GateFixture.Example.always_survives/1`. `arith` survived (narrow).
+- `src/changed_run_fixture/example.ex:3` `ChangedRunFixture.Example.function_pick/1`. `arith` survived (narrow).
 
   ```diff
   - x + 2
   + x - 2
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site src/gate_fixture/example.ex:bf8a4c3fc49954ee819d9d01407b4fd5:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:d46937e19f4789aa058cbbe9dea4d143:arith --tests auto --escalate-max-files 40 --since <BASE>`.
+
+- `src/changed_run_fixture/example.ex:4` `ChangedRunFixture.Example.always_survives/1`. `arith` survived (narrow).
+
+  ```diff
+  - x + 2
+  + x - 2
+  ```
+
+  Rerun with `MIX_ENV=test mix mutagen --site src/changed_run_fixture/example.ex:9a5955146544391e55768c273a329135:arith --tests auto --escalate-max-files 40 --since <BASE>`.
 
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.
