@@ -194,19 +194,13 @@ decisions:
 - id: mutagen.mutation_enumeration.r12
   priority: must
   statement: |
-    `MutagenEx.MutationEnumerator.group_fingerprints/1` returns each
-    group's lowercase MD5 of the canonical identity
-    encoding of its list of normalized clauses or statements in file walk
-    order. A nested module or definition contributes its boundary to the
-    outer group's AST and contributes its own sites to its own group.
-    A definition with a nil head or a module declaration without a do
-    block remains part of the enclosing group's source.
-    When the normalized expression used by an outer site's ID includes
-    nested syntax, the outer fingerprint includes that syntax too.
-    A planned entry carries deferred inputs for its existing ID group's
-    fingerprint. `MutagenEx.MutationEnumerator.site_fingerprint/1` returns
-    the concrete fingerprint on demand. Formatting, comments, blank
-    lines, and edits outside the group
+    Changed-code planning fingerprints each ID group's normalized clauses
+    or statements in file walk order. A nested module or definition
+    contributes its boundary to the outer group and its sites to its
+    own group. A definition with a nil head or a module declaration
+    without a body remains part of the enclosing group. If an outer
+    site's ID includes nested syntax, the outer fingerprint includes it
+    too. Formatting, comments, blank lines, and edits outside the group
     preserve the fingerprint. For named definitions, matching fingerprints
     preserve the mapping from ID to clause occurrence and path within that
     clause. File-root paths also match when the clauses stay at the same

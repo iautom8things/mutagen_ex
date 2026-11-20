@@ -373,22 +373,10 @@ defmodule MutagenEx.MutationEnumerator do
           ":planned expects a positive ascending line range for #{inspect(file)}, got #{inspect(range)}"
   end
 
-  @doc "Returns the fingerprints of the ID groups in a parsed file."
-  @spec group_fingerprints(Macro.t()) :: %{tuple() => String.t()}
-  def group_fingerprints(ast) do
-    walked = walk_groups(ast, :all)
-
-    Map.new(walked.groups, fn {key, nodes} ->
-      {key, hash_fingerprint({nodes, MapSet.member?(walked.split_groups, key)})}
-    end)
-  end
-
   defp walk_groups(ast, keys), do: walk_file(ast, %{by_module: %{}, mutators: []}, keys)
 
-  @doc "Resolves the fingerprint of a planned site or skip on demand."
-  @spec site_fingerprint(planned_entry()) :: String.t()
-  def site_fingerprint(%{fingerprint: digest}) when is_binary(digest), do: digest
-  def site_fingerprint(%{fingerprint: input}), do: hash_fingerprint(input)
+  defp site_fingerprint(%{fingerprint: digest}) when is_binary(digest), do: digest
+  defp site_fingerprint(%{fingerprint: input}), do: hash_fingerprint(input)
 
   @doc """
   Keeps planned entries whose group differs from the same group in the base.
