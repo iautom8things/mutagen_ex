@@ -11,6 +11,7 @@ defmodule MutagenEx.ReportSummary do
              |> Enum.with_index()
              |> Map.new()
   @function_cap 50
+  @source_link_reasons [:preexisting_symlink, :preexisting_gitlink]
 
   def incomplete?(report) do
     report.aborted or report.truncated or
@@ -36,6 +37,8 @@ defmodule MutagenEx.ReportSummary do
     groups = group_functions(sites)
 
     interrupted? = report.aborted or report.truncated
+    incomplete_inputs = meta[:incomplete_reasons] || []
+    source_links? = Enum.any?(incomplete_inputs, &(&1.reason in @source_link_reasons))
     rejections = rejected_files(report.warnings)
     red = Map.get(rejections, :escalation_baseline_red, [])
     red_functions = Map.get(meta, :red_functions, MapSet.new())
@@ -47,30 +50,63 @@ defmodule MutagenEx.ReportSummary do
     survivors = for {:survived, site} <- sites, do: site
     {high, low} = Enum.split_with(survivors, &high?/1)
 
+    {candidates, away, pipeline} =
+      if since do
+        changed_line_sites = Map.get(meta, :changed_line_sites, MapSet.new())
+        {on_line, away} = Enum.split_with(survivors, &MapSet.member?(changed_line_sites, &1.id))
+        {pipeline, candidates} = Enum.split_with(on_line, &(&1.mutator == :pipeline))
+        {candidates, away, pipeline}
+      else
+        {high, [], []}
+      end
+
     worth =
       if interrupted? do
         []
       else
-        Enum.reject(high, fn site ->
-          MapSet.member?(hidden, function_key(site)) and not escalation_incomplete?(site)
+        Enum.reject(candidates, fn site ->
+          high?(site) and MapSet.member?(hidden, function_key(site)) and
+            not escalation_incomplete?(site)
         end)
       end
 
-    ranked = worth |> Enum.sort_by(&rank/1) |> Enum.take(report.summary_max)
+    order = if since, do: &changed_rank/1, else: &rank/1
+    ranked = worth |> Enum.sort_by(order) |> Enum.take(report.summary_max)
     total = length(sites)
     missing = max(0, Map.get(mutation, :planned_sites, total) - total)
     unevaluated = counts |> Map.update(:not_run, missing, &(&1 + missing)) |> unevaluated()
 
     verdict =
       cond do
-        incomplete?(report) -> "incomplete"
-        red != [] -> "baseline_red"
-        check_first != [] -> "check_first"
-        ranked != [] -> "worth_a_look"
-        survivors != [] and high == [] -> "low_confidence_survivors"
-        survivors != [] -> "unranked_survivors"
-        since && sites == [] -> "no_mutable_changes"
-        true -> "nothing_to_check"
+        interrupted? or Enum.any?(incomplete_inputs, &(&1.reason not in @source_link_reasons)) ->
+          "incomplete"
+
+        red != [] ->
+          "baseline_red"
+
+        check_first != [] ->
+          "check_first"
+
+        ranked != [] ->
+          "worth_a_look"
+
+        worth != [] ->
+          "unranked_survivors"
+
+        is_nil(since) and survivors != [] and high == [] ->
+          "low_confidence_survivors"
+
+        is_nil(since) and survivors != [] ->
+          "unranked_survivors"
+
+        source_links? ->
+          "incomplete"
+
+        since && sites == [] ->
+          "no_mutable_changes"
+
+        true ->
+          "nothing_to_check"
       end
 
     killed = Map.get(counts, :killed, 0)
@@ -86,16 +122,19 @@ defmodule MutagenEx.ReportSummary do
 
     %{
       "verdict" => verdict,
-      "checked" => checked(total + missing, unevaluated),
+      "checked" => checked(total + missing, unevaluated, report.aborted, source_links?),
       "execution" => execution_counts(sites),
       "counts" => if(skipped > 0, do: Map.put(totals, "skipped", skipped), else: totals),
       "changed_functions" => if(since, do: changed_functions(groups, mutation)),
       "check_first" => Enum.map(check_first, &elem(&1, 1)),
-      "worth_a_look" => Enum.map(ranked, &example(&1, report)),
+      "worth_a_look" => Enum.map(ranked, &survivor_example(&1, report)),
       "worth_a_look_omitted" => length(worth) - length(ranked),
       "unevaluated" => unevaluated,
       "notes" =>
-        notes(report, results, length(low), red, rejections) ++
+        notes(report, results, if(since, do: 0, else: length(low)), red, rejections) ++
+          no_test_selection(since, sites, report.tests) ++
+          count_note("off_changed_line_survivors", length(away)) ++
+          count_note("pipeline_survivors", length(pipeline)) ++
           uncertain_functions(groups, report),
       "by_function" => by_function(groups, report),
       "source" => report.source
@@ -103,31 +142,45 @@ defmodule MutagenEx.ReportSummary do
   end
 
   defp execution_counts(sites) do
-    counts = Enum.frequencies_by(sites, fn {_, site} -> site[:execution] end)
+    counts =
+      sites
+      |> Enum.reject(fn {_, site} -> site[:probe_reason] == :probe_no_tests end)
+      |> Enum.frequencies_by(fn {_, site} -> site[:execution] end)
+
     Map.new([:cover, :probe, :could_not_tell], &{to_string(&1), Map.get(counts, &1, 0)})
   end
 
-  defp uncertain_functions(groups, report) do
-    functions =
-      for {{_, function}, rows} <- groups,
-          inconclusive?(rows),
-          uniq: true,
-          do: function
+  defp no_test_selection(since, [_ | _], %{files: []}) when not is_nil(since),
+    do: [%{"kind" => "no_test_files_selected"}]
 
-    case functions do
+  defp no_test_selection(_since, _sites, _tests), do: []
+
+  defp uncertain_functions(groups, report) do
+    affected = Enum.filter(groups, fn {_, rows} -> Enum.any?(rows, &inconclusive_probe?/1) end)
+
+    case affected do
       [] ->
         []
 
       _ ->
-        note = %{"kind" => "execution_could_not_tell", "count" => length(functions)}
+        note = %{"kind" => "execution_could_not_tell", "count" => length(affected)}
 
-        if report.source,
+        names =
+          for {{_, function}, rows} <- affected,
+              not Enum.any?(rows, &match?({:killed, _}, &1)),
+              uniq: true,
+              do: function
+
+        if report.source and names != [],
           do: [
-            Map.put(note, "functions", functions |> Enum.sort() |> Enum.map(&Sanitizer.source/1))
+            Map.put(note, "functions", names |> Enum.sort() |> Enum.map(&Sanitizer.source/1))
           ],
           else: [note]
     end
   end
+
+  defp inconclusive_probe?({:could_not_tell, site}), do: site[:probe_reason] != :probe_no_tests
+  defp inconclusive_probe?(_row), do: false
 
   defp inconclusive?(rows) do
     Enum.any?(rows, &match?({:could_not_tell, _}, &1)) and
@@ -136,9 +189,16 @@ defmodule MutagenEx.ReportSummary do
       end)
   end
 
-  defp checked(total, %{"count" => unchecked, "uncovered" => uncovered}) do
+  defp checked(total, %{"count" => unchecked, "uncovered" => uncovered}, aborted?, source_links?) do
+    status =
+      cond do
+        aborted? -> "none"
+        unchecked > 0 or source_links? -> "partial"
+        true -> "full"
+      end
+
     %{
-      "status" => if(unchecked > 0, do: "partial", else: "full"),
+      "status" => status,
       "total" => total,
       "uncovered" => uncovered,
       "unevaluated" => unchecked - uncovered
@@ -235,6 +295,13 @@ defmodule MutagenEx.ReportSummary do
       site.id
     }
 
+  defp changed_rank(site), do: {not high?(site), site.file, site.line, site.id}
+
+  defp survivor_example(site, report) do
+    example = example(site, report)
+    if high?(site), do: example, else: Map.put(example, "confidence", "low")
+  end
+
   defp example(site, report) do
     wire = JsonReporter.summary_site_to_wire(site, report)
     reference = Site.reference(site.id)
@@ -250,8 +317,13 @@ defmodule MutagenEx.ReportSummary do
         "rerun" => rerun(site, id, reference, report)
       })
 
-    if escalation_incomplete?(site),
-      do: Map.put(example, "escalation_incomplete", true),
+    example =
+      if escalation_incomplete?(site),
+        do: Map.put(example, "escalation_incomplete", true),
+        else: example
+
+    if site[:status] == :survived and site[:tainted_predecessors],
+      do: Map.put(example, "tainted_predecessors", true),
       else: example
   end
 
@@ -268,6 +340,7 @@ defmodule MutagenEx.ReportSummary do
       selector,
       "--tests",
       "auto",
+      "--escalate",
       "--escalate-max-files",
       "40"
     ]
@@ -380,6 +453,7 @@ defmodule MutagenEx.ReportSummary do
       count_note("kills_after_dropped_file", kills_after_drop) ++
       count_note("escalation_dropped_after_load", dropped_after_load) ++
       escalation_times(report.meta) ++
+      site_escalation_note(report.meta) ++
       count_note("low_confidence_survivors", low) ++
       count_note("mutation_budget_exhausted", if(report.truncated, do: 1, else: 0)) ++
       rejected
@@ -426,6 +500,14 @@ defmodule MutagenEx.ReportSummary do
   end
 
   defp escalation_times(_meta), do: []
+
+  defp site_escalation_note(%{single_site: true, escalation: [_ | _] = steps}) do
+    if Enum.all?(steps, &(&1.files_added == [])),
+      do: [%{"kind" => "site_escalation_no_files"}],
+      else: []
+  end
+
+  defp site_escalation_note(_meta), do: []
 
   defp count_note(_kind, 0), do: []
   defp count_note(kind, count), do: [%{"kind" => kind, "count" => count}]
