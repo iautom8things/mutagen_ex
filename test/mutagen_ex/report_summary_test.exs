@@ -101,7 +101,7 @@ defmodule MutagenEx.ReportSummaryTest do
 
     assert summary["worth_a_look_omitted"] == 2
 
-    assert %{"verdict" => "worth_a_look", "worth_a_look" => [], "worth_a_look_omitted" => 9} =
+    assert %{"verdict" => "unranked_survivors", "worth_a_look" => [], "worth_a_look_omitted" => 9} =
              report(results, [], summary_max: 0)["summary"]
   end
 
@@ -145,11 +145,38 @@ defmodule MutagenEx.ReportSummaryTest do
 
     with_skip = %Report{mutation: %{results: [killed], skipped: [%{site_id: "skip"}]}}
 
-    assert %{"verdict" => "partly_checked", "unevaluated" => %{"skipped" => 1}} =
+    assert %{
+             "verdict" => "nothing_to_check",
+             "counts" => %{"skipped" => 1},
+             "unevaluated" => %{"count" => 0}
+           } =
              ReportSummary.build(with_skip)
 
     low = %{site("low", 3, :survived) | mutator: :pipeline}
-    assert report([low])["summary"]["verdict"] == "worth_a_look"
+
+    assert %{"verdict" => "low_confidence_survivors", "worth_a_look" => []} =
+             report([low])["summary"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "ranks fully escalated survivors first and keeps incomplete ones out of check first" do
+    fully_escalated = site("complete", 2, :survived)
+
+    incomplete =
+      for item <- sites("incomplete", [:survived, :survived, :survived]) do
+        item
+        |> Map.replace!(:mutator, :boolean)
+        |> Map.put(:selection, %{steps_run: [:narrow], escalation_incomplete: true})
+      end
+
+    summary = report(incomplete ++ [fully_escalated])["summary"]
+    assert summary["check_first"] == []
+
+    assert [first | rest] = summary["worth_a_look"]
+    assert first["id"] == fully_escalated.id
+    refute Map.has_key?(first, "escalation_incomplete")
+    assert Enum.map(rest, & &1["id"]) == Enum.map(incomplete, & &1.id)
+    assert Enum.all?(rest, & &1["escalation_incomplete"])
   end
 
   @tag spec: "mutagen.json_schema.r36"
