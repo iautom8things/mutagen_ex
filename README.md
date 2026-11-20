@@ -10,6 +10,163 @@ The CLI (`mix mutagen`) is the supported user-facing entry point;
 point. The CLI ends each run with an aggregate JSON document.
 `--stream` writes per-site events to the same destination before it.
 
+## Audit mode
+
+Use audit mode to find tests that execute code without asserting its
+behavior. Run a whole module and read the per-function table. It lists up
+to 50 evaluated functions, lowest kill rate first, with zero first.
+
+```sh
+MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json --summary billing.md
+jq '.summary.by_function[]' billing.json
+```
+
+Run each source file in a directory and rank the reported modules by kill
+rate, with zero first and unevaluated runs last.
+
+```sh
+find lib/my_app -name '*.ex' | while IFS= read -r file; do
+  MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
+done
+find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
+```
+
+### How much to trust a survivor
+
+A blind measurement at a pre-release commit of this series covered ten
+files from two private Phoenix applications. A seeded script selected the files. They included
+two contexts, two controllers, LiveViews, and plain modules. A reviewer
+judged each survivor after seeing only the code change and the test file.
+
+The reviewer judged public functions by the inputs their specs admit.
+For private functions, controllers, and LiveViews, the reviewer used
+the inputs their real callers, routes, and forms can deliver.
+
+| Survivors | Real test gaps | Share | 95% interval |
+|---|---:|---:|---:|
+| High confidence | 27 of 32 | 84% | 68% to 93% |
+| High confidence, reachable by current production callers | 23 of 32 | 72% | 55% to 84% |
+| Low confidence | 8 of 24 | 33% | 18% to 53% |
+
+| Confidence | Mutator | Real test gaps |
+|---|---|---:|
+| High | `boolean` | 7 of 7 |
+| High | `case_drop` | 12 of 15 |
+| High | `else_removal` | 3 of 3 |
+| High | `result_tuple` | 2 of 2 |
+| High | `compare` | 1 of 1 |
+| High | `literal` | 2 of 4 |
+| Low | `pipeline` | 5 of 19 |
+| Low | `guard_drop` | 2 of 4 |
+| Low | `with_swap` | 1 of 1 |
+
+Every figure uses one test file per module and measures gaps in the
+selected tests. A follow-up ran nine of the real-gap
+survivors against every test file that mentions the function. Other
+test files in the same suite killed six of them. Three survived.
+
+A survivor means “the tests you selected miss it”. First rerun with a
+wider `--tests` selection before writing a test.
+
+The sample is small and per-mutator confidence is provisional. Mutagen gives
+advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
+
+### Changed-code measurement
+
+A seeded script chose 12 real commits from two private Phoenix
+applications. A reviewer judged them blind, seeing only the change and
+the tests that ran.
+
+| What the summary showed | Entries | Real gaps | Covered by a test that did not run | False claim | Noise |
+|---|---:|---:|---:|---:|---:|
+| Check first (not executed) | 3 | 0 | 1 | 2 | 0 |
+| Worth a look (high confidence) | 3 | 0 | 0 | 0 | 3 |
+| JSON only (low confidence) | 8 | 1 | 1 | 0 | 6 |
+
+This measurement predates probe confirmation, the changed-line rule, and
+opt-in escalation. Those changes address the false execution claims, the
+off-diff survivors, and the noise from widening the test selection by
+default. A later measurement will replace this table.
+
+**Third-pass measurement:** Results pending.
+
+## Changed-code runs
+
+Changed-code runs are quiet by design. On a commit that came with tests,
+“nothing to check” is the normal and correct output. The summary shows
+functions whose sites the selected tests did not execute, confirmed by
+probes, functions where at least three high-confidence mutants ran and
+all evaluated mutants survived, and survivors whose own source spans
+overlap changed lines. The detailed JSON holds the remaining results.
+
+```bash
+MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json --summary out/mutagen.md
+```
+
+Mutagen compares the working tree with the merge base of the ref and HEAD.
+A shallow checkout always aborts. Fetch full Git history and use
+`fetch-depth: 0` in GitHub Actions. The run plans mutations
+in named runtime functions on touched lines, then compares their group
+fingerprints with the base source. Formatting, comments, and moved
+unchanged functions contribute no runtime sites. Use `--scope` to narrow
+the diff further. An empty runtime plan finishes before host setup.
+
+The run includes untracked, unignored files. It excludes test roots and
+test support from source planning. An incomplete run returns exit 0 with
+its reasons. A tool abort returns exit 2.
+
+Automatic test selection looks for `a/b_test.exs` under the configured
+test roots for `a/b.ex` under a configured source root. When a `--since` run
+has runtime sites, it also selects new test files and changed test files
+whose parsed code differs from the merge base. Formatting and comment
+edits alone do not add a test file to this selection. An empty runtime
+plan selects no tests. Add `--escalate` to search for more tests for
+surviving or uncovered sites. Mutagen searches
+uncited test files for the full module name, or for the module's last
+segment as a whole word in a file that aliases its parent. Brace aliases
+and aliases declared with `as:` count in the module pass. It then
+searches for qualified function calls or captures, or bare calls where
+the matching module is imported or aliased. It counts text mentions and
+uses path order to break ties. Each step takes up to 20 files per function
+by default.
+Mutagen tests each candidate on the original code. It allows ten times
+the narrow baseline duration, with a thirty-second floor capped by the
+host boot and mutant timeouts. Each step reports `candidate_deadline_ms`.
+If a batch fails, Mutagen keeps the files that pass together in score order.
+The module and function passes share a two-minute budget, including
+candidate probes. Mutagen estimates each pass from the candidate baselines
+and reports files that exceed the budget as `escalation_budget_exhausted`.
+Affected survivors carry `selection.escalation_incomplete: true`.
+When escalation takes more than half the run, summary notes give the
+time spent in each pass. A pass judges mutants with the files admitted
+in that pass. Only survivors and uncovered sites advance. A timeout stays unevaluated and
+keeps the step that recorded it.
+
+`meta.since` records the ref, merge base, and site counts.
+`meta.complete` and `meta.incomplete_reasons` record missing evidence from
+skipped or unreadable paths and sites that the runner dropped.
+Every abort sets `meta.complete` to false and adds its reason to
+`meta.incomplete_reasons`. A partial run stopped by `--budget-ms` records
+`mutation_budget_exhausted`. An accounting mismatch between planned sites
+and the final outcome records also marks the report incomplete.
+`meta.since.unmapped` lists changed code without runtime sites and omits
+blank, comment and structural lines.
+`mutation.pending` shows sites with no outcome, including uncovered sites
+and covered sites left unrun. Coverage includes green
+tests added during escalation. `meta.tests_selected` lists why each test
+file joined, and each result lists the steps it ran. Warnings name rejected
+files and give a reason. Selected and rejected test paths follow `--no-source`.
+Each step counts files dropped after a load attempt in `dropped_after_load`.
+Result selection includes `after_dropped_file: true` for verdicts made in
+that step or later. Those verdicts can reflect side effects the tool could
+not undo, such as writes to persistent terms. With `--stream`, changed-code
+and automatic runs emit final results and compile errors after all passes
+with the same fields as the aggregate. Pending sites appear in the final
+JSON document.
+
+Site IDs are stable within an unchanged function. Editing a function can
+reassign IDs, so use them to inspect the current report.
+
 ## Why mutagen_ex (and how it differs from muzak)
 
 Elixir already has a mature mutation tester:
@@ -17,16 +174,11 @@ Elixir already has a mature mutation tester:
 want a polished, human-facing mutation-testing workflow for everyday TDD,
 muzak is the established choice and mutagen_ex is not trying to replace it.
 
-mutagen_ex exists for a different primary consumer: **an LLM verifier or
-judge, not a human.** That single design constraint is the thesis behind
-every difference below. When the output of mutation testing is fed to a
-model that grades a test suite — or to an automated agent that decides
-whether generated tests actually pin behavior — the requirements invert.
-A human wants color, progress bars, and a readable summary. A model wants
-one machine-parseable document, IDs it can compare across runs, and bytes
-that don't change for reasons unrelated to the code under test.
+mutagen_ex is built for repeatable audits and automated review. It gives
+people a Markdown summary and gives scripts and agents a stable JSON
+report with site IDs they can compare across runs.
 
-Concretely, mutagen_ex differs from muzak on five deliberate axes:
+mutagen_ex focuses on these workflows:
 
 - **JSON output.** `mix mutagen` writes the aggregate document to stdout or
   `--json <path>`. Use `--stream` to receive per-site JSON lines before
@@ -57,10 +209,9 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   reflects a code change, not test-order flake. See
   [`.spec/decisions/serial_execution_and_seed.md`](.spec/decisions/serial_execution_and_seed.md).
 
-- **The primary consumer is an LLM verifier/judge, not a human.** This is
-  the real thesis, and it is why the three points above are features rather
-  than omissions. mutagen_ex optimizes for being read by a model and
-  consumed by automation. Human ergonomics are explicitly secondary in v1.
+- **Readable audit reports.** Markdown shows findings by function and
+  offers a command to rerun each example. The JSON retains every site for
+  scripts that rank modules or compare outcomes.
 
 - **In-process pipeline (vs muzak's child-BEAM-per-mutation).** mutagen_ex
   swaps bytecode via `Code.compile_quoted/2` and restores from a cached binary,
@@ -74,11 +225,6 @@ Concretely, mutagen_ex differs from muzak on five deliberate axes:
   `reason: :self_mutation_refused`. See
   [`.spec/decisions/in_process_pipeline.md`](.spec/decisions/in_process_pipeline.md)
   and [`.spec/decisions/self_mutation_refused.md`](.spec/decisions/self_mutation_refused.md).
-
-If none of that matches your use case — if you want a human-friendly
-mutation tester for interactive use — reach for muzak. If you are building
-an LLM-graded or agent-driven test-quality pipeline and need stable,
-machine-first output, that gap is the one mutagen_ex was built to fill.
 
 ## The mutator catalog and its lineage
 
@@ -168,46 +314,6 @@ hide reads and bindings.
 An `else` arm does not affect validation. Even if it ignores the failure
 value, swapping the clauses can run side effects or raise an exception
 that the original order avoided.
-
-### How much to trust a survivor
-
-A blind measurement at a pre-release commit of this series covered ten
-files from two private Phoenix applications. A seeded script selected the files. They included
-two contexts, two controllers, LiveViews, and plain modules. A reviewer
-judged each survivor after seeing only the code change and the test file.
-
-The reviewer judged public functions by the inputs their specs admit.
-For private functions, controllers, and LiveViews, the reviewer used
-the inputs their real callers, routes, and forms can deliver.
-
-| Survivors | Real test gaps | Share | 95% interval |
-|---|---:|---:|---:|
-| High confidence | 27 of 32 | 84% | 68% to 93% |
-| High confidence, reachable by current production callers | 23 of 32 | 72% | 55% to 84% |
-| Low confidence | 8 of 24 | 33% | 18% to 53% |
-
-| Confidence | Mutator | Real test gaps |
-|---|---|---:|
-| High | `boolean` | 7 of 7 |
-| High | `case_drop` | 12 of 15 |
-| High | `else_removal` | 3 of 3 |
-| High | `result_tuple` | 2 of 2 |
-| High | `compare` | 1 of 1 |
-| High | `literal` | 2 of 4 |
-| Low | `pipeline` | 5 of 19 |
-| Low | `guard_drop` | 2 of 4 |
-| Low | `with_swap` | 1 of 1 |
-
-Every figure uses one test file per module and measures gaps in the
-selected tests. A follow-up ran nine of the real-gap
-survivors against every test file that mentions the function. Other
-test files in the same suite killed six of them. Three survived.
-
-A survivor means “the tests you selected miss it”. First rerun with a
-wider `--tests` selection before writing a test.
-
-The sample is small and per-mutator confidence is provisional. Mutagen gives
-advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
 
 ## Self-mutation
 
@@ -399,75 +505,6 @@ MIX_ENV=test mix mutagen --scope MyApp.Foo.bar/1 \
 A survivor means “the tests you selected miss it”. First rerun with a
 wider `--tests` selection before writing a test.
 
-## Changed-code runs
-
-```bash
-MIX_ENV=test mix mutagen --since origin/main --json out/mutagen.json --summary out/mutagen.md
-```
-
-Mutagen compares the working tree with the merge base of the ref and HEAD.
-A shallow checkout always aborts. Fetch full Git history and use
-`fetch-depth: 0` in GitHub Actions. The run plans mutations
-in named runtime functions on touched lines, then compares their group
-fingerprints with the base source. Formatting, comments, and moved
-unchanged functions contribute no runtime sites. Use `--scope` to narrow
-the diff further. An empty runtime plan finishes before host setup.
-
-The run includes untracked, unignored files. It excludes test roots and
-test support from source planning. An incomplete run returns exit 0 with
-its reasons. A tool abort returns exit 2.
-
-Automatic test selection looks for `a/b_test.exs` under the configured
-test roots for `a/b.ex` under a configured source root. When a `--since` run
-has runtime sites, it also selects new test files and changed test files
-whose parsed code differs from the merge base. Formatting and comment
-edits alone do not add a test file to this selection. An empty runtime
-plan selects no tests. For runtime sites still unresolved, Mutagen searches
-uncited test files for the full module name, or for the module's last
-segment as a whole word in a file that aliases its parent. Brace aliases
-and aliases declared with `as:` count in the module pass. It then
-searches for qualified function calls or captures, or bare calls where
-the matching module is imported or aliased. It counts text mentions and
-uses path order to break ties. Each step takes up to 20 files per function
-by default.
-Mutagen tests each candidate on the original code. It allows ten times
-the narrow baseline duration, with a thirty-second floor capped by the
-host boot and mutant timeouts. Each step reports `candidate_deadline_ms`.
-If a batch fails, Mutagen keeps the files that pass together in score order.
-The module and function passes share a two-minute budget, including
-candidate probes. Mutagen estimates each pass from the candidate baselines
-and reports files that exceed the budget as `escalation_budget_exhausted`.
-Affected survivors carry `selection.escalation_incomplete: true`.
-When escalation takes more than half the run, summary notes give the
-time spent in each pass. A pass judges mutants with the files admitted
-in that pass. Only survivors and uncovered sites advance. A timeout stays unevaluated and
-keeps the step that recorded it.
-
-`meta.since` records the ref, merge base, and site counts.
-`meta.complete` and `meta.incomplete_reasons` record missing evidence from
-skipped or unreadable paths and sites that the runner dropped.
-Every abort sets `meta.complete` to false and adds its reason to
-`meta.incomplete_reasons`. A partial run stopped by `--budget-ms` records
-`mutation_budget_exhausted`. An accounting mismatch between planned sites
-and the final outcome records also marks the report incomplete.
-`meta.since.unmapped` lists changed code without runtime sites and omits
-blank, comment and structural lines.
-`mutation.pending` shows sites with no outcome, including uncovered sites
-and covered sites left unrun. Coverage includes green
-tests added during escalation. `meta.tests_selected` lists why each test
-file joined, and each result lists the steps it ran. Warnings name rejected
-files and give a reason. Selected and rejected test paths follow `--no-source`.
-Each step counts files dropped after a load attempt in `dropped_after_load`.
-Result selection includes `after_dropped_file: true` for verdicts made in
-that step or later. Those verdicts can reflect side effects the tool could
-not undo, such as writes to persistent terms. With `--stream`, changed-code
-and automatic runs emit final results and compile errors after all passes
-with the same fields as the aggregate. Pending sites appear in the final
-JSON document.
-
-Site IDs are stable within an unchanged function. Editing a function can
-reassign IDs, so use them to inspect the current report.
-
 ## Reading the summary
 
 Add `--summary mutagen.md` for a Markdown file you can read or paste into a
@@ -477,7 +514,8 @@ Both output paths use the project-root boundary by default.
 The headline leads with the highest-priority finding. `summary.checked`
 reports `full` or `partial` along with the total sites, uncovered sites,
 and sites left unevaluated for other reasons. A partial run states how
-many sites it could not check, even when the finding is `nothing_to_check`.
+many sites it could not check. When it has no finding, the headline
+says “Mutagen found nothing in the sites it could check.”
 
 - **Check first** groups findings by function. `not_executed` means none
   of its in-scope sites recorded a hit during an execution probe.
@@ -493,15 +531,18 @@ many sites it could not check, even when the finding is `nothing_to_check`.
   mutant survived. If a dropped test file mentions the function and fails
   alone on the unmutated code, the summary leads with the failed test file.
   A file that fails in combination appears in the notes.
-- **Worth a look** lists individual high-confidence survivors outside those
-  functions, followed by high-confidence survivors marked
-  `not fully escalated`. The provisional [precision sample](docs/precision/blind-2026-11.csv)
-  puts boolean, else removal, result tuples and comparisons first, followed
-  by case drop and literals. Arithmetic has no measurement and sorts last.
-  Change the default five entries with `--summary-max N`.
-- Low-confidence survivors stay in the detailed results because they often
-  reflect equivalent changes. Timeouts count as unevaluated because the
-  tests did not finish. The summary kill rate uses killed and surviving
+- **Worth a look** in a changed-code run lists survivors whose spans
+  overlap changed lines. Within each confidence group, entries sort by
+  file and line. Low-confidence entries follow the high-confidence entries
+  and carry a label. Survivors away from changed lines stay in the JSON.
+  The notes count them.
+- Classic and audit runs keep the provisional
+  [precision order](docs/precision/blind-2026-11.csv). They list
+  high-confidence survivors outside Check first, followed by those marked
+  `not fully escalated`. Low-confidence survivors stay in the JSON.
+  Change the default five Worth a look entries with `--summary-max N`.
+- Timeouts count as unevaluated because the tests did not finish. The
+  summary kill rate uses killed and surviving
   sites. Notes count results after a timeout or host state change. They
   list skipped escalation files and explain when a kill followed a file
   that had already loaded before Mutagen dropped it.
@@ -509,33 +550,12 @@ many sites it could not check, even when the finding is `nothing_to_check`.
   mutation phase, the summary points to `--timeout-ms` and `--budget-ms`.
 
 Copy the printed `MIX_ENV=test mix mutagen --site …` command from the
-summary to rerun the one site with automatic test discovery, up to 40 test
+summary to rerun the one site with `--tests auto --escalate`, up to 40 test
 files per function in each pass, and the default escalation budget.
 Changed-code reruns keep the merge base from the report. Run
 the command from the same project checkout. Broader tests can kill a site
 that previously survived. With `--no-source`, the summary omits file names,
 function names and excerpts and prints an opaque reference for the rerun.
-
-## Audit mode
-
-Run a whole module to find tests that exercise code but miss its behavior.
-The per-function table lists up to 50 evaluated functions, lowest kill
-rate first.
-
-```sh
-MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json --summary billing.md
-jq '.summary.by_function[]' billing.json
-```
-
-Run each source file in a directory and rank the reported modules by kill
-rate, with zero first and unevaluated runs last.
-
-```sh
-find lib/my_app -name '*.ex' | while IFS= read -r file; do
-  MIX_ENV=test mix mutagen --scope "$file" --tests auto --json "audit/$file.json" --summary "audit/$file.md"
-done
-find audit -name '*.json' -exec cat {} + | jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv'
-```
 
 ## Running in CI
 
@@ -619,7 +639,8 @@ the average cost per mutant.
 | `--no-test-alias` | Skip entries in the host's test alias before the test task. |
 | `--no-host-app` | Load runtime configuration and the helper without starting the host application. |
 | `--since <ref>` | Plan changed runtime sites from the merge base. Defaults to `--tests auto`. |
-| `--no-escalate` | Skip the extra test discovery passes with automatic selection. |
+| `--escalate` | Widen automatic test selection for surviving or uncovered sites. Off by default. |
+| `--no-escalate` | Accepted with no effect for one release. |
 | `--escalate-max-files <int>` | Maximum test files per function in each extra pass. Default `20`. |
 | `--escalate-budget-ms <int>` | Total time for the extra passes. Default `120000`. Zero removes the escalation time limit. |
 | `--timeout-ms <int>` | Override the per-mutant deadline in milliseconds. The default uses three times the baseline duration with a 5000 ms floor. Mutagen warns if a requested timeout is shorter than the baseline. |
