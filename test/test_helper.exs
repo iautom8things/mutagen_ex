@@ -71,6 +71,9 @@
 #   required). It spawns a `mix mutagen` child process per target and is the
 #   slowest suite in the project, so it is skipped by default. Run explicitly
 #   via `mix test --include self_mutation` or `mix test.integration`.
+#
+# - `:git_diff_integration` exercises GitDiff on a disposable repository.
+#   Run it via `mix test.integration`.
 cover_exclusions =
   if Process.whereis(:cover_server) do
     [:cover_lifecycle]
@@ -89,6 +92,7 @@ ExUnit.start(
       :stream_integration,
       :host_setup_integration,
       :mutagen_baseline_red_guard,
-      :self_mutation
+      :self_mutation,
+      :git_diff_integration
     ] ++ cover_exclusions
 )
