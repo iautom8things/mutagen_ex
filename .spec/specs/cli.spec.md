@@ -2,7 +2,7 @@
 
 The user-facing surface of `mutagen_ex`. `mix mutagen` is the only entry point:
 it parses flags, validates them, hands off to the orchestration pipeline, and
-emits a single JSON document to stdout (or to `--json <path>` if requested).
+writes the report to the requested `--json` file or stdout.
 
 ## Intent
 
@@ -37,7 +37,7 @@ surface:
   - lib/mutagen_ex/runtime.ex
   - lib/mutagen_ex/types.ex
 decisions:
-  - mutagen.decision.report_stdout_descriptor
+  - mutagen.decision.json_report_channel
   - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
@@ -90,17 +90,17 @@ decisions:
 - id: mutagen.cli.r5
   priority: must
   statement: |
-    `--json <path>` writes the final JSON document to `<path>` instead of
-    stdout. If the flag is absent, the document is written to stdout. In
-    either case the document is terminated by a single newline. When the
-    file cannot be written safely, the document goes to stdout instead
-    (r23).
+    `--json PATH` is the guaranteed report channel. The file contains exactly
+    one JSON document, or NDJSON with `--stream`, regardless of host output.
 
-    While `Mix.Tasks.Mutagen.run/1` executes, Mix tasks, host code, test
-    helpers, ExUnit formatters, and OTP logger fallbacks write to stderr,
-    including writes during after-suite cleanup. Stdout carries only the
-    final document and, with `--stream` and no `--json`, the NDJSON lines
-    before it.
+    Without `--json`, Mutagen writes the report to stdout and routes the
+    `:user` device and known console logger handlers to stderr. The VM can
+    write directly to file descriptor 1, including when an OTP logger
+    handler crashes. In-process I/O routing cannot intercept those writes.
+    Use `--json PATH` and `--summary PATH` in CI.
+
+    The aggregate document ends with a single newline. A failed file
+    write warns on stderr and falls back to stdout (r23).
 
 - id: mutagen.cli.r6
   priority: must

@@ -3,8 +3,7 @@
 Owns the two test-running phases that come after coverage: the baseline run
 (does the cited test suite pass on unmutated code?) and the mutation loop
 (for each site, swap → recompile → run → classify → restore). Every test run
-in this subject runs in the same host VM per mutagen.decision.in_process_pipeline.
-The CLI forwards report bytes from that VM on a dedicated descriptor.
+in this subject is in-process per mutagen.decision.in_process_pipeline.
 
 ## Intent
 
@@ -46,7 +45,6 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
-  - mutagen.decision.report_stdout_descriptor
   - mutagen.decision.escalation_outcomes
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run

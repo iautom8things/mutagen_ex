@@ -230,8 +230,10 @@ defmodule MutagenEx.ChangedRunTest do
     assert Enum.any?(pending, &(&1["function"] =~ "arm_live/" and &1["reason"] == "uncovered"))
   end
 
-  @tag spec: "mutagen.cli.r5"
-  test "failing OTP log handlers before and after reporting keep stdout valid", %{repo: repo} do
+  @tag spec: ["mutagen.cli.r5", "mutagen.json_schema.r39"]
+  test "OTP handler crashes reach stdout and leave aggregate and stream files parseable", %{
+    repo: repo
+  } do
     write(repo, @source, """
     defmodule ChangedRunFixture.Example do
       def inc(n), do: n + 2
@@ -275,12 +277,25 @@ defmodule MutagenEx.ChangedRunTest do
     )
 
     args = ["--scope", @source, "--tests", test_path]
-    report = run(repo, args)
+    {stdout, 0} = invoke(repo, args ++ ["--json", "report.json"])
+    assert stdout =~ "{removed_failing_handler,early_logger_fixture}"
+    assert stdout =~ "{removed_failing_handler,late_logger_fixture}"
+
+    report = repo |> Path.join("report.json") |> File.read!() |> JSON.decode!()
     assert report["tests"]["files"] == [test_path]
     assert [%{"status" => "killed"}] = report["mutation"]["results"]
 
-    {stream, 0} = invoke(repo, args ++ ["--stream"])
-    records = stream |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+    {stdout, 0} = invoke(repo, args ++ ["--stream", "--json", "report.ndjson"])
+    assert stdout =~ "{removed_failing_handler,early_logger_fixture}"
+    assert stdout =~ "{removed_failing_handler,late_logger_fixture}"
+
+    records =
+      repo
+      |> Path.join("report.ndjson")
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&JSON.decode!/1)
+
     assert [%{"kind" => "start"}, %{"kind" => "result"}, %{"kind" => "end"}, aggregate] = records
     assert aggregate["tests"]["files"] == [test_path]
     assert File.read!(Path.join(repo, "after-logger")) == "removed"

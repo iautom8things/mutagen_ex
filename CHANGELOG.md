@@ -30,8 +30,8 @@ file for traceability.
 - Coverage distinguishes zero-hit counters from lines OTP did not
   instrument. For sites on uninstrumented lines, Mutagen checks the site's
   own span, then its enclosing clause body if the span has no counters.
-- Native host stdout, including OTP logger fallback messages during
-  cleanup, goes to stderr. The CLI forwards the report on its own pipe.
+- Use `--json PATH` and `--summary PATH` in CI. The report file stays
+  parseable when OTP writes logger fallback messages to stdout.
 - Escalation uses a two-minute budget by default. Only changed test files
   that match a scoped module or its convention enter the narrow pass.
 - Changed-code reports account for each planned runtime site once. Abort
