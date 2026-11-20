@@ -174,6 +174,29 @@ defmodule MutagenEx.FailFastTest do
     end
   end
 
+  @tag scenario: :before_failure
+  @tag spec: ["mutagen.mutation_pipeline.r30", "mutagen.json_schema.r30"]
+  test "reports the measured baseline duration and sends its scaled deadline to the runner" do
+    Process.put(:baseline_clock, [0, System.convert_time_unit(1_200, :millisecond, :native)])
+
+    clock = fn ->
+      [tick | rest] = Process.get(:baseline_clock)
+      Process.put(:baseline_clock, rest)
+      tick
+    end
+
+    {output, _, _} =
+      invoke([], 0, {@fixture, @source, @tests}, %{
+        baseline_clock: clock,
+        mutation: __MODULE__.TraceMutation
+      })
+
+    assert %{"baseline" => 1_200, "mutant_deadline" => 12_000} =
+             :json.decode(output)["meta"]["timings_ms"]
+
+    assert Process.get(:observed_mutant_deadline) == 12_000
+  end
+
   @tag scenario: :slow_cleanup
   @tag spec: "mutagen.mutation_pipeline.r4"
   test "a failure recorded before the deadline is a kill even if suite cleanup takes longer" do
@@ -583,6 +606,7 @@ defmodule MutagenEx.FailFastTest do
       assert Probe.drain() == phase ++ phase
 
       Process.put(:fail_fast_traces, [])
+      Process.put(:observed_mutant_deadline, cfg.timeout_ms)
       started = System.monotonic_time(:millisecond)
 
       result =

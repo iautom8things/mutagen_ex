@@ -189,6 +189,7 @@ defmodule MutagenEx.MutationRunner do
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil,
           source_span: {non_neg_integer(), pos_integer()} | nil,
+          source_line: pos_integer() | nil,
           source_text: String.t() | nil
         }
 
@@ -208,6 +209,11 @@ defmodule MutagenEx.MutationRunner do
   @type ok_result :: %{
           results: [site_result()],
           compile_errors: [compile_error_entry()],
+          dropped: [
+            %{id: String.t(), path: Path.t(), reason: :ast_cache_miss | :site_node_not_found}
+          ],
+          tainted: boolean(),
+          truncated: boolean(),
           state_drift_warning: %{optional(module()) => [atom()]},
           warnings: [String.t() | {atom(), term()} | {:host_names, atom(), [term()]}]
         }
@@ -219,7 +225,7 @@ defmodule MutagenEx.MutationRunner do
   @spec run(map()) :: {:ok, ok_result()} | {:error, error_reason(), map()}
   def run(input) when is_map(input) do
     with {:ok, cfg} <- normalise(input),
-         :ok <- ensure_no_self_mutation(cfg) do
+         :ok <- check_scope(cfg.scope_records) do
       run_with_exunit(cfg)
     end
   end
@@ -245,9 +251,10 @@ defmodule MutagenEx.MutationRunner do
   # r3: self-mutation refusal
   # ---------------------------------------------------------------------------
 
-  defp ensure_no_self_mutation(cfg) do
+  @doc false
+  def check_scope(scopes) do
     offenders =
-      cfg.scope_records
+      scopes
       |> Enum.map(& &1.module)
       |> Enum.filter(&self_mutation?/1)
 
@@ -482,10 +489,11 @@ defmodule MutagenEx.MutationRunner do
     initial = %{
       results: [],
       compile_errors: [],
+      dropped: [],
       state_drift_warning: drift,
       warnings: [],
       host_warnings: [],
-      tainted: false,
+      tainted: Map.get(cfg, :tainted_predecessors, false),
       snapshot_after: nil,
       truncated: false
     }
@@ -597,9 +605,11 @@ defmodule MutagenEx.MutationRunner do
          %{
            results: Enum.reverse(acc.results),
            compile_errors: Enum.reverse(acc.compile_errors),
+           dropped: Enum.reverse(acc.dropped),
            state_drift_warning: acc.state_drift_warning,
            warnings: acc.warnings |> Enum.reverse() |> Enum.uniq(),
-           truncated: Map.get(acc, :truncated, false)
+           truncated: Map.get(acc, :truncated, false),
+           tainted: acc.tainted
          }}
 
       err ->
@@ -834,6 +844,7 @@ defmodule MutagenEx.MutationRunner do
       end_line: site.end_line,
       end_column: site.end_column,
       source_span: site.source_span,
+      source_line: site.source_line,
       source_text: source_text
     }
 
@@ -876,16 +887,21 @@ defmodule MutagenEx.MutationRunner do
 
   defp fold_task_outcome({:ast_miss, site}, _cfg, acc, _on_site_completed) do
     warning = "ast_cache_miss: " <> site.file
-    {:cont, %{acc | warnings: [warning | acc.warnings]}}
+    drop_site(acc, site, :ast_cache_miss, warning)
   end
 
   defp fold_task_outcome({:site_not_found, site}, _cfg, acc, _on_site_completed) do
     warning = "site_node_not_found: " <> site.id <> " in " <> site.file
-    {:cont, %{acc | warnings: [warning | acc.warnings]}}
+    drop_site(acc, site, :site_node_not_found, warning)
   end
 
   defp fold_task_outcome({:abort, reason, details}, _cfg, _acc, _on_site_completed) do
     {:halt, {:error, reason, details}}
+  end
+
+  defp drop_site(acc, site, reason, warning) do
+    dropped = %{id: site.id, path: site.file, reason: reason}
+    {:cont, %{acc | warnings: [warning | acc.warnings], dropped: [dropped | acc.dropped]}}
   end
 
   # Wrap a closure that operates while a mutated AST is installed as the
@@ -1240,6 +1256,11 @@ defmodule MutagenEx.MutationRunner do
   defp classify({:timeout, meta}, compile_stderr) do
     warnings = compose_warnings([compile_stderr, meta.stderr]) ++ ["timeout"]
     {:timeout, warnings, meta}
+  end
+
+  defp classify({:error, {:run_group_exited, _reason}, meta}, compile_stderr) do
+    warnings = compose_warnings([compile_stderr, meta.stderr]) ++ ["test group exited"]
+    {:killed, warnings, meta}
   end
 
   defp classify({:error, reason, meta}, compile_stderr) do
