@@ -71,6 +71,15 @@ wider `--tests` selection before writing a test.
 The sample is small and per-mutator confidence is provisional. Mutagen gives
 advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
 
+This measurement predates two changes that make a whole-file run mutate
+more code: sites on function-head lines (guards) now run, and sites that
+line coverage misses are confirmed by an execution probe and then run.
+On the two files rerun after those changes, every earlier site kept its
+status and the run gained sites: 30 became 42 on one file and 42 became
+69 on the other, with 30 of the 50 new sites surviving. Those added
+survivors have not been judged, so the shares above describe the
+earlier set of sites only.
+
 ### Changed-code measurement before the fixes
 
 A seeded script chose 12 real commits from two private Phoenix
