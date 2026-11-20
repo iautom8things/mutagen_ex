@@ -801,13 +801,18 @@ defmodule Mix.Tasks.Mutagen do
          {:ok, input} <- Phases.test_input(phases, coverage, filter, report),
          {:ok, _baseline, report} <- Phases.baseline(phases, input, report),
          plan = %{cache: cache, scopes: scopes},
+         {:ok, enumeration, report} <-
+           Phases.confirm_classic(phases, plan, enumeration, input, report),
          {:ok, outcome, report} <-
            Phases.mutation(phases, plan, input, enumeration.sites, config.budget_ms, report) do
       warnings = report.warnings ++ Phases.enumerator_warnings(enumeration) ++ outcome.warnings
 
+      mutation =
+        Map.merge(Phases.report_mutation(outcome, enumeration), Map.take(enumeration, [:pending]))
+
       report = %{
         report
-        | mutation: Phases.report_mutation(outcome, enumeration),
+        | mutation: mutation,
           warnings: warnings,
           truncated: Map.get(outcome, :truncated, false) == true
       }

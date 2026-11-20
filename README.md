@@ -479,17 +479,15 @@ reports `full` or `partial` along with the total sites, uncovered sites,
 and sites left unevaluated for other reasons. A partial run states how
 many sites it could not check, even when the finding is `nothing_to_check`.
 
-- **Check first** groups findings by function. `not_executed` means the tests
-  selected in a changed-code run covered none of its in-scope sites. A site
-  is covered when its line runs. If that line has no cover counter, a hit
-  in the site's own span counts. If its entire span has no counters, a hit
-  in its innermost enclosing branch body counts. A branch with no
-  coverable lines leaves the site uncovered even if a test entered it.
-  A site outside a branch can use hits from its own function clause body.
-  The clause's definition line decides if the body has no cover counter.
-  An instrumented line with
-  zero hits stays uncovered. If a guard runs and fails and its clause body
-  never runs, Mutagen reports the guard site as not executed.
+- **Check first** groups findings by function. `not_executed` means none
+  of its in-scope sites recorded a hit during an execution probe.
+  Mutagen uses line coverage first. For the remaining sites, it installs
+  counters in the original runtime expressions, runs the admitted tests
+  once, and restores the original bytecode. A probe hit adds the site to
+  the mutation queue. When a guard, pattern, compilation failure or failed
+  probe run prevents confirmation, the site is `could_not_tell`.
+  Results report their execution evidence in `execution`, and
+  `meta.timings_ms.probe` records the probe phase when it runs.
   `nothing_asserted` means at least three high-confidence mutants ran in
   that function with complete escalation evidence and every evaluated
   mutant survived. If a dropped test file mentions the function and fails

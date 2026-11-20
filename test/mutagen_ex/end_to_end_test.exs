@@ -996,6 +996,7 @@ defmodule MutagenEx.EndToEndTest do
         ExUnit.CaptureIO.capture_io(:stderr, fn ->
           ExUnit.CaptureIO.capture_io(fn ->
             try do
+              assert_probed_baseline!(argv)
               Mix.Tasks.Mutagen.run(argv, dispatch)
             rescue
               e ->
@@ -1026,6 +1027,60 @@ defmodule MutagenEx.EndToEndTest do
       Process.delete(:e2e_capture_ref)
     end
   end
+
+  defp assert_probed_baseline!(argv) do
+    alias MutagenEx.{
+      AstCache,
+      Baseline,
+      CLI,
+      MutationEnumerator,
+      Probe,
+      ScopeResolver,
+      TestSelector
+    }
+
+    with {:ok, config} <- CLI.parse(argv),
+         {:ok, filter} <- TestSelector.resolve(config.tests),
+         resolutions = Enum.map(config.scopes, &ScopeResolver.resolve(&1, [])),
+         true <- Enum.all?(resolutions, &match?({:ok, _}, &1)) do
+      scopes = Enum.flat_map(resolutions, fn {:ok, records} -> records end)
+      files = scopes |> Enum.map(& &1.file) |> Enum.uniq()
+      assert {:ok, cache} = AstCache.load(files)
+
+      lines =
+        Map.new(cache, fn {file, {_, source}} ->
+          {file, [1..(length(:binary.matches(source, "\n")) + 1)]}
+        end)
+
+      assert %{sites: sites} = MutationEnumerator.enumerate(cache, scopes, %{}, planned: lines)
+      sites = Enum.filter(sites, & &1.runtime?)
+
+      if sites != [] do
+        input = %{seed: config.seed, test_filter: filter}
+        expected = probe_baseline_signature(Baseline.run(input))
+
+        assert {:ok, %{evidence: evidence}} =
+                 Probe.run(sites, %{cache: cache}, fn ->
+                   send(self(), {:probed_baseline, probe_baseline_signature(Baseline.run(input))})
+                   {:ok, 0}
+                 end)
+
+        refute Enum.any?(evidence, fn {_, outcome} ->
+                 outcome == {:could_not_tell, :probe_compile_failed}
+               end)
+
+        if Enum.any?(evidence, fn {_, outcome} -> match?({:probe, _}, outcome) end) do
+          assert_received {:probed_baseline, ^expected}
+        end
+      end
+    end
+  end
+
+  defp probe_baseline_signature({:ok, outcome}),
+    do: {:ok, Map.take(outcome, [:passed, :failed, :failures])}
+
+  defp probe_baseline_signature({:error, reason, outcome}),
+    do: {:error, reason, Map.take(outcome, [:passed, :failed, :failures])}
 
   # Per bw mutagen-wrd.33, dispatch collaborators are modules, not
   # `{module, function}` tuples. The three stubs below implement the

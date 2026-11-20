@@ -7,10 +7,12 @@ defmodule MutagenEx.SelectedRun do
     Config,
     CoverageRunner,
     MutationEnumerator,
+    Probe,
     TestModuleDiscovery
   }
 
   alias MutagenEx.Test.ExUnitServer
+  alias MutagenEx.Pipeline.Phases
 
   @candidate_errors ~w(baseline_red baseline_timeout ex_unit_run_failed no_tests_run test_file_load_failed)a
   @coverage_errors ~w(coverage_timeout no_tests_run ex_unit_run_failed test_file_load_failed
@@ -32,6 +34,7 @@ defmodule MutagenEx.SelectedRun do
       stage_missed_files?: false,
       unfinished_escalation: MapSet.new(),
       dropped_files: MapSet.new(),
+      probes: %{},
       coverage: %{covered_lines: %{}, coverable_lines: %{}},
       results: %{},
       compile_errors: %{},
@@ -45,18 +48,53 @@ defmodule MutagenEx.SelectedRun do
     }
 
     with {:ok, narrow} <- narrow(plan, config, state, phases),
-         {:ok, state} <- run_escalation(plan, config, narrow, test_paths, phases) do
+         {:ok, state} <- run_escalation(plan, config, narrow, test_paths, phases),
+         {:ok, state} <- confirm_uncovered(plan, config, state, phases) do
+      timings =
+        narrow.report.meta.timings_ms
+        |> Map.merge(Map.take(state.report.meta.timings_ms, [:probe]))
+        |> Map.put(:mutation, state.mutation_ms)
+
       state =
         state
-        |> put_in([:report, Access.key!(:meta), :timings_ms], %{
-          narrow.report.meta.timings_ms
-          | mutation: state.mutation_ms
-        })
+        |> put_in([:report, Access.key!(:meta), :timings_ms], timings)
         |> put_in([:report, Access.key!(:baseline)], narrow.report.baseline)
 
       complete(plan, state)
     end
   end
+
+  defp confirm_uncovered(plan, config, state, {Phases, phases} = execution) do
+    candidates = Enum.reject(remaining_sites(plan, state), &Map.has_key?(state.results, &1.id))
+
+    if candidates == [] do
+      {:ok, state}
+    else
+      filter = %{state.filter | files: state.files}
+      input = %{test_filter: filter, test_modules: TestModuleDiscovery.discover(state.files)}
+      admitted = Enum.filter(state.files, &Map.has_key?(state.loads, &1))
+      state = %{state | escalation_deadline: nil}
+
+      with_file_env(state, admitted, fn ->
+        with {:ok, outcome, report} <- Phases.probe(phases, plan, candidates, input, state.report) do
+          sites = Enum.filter(candidates, &(outcome.evidence[&1.id] == {:probe, :executed}))
+
+          report =
+            if outcome.baseline_ms,
+              do: put_in(report.meta.timings_ms.baseline, outcome.baseline_ms),
+              else: report
+
+          state = %{state | probes: outcome.evidence, report: report}
+
+          if state.truncated,
+            do: {:ok, state},
+            else: mutate(:probe, plan, sites, config, state, input, execution)
+        end
+      end)
+    end
+  end
+
+  defp confirm_uncovered(_plan, _config, state, _phases), do: {:ok, state}
 
   defp run_escalation(plan, config, state, paths, phases) do
     escalate(plan, config, state, paths, phases)
@@ -583,9 +621,12 @@ defmodule MutagenEx.SelectedRun do
 
   defp complete(plan, state) do
     results =
-      plan.sites |> collect(state.results) |> mark_budget_skips(state.unfinished_escalation)
+      plan.sites
+      |> collect(state.results)
+      |> mark_budget_skips(state.unfinished_escalation)
+      |> add_execution(state.probes)
 
-    compile_errors = collect(plan.sites, state.compile_errors)
+    compile_errors = plan.sites |> collect(state.compile_errors) |> add_execution(state.probes)
 
     evaluated = MapSet.new(results ++ compile_errors, & &1.id)
     dropped = MapSet.new(state.dropped, & &1.id)
@@ -599,9 +640,19 @@ defmodule MutagenEx.SelectedRun do
 
     pending =
       for site <- partitions.uncovered_candidate do
-        if MapSet.member?(dropped, site.id) or MutationEnumerator.covered?(site, state.coverage),
-          do: pending_site(site, :not_run),
-          else: pending_site(site, :uncovered)
+        cond do
+          MapSet.member?(dropped, site.id) ->
+            pending_site(site, :not_run, nil)
+
+          probe = state.probes[site.id] ->
+            Probe.pending(site, probe)
+
+          MutationEnumerator.covered?(site, state.coverage) ->
+            pending_site(site, :not_run, :cover)
+
+          true ->
+            pending_site(site, :uncovered, nil)
+        end
       end
 
     skipped = Map.get(plan, :skipped, [])
@@ -614,7 +665,7 @@ defmodule MutagenEx.SelectedRun do
       state.accounting_mismatch or
         Enum.frequencies(planned) != Enum.frequencies(accounted) or
         length(planned) != MapSet.size(MapSet.new(planned)) or
-        Enum.any?(pending, &(&1.reason not in [:uncovered, :not_run]))
+        Enum.any?(pending, &(&1.reason not in [:uncovered, :not_run, :could_not_tell]))
 
     rejected =
       for {reason, paths} <- Enum.sort(state.rejected) do
@@ -714,10 +765,18 @@ defmodule MutagenEx.SelectedRun do
     end)
   end
 
-  defp pending_site(entry, reason) do
+  defp add_execution(rows, probes) do
+    Enum.map(rows, fn row ->
+      basis = if probes[row.id] == {:probe, :executed}, do: :probe, else: :cover
+      Map.put(row, :execution, basis)
+    end)
+  end
+
+  defp pending_site(entry, reason, execution) do
     entry
     |> Map.take([:id, :file, :line, :column, :mutator, :function, :in_scope])
     |> Map.put(:reason, reason)
+    |> Map.put(:execution, execution)
   end
 
   defp annotate(outcome, %{in_scope: reason}), do: Map.put(outcome, :in_scope, reason)

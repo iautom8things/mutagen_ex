@@ -298,6 +298,16 @@ defmodule MutagenEx.MarkdownSummary do
     do:
       "- Waiting for mutant timeouts took more than half the mutation phase. Consider `--timeout-ms` or `--budget-ms`.\n"
 
+  defp note(%{"kind" => "execution_could_not_tell", "count" => count} = note) do
+    names = Enum.map_intersperse(note["functions"] || [], ", ", &inline/1)
+
+    [
+      "- Probe evidence was inconclusive for #{quantity(count, "function")}",
+      if(names == [], do: [], else: [" (", names, ")"]),
+      ".\n"
+    ]
+  end
+
   defp note(%{"kind" => "tainted_predecessors", "count" => count}),
     do: "- #{quantity(count, "result")} followed a timeout or host state change.\n"
 

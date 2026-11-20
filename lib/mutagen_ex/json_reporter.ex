@@ -1012,7 +1012,10 @@ defmodule MutagenEx.JsonReporter do
       {:ok, pending} ->
         rows =
           for site <- pending do
-            site |> site_to_wire(options) |> Map.put("reason", to_string(site.reason))
+            site
+            |> site_to_wire(options)
+            |> Map.put("reason", to_string(site.reason))
+            |> put_site_enum("probe_reason", site[:probe_reason])
           end
 
         Map.put(wire, "pending", rows)
@@ -1342,6 +1345,8 @@ defmodule MutagenEx.JsonReporter do
           wire
       end
 
+    wire = put_site_enum(wire, "execution", site[:execution])
+
     if options.source do
       Map.merge(wire, %{
         "file" => Sanitizer.clean(to_string(Map.fetch!(site, :file))),
@@ -1351,6 +1356,9 @@ defmodule MutagenEx.JsonReporter do
       wire
     end
   end
+
+  defp put_site_enum(wire, _key, nil), do: wire
+  defp put_site_enum(wire, key, value), do: Map.put(wire, key, Atom.to_string(value))
 
   defp put_source(wire, result, %{source: true}) do
     wire =

@@ -33,6 +33,7 @@ summary: One-shot :cover run plus AST + source-text caching for downstream phase
 surface:
   - lib/mutagen_ex/coverage_runner.ex
   - lib/mutagen_ex/ast_cache.ex
+  - lib/mutagen_ex/probe.ex
   - lib/mutagen_ex/test/suite.ex
 decisions:
   - mutagen.decision.advisory_changed_code
@@ -247,9 +248,20 @@ decisions:
     branch, use the site's own function clause body. If that body has
     no coverable line, use the hit count on that clause's definition line.
     A nested branch cannot use the definition line of the outer function.
-    A guard that fails
-    while its clause body never runs is reported as uncovered. Both
+    A guard that fails while its clause body never runs can lack a hit
+    in the line-coverage pass. Both
     coverage and zero-call entries are retained through automatic escalation.
+
+- id: mutagen.coverage.r15
+  priority: must
+  statement: |
+    After line coverage, runtime sites still without a hit use an
+    execution probe. Place counters only at runtime expression positions.
+    Run the admitted tests once with all usable probes installed and
+    restore bytecode through the mutation runner's snapshot path. A hit
+    qualifies the site for mutation. A counter that never fires in a
+    green run confirms the site was uncovered. Unwrappable sites and
+    probes that could not run have inconclusive evidence.
 
 ```
 
@@ -401,4 +413,5 @@ decisions:
   target: test/integration/changed_run_test.exs
   covers:
     - mutagen.coverage.r14
+    - mutagen.coverage.r15
 ```
