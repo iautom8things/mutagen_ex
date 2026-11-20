@@ -14,6 +14,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
       `mutagen.decision.mutation_id_scheme_2`.
     * `:path` — steps from the file AST root to the original node.
     * `:function` — enclosing definition as `Mod.fun/arity`, or `nil`.
+    * `:definition_line` — first line of the named runtime function.
     * `:file` — project-relative source path taken from the
       `MutagenEx.ScopeResolver.Scope` it came from.
     * `:line` / `:column` — 1-based source coordinates of the original AST
@@ -50,6 +51,7 @@ defmodule MutagenEx.MutationEnumerator.Site do
     :mutated_ast,
     :path,
     function: nil,
+    definition_line: nil,
     end_line: nil,
     end_column: nil,
     source_span: nil,
@@ -69,11 +71,35 @@ defmodule MutagenEx.MutationEnumerator.Site do
           mutated_ast: Macro.t(),
           path: [path_step()],
           function: String.t() | nil,
+          definition_line: pos_integer() | nil,
           end_line: pos_integer() | nil,
           end_column: pos_integer() | nil,
           source_span: {non_neg_integer(), pos_integer()} | nil,
           source_line: pos_integer() | nil
         }
+  @doc false
+  def reference(id), do: :crypto.hash(:sha256, id) |> Base.encode16(case: :lower)
+
+  @doc false
+  def valid_selector?(id), do: opaque?(id) or selector_file(id) != nil
+
+  @doc false
+  def selector_file(id) do
+    case Regex.run(~r/\A(.+\.ex):[0-9a-f]{32}:[a-z_]+\z/s, id, capture: :all_but_first) do
+      [file] ->
+        if Path.type(file) == :relative and MutagenEx.JsonPath.validate_literal(file) == :ok,
+          do: file
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc false
+  def matches?(id, selector),
+    do: id == selector or (opaque?(selector) and reference(id) == selector)
+
+  defp opaque?(id), do: Regex.match?(~r/\A[0-9a-f]{64}\z/, id)
 end
 
 defmodule MutagenEx.MutationEnumerator do
@@ -528,6 +554,7 @@ defmodule MutagenEx.MutationEnumerator do
 
     walk_tree(ast, ambient, nil, env, %{
       ordinals: %{},
+      definitions: %{},
       scopes: %{},
       sites: %{},
       skipped: %{},
@@ -743,7 +770,7 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   defp walk_node(
-         {kind, _, [head | _]} = node,
+         {kind, meta, [head | _]} = node,
          ambient,
          context,
          %{quoted: false} = env,
@@ -757,6 +784,14 @@ defmodule MutagenEx.MutationEnumerator do
       end
 
     acc = mark_split_group(acc, env)
+
+    acc =
+      if kind in [:def, :defp] and env.scopes != [] and is_integer(meta[:line]) do
+        put_in(acc.definitions, Map.put_new(acc.definitions, enclosing, meta[:line]))
+      else
+        acc
+      end
+
     {env, acc} = record_group(%{env | enclosing: enclosing, definition_kind: kind}, acc, node)
     walk_mutable_node(node, ambient, context, env, acc)
   end
@@ -1036,6 +1071,7 @@ defmodule MutagenEx.MutationEnumerator do
         site = %Site{
           id: id,
           function: format_function(env.enclosing),
+          definition_line: acc.definitions[env.enclosing],
           path: Enum.reverse(env.path),
           file: file,
           line: line,

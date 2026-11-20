@@ -3,18 +3,17 @@ defmodule MutagenEx.ChangedRun do
 
   alias MutagenEx.{AutoTests, ChangedScope, JsonStreamer, MutationEnumerator, MutationRunner}
   alias MutagenEx.{Runtime, SelectedRun, TestSelector}
+  alias MutationEnumerator.Site
   alias TestSelector.TestFilter
 
   def run(%{since: nil} = config, report, phases) do
     phases.boot.(report, fn report, state ->
-      with {:ok, scopes} <- phases.scope.(report),
-           report = %{report | scope: scopes},
-           :ok <- check_scope(scopes, config, report),
-           {:ok, cache} <- phases.ast_cache.(scopes, empty_filter(), report) do
-        paths = project_paths(state.test_paths)
-        roots = source_roots(paths)
-        selection = AutoTests.select(scopes, roots, paths, [])
+      paths = project_paths(state.test_paths)
+      roots = source_roots(paths)
 
+      with {:ok, scopes} <- phases.scope.(report, roots),
+           report = %{report | scope: scopes},
+           {:ok, cache} <- phases.ast_cache.(scopes, empty_filter(), report) do
         lines =
           for {file, records} <- Enum.group_by(scopes, & &1.file), into: %{} do
             {file, [{1, Enum.max_by(records, & &1.line_range.last).line_range.last}]}
@@ -23,16 +22,18 @@ defmodule MutagenEx.ChangedRun do
         %{sites: sites, skipped: skipped} =
           MutationEnumerator.enumerate(cache, scopes, %{}, planned: lines, source: config.source)
 
-        plan = %{
-          scopes: scopes,
-          cache: cache,
-          sites: sites,
-          skipped: skipped,
-          selection: selection
-        }
+        with {:ok, plan} <-
+               select_site(
+                 %{scopes: scopes, cache: cache, sites: sites, skipped: skipped},
+                 config,
+                 report
+               ),
+             :ok <- check_scope(plan.scopes, config, report),
+             :ok <- check_site_cap(plan, config, report) do
+          selection =
+            if config.tests == ["auto"], do: AutoTests.select(plan.scopes, roots, paths, [])
 
-        with :ok <- check_site_cap(plan, config, report) do
-          run_selected(plan, config, report, phases, state)
+          run_selected(Map.put(plan, :selection, selection), config, report, phases, state)
         end
       end
     end)
@@ -45,7 +46,8 @@ defmodule MutagenEx.ChangedRun do
          {:ok, plan} <- ChangedScope.plan(config, roots, exclude: excluded_roots(paths)) do
       report = changed_report(report, plan)
 
-      with :ok <- check_scope(plan.scopes, config, report),
+      with {:ok, plan} <- select_site(plan, config, report),
+           :ok <- check_scope(plan.scopes, config, report),
            :ok <- check_site_cap(plan, config, report) do
         prepare_tests(plan, config, report, phases, roots, paths)
       end
@@ -132,8 +134,24 @@ defmodule MutagenEx.ChangedRun do
 
   defp check_scope(scopes, config, report) do
     case MutationRunner.check_scope(scopes) do
-      :ok -> :ok
-      {:error, reason, details} -> abort(report, config, reason, details)
+      :ok ->
+        :ok
+
+      {:error, reason, details} ->
+        abort(report, config, reason, details)
+    end
+  end
+
+  defp select_site(plan, %{site: nil}, _report), do: {:ok, plan}
+
+  defp select_site(plan, config, report) do
+    case Enum.filter(plan.sites, &Site.matches?(&1.id, config.site)) do
+      [site | _] ->
+        scopes = Enum.filter(plan.scopes, &(&1.file == site.file))
+        {:ok, %{plan | sites: [site], skipped: [], scopes: scopes}}
+
+      [] ->
+        abort(report, config, :site_not_found, %{step: :enumeration})
     end
   end
 
@@ -159,12 +177,39 @@ defmodule MutagenEx.ChangedRun do
 
       with {:ok, report, outcome} <-
              SelectedRun.run(plan, report, config, filter, paths, phases.phases.(plan, state)) do
-        mutation = phases.report_mutation.(outcome, plan) |> Map.put(:pending, outcome.pending)
+        mutation =
+          phases.report_mutation.(outcome, plan)
+          |> Map.put(:pending, pending_for_summary(outcome.pending, plan))
+
         report = %{report | mutation: mutation}
         if config.stream, do: emit_stream(config, phases.stream_sink.(), plan, report)
         {:ok, report, config}
       end
     end
+  end
+
+  defp pending_for_summary([], _plan), do: []
+
+  defp pending_for_summary(pending, plan) do
+    sites = Map.new(plan.sites, &{&1.id, &1})
+
+    Enum.map(pending, fn %{id: id, file: file} = entry ->
+      site = Map.fetch!(sites, id)
+      {_ast, source} = Map.fetch!(plan.cache, file)
+
+      site
+      |> Map.take([
+        :definition_line,
+        :original_ast,
+        :mutated_ast,
+        :end_line,
+        :end_column,
+        :source_span,
+        :source_line
+      ])
+      |> Map.put(:source_text, source)
+      |> Map.merge(entry)
+    end)
   end
 
   defp empty_filter, do: %TestFilter{include: [], exclude: [], files: []}
