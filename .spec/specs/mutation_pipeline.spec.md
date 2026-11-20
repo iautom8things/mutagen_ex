@@ -617,8 +617,9 @@ decisions:
 - id: mutagen.mutation_pipeline.r29
   priority: must
   statement: |
-    Each auto escalation pass runs only survivors and newly covered sites
-    against the newly selected files. Each added file must pass an
+    With --escalate and automatic test selection, each escalation pass runs
+    only survivors and newly covered sites against the newly selected files.
+    Each added file must pass an
     unmutated baseline. Red or unloadable files
     are omitted with a fixed warning. Accepted test cases register for
     later runs without reloading their modules or restarting ExUnit.Server.
@@ -676,7 +677,9 @@ decisions:
   priority: must
   statement: |
     Auto escalation shares a wall-clock budget across module and function
-    passes. Candidate probes use at most the remaining time. Before each
+    passes. With --site, the budget is bounded by the larger of 30 seconds
+    and ten times the narrow baseline. Candidate probes use at most the
+    remaining time. Before each
     pass, measured candidate baselines estimate its combined baseline,
     coverage and mutation cost. Files that cannot fit are omitted with
     escalation_budget_exhausted. The pass starts only with files that fit.

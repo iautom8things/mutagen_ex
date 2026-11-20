@@ -32,14 +32,14 @@ defmodule MutagenEx.CLITest do
   alias MutagenEx.Config
 
   @tag spec: "mutagen.cli.r33"
-  test "changed-code defaults to auto and preserves the fail-fast default" do
+  test "changed-code defaults to narrow automatic selection and fail-fast" do
     assert {:ok,
             %Config{
               scopes: [],
               tests: ["auto"],
               since: "main",
               fail_fast: true,
-              escalate: true,
+              escalate: false,
               escalate_max_files: 20
             }} =
              CLI.parse(["--since", "main"])
@@ -52,6 +52,16 @@ defmodule MutagenEx.CLITest do
 
     assert {:error, :invalid_input, _} = CLI.parse(~w(--since main --tests auto --tests tag:fast))
     assert {:error, :invalid_input, _} = CLI.parse(~w(--since main --escalate-max-files -1))
+  end
+
+  @tag spec: "mutagen.cli.r33"
+  test "escalation requires the opt-in flag and accepts the old flag as a no-op" do
+    for args <- [~w(--escalate), ~w(--escalate --no-escalate), ~w(--no-escalate --escalate)] do
+      assert {:ok, %Config{escalate: true}} = CLI.parse(~w(--since HEAD) ++ args)
+    end
+
+    assert {:ok, %Config{escalate: false}} = CLI.parse(~w(--since HEAD --no-escalate))
+    assert {:ok, %Config{escalate: false}} = CLI.parse(~w(--scope lib/example.ex --tests auto))
   end
 
   @tag spec: "mutagen.cli.r37"

@@ -9,6 +9,6 @@
   + x - 1
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000002:arith --tests auto --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
+  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000002:arith --tests auto --escalate --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
 
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.
