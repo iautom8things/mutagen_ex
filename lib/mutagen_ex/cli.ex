@@ -95,6 +95,7 @@ defmodule MutagenEx.CLI do
   """
 
   alias MutagenEx.Config
+  alias MutagenEx.MutationEnumerator.Site
 
   @behaviour MutagenEx.Pipeline.CliFacade
 
@@ -127,8 +128,10 @@ defmodule MutagenEx.CLI do
          :ok <- check_no_extra_args(rest),
          scopes = collect(parsed, :scope),
          since = Keyword.get(parsed, :since),
-         :ok <- require_scope(scopes, since),
-         {:ok, tests} <- pick_tests(collect(parsed, :tests), since),
+         {:ok, site} <- pick_site(parsed),
+         scopes = site_scope(scopes, since, site),
+         :ok <- require_scope(scopes, since || site),
+         {:ok, tests} <- pick_tests(collect(parsed, :tests), since || site),
          {:ok, escalate_max_files} <- pick_escalate_max_files(parsed),
          :ok <- refuse_self_mutation(scopes),
          :ok <- validate_tag_charset(tests),
@@ -138,6 +141,8 @@ defmodule MutagenEx.CLI do
          {:ok, boot_timeout_ms} <- pick_boot_timeout(parsed),
          {:ok, seed} <- pick_seed(parsed),
          {:ok, json_path} <- pick_json_path(parsed),
+         {:ok, summary_path} <- pick_summary_path(parsed),
+         {:ok, summary_max} <- pick_summary_max(parsed),
          {:ok, max_sites} <- pick_max_sites(parsed),
          {:ok, budget_ms} <- pick_budget_ms(parsed),
          {:ok, max_concurrency} <- pick_max_concurrency(parsed),
@@ -149,6 +154,9 @@ defmodule MutagenEx.CLI do
          scopes: scopes,
          tests: tests,
          since: since,
+         site: site,
+         summary_path: summary_path,
+         summary_max: summary_max,
          escalate: Keyword.get(parsed, :escalate, true),
          escalate_max_files: escalate_max_files,
          timeout_ms: timeout_ms,
@@ -221,6 +229,9 @@ defmodule MutagenEx.CLI do
     scope: :keep,
     tests: :keep,
     since: :string,
+    site: :string,
+    summary: :string,
+    summary_max: :integer,
     escalate: :boolean,
     escalate_max_files: :integer,
     timeout_ms: :integer,
@@ -274,6 +285,15 @@ defmodule MutagenEx.CLI do
 
       flag == "--since" ->
         {:error, :invalid_since_ref, %{cause: :invalid_ref}}
+
+      flag == "--site" ->
+        {:error, :invalid_site, %{flag: flag}}
+
+      flag == "--summary" ->
+        {:error, :unsafe_summary_path, %{flag: flag}}
+
+      flag == "--summary-max" ->
+        {:error, :invalid_summary_max, %{flag: flag}}
 
       flag == "--escalate-max-files" ->
         invalid_escalate_max_files()
@@ -330,6 +350,37 @@ defmodule MutagenEx.CLI do
              require_nonempty(tests, :missing_tests, "at least one --tests target is required") do
         {:ok, tests}
       end
+    end
+  end
+
+  defp pick_site(parsed) do
+    case Keyword.get(parsed, :site) do
+      nil -> {:ok, nil}
+      site -> if Site.valid_selector?(site), do: {:ok, site}, else: {:error, :invalid_site, %{}}
+    end
+  end
+
+  defp site_scope([], nil, site) when is_binary(site), do: List.wrap(Site.selector_file(site))
+  defp site_scope(scopes, _since, _site), do: scopes
+
+  defp pick_summary_path(parsed) do
+    case Keyword.get(parsed, :summary) do
+      nil ->
+        {:ok, nil}
+
+      path ->
+        if path not in ["", "-"] and MutagenEx.JsonPath.validate_literal(path) == :ok do
+          {:ok, path}
+        else
+          {:error, :unsafe_summary_path, %{flag: "--summary"}}
+        end
+    end
+  end
+
+  defp pick_summary_max(parsed) do
+    case Keyword.get(parsed, :summary_max, 5) do
+      max when is_integer(max) and max >= 0 -> {:ok, max}
+      _ -> {:error, :invalid_summary_max, %{flag: "--summary-max"}}
     end
   end
 

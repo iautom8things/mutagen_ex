@@ -47,7 +47,9 @@ defmodule MutagenEx.GateWiringTest do
   @tag spec: [
          "mutagen.scope_resolution.r11",
          "mutagen.mutation_pipeline.r28",
-         "mutagen.json_schema.r28"
+         "mutagen.json_schema.r28",
+         "mutagen.cli.r36",
+         "mutagen.json_schema.r37"
        ]
   test "plans semantic changes and records uncovered sites, with a scope intersection", %{
     repo: repo
@@ -57,7 +59,7 @@ defmodule MutagenEx.GateWiringTest do
     base = commit(repo)
     write(repo, @source, source(2))
 
-    report = run(repo, ["--since", "HEAD", "--no-escalate"])
+    report = run(repo, ["--since", "HEAD", "--no-escalate", "--summary", "out/narrow.md"])
     assert %{"ref" => "HEAD", "base" => ^base, "changed_files" => 1} = report["meta"]["since"]
     assert report["meta"]["since"]["planned"] == report["meta"]["since"]["in_scope"]
     assert report["meta"]["since"]["runtime"] > report["meta"]["since"]["run"]
@@ -76,6 +78,19 @@ defmodule MutagenEx.GateWiringTest do
     end
 
     assert Enum.all?(report["mutation"]["pending"], &(&1["reason"] == "uncovered"))
+
+    assert_summary(
+      report,
+      ["newly_covered", "never_called"],
+      [
+        {"module_pick", "arith"},
+        {"function_pick", "arith"},
+        {"always_survives", "arith"}
+      ]
+    )
+
+    assert_markdown(repo, "out/narrow.md", "summary_git_narrow", base)
+    assert_reruns(repo, report)
 
     args = ["--since", base, "--scope", "GateFixture.Example.function_pick/1", "--no-escalate"]
     scoped = run(repo, args)
@@ -200,7 +215,9 @@ defmodule MutagenEx.GateWiringTest do
          "mutagen.test_selection.r10",
          "mutagen.coverage.r12",
          "mutagen.mutation_pipeline.r29",
-         "mutagen.json_schema.r29"
+         "mutagen.json_schema.r29",
+         "mutagen.json_schema.r36",
+         "mutagen.json_schema.r37"
        ]
   test "escalates only survivors and newly covered sites using green files and caps matches", %{
     repo: repo
@@ -215,7 +232,7 @@ defmodule MutagenEx.GateWiringTest do
     write(repo, changed_test, test_case("Changed", ~s|test "runs", do: assert(true)|))
 
     args = ["--since", base]
-    report = run(repo, args)
+    report = run(repo, args ++ ["--summary", "out/escalated.md"])
 
     assert %{"path" => changed_test, "why" => "changed_in_diff"} in report["meta"][
              "tests_selected"
@@ -273,6 +290,29 @@ defmodule MutagenEx.GateWiringTest do
     assert File.read!(Path.join(repo, "narrow-runs")) == String.duplicate("run\n", 5)
     assert File.read!(Path.join(repo, "module-loads")) == "once\n"
     assert File.read!(Path.join(repo, "function-loads")) == "once\n"
+
+    assert_summary(report, ["never_called"], [{"always_survives", "arith"}])
+
+    notes = report["summary"]["notes"]
+    assert %{"kind" => "kills_after_dropped_file", "count" => 3} in notes
+    assert %{"kind" => "escalation_dropped_after_load", "count" => 2} in notes
+
+    assert %{
+             "kind" => "escalation_dropped",
+             "count" => 1,
+             "reason" => "escalation_baseline_red",
+             "files" => ["checks/red_test.exs"]
+           } in notes
+
+    assert %{
+             "kind" => "escalation_dropped",
+             "count" => 1,
+             "reason" => "escalation_test_file_load_failed",
+             "files" => ["checks/broken_test.exs"]
+           } in notes
+
+    assert_markdown(repo, "out/escalated.md", "summary_git_escalated", base)
+    assert_reruns(repo, report)
 
     capped = run(repo, args ++ ["--escalate-max-files", "1"])
 
@@ -339,8 +379,15 @@ defmodule MutagenEx.GateWiringTest do
 
     {self, 2} = invoke(repo, ["--since", base])
 
-    assert %{"abort_reason" => "self_mutation_refused", "coverage" => nil, "baseline" => nil} =
-             JSON.decode!(self)
+    assert %{
+             "abort_reason" => "self_mutation_refused",
+             "coverage" => nil,
+             "baseline" => nil,
+             "details" => %{
+               "hint" =>
+                 "For changes to Mutagen itself, run mix test and mix test.integration." <> _
+             }
+           } = JSON.decode!(self)
 
     refute File.exists?(Path.join(repo, "booted"))
 
@@ -523,7 +570,7 @@ defmodule MutagenEx.GateWiringTest do
     assert Enum.any?(report["warnings"], &String.starts_with?(&1, "escalation_baseline_crashed:"))
   end
 
-  @tag spec: "mutagen.mutation_pipeline.r32"
+  @tag spec: ["mutagen.mutation_pipeline.r32", "mutagen.json_schema.r36"]
   test "a countdown timeout stays in the narrow pass", %{repo: repo} do
     original = """
     defmodule GateFixture.Example do
@@ -560,10 +607,18 @@ defmodule MutagenEx.GateWiringTest do
     explicit = run(repo, args ++ ["--tests", @convention, "--tests", zero_test, "--no-escalate"])
     assert statuses(auto) == statuses(explicit)
 
-    for row <- auto["mutation"]["results"], row["before_source"] in ["n - 1", "1"] do
+    timeouts = Enum.filter(auto["mutation"]["results"], &(&1["before_source"] in ["n - 1", "1"]))
+    assert [_ | _] = timeouts
+
+    for row <- timeouts do
       assert row["status"] == "timeout"
       assert row["selection"]["steps_run"] == ["narrow"]
     end
+
+    summary = auto["summary"]
+    assert summary["unevaluated"]["timeout"] == length(timeouts)
+    assert summary["counts"]["killed"] == auto["mutation"]["killed"]
+    assert summary["counts"]["survived"] == auto["mutation"]["survived"]
   end
 
   @tag spec: ["mutagen.mutation_pipeline.r33", "mutagen.json_schema.r34"]
@@ -866,6 +921,97 @@ defmodule MutagenEx.GateWiringTest do
 
   defp statuses(report) do
     Map.new(report["mutation"]["results"], &{&1["id"], &1["status"]})
+  end
+
+  @tag spec: ["mutagen.cli.r6", "mutagen.cli.r35", "mutagen.cli.r36", "mutagen.json_schema.r37"]
+  test "summary output, site selection and aborts preserve the JSON contract", %{repo: repo} do
+    write(repo, @source, source(1))
+    narrow_tests(repo)
+    base = commit(repo)
+    write(repo, @source, source(2))
+
+    changed = ["--since", base, "--no-escalate"]
+    classic = ["--scope", @source, "--tests", @convention]
+    write(repo, "out/directory/keep", "sentinel")
+    File.ln_s!("directory/keep", Path.join(repo, "out/same.md"))
+
+    report =
+      run(repo, classic ++ ["--no-source", "--summary", "out/classic.md", "--summary-max", "1"])
+
+    [entry] = report["summary"]["worth_a_look"]
+    assert entry["rerun"] =~ "--no-source"
+    assert_reruns(repo, report)
+    assert File.stat!(Path.join(repo, "out/classic.md")).mode |> Bitwise.band(0o777) == 0o600
+    refute File.read!(Path.join(repo, "out/classic.md")) =~ @source
+
+    bad = [
+      {changed ++ ["--summary", "-"], "unsafe_summary_path"},
+      {changed ++ ["--summary", ".." <> "/outside.md"], "unsafe_summary_path"},
+      {changed ++ ["--summary-max", "-1"], "invalid_summary_max"},
+      {changed ++ ["--summary", "out/same.md", "--json", "out/directory/keep"],
+       "summary_path_conflict"},
+      {changed ++ ["--summary", "out/directory"], "summary_write_failed"},
+      {changed ++ ["--site", String.duplicate("a", 64)], "site_not_found"}
+    ]
+
+    for {args, reason} <- bad do
+      {body, code} = invoke(repo, args)
+
+      if reason == "summary_path_conflict" do
+        assert body == ""
+
+        assert %{"abort_reason" => ^reason} =
+                 repo |> Path.join("out/directory/keep") |> File.read!() |> JSON.decode!()
+      else
+        assert %{"abort_reason" => ^reason, "aborted" => true} = JSON.decode!(body)
+      end
+
+      assert code == 2
+    end
+
+    assert [] == Path.wildcard(Path.join(repo, "out/**/.mutagen-*.tmp"), match_dot: true)
+  end
+
+  defp assert_summary(report, check_first, worth) do
+    summary = report["summary"]
+    assert summary["verdict"] == "check_first"
+
+    assert Enum.map(summary["check_first"], &{&1["kind"], &1["function"]}) ==
+             Enum.map(check_first, &{"not_executed", "GateFixture.Example.#{&1}/1"})
+
+    assert Enum.map(summary["worth_a_look"], &{&1["function"], &1["mutator"]}) ==
+             Enum.map(worth, fn {name, mutator} -> {"GateFixture.Example.#{name}/1", mutator} end)
+  end
+
+  defp assert_markdown(repo, path, golden, base) do
+    actual = repo |> Path.join(path) |> File.read!() |> String.replace(base, "<BASE>")
+    golden = Path.join([__DIR__, "../mutagen_ex/golden", "#{golden}.md"])
+    if System.get_env("REGEN") == "1", do: File.write!(golden, actual)
+    assert actual == File.read!(golden)
+  end
+
+  defp assert_reruns(repo, report) do
+    summary = report["summary"]
+
+    entries =
+      Enum.map(summary["check_first"], &{&1["example"], "uncovered"}) ++
+        Enum.map(summary["worth_a_look"], &{&1, "survived"})
+
+    for {entry, status} <- entries do
+      ebin = Path.expand(Mix.Project.compile_path())
+      flags = "+S 2:2 +SDcpu 1 +SDio 2 -pa #{inspect(ebin)}"
+      {raw, 0} = System.cmd("sh", ["-c", entry["rerun"]], cd: repo, env: [{"ERL_AFLAGS", flags}])
+      mutation = JSON.decode!(raw)["mutation"]
+      assert [site] = mutation["results"] ++ mutation["pending"]
+      assert (site["status"] || site["reason"]) == status
+
+      selected =
+        if summary["source"],
+          do: site["id"],
+          else: MutagenEx.MutationEnumerator.Site.reference(site["id"])
+
+      assert selected == entry["id"]
+    end
   end
 
   defp source(n) do

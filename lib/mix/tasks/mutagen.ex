@@ -12,6 +12,35 @@ defmodule Mix.Tasks.Mutagen do
   set of tests. The final JSON document goes to stdout or `--json <path>`.
   It lists every mutation and its outcome together with run metadata.
 
+  ## Reading the summary
+
+      MIX_ENV=test mix mutagen --since origin/main --summary mutagen.md --json mutagen.json
+
+  The JSON and Markdown reports give advice for one run. Check first marks
+  functions whose changed sites went unexecuted or where at least three
+  evaluated high-confidence mutants all survived. Worth a look lists
+  remaining high-confidence survivors. Low-confidence survivors stay in the
+  detailed results. Timeouts are counted as unevaluated.
+
+  Copy a printed `--site <id>` command to rerun one site with wider
+  automatic test discovery. Use the same checkout.
+
+  ## Audit mode
+
+      MIX_ENV=test mix mutagen --scope MyApp.Billing --tests auto --json billing.json
+      jq '.summary.by_function[]' billing.json
+      find lib/my_app -name '*.ex' -exec env MIX_ENV=test mix mutagen --scope {} --tests auto \\; > audit.ndjson
+      jq -rs 'sort_by(.summary.counts.kill_rate // 2)[] | [.summary.counts.kill_rate, ([.scope[].module] | join(", "))] | @tsv' audit.ndjson
+
+  ## Running in CI
+
+  Check out full history (`fetch-depth: 0`). A shallow checkout aborts.
+  Use the changed-code command above, append the Markdown to
+  `$GITHUB_STEP_SUMMARY` when present, and upload the JSON. Use
+  `continue-on-error: true` for aborts. See the README for a GitHub Actions
+  example. The unmapped list shows changed lines outside runtime mutation
+  sites, including attributes and macros. Each run is advisory.
+
   ## Host test setup
 
   Use `MIX_ENV=test` or explicitly select a custom test environment.
@@ -43,6 +72,11 @@ defmodule Mix.Tasks.Mutagen do
     * `--tests <target>` (repeatable, required without `--since`) — which tests judge the
       mutations. One of: a test file path, a `file:line` reference, or
       `tag:<name>`. Repeat the flag to add more targets, or use `auto`.
+    * `--summary <path>` writes Markdown to a file alongside the JSON report.
+      The files must have distinct paths. The path follows the JSON path
+      safety rules. Use a filename instead of `-`.
+    * `--summary-max <int>` caps the Worth a look list. Default 5, minimum 0.
+    * `--site <id>` selects one report site. It defaults to automatic tests.
     * `--since <ref>` plans the runtime mutations touched since the merge
       base with the given ref. `--scope` intersects the diff when supplied.
       Test selection defaults to `auto`.
@@ -158,7 +192,8 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Exit Codes
 
-    * `0` — pipeline ran to completion, even if every mutation survived.
+    * `0` means Mutagen wrote a report, including incomplete runs and runs
+      with surviving mutants.
     * `2` means Mutagen aborted and wrote an error document to stdout or
       `--json <path>`. The string field `abort_reason` identifies the error.
 
@@ -243,7 +278,7 @@ defmodule Mix.Tasks.Mutagen do
 
   use Mix.Task
 
-  alias MutagenEx.{ChangedRun, CLI, MutationRunner}
+  alias MutagenEx.{ChangedRun, CLI, JsonReporter, MutationRunner}
   alias MutagenEx.Config
   alias MutagenEx.Runtime
   alias MutagenEx.JsonReporter.Report
@@ -332,6 +367,8 @@ defmodule Mix.Tasks.Mutagen do
     MutagenEx.JsonReporter,
     MutagenEx.JsonReporter.Report,
     MutagenEx.JsonStreamer,
+    MutagenEx.ReportSummary,
+    MutagenEx.MarkdownSummary,
     MutagenEx.JsonReporter.Redactor,
     MutagenEx.JsonReporter.Provenance,
     MutagenEx.Mutators,
@@ -483,8 +520,20 @@ defmodule Mix.Tasks.Mutagen do
   end
 
   defp emit_result({:ok, report, config}, dispatch, stdout) do
-    maybe_emit_stream_end(report, config, stdout)
-    emit_success(report, config, dispatch)
+    report = %{report | summary: JsonReporter.summary(report)}
+
+    case write_summary(report, config) do
+      :ok ->
+        maybe_emit_stream_end(report, config, stdout)
+        emit_success(report, config, dispatch)
+
+      {:error, _} ->
+        emit_result(
+          {:abort, %{report | summary: nil}, config, :summary_write_failed, %{}},
+          dispatch,
+          stdout
+        )
+    end
   end
 
   defp emit_result({:abort, %Report{} = report, config, reason, details}, dispatch, stdout) do
@@ -495,6 +544,14 @@ defmodule Mix.Tasks.Mutagen do
     )
 
     emit_abort(report, config, reason, details, dispatch)
+  end
+
+  defp write_summary(_report, %{summary_path: nil}), do: :ok
+
+  defp write_summary(report, config) do
+    meta = JsonReporter.stream_meta_to_wire(report.meta, report)
+    document = MutagenEx.MarkdownSummary.render(%{"meta" => meta, "summary" => report.summary})
+    MutagenEx.Pipeline.DefaultIo.write_summary(document, config)
   end
 
   @doc false
@@ -612,7 +669,8 @@ defmodule Mix.Tasks.Mutagen do
       {:ok, config} ->
         report = with_meta(base_report(nil), config)
 
-        with {:ok, config} <- phase_json_path(config, report) do
+        with {:ok, config} <- phase_json_path(config, report),
+             {:ok, config} <- phase_summary_path(config, report) do
           run_configured_pipeline(mode, config, report, dispatch, output, argv)
         end
 
@@ -644,11 +702,14 @@ defmodule Mix.Tasks.Mutagen do
          output,
          argv
        )
-       when is_binary(since) or config.tests == ["auto"] do
+       when is_binary(since) or config.tests == ["auto"] or is_binary(config.site) do
     ChangedRun.run(config, report, %{
       command: host_command(argv),
       boot: &with_host(mode, config, &1, argv, &2),
-      scope: &phase_scope(config, dispatch, &1),
+      scope: fn report, roots ->
+        config = %{config | scopes: default_site_scopes(config, roots)}
+        phase_scope(config, dispatch, report)
+      end,
       ast_cache: &phase_ast_cache(config, &1, &2, dispatch, &3),
       tests: &phase_tests(config, dispatch, &1, &2),
       phases: &selected_phases(&1, config, dispatch, output, &2),
@@ -663,6 +724,12 @@ defmodule Mix.Tasks.Mutagen do
       do_pipeline(config, report, dispatch, output, state)
     end)
   end
+
+  defp default_site_scopes(%Config{scopes: [], site: site}, roots) when is_binary(site) do
+    Enum.flat_map(roots, &Path.wildcard(Path.join(&1, "**/*.ex")))
+  end
+
+  defp default_site_scopes(config, _roots), do: config.scopes
 
   defp with_host(:prepared, _config, report, _argv, pipeline) do
     pipeline.(report, %{test_paths: Runtime.test_paths(), exunit: []})
@@ -937,6 +1004,24 @@ defmodule Mix.Tasks.Mutagen do
       {:error, reason, details} ->
         {:abort, report, %{config | json_path: nil}, reason,
          Map.put(details, :step, :report_path)}
+    end
+  end
+
+  defp phase_summary_path(%Config{summary_path: nil} = config, _report), do: {:ok, config}
+
+  defp phase_summary_path(%Config{summary_path: path} = config, report) do
+    root = config.json_root || Process.get(:mutagen_json_path_project_root) || File.cwd!()
+    opts = [project_root: root, unsafe_outside_project: config.unsafe_json_outside_project]
+
+    case MutagenEx.JsonPath.canonicalize(path, opts) do
+      {:ok, canonical} when canonical != config.json_path ->
+        {:ok, %{config | summary_path: canonical, summary_requested: path, json_root: root}}
+
+      {:ok, _same_path} ->
+        {:abort, report, config, :summary_path_conflict, %{step: :report_path}}
+
+      {:error, _, _} ->
+        {:abort, report, config, :unsafe_summary_path, %{step: :report_path}}
     end
   end
 
@@ -1323,7 +1408,21 @@ defmodule Mix.Tasks.Mutagen do
             max_concurrency: config.max_concurrency || 1
           }),
         source: config.source,
-        include_host_output: config.include_host_output
+        include_host_output: config.include_host_output,
+        summary_max: config.summary_max,
+        rerun_options: summary_rerun_options(config)
+    }
+  end
+
+  defp summary_rerun_options(config) do
+    %{
+      seed: config.seed,
+      timeout_ms: if(config.timeout_override, do: config.timeout_ms),
+      boot_timeout_ms: config.boot_timeout_ms,
+      host_app: config.host_app,
+      test_alias: config.test_alias,
+      fail_fast: config.fail_fast,
+      escalate_max_files: config.escalate_max_files
     }
   end
 

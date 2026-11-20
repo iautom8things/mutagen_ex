@@ -26,6 +26,31 @@ defmodule MutagenEx.JsonReporterTest do
   alias MutagenEx.JsonReporter
   alias MutagenEx.JsonReporter.Report
 
+  @tag spec: ["mutagen.cli.r6", "mutagen.json_schema.r33"]
+  test "the tool returns only 0 for reports and 2 for every abort reason" do
+    completed = %Report{}
+    incomplete = %Report{truncated: true}
+    changed = %Report{meta: %{since: %{runtime: 0}, incomplete_reasons: []}}
+
+    assert Enum.map([completed, incomplete], fn report ->
+             {body, code} = JsonReporter.emit_report(report)
+             refute body |> IO.iodata_to_binary() |> JSON.decode!() |> Map.fetch!("aborted")
+             code
+           end)
+           |> Enum.uniq() == [0]
+
+    assert Enum.map(JsonReporter.abort_reasons(), fn reason ->
+             {body, code} = JsonReporter.emit_error(changed, String.to_atom(reason))
+             report = body |> IO.iodata_to_binary() |> JSON.decode!()
+
+             assert %{"aborted" => true, "abort_reason" => ^reason} = report
+             assert get_in(report, ["meta", "complete"]) == false
+
+             code
+           end)
+           |> Enum.uniq() == [2]
+  end
+
   # ---------------------------------------------------------------------------
   # Helpers
   # ---------------------------------------------------------------------------
@@ -357,7 +382,7 @@ defmodule MutagenEx.JsonReporterTest do
       decoded = decode(iodata)
 
       for key <-
-            ~w(version meta scope tests baseline coverage mutation warnings aborted abort_reason details truncated) do
+            ~w(version meta scope tests baseline coverage mutation summary warnings aborted abort_reason details truncated) do
         assert Map.has_key?(decoded, key), "abort doc missing top-level key #{key}"
       end
     end

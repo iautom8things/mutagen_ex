@@ -34,6 +34,8 @@ surface:
   - lib/mutagen_ex/json_reporter/provenance.ex
   - lib/mutagen_ex/json_reporter.ex
   - lib/mutagen_ex/json_streamer.ex
+  - lib/mutagen_ex/report_summary.ex
+  - lib/mutagen_ex/markdown_summary.ex
   - test/mutagen_ex/golden/baseline_red.json
   - test/mutagen_ex/golden/coverage_full_mutation_partial.json
   - test/mutagen_ex/golden/coverage_partial_mutation_perfect.json
@@ -54,6 +56,7 @@ surface:
   - test/mutagen_ex/golden/partial_report_cover_failure.json
 decisions:
   - mutagen.decision.escalation_outcomes
+  - mutagen.decision.advisory_only
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
@@ -83,6 +86,8 @@ Top-level keys, all present in every variant unless noted:
   ran.
 - `mutation`: full mutation block (see r3) or `null` if mutation phase never
   ran.
+- `summary`: advisory verdict, counts, ranked findings and notes. The
+  NDJSON end record carries the same summary. See r36 and r37.
 - `warnings`: array of strings. May be empty.
 - `aborted`: boolean. `false` for full pipeline completion; `true` for any
   pre-completion exit.
@@ -556,6 +561,28 @@ Top-level keys, all present in every variant unless noted:
     untracked files under it exceeded the limit and that ignoring the directory
     fixes it.
 
+- id: mutagen.json_schema.r36
+  priority: must
+  statement: |
+    The aggregate and stream end carry the same additive summary. Check
+    first identifies a function with only uncovered sites in a changed-code
+    run or at least three evaluated high-confidence sites with no kill.
+    Remaining high-confidence survivors are ranked by the provisional
+    mutator order and then file, line and ID. The report records the number
+    omitted by the cap. Timeouts are unevaluated. Taint is counted as a note.
+    Kills marked selection.after_dropped_file still count as kills and carry
+    a run-level note with their count. Each step's dropped_after_load count
+    contributes to the run's loaded-and-dropped file count. Per-function
+    kill rates use only killed and surviving sites.
+
+- id: mutagen.json_schema.r37
+  priority: must
+  statement: |
+    Markdown renders the aggregate summary and its counts without host
+    diagnostics. --no-source omits function names, file paths and excerpts
+    from summary entries and uses opaque rerun references. The rendered
+    summary describes incomplete evidence, unmapped lines and skipped
+    escalation files. A clean run renders two lines.
 ```
 
 ```spec-scenarios
@@ -793,11 +820,15 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r27
     - mutagen.json_schema.r33
     - mutagen.json_schema.r34
+    - mutagen.json_schema.r36
+    - mutagen.json_schema.r37
 - kind: tagged_tests
   target: test/integration/gate_wiring_test.exs
   covers:
     - mutagen.json_schema.r34
     - mutagen.json_schema.r35
+    - mutagen.json_schema.r36
+    - mutagen.json_schema.r37
 ```
 
 ## Default string provenance
@@ -818,6 +849,31 @@ the envelope fields and add `kind`.
 | `meta.tool_version` | Mutagen build | Keep |
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
+| `summary.verdict` | Tool vocabulary | Keep |
+| `summary.check_first[].kind` | Tool vocabulary | Keep |
+| `summary.check_first[].file` | Project source path | Omit with --no-source |
+| `summary.check_first[].function` | Source definition | Omit with --no-source |
+| `summary.check_first[].example.id` | Content-addressed site ID | Use an opaque reference with --no-source |
+| `summary.check_first[].example.file` | Project source path | Omit with --no-source |
+| `summary.check_first[].example.function` | Source definition | Omit with --no-source |
+| `summary.check_first[].example.mutator` | Tool mutator name | Keep |
+| `summary.check_first[].example.before_source` | Source excerpt | Cap and omit with --no-source |
+| `summary.check_first[].example.after` | Mutant source | Cap and omit with --no-source |
+| `summary.check_first[].example.steps_run[]` | Tool step name | Keep |
+| `summary.check_first[].example.rerun` | Fixed command with site selector and tool options | Use an opaque selector for source-free or rewritten IDs |
+| `summary.worth_a_look[].id` | Content-addressed site ID | Use an opaque reference with --no-source |
+| `summary.worth_a_look[].file` | Project source path | Omit with --no-source |
+| `summary.worth_a_look[].function` | Source definition | Omit with --no-source |
+| `summary.worth_a_look[].mutator` | Tool mutator name | Keep |
+| `summary.worth_a_look[].before_source` | Source excerpt | Cap and omit with --no-source |
+| `summary.worth_a_look[].after` | Mutant source | Cap and omit with --no-source |
+| `summary.worth_a_look[].steps_run[]` | Tool step name | Keep |
+| `summary.worth_a_look[].rerun` | Fixed command with site selector and tool options | Use an opaque selector for source-free or rewritten IDs |
+| `summary.by_function[].file` | Project source path | Omit with --no-source |
+| `summary.by_function[].function` | Source definition | Omit with --no-source |
+| `summary.notes[].kind` | Tool vocabulary | Keep |
+| `summary.notes[].reason` | Tool escalation vocabulary | Keep |
+| `summary.notes[].files[]` | Project test paths from discovery | Omit with --no-source |
 | `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
 | `meta.since.ref` | CLI ref | Keep after Git resolves it |
 | `meta.since.base` | Verified Git object ID | Keep |
@@ -934,7 +990,9 @@ exception names. Pattern redaction is best-effort.
 | `invalid_mix_env` |
 | `invalid_redact_config` |
 | `invalid_seed` |
+| `invalid_site` |
 | `invalid_since_ref` |
+| `invalid_summary_max` |
 | `invalid_tag_name` |
 | `invalid_target` |
 | `invalid_timeout` |
@@ -947,6 +1005,9 @@ exception names. Pattern redaction is best-effort.
 | `parse_error` |
 | `runtime_load_failed` |
 | `self_mutation_refused` |
+| `site_not_found` |
+| `summary_path_conflict` |
+| `summary_write_failed` |
 | `test_alias_failed` |
 | `test_file_load_failed` |
 | `test_helper_load_failed` |
@@ -957,5 +1018,6 @@ exception names. Pattern redaction is best-effort.
 | `unrecognised_target` |
 | `unrecoverable_restore_failure` |
 | `unsafe_json_path` |
+| `unsafe_summary_path` |
 | `unsupported_elixir_version` |
 | `unsupported_otp_version` |
