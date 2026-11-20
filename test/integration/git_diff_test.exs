@@ -827,6 +827,7 @@ defmodule MutagenEx.GitDiffIntegrationTest do
       write!(repo, "Lib/old.ex", "first\nsecond\nthird\nfourth\n")
       commit!(repo, "Base")
       base = sha(repo)
+      File.mkdir_p!(Path.join(repo, "lib"))
       git!(repo, ["mv", "Lib/old.ex", "lib/new.ex"])
       write!(repo, "lib/new.ex", "first\nsecond\nchanged\nfourth\n")
 
