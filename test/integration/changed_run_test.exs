@@ -365,7 +365,7 @@ defmodule MutagenEx.ChangedRunTest do
              )
 
       refute Enum.any?(report["summary"]["check_first"], &(&1["function"] =~ ".guarded/1"))
-      assert File.read!(Path.join(repo, "out/probe.md")) =~ "Probe evidence was inconclusive"
+      assert File.read!(Path.join(repo, "out/probe.md")) =~ "sites the probe could not reach"
     end
   end
 
@@ -664,6 +664,81 @@ defmodule MutagenEx.ChangedRunTest do
              Enum.map(paths, &%{"path" => &1, "why" => "changed_in_diff"})
 
     assert report["mutation"]["killed"] == 1
+  end
+
+  @tag spec: ["mutagen.json_schema.r36", "mutagen.json_schema.r37"]
+  test "a changed module without convention tests gives a selection remedy and no probe finding",
+       %{repo: repo} do
+    unmatched = "src/changed_run_fixture/report.ex"
+    source = "defmodule ChangedRunFixture.Report do\n  def label(x), do: x + 1\nend\n"
+    write(repo, unmatched, source)
+    base = commit(repo)
+    write(repo, unmatched, String.replace(source, "+ 1", "+ 2"))
+
+    args = ["--since", base, "--summary", "out/advice.md"]
+    empty = run(repo, args)
+    assert empty["tests"]["files"] == []
+    assert empty["summary"]["execution"]["could_not_tell"] == 0
+    assert [%{"kind" => "no_test_files_selected"}] = empty["summary"]["notes"]
+    assert [%{"probe_reason" => "probe_no_tests"} | _] = empty["mutation"]["pending"]
+    refute File.exists?(Path.join(repo, "booted"))
+    text = File.read!(Path.join(repo, "out/advice.md"))
+
+    assert text =~
+             "No test file was selected for these changes. Pass `--tests PATH` or add `--escalate`."
+
+    refute text =~ "the probe could not reach"
+  end
+
+  @tag spec: "mutagen.test_selection.r9"
+  test "only source files with planned sites contribute convention files to the narrow run", %{
+    repo: repo
+  } do
+    write(repo, @source, source(1))
+    narrow_tests(repo)
+
+    incidental = "src/changed_run_fixture/incidental.ex"
+    incidental_source = "defmodule ChangedRunFixture.Incidental do\n  def value, do: 1\nend\n"
+    write(repo, incidental, incidental_source)
+
+    write(
+      repo,
+      "checks/changed_run_fixture/incidental_test.exs",
+      ~s(raise "loaded a test for a comment-only edit")
+    )
+
+    base = commit(repo)
+    write(repo, incidental, "# comment only\n" <> incidental_source)
+
+    write(repo, @source, source(2))
+    selected = run(repo, ["--since", base])
+    assert selected["tests"]["files"] == [@convention]
+    assert selected["meta"]["tests_selected"] == [%{"path" => @convention, "why" => "convention"}]
+  end
+
+  @tag spec: ["mutagen.json_schema.r31", "mutagen.json_schema.r37"]
+  test "Markdown gives the mutation budget reason for aggregate and stream output", %{repo: repo} do
+    write(repo, @source, source(1))
+    narrow_tests(repo)
+    base = commit(repo)
+    write(repo, @source, source(2))
+
+    for stream <- [[], ["--stream"]] do
+      args = ["--since", base, "--budget-ms", "1", "--summary", "out/budget.md"] ++ stream
+      {raw, 0} = invoke(repo, args)
+      reports = raw |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+      assert %{"truncated" => true, "meta" => meta} = List.last(reports)
+      assert %{"complete" => false, "incomplete_reasons" => reasons} = meta
+      assert %{"reason" => "mutation_budget_exhausted", "path" => nil} in reasons
+
+      if stream != [] do
+        assert %{"kind" => "end", "meta" => %{"incomplete_reasons" => ^reasons}} =
+                 Enum.at(reports, -2)
+      end
+
+      text = File.read!(Path.join(repo, "out/budget.md"))
+      assert text =~ "### Notes\n\n- The mutation time budget expired before the run finished."
+    end
   end
 
   @tag spec: ["mutagen.scope_resolution.r11", "mutagen.coverage.r12"]
@@ -1572,7 +1647,7 @@ defmodule MutagenEx.ChangedRunTest do
 
     assert report["summary"]["check_first"] == []
 
-    assert [%{"rerun" => rerun, "escalation_incomplete" => true}] =
+    assert [%{"id" => id, "rerun" => rerun, "escalation_incomplete" => true}] =
              report["summary"]["worth_a_look"]
 
     assert rerun =~ "--escalate --escalate-max-files 40"
@@ -1583,6 +1658,14 @@ defmodule MutagenEx.ChangedRunTest do
     assert markdown =~ "not fully escalated"
     assert markdown =~ "the escalation budget ran out"
     assert markdown =~ "`--escalate-budget-ms`"
+
+    single =
+      run(repo, args ++ ["--site", id, "--escalate-budget-ms", "1", "--summary", "single.md"])
+
+    assert %{"kind" => "site_escalation_no_files"} in single["summary"]["notes"]
+
+    assert File.read!(Path.join(repo, "single.md")) =~
+             "Single-site escalation admitted no test files."
 
     complete = run(repo, args ++ ["--escalate-budget-ms", "0"])
     assert [%{"status" => "killed", "selection" => selection}] = complete["mutation"]["results"]

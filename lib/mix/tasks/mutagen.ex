@@ -100,7 +100,9 @@ defmodule Mix.Tasks.Mutagen do
       `--no-escalate` is accepted with no effect for one release.
     * `--escalate-max-files <int>` caps files per function in each pass. Default 20.
     * `--escalate-budget-ms <int>` limits time spent on the extra passes. Default
-      120000. Zero removes the escalation time limit.
+      120000. Zero removes the limit for runs without `--site`. A single-site
+      run caps this budget at the larger of 30 seconds and ten times the
+      narrow baseline.
     * `--boot-timeout-ms <int>` sets the deadline for host setup after
       compilation and the deadline for each cleanup callback. Each
       coverage and baseline pass gets the greater of this timeout and
@@ -595,7 +597,7 @@ defmodule Mix.Tasks.Mutagen do
   defp write_summary(_report, %{summary_path: nil}), do: :ok
 
   defp write_summary(report, config) do
-    meta = JsonReporter.stream_meta_to_wire(report.meta, report)
+    meta = JsonReporter.stream_end_meta_to_wire(report)
     document = MutagenEx.MarkdownSummary.render(%{"meta" => meta, "summary" => report.summary})
     MutagenEx.Pipeline.DefaultIo.write_summary(document, config)
   end
