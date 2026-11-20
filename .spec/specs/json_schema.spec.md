@@ -587,7 +587,8 @@ Top-level keys, all present in every variant unless noted:
 - id: mutagen.json_schema.r37
   priority: must
   statement: |
-    Markdown renders the aggregate summary and its counts without host
+    Markdown shows the kill rate with the number of killed and surviving
+    sites used in the calculation. Markdown renders the summary without host
     diagnostics. --no-source omits function names, file paths and excerpts
     from summary entries and uses opaque rerun references. The rendered
     summary describes incomplete evidence, unmapped lines, out-of-scope
@@ -596,6 +597,14 @@ Top-level keys, all present in every variant unless noted:
     summary with the fixed abort reason and hint. A single-line excerpt
     can show the full line before and after to distinguish repeated
     literals. A clean run renders two lines.
+- id: mutagen.json_schema.r38
+  priority: must
+  statement: |
+    When escalation uses more than half the run wall time, JSON summary notes
+    and Markdown list each escalation step's elapsed milliseconds. These
+    notes can vary between invocations and appear in both aggregate and
+    stream summaries.
+
 ```
 
 ```spec-scenarios
@@ -885,6 +894,7 @@ the envelope fields and add `kind`.
 | `summary.by_function[].file` | Project source path | Omit with --no-source |
 | `summary.by_function[].function` | Source definition | Omit with --no-source |
 | `summary.notes[].kind` | Tool vocabulary | Keep |
+| `summary.notes[].step` | Tool escalation step | Keep |
 | `summary.notes[].reason` | Tool escalation vocabulary | Keep |
 | `summary.notes[].files[]` | Project test paths from discovery | Omit with --no-source |
 | `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |

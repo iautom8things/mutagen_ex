@@ -75,7 +75,7 @@ decisions:
   priority: must
   statement: |
     `--timeout-ms <n>` populates `Config.timeout_ms` as a positive integer.
-    The default ceiling is 30000. Non-positive or non-integer values cause an error-JSON
+    Non-positive or non-integer values cause an error-JSON
     exit before any pipeline phase runs.
 
 - id: mutagen.cli.r4
@@ -599,6 +599,8 @@ decisions:
     project boundary as --json. The summary must have its own file.
     A summary path or write failure emits an abort document and exits 2.
     --summary-max accepts a non-negative integer and defaults to five.
+    Mix help and the README flag entry state that summary paths stay within
+    the project root unless --unsafe-json-outside-project is set.
 
 - id: mutagen.cli.r36
   priority: must
@@ -607,6 +609,13 @@ decisions:
     reference. An unknown site produces an abort document. The generated
     command reruns the site with automatic discovery and a larger search
     allowance. With --since it retains the original merge base.
+
+- id: mutagen.cli.r37
+  priority: must
+  statement: |
+    --escalate-budget-ms sets the total time limit for automatic escalation.
+    It accepts non-negative milliseconds, defaults to 120000, and removes
+    the time limit when set to zero.
 ```
 
 ```spec-scenarios

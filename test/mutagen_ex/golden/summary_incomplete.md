@@ -1,6 +1,6 @@
 **Tests failed on the unmutated code** `test/broken_test.exs`.
 
-**Mutagen has incomplete results.** 3 mutants run · 1 killed · 1 survived · 1 unevaluated · kill rate 50.0% · 1 changed file · 1 changed function
+**Mutagen has incomplete results.** 3 mutants run · 1 killed · 1 survived · 1 unevaluated · kill rate 50.0% (1/2 evaluated) · 1 changed file · 1 changed function
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.
 
 ### Notes

@@ -107,7 +107,7 @@ defmodule MutagenEx.MarkdownSummary do
       "#{quantity(counts["run"], "mutant")} run · #{counts["killed"]} killed · #{counts["survived"]} survived",
       " · #{summary["unevaluated"]["count"]} unevaluated",
       uncovered_count(since),
-      " · kill rate #{percent(counts["kill_rate"])}",
+      " · kill rate #{kill_rate(counts)}",
       changed,
       "\n"
     ]
@@ -128,7 +128,12 @@ defmodule MutagenEx.MarkdownSummary do
   defp quantity(1, unit), do: "1 #{unit}"
   defp quantity(count, unit), do: "#{count} #{unit}s"
 
-  defp percent(nil), do: "n/a"
+  defp kill_rate(%{"kill_rate" => nil}), do: "n/a (0 evaluated)"
+
+  defp kill_rate(%{"killed" => killed, "survived" => survived, "kill_rate" => rate}) do
+    "#{percent(rate)} (#{killed}/#{killed + survived} evaluated)"
+  end
+
   defp percent(rate), do: "#{Float.round(rate * 100, 1)}%"
 
   defp section(_title, [], _renderer), do: []
@@ -256,6 +261,17 @@ defmodule MutagenEx.MarkdownSummary do
       ".\n"
     ]
   end
+
+  defp note(%{
+         "kind" => "mutant_deadline_below_baseline",
+         "deadline_ms" => deadline,
+         "baseline_ms" => baseline
+       }),
+       do:
+         "- The requested mutant deadline (#{deadline} ms) is shorter than the baseline (#{baseline} ms).\n"
+
+  defp note(%{"kind" => "escalation_wall_time", "step" => step, "wall_ms" => wall_ms}),
+    do: "- The #{step} escalation pass took #{wall_ms} ms.\n"
 
   defp note(%{"kind" => "tainted_predecessors", "count" => count}),
     do: "- #{quantity(count, "result")} followed a timeout or host state change.\n"

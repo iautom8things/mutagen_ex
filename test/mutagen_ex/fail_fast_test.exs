@@ -184,7 +184,7 @@ defmodule MutagenEx.FailFastTest do
       :baseline ->
         ticks = :counters.get(calls, 1)
         :counters.add(calls, 1, 1)
-        System.convert_time_unit(ticks * 1_200, :millisecond, :native)
+        System.convert_time_unit(ticks * 57_000, :millisecond, :native)
 
       _phase ->
         System.monotonic_time()
@@ -193,19 +193,23 @@ defmodule MutagenEx.FailFastTest do
     {output, _, _} =
       invoke([], 0, {@fixture, @source, @tests}, %{
         clock: clock,
-        mutation: __MODULE__.TraceMutation
+        mutation: __MODULE__.DeadlineMutation
       })
 
-    assert %{"baseline" => 1_200, "mutant_deadline" => 12_000} =
+    assert %{"baseline" => 57_000, "mutant_deadline" => 570_000} =
              :json.decode(output)["meta"]["timings_ms"]
 
-    assert Process.get(:observed_mutant_deadline) == 12_000
+    assert Process.get(:observed_mutant_deadline) == 570_000
 
     config = %MutagenEx.Config{scopes: [], tests: [], timeout_override: true, timeout_ms: 7_000}
-    report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 1_200}}}
+    report = %MutagenEx.JsonReporter.Report{meta: %{timings_ms: %{baseline: 57_000}}}
 
     timed = Phases.put_mutant_deadline(report, config)
     assert timed.meta.timings_ms.mutant_deadline == 7_000
+
+    assert "mutant_deadline_below_baseline: 7000 ms < 57000 ms" in MutagenEx.JsonReporter.to_wire(
+             timed
+           )["warnings"]
   end
 
   @tag scenario: :slow_cleanup
@@ -606,6 +610,16 @@ defmodule MutagenEx.FailFastTest do
     def discard_pending_modules do
       Process.put(:fail_fast_drains, Process.get(:fail_fast_drains, 0) + 1)
       MutagenEx.Test.ExUnitServer.discard_pending_modules()
+    end
+  end
+
+  defmodule DeadlineMutation do
+    @behaviour MutagenEx.Pipeline.MutationFacade
+
+    @impl MutagenEx.Pipeline.MutationFacade
+    def run(config) do
+      Process.put(:observed_mutant_deadline, config.timeout_ms)
+      {:ok, %{results: [], compile_errors: [], state_drift_warning: %{}, warnings: []}}
     end
   end
 

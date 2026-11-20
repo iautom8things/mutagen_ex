@@ -125,6 +125,111 @@ defmodule MutagenEx.ChangedRunTest do
     refute Enum.any?(audit["mutation"]["pending"], &is_nil(&1["function"]))
   end
 
+  @tag spec: "mutagen.coverage.r14"
+  test "uses the actual measured lines for multiline sites in classic and changed runs", %{
+    repo: repo
+  } do
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
+
+    write(
+      repo,
+      @convention,
+      test_case("MeasuredLines", """
+        alias ChangedRunFixture.Example
+
+        test "calls a single copy of each shape" do
+          assert Example.guard_live(2) == 3
+          assert Example.call_live(2) == 4
+          assert Example.pipe_live(2) == 14
+          assert Example.tuple_live(" two ") == {:ok, "two"}
+          assert Example.arm_live(:yes, 2) == 3
+        end
+      """)
+    )
+
+    base = commit(repo)
+
+    definitions =
+      for variant <- ["live", "cold"] do
+        """
+        def guard_#{variant}(n) when n > 0 do
+          n + 1
+        end
+
+        def call_#{variant}(n) do
+          max(
+            n + 1,
+            n * 2
+          )
+        end
+
+        def pipe_#{variant}(n) do
+          (n + 1)
+          |> then(&(&1 + 4))
+          |> then(&(&1 * 2))
+        end
+
+        def tuple_#{variant}(s) do
+          s = String.trim(s)
+          {:ok, s}
+        end
+
+        def arm_#{variant}(choice, n) do
+          case choice do
+            :yes -> n + 1
+            :no -> n * 2
+          end
+        end
+        """
+      end
+
+    write(
+      repo,
+      @source,
+      "defmodule ChangedRunFixture.Example do\n" <> Enum.join(definitions) <> "end\n"
+    )
+
+    changed = run(repo, ["--since", base, "--tests", @convention])
+    classic = run(repo, ["--scope", @source, "--tests", @convention])
+
+    for report <- [changed, classic] do
+      results = report["mutation"]["results"]
+      assert Enum.any?(results, &(&1["function"] =~ "guard_live/" and &1["mutator"] == "compare"))
+
+      assert Enum.any?(
+               results,
+               &(&1["function"] =~ "tuple_live/" and &1["mutator"] == "result_tuple")
+             )
+
+      for {name, expressions} <- [
+            {"call_live", ["n + 1", "n * 2"]},
+            {"pipe_live", ["n + 1", "&1 + 4", "&1 * 2"]},
+            {"arm_live", ["n + 1"]}
+          ],
+          expression <- expressions do
+        assert Enum.any?(results, fn row ->
+                 row["function"] =~ name and row["mutator"] == "arith" and
+                   row["before"] == expression
+               end),
+               {name, expression} |> inspect()
+      end
+
+      refute Enum.any?(results, &(&1["function"] =~ "_cold/"))
+      refute Enum.any?(results, &(&1["function"] =~ "arm_live/" and &1["before"] == "n * 2"))
+    end
+
+    pending = changed["mutation"]["pending"]
+
+    for name <- ~w(guard call pipe tuple arm) do
+      assert Enum.any?(
+               pending,
+               &(&1["function"] =~ "#{name}_cold/" and &1["reason"] == "uncovered")
+             )
+    end
+
+    assert Enum.any?(pending, &(&1["function"] =~ "arm_live/" and &1["reason"] == "uncovered"))
+  end
+
   @tag spec: "mutagen.cli.r5"
   test "failing OTP log handlers before and after reporting keep stdout valid", %{repo: repo} do
     write(repo, @source, """
@@ -378,7 +483,18 @@ defmodule MutagenEx.ChangedRunTest do
     write(repo, @source, source(2))
 
     changed_test = "checks/changed_test.exs"
-    write(repo, changed_test, test_case("Changed", ~s|test "runs", do: assert(true)|))
+
+    write(
+      repo,
+      changed_test,
+      test_case("Changed", ~s|test "runs", do: assert(true)|) <> "# ChangedRunFixture.Example\n"
+    )
+
+    write(
+      repo,
+      "checks/irrelevant_test.exs",
+      "# unrelated changed test\nraise \"unexpected narrow selection\"\n"
+    )
 
     args = ["--since", base]
     report = run(repo, args ++ ["--summary", "out/escalated.md"])
@@ -1351,7 +1467,13 @@ defmodule MutagenEx.ChangedRunTest do
   end
 
   defp assert_markdown(repo, path, golden, base) do
-    actual = repo |> Path.join(path) |> File.read!() |> String.replace(base, "<BASE>")
+    actual =
+      repo
+      |> Path.join(path)
+      |> File.read!()
+      |> String.replace(base, "<BASE>")
+      |> String.replace(~r/^- The (module|function) escalation pass took \d+ ms\.\n/m, "")
+
     golden = Path.join([__DIR__, "../mutagen_ex/golden", "#{golden}.md"])
     if System.get_env("REGEN") == "1", do: File.write!(golden, actual)
     assert actual == File.read!(golden)
@@ -1494,6 +1616,11 @@ defmodule MutagenEx.ChangedRunTest do
 
   defp clean_timings(raw) do
     raw
+    |> String.replace(
+      ~r/\{"kind":"escalation_wall_time","step":"(?:module|function)","wall_ms":\d+\},?/,
+      ""
+    )
+    |> String.replace(",]", "]")
     |> String.replace(~r/"timings_ms":\{[^{}]+\},|,"timings_ms":\{[^{}]+\}(?=\})/, "")
     |> String.replace(
       ~r/"(wall_ms|baseline_ms|mutant_deadline_ms|candidate_deadline_ms)":\d+/,

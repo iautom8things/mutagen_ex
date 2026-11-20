@@ -1,4 +1,4 @@
-**Mutagen found functions to check first.** 3 mutants run · 0 killed · 3 survived · 0 unevaluated · kill rate 0.0% · 1 changed file · 1 changed function
+**Mutagen found functions to check first.** 3 mutants run · 0 killed · 3 survived · 0 unevaluated · kill rate 0.0% (0/3 evaluated) · 1 changed file · 1 changed function
 
 ### Check first
 

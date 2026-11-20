@@ -139,7 +139,8 @@ decisions:
     With --tests auto, relative paths under the configured source roots
     map to *_test.exs paths under the configured test roots when present.
     A --since auto run also selects surviving test files changed in Git,
-    including renamed files. A missing convention match selects no file.
+    including renamed files, when a file matches the convention or mentions
+    an in-scope module under the same whole-word rule as the module step.
 
 - id: mutagen.test_selection.r10
   priority: must

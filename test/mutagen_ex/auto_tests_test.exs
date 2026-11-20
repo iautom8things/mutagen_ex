@@ -24,14 +24,19 @@ defmodule MutagenEx.AutoTestsTest do
       File.ln_s!("full_test.exs", "checks/symlink_test.exs")
 
       assert [
-               %{path: "checks/function_test.exs", why: :changed_in_diff},
+               %{path: "checks/module_test.exs", why: :changed_in_diff},
                %{path: "checks/nested/example_test.exs", why: :convention}
              ] =
                AutoTests.select(
-                 [%{file: "src/nested/example.ex"}, %{file: "src/nested/unmatched.ex"}],
+                 [%{file: "src/nested/example.ex", module: Fixture.Parent.Example}],
                  ["src"],
                  ["checks"],
-                 ["checks/function_test.exs"]
+                 [
+                   "checks/function_test.exs",
+                   "checks/module_test.exs",
+                   "checks/decoy_test.exs",
+                   "checks/other_test.exs"
+                 ]
                )
 
       survivors = [%{function: "Fixture.Parent.Example.call/1"}]

@@ -121,6 +121,7 @@ defmodule MutagenEx.CoverageRunner do
   @typedoc "Successful return."
   @type ok_result :: %{
           covered_lines: %{optional(String.t()) => MapSet.t(pos_integer())},
+          coverable_lines: %{optional(String.t()) => MapSet.t(pos_integer())},
           instrumented_modules: [module()],
           test_modules: [MutagenEx.TestModuleDiscovery.entry()]
         }
@@ -188,14 +189,13 @@ defmodule MutagenEx.CoverageRunner do
          :ok <- start_cover(cfg),
          {:ok, instrumented} <- cover_compile_modules(cfg),
          {:ok, stats, test_modules} <- run_cited_tests(cfg),
-         {:ok, covered} <- gather_covered_lines(cfg, instrumented) do
+         {:ok, lines} <- gather_covered_lines(cfg, instrumented) do
       {:ok,
-       %{
-         covered_lines: covered,
+       Map.merge(lines, %{
          instrumented_modules: instrumented,
          suite_stats: stats,
          test_modules: test_modules
-       }}
+       })}
     end
   end
 
@@ -446,16 +446,16 @@ defmodule MutagenEx.CoverageRunner do
       |> Enum.map(fn {_mod, file} -> file end)
       |> MapSet.new()
 
-    result =
-      Enum.reduce_while(instrumented, {:ok, %{}}, fn {module, file}, {:ok, acc} ->
+    Enum.reduce_while(instrumented, {:ok, %{covered_lines: %{}, coverable_lines: %{}}}, fn
+      {module, file}, {:ok, acc} ->
         case analyse_module(cover_mod, module) do
-          {:ok, lines} ->
-            # r5: drop entries for files not in cfg.in_scope_modules even
-            # if cover happens to surface them.
+          {:ok, {covered, coverable}} ->
             updated =
               if MapSet.member?(in_scope_files, file) do
-                set = Map.get(acc, file, MapSet.new())
-                Map.put(acc, file, MapSet.union(set, lines))
+                merge_lines(acc, %{
+                  covered_lines: %{file => covered},
+                  coverable_lines: %{file => coverable}
+                })
               else
                 acc
               end
@@ -470,9 +470,19 @@ defmodule MutagenEx.CoverageRunner do
                 message: "cover.analyse(#{inspect(module)}) failed: #{inspect(reason)}"
               }}}
         end
-      end)
+    end)
+  end
 
-    result
+  @doc false
+  def line_coverage(%{covered_lines: covered} = result) do
+    %{covered_lines: covered, coverable_lines: Map.get(result, :coverable_lines, covered)}
+  end
+
+  @doc false
+  def merge_lines(left, right) do
+    Map.merge(left, right, fn _, files, added ->
+      Map.merge(files, added, fn _, before, after_pass -> MapSet.union(before, after_pass) end)
+    end)
   end
 
   # `:cover.analyse(mod, :coverage, :line)` returns one of:
@@ -484,18 +494,18 @@ defmodule MutagenEx.CoverageRunner do
   defp analyse_module(cover_mod, module) do
     case cover_mod.analyse(module, :coverage, :line) do
       {:ok, lines} when is_list(lines) ->
-        set =
-          lines
-          |> Enum.reduce(MapSet.new(), fn
-            {{^module, line}, {covered, _not_covered}}, acc
-            when is_integer(line) and line > 0 and is_integer(covered) and covered > 0 ->
-              MapSet.put(acc, line)
+        sets =
+          Enum.reduce(lines, {MapSet.new(), MapSet.new()}, fn
+            {{^module, line}, {hits, _misses}}, {covered, coverable}
+            when is_integer(line) and line > 0 and is_integer(hits) ->
+              covered = if hits > 0, do: MapSet.put(covered, line), else: covered
+              {covered, MapSet.put(coverable, line)}
 
             _other, acc ->
               acc
           end)
 
-        {:ok, set}
+        {:ok, sets}
 
       {:error, _} = err ->
         err

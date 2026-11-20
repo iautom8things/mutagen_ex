@@ -262,10 +262,20 @@ defmodule MutagenEx.MutationEnumerator do
     dispatch_mode = Keyword.get(opts, :dispatch_mode, :head_atom)
     source? = Keyword.get(opts, :source, true)
 
+    coverable_lines = Keyword.get(opts, :coverable_lines)
+
     filter =
       case Keyword.fetch(opts, :planned) do
-        {:ok, changed_lines} -> {:planned, normalize_changed_lines(changed_lines)}
-        :error -> {:covered, covered_lines}
+        {:ok, changed_lines} ->
+          {:planned, normalize_changed_lines(changed_lines)}
+
+        :error ->
+          measurements =
+            Map.new(covered_lines, fn {file, hits} ->
+              {file, {hits, coverable_lines && coverable_lines[file]}}
+            end)
+
+          {:covered, measurements}
       end
 
     unless dispatch_mode in [:head_atom, :legacy] do
@@ -281,7 +291,8 @@ defmodule MutagenEx.MutationEnumerator do
       scopes
       |> Enum.group_by(fn {scope, _rank} -> scope.file end)
       |> Map.new(fn {file, file_scopes} ->
-        {file, enumerate_file(file, file_scopes, ast_cache, filter, mutators, dispatch_mode)}
+        {file,
+         enumerate_file(file, file_scopes, ast_cache, filter, mutators, dispatch_mode, source?)}
       end)
 
     final =
@@ -307,36 +318,11 @@ defmodule MutagenEx.MutationEnumerator do
 
       true ->
         %{
-          sites: add_source_spans(Enum.reverse(final.sites), ast_cache, source?),
+          sites: Enum.reverse(final.sites),
           skipped: Enum.reverse(final.skipped),
           warnings: Enum.reverse(final.warnings)
         }
     end
-  end
-
-  defp add_source_spans(sites, _ast_cache, false), do: sites
-
-  defp add_source_spans(sites, ast_cache, true) do
-    spans_by_file =
-      for {file, file_sites} <- Enum.group_by(sites, & &1.file),
-          {_, source} when is_binary(source) <- [Map.get(ast_cache, file)],
-          into: %{} do
-        index = MutagenEx.JsonReporter.Source.index(source, file)
-
-        spans =
-          Map.new(file_sites, fn %{path: path} ->
-            {path, MutagenEx.JsonReporter.Source.located_span(index, path)}
-          end)
-
-        {file, spans}
-      end
-
-    Enum.map(sites, fn site ->
-      case spans_by_file[site.file][site.path] do
-        {span, line} -> %{site | source_span: span, source_line: line}
-        nil -> site
-      end
-    end)
   end
 
   defp normalize_changed_lines(changed_lines)
@@ -443,7 +429,7 @@ defmodule MutagenEx.MutationEnumerator do
   def to_site(%{id: _} = entry) do
     struct!(
       Site,
-      Map.drop(entry, [:group_key, :fingerprint, :runtime?, :coverage_fallback, :clause_range])
+      Map.drop(entry, [:group_key, :fingerprint, :runtime?, :coverage_location, :clause_range])
     )
   end
 
@@ -494,7 +480,7 @@ defmodule MutagenEx.MutationEnumerator do
   defp entry_id(%{site_id: id}), do: id
 
   # Count occurrences in file order before applying scope or coverage filters.
-  defp enumerate_file(file, scopes, ast_cache, {mode, lines}, mutators, dispatch_mode) do
+  defp enumerate_file(file, scopes, ast_cache, {mode, lines}, mutators, dispatch_mode, source?) do
     with {:ok, entry} <- Map.fetch(ast_cache, file) do
       selection = file_selection(mode, Map.get(lines, file), entry)
       mutators = if selection == {:planned, []}, do: [], else: mutators
@@ -504,7 +490,9 @@ defmodule MutagenEx.MutationEnumerator do
         by_module: Enum.group_by(scopes, fn {scope, _rank} -> scope.module end),
         filter: selection,
         mutators: mutators,
-        dispatch_mode: dispatch_mode
+        dispatch_mode: dispatch_mode,
+        source?: source?,
+        source_index: source_index(entry, file, selection, source?)
       }
 
       group_filter = if mode == :planned and mutators != [], do: :all
@@ -521,7 +509,15 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   defp file_selection(:planned, lines, _entry), do: {:planned, lines || []}
-  defp file_selection(:covered, lines, _entry), do: {:covered, lines || MapSet.new()}
+  defp file_selection(:covered, lines, _entry), do: {:covered, lines || {MapSet.new(), nil}}
+
+  defp source_index(_entry, _file, {:covered, {_hits, nil}}, false), do: nil
+  defp source_index(_entry, _file, {:planned, []}, _source?), do: nil
+
+  defp source_index({_ast, source}, file, _selection, _source?) when is_binary(source),
+    do: MutagenEx.JsonReporter.Source.index(source, file)
+
+  defp source_index(_entry, _file, _selection, _source?), do: nil
 
   defp walk_file(ast, env, group_filter) do
     ambient =
@@ -791,6 +787,20 @@ defmodule MutagenEx.MutationEnumerator do
     walk_mutable_node(node, ambient, context, env, acc)
   end
 
+  defp walk_node({:->, meta, [_, body]} = node, ambient, context, %{clause: clause} = env, acc)
+       when clause != nil do
+    line = meta[:line] || clause.body.first
+    {first, last} = source_range(body, nil) || {line, line}
+
+    walk_mutable_node(
+      node,
+      ambient,
+      context,
+      put_in(env.clause[:coverage_body], first..last),
+      acc
+    )
+  end
+
   defp walk_node(node, ambient, context, env, acc) do
     walk_mutable_node(node, ambient, context, env, acc)
   end
@@ -944,16 +954,16 @@ defmodule MutagenEx.MutationEnumerator do
   defp emit_site(mutator, node, ambient, context, env, identity, acc) do
     {line, column} = effective_position(node, ambient)
 
-    fallback = coverage_fallback(node, line, env.clause)
-
     with true <- is_integer(line),
-         true <- select_span(env.filter, node, ambient, line, fallback),
          [{_scope, owner} | _] = scopes <-
-           Enum.filter(env.scopes, fn {scope, _rank} -> in_scope?(scope, line, env.enclosing) end) do
+           Enum.filter(env.scopes, fn {scope, _rank} -> in_scope?(scope, line, env.enclosing) end),
+         path = Enum.reverse(env.path),
+         location = coverage_location(node, line, path, env),
+         true <- select_span(env.filter, node, ambient, line, location) do
       matched =
         Enum.reduce(scopes, acc.scopes, fn {_scope, rank}, acc -> Map.put(acc, rank, :matched) end)
 
-      record_site(mutator, node, {line, column, fallback}, context, env, identity, owner, %{
+      record_site(mutator, node, {line, column, path, location}, context, env, identity, owner, %{
         acc
         | scopes: matched
       })
@@ -963,16 +973,45 @@ defmodule MutagenEx.MutationEnumerator do
   end
 
   @doc false
-  def covered?(%{file: file, line: line} = site, bitmap) do
-    case bitmap do
-      %{^file => lines} -> covered_line?(lines, line, site[:coverage_fallback])
-      _ -> false
+  def covered?(%{file: file, line: line} = site, %{covered_lines: hits, coverable_lines: measured}) do
+    case hits do
+      %{^file => covered} ->
+        location = Map.get(site, :coverage_location, {line, {line, line}, nil, nil})
+        covered_line?({covered, Map.get(measured, file, covered)}, location)
+
+      _ ->
+        false
     end
   end
 
-  defp covered_line?(covered, line, fallback) do
+  # Direct enumerator callers may supply a bitmap with no zero-call entries.
+  defp covered_line?({covered, nil}, {_own_line, _span, _body, {line, fallback}}) do
     MapSet.member?(covered, line) or
       (fallback != nil and Enum.any?(fallback, &MapSet.member?(covered, &1)))
+  end
+
+  defp covered_line?({covered, coverable}, {line, {first, last}, body, _legacy}) do
+    cond do
+      MapSet.member?(coverable, line) ->
+        MapSet.member?(covered, line)
+
+      Enum.any?(first..last, &MapSet.member?(covered, &1)) ->
+        true
+
+      Enum.any?(first..last, &MapSet.member?(coverable, &1)) ->
+        false
+
+      true ->
+        body != nil and Enum.any?(body, &MapSet.member?(covered, &1))
+    end
+  end
+
+  defp coverage_location(node, line, path, env) do
+    exact = MutagenEx.JsonReporter.Source.line_range(env.source_index, path)
+    span = exact || source_range(node, nil) || {line, line}
+    own_line = Ast.node_line(node) || if(exact, do: elem(exact, 0), else: line)
+    body = env.clause && Map.get(env.clause, :coverage_body, env.clause.body)
+    {own_line, span, body, {line, coverage_fallback(node, line, env.clause)}}
   end
 
   defp clause({_kind, meta, [head, body]}) when is_list(body) do
@@ -998,8 +1037,8 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp coverage_fallback(_node, _line, nil), do: nil
 
-  defp select_span({:covered, covered}, _node, _ambient, line, fallback) do
-    covered_line?(covered, line, fallback)
+  defp select_span({:covered, coverage}, _node, _ambient, _line, location) do
+    covered_line?(coverage, location)
   end
 
   defp select_span({:planned, []}, _node, _ambient, _line, _fallback), do: false
@@ -1084,7 +1123,7 @@ defmodule MutagenEx.MutationEnumerator do
   defp record_site(
          mutator,
          node,
-         {line, column, fallback},
+         {line, column, path, location},
          context,
          env,
          {identity, name},
@@ -1111,7 +1150,7 @@ defmodule MutagenEx.MutationEnumerator do
           id: id,
           function: format_function(env.enclosing),
           definition_line: acc.definitions[env.enclosing],
-          path: Enum.reverse(env.path),
+          path: path,
           file: file,
           line: line,
           column: column,
@@ -1122,7 +1161,8 @@ defmodule MutagenEx.MutationEnumerator do
           end_column: end_column
         }
 
-        site = plan_site(site, plan_mode(env), env, fallback)
+        site = add_source_span(site, env)
+        site = plan_site(site, plan_mode(env), env, location)
         %{acc | sites: Map.update(acc.sites, owner, [site], &[site | &1])}
 
       {:skip, reason} ->
@@ -1132,10 +1172,19 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  defp plan_site(site, :covered, _env, _fallback), do: site
+  defp add_source_span(site, %{source?: true, source_index: index}) do
+    case MutagenEx.JsonReporter.Source.located_span(index, site.path) do
+      {span, line} -> %{site | source_span: span, source_line: line}
+      nil -> site
+    end
+  end
 
-  defp plan_site(site, :planned, env, fallback) do
-    site |> Map.from_struct() |> Map.put(:coverage_fallback, fallback) |> plan_entry(env)
+  defp add_source_span(site, _env), do: site
+
+  defp plan_site(site, :covered, _env, _location), do: site
+
+  defp plan_site(site, :planned, env, location) do
+    site |> Map.from_struct() |> Map.put(:coverage_location, location) |> plan_entry(env)
   end
 
   defp plan_skip(entry, _node, _position, :covered, _env), do: entry
