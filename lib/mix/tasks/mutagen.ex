@@ -113,7 +113,7 @@ defmodule Mix.Tasks.Mutagen do
       the arguments on the `test` entry and the return values of alias
       functions. It warns if the alias has entries and no `test` entry.
     * `--timeout-ms <int>` overrides the per-mutant deadline in milliseconds.
-      By default the deadline is ten times the baseline duration, with a
+      By default the deadline is five times the baseline duration, with a
       5000 ms floor. Mutagen warns if a requested timeout is shorter than
       the baseline.
     * `--no-fail-fast` runs the full cited suite for each mutant.
@@ -1031,9 +1031,7 @@ defmodule Mix.Tasks.Mutagen do
       boot_timeout_ms: config.boot_timeout_ms,
       host_app: config.host_app,
       test_alias: config.test_alias,
-      fail_fast: config.fail_fast,
-      escalate_max_files: config.escalate_max_files,
-      escalate_budget_ms: config.escalate_budget_ms
+      fail_fast: config.fail_fast
     }
   end
 
