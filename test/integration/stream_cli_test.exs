@@ -47,6 +47,7 @@ defmodule MutagenEx.Integration.StreamCliTest do
   @tag spec: [
          "mutagen.json_schema.r14",
          "mutagen.json_schema.r25",
+         "mutagen.json_schema.r30",
          "mutagen.mutation_pipeline.r25"
        ]
   test "`mix mutagen --stream` emits valid NDJSON and exits 0" do
@@ -261,15 +262,19 @@ defmodule MutagenEx.Integration.StreamCliTest do
     assert %{"timings_ms" => timings} = aggregate["meta"]
 
     assert mutagen_out =~
-             ~r/"timings_ms":\{"baseline":\d+,"boot":\d+,"coverage":\d+,"mutation":\d+,"total":\d+\}/
+             ~r/"timings_ms":\{"baseline":\d+,"boot":\d+,"coverage":\d+,"mutant_deadline":\d+,"mutation":\d+,"total":\d+\}/
 
-    assert Map.keys(timings) |> Enum.sort() == ~w(baseline boot coverage mutation total)
+    assert Map.keys(timings) |> Enum.sort() ==
+             ~w(baseline boot coverage mutant_deadline mutation total)
+
     assert Enum.all?(timings, fn {_, ms} -> is_integer(ms) and ms >= 0 end)
     assert timings["boot"] > 0
     assert timings["coverage"] > 0
     assert timings["baseline"] > 0
     assert timings["mutation"] > 0
-    assert timings["total"] >= Enum.sum(Map.values(Map.delete(timings, "total")))
+    assert timings["mutant_deadline"] == min(30_000, max(5_000, 10 * timings["baseline"]))
+    measured = Map.drop(timings, ["total", "mutant_deadline"])
+    assert timings["total"] >= Enum.sum(Map.values(measured))
     assert Map.delete(aggregate["meta"], "timings_ms") == start_line["meta"]
     assert start_line["meta"] == end_line["meta"]
     refute Enum.any?(results, &Map.has_key?(&1, "meta"))

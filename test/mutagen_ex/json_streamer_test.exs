@@ -279,9 +279,10 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["kill_rate"] == 0.75
     end
 
+    @tag spec: "mutagen.json_schema.r33"
     test "abort case carries abort_reason and resets counters when mutation never ran" do
       report = %Report{
-        meta: %{},
+        meta: %{since: %{}, incomplete_reasons: []},
         mutation: nil,
         aborted: true,
         abort_reason: "baseline_red"
@@ -291,6 +292,7 @@ defmodule MutagenEx.JsonStreamerTest do
       [decoded] = parse_lines(out)
 
       assert decoded["aborted"] == true
+      assert decoded["meta"]["complete"] == false
       assert decoded["abort_reason"] == "baseline_red"
       assert decoded["killed"] == 0
       assert decoded["kill_rate"] in [nil, :null]

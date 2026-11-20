@@ -306,15 +306,15 @@ defmodule MutagenEx.ScopeResolver do
   defp resolve_file(file, loader) do
     with {:ok, source} <- load(file, loader),
          {:ok, ast} <- parse(file, source) do
-      records =
-        ast
-        |> find_defmodules()
-        |> Enum.map(fn {mod, range} ->
-          %Scope{file: file, line_range: range, module: mod}
-        end)
-
-      {:ok, records}
+      {:ok, file_scopes(file, ast)}
     end
+  end
+
+  @doc false
+  def file_scopes(file, ast) do
+    Enum.map(find_defmodules(ast), fn {mod, range} ->
+      %Scope{file: file, line_range: range, module: mod}
+    end)
   end
 
   # --- module-target resolution ----------------------------------------------

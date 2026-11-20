@@ -47,7 +47,11 @@ defmodule MutagenEx.Config do
   @enforce_keys [:scopes, :tests]
   defstruct scopes: [],
             tests: [],
+            since: nil,
+            escalate: true,
+            escalate_max_files: 20,
             timeout_ms: 30_000,
+            timeout_override: false,
             fail_fast: true,
             boot_timeout_ms: 300_000,
             host_app: true,
@@ -68,7 +72,11 @@ defmodule MutagenEx.Config do
   @type t :: %__MODULE__{
           scopes: [Types.scope_target()],
           tests: [Types.test_target()],
+          since: String.t() | nil,
+          escalate: boolean(),
+          escalate_max_files: non_neg_integer(),
           timeout_ms: pos_integer(),
+          timeout_override: boolean(),
           fail_fast: boolean(),
           boot_timeout_ms: pos_integer(),
           host_app: boolean(),
@@ -86,4 +94,12 @@ defmodule MutagenEx.Config do
           include_host_output: boolean(),
           progress: :auto | :on | :off
         }
+
+  @doc false
+  def mutant_deadline(%__MODULE__{timeout_override: true, timeout_ms: timeout_ms}, _baseline_ms),
+    do: timeout_ms
+
+  def mutant_deadline(%__MODULE__{timeout_ms: ceiling}, baseline_ms) do
+    min(ceiling, max(to_timeout(second: 5), 10 * baseline_ms))
+  end
 end

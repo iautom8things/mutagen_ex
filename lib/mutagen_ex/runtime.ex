@@ -20,8 +20,7 @@ defmodule MutagenEx.Runtime do
   """
   def boot(opts \\ []) do
     result =
-      with :ok <- ensure_test_env(Mix.env(), System.get_env("MIX_ENV"), opts[:command]),
-           :ok <- ensure_test_project(Mix.Project.config()),
+      with :ok <- check_project(opts[:command]),
            :ok <- step(:host_loadpaths_failed, fn -> mix_task("loadpaths") end),
            :ok <- step(:host_compile_failed, &compile_host/0),
            {:ok, session} <- timed_boot(opts) do
@@ -45,6 +44,12 @@ defmodule MutagenEx.Runtime do
       ok ->
         ok
     end
+  end
+
+  @doc false
+  def check_project(command \\ nil) do
+    with :ok <- ensure_test_env(Mix.env(), System.get_env("MIX_ENV"), command),
+         do: ensure_test_project(Mix.Project.config())
   end
 
   def test_paths do
@@ -505,6 +510,37 @@ defmodule MutagenEx.Runtime do
         Process.demonitor(monitor, [:flush])
         :timeout
     end
+  end
+
+  @doc false
+  def bounded_baseline(timeout, fun, on_success \\ :reap) do
+    previous = Application.get_all_env(:ex_unit)
+
+    case MutagenEx.Test.RunGroup.with_deadline(timeout, fun, on_success) do
+      {:ok, result} ->
+        result
+
+      :timeout ->
+        recover_exunit(previous)
+        {:error, :baseline_timeout, %{phase: :baseline, limit: timeout}}
+
+      {:exit, {:run_group_exited, _}} ->
+        recover_exunit(previous)
+        {:error, :baseline_red, %{phase: :baseline, failed: 1, failures: []}}
+
+      {:exit, _} ->
+        recover_exunit(previous)
+        {:error, :ex_unit_run_failed, %{phase: :baseline}}
+    end
+  end
+
+  defp recover_exunit(previous) do
+    Enum.each(Application.get_all_env(:ex_unit), fn {key, _} ->
+      unless Keyword.has_key?(previous, key), do: Application.delete_env(:ex_unit, key)
+    end)
+
+    Enum.each(previous, fn {key, value} -> Application.put_env(:ex_unit, key, value) end)
+    MutagenEx.Test.ExUnitServer.discard_pending_modules()
   end
 
   @doc false
