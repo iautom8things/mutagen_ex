@@ -65,6 +65,24 @@ defmodule MutagenEx.JsonStreamerTest do
       assert decoded["meta"]["exunit_seed"] == 0
     end
 
+    @tag spec: "mutagen.json_schema.r31"
+    test "changed-code starts use selection settings and leave completeness for the end" do
+      config = %MutagenEx.Config{scopes: [], tests: ["auto"], since: "HEAD"}
+      meta = %{since: %{ref: "HEAD"}, incomplete_reasons: []}
+
+      out =
+        capture_sink(fn sink ->
+          JsonStreamer.emit_start(sink, 1, meta, config)
+          JsonStreamer.emit_end(sink, %Report{meta: meta, truncated: true})
+        end)
+
+      assert [start, finish] = parse_lines(out)
+      assert start["meta"]["since"]["ref"] == "HEAD"
+      refute Map.has_key?(start["meta"], "complete")
+      assert finish["meta"]["complete"] == false
+      assert finish["summary"]["verdict"] == "incomplete"
+    end
+
     test "trailing newline is exactly one byte" do
       out =
         capture_sink(fn sink ->
