@@ -80,7 +80,7 @@ defmodule MutagenEx.JsonReporterGoldenTest do
 
   defp meta do
     %{
-      tool_version: "0.1.0",
+      tool_version: Mix.Project.config()[:version],
       elixir_version: "1.19.5",
       otp_version: "28",
       exunit_seed: 0

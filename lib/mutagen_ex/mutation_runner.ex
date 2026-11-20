@@ -4,13 +4,13 @@ defmodule MutagenEx.MutationRunner do
   per-site outcomes into a result block the JSON reporter (S6) can
   serialise.
 
-  Contract: [`mutagen.mutation_pipeline`](../../.spec/specs/mutation_pipeline.spec.md)
+  Contract: [`mutagen.mutation_pipeline`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/mutation_pipeline.spec.md)
   r3-r11.
 
   ## Invariants summary
 
     * **r3** — refuses to mutate `MutagenEx.*` or `Mix.Tasks.Mutagen`
-      modules (see [`mutagen.decision.self_mutation_refused`](../../.spec/decisions/self_mutation_refused.md)).
+      modules (see [`mutagen.decision.self_mutation_refused`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/self_mutation_refused.md)).
     * **r4** — per-site test runs wrap `ExUnit.run/0` in the timeout
       structure owned by `MutagenEx.MutationRunner.MutationLoop`. The
       timeout uses the two-phase cooperative-cancellation path
@@ -35,9 +35,9 @@ defmodule MutagenEx.MutationRunner do
       duration of `run/1` (created at the start, deleted in the
       `after` clause). On restore failure the runner aborts with
       `{:error, :unrecoverable_restore_failure, ...}`. See
-      [`mutagen.decision.per_run_beam_cache`](../../.spec/decisions/per_run_beam_cache.md)
+      [`mutagen.decision.per_run_beam_cache`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/per_run_beam_cache.md)
       and
-      [`mutagen.decision.code_server_facade`](../../.spec/decisions/code_server_facade.md).
+      [`mutagen.decision.code_server_facade`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/code_server_facade.md).
     * **r12** — a raise, throw, or exit propagating out of the
       loaded-mutation window (from successful compile of the mutated
       AST through the test run and `:code.purge/1` settle) triggers
@@ -52,7 +52,7 @@ defmodule MutagenEx.MutationRunner do
       and emits a warning naming the new entities (best-effort —
       `Process.registered/0` is the named-process surface; anonymous
       leaks are documented as a known caveat per
-      [`mutagen.decision.timeout_handling`](../../.spec/decisions/timeout_handling.md)).
+      [`mutagen.decision.timeout_handling`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/timeout_handling.md)).
     * **r8** — modules whose AST contains `use SomeModule` get a
       `state_drift_warning` listing the used modules.
     * **r9** — stderr is captured via `ExUnit.CaptureIO` and attached
@@ -230,7 +230,7 @@ defmodule MutagenEx.MutationRunner do
     end
   end
 
-  # Per [`mutagen.decision.per_run_beam_cache`](../../.spec/decisions/per_run_beam_cache.md):
+  # Per [`mutagen.decision.per_run_beam_cache`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/per_run_beam_cache.md):
   # the snapshot table lives for exactly the duration of `run/1`. Create it
   # before dispatching to `execute/2`; delete it on every exit path —
   # success, `{:error, _, _}` return, or raise/throw/exit propagating out

@@ -2,7 +2,7 @@ defmodule MutagenEx.BeamCache do
   @moduledoc """
   Per-run `.beam` snapshot store for `MutagenEx.MutationRunner`.
 
-  Per [`mutagen.decision.per_run_beam_cache`](../../.spec/decisions/per_run_beam_cache.md),
+  Per [`mutagen.decision.per_run_beam_cache`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/per_run_beam_cache.md),
   this module is **stateless**: it operates on an ETS table whose lifetime
   is owned by `MutationRunner.run/1`. The table is created at the start of
   `run/1` and deleted in the `after` clause; there is no GenServer, no

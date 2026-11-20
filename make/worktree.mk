@@ -31,15 +31,8 @@ worktree-profile-before-cleanup:
 # Shared worktree Make targets. This file is concatenated with one profile module
 # into repo-local make/worktree.mk by sync-worktree-workflow.
 
-# 1Password account used by any target that calls `op` (e.g. `make env` that
-# does `op inject -i .env.tpl -o .env`). The `op` CLI honors the OP_ACCOUNT
-# env var, so exporting it makes every bare `op` invocation in any target
-# inherit this account — no need to refactor targets to use $(OP). $(OP) is
-# also provided for explicit/portable use. Override per-repo if your secrets
-# live in a different account.
-OP_ACCOUNT ?= my-team
-OP ?= op --account $(OP_ACCOUNT)
-export OP_ACCOUNT
+# Use the selected CLI account unless the caller specifies one.
+OP ?= op $(if $(OP_ACCOUNT),--account $(OP_ACCOUNT))
 
 RECURSIVE_MAKE ?= $(MAKE)
 MAIN_BRANCH ?= main

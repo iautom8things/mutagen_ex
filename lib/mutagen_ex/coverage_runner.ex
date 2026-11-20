@@ -3,7 +3,7 @@ defmodule MutagenEx.CoverageRunner do
   Runs the cited test suite once under `:cover` to determine which source
   lines those tests exercise.
 
-  Contract: [`mutagen.coverage`](../../.spec/specs/coverage.spec.md) r1-r5,
+  Contract: [`mutagen.coverage`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/coverage.spec.md) r1-r5,
   r7.
 
   ## Lifecycle invariants

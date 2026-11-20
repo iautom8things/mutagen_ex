@@ -4,7 +4,7 @@ defmodule MutagenEx.JsonReporter.Sanitizer do
   document (warnings, compile-error messages, abort-detail messages, and
   any other string field that captures user-code-derived bytes).
 
-  Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
+  Contract: [`mutagen.json_schema`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/json_schema.spec.md)
   r10, r11.
 
   Compiler diagnostics and exception messages can include credentials or
@@ -238,7 +238,7 @@ defmodule MutagenEx.JsonReporter.Report do
   serialises it.
 
   The struct mirrors the version 2 schema documented in
-  [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md). Every
+  [`mutagen.json_schema`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/json_schema.spec.md). Every
   field is `nil`-able except `version` (which is implicit in the reporter)
   and `warnings` / `aborted` (which default to empty/false). Per `r5`,
   sub-blocks the pipeline never populated stay `nil` rather than absent —
@@ -316,8 +316,8 @@ defmodule MutagenEx.JsonReporter do
   @moduledoc """
   Single owner of the version 2 JSON output document for `mix mutagen`.
 
-  Contract: [`mutagen.json_schema`](../../.spec/specs/json_schema.spec.md)
-  r1-r9. Decision: [`mutagen.decision.json_reporter_owns_error`](../../.spec/decisions/json_reporter_owns_error.md).
+  Contract: [`mutagen.json_schema`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/specs/json_schema.spec.md)
+  r1-r9. Decision: [`mutagen.decision.json_reporter_owns_error`](https://github.com/iautom8things/mutagen_ex/blob/main/.spec/decisions/json_reporter_owns_error.md).
 
   Both success and abort variants emit a document of the same schema family.
   The difference between the two is whether `aborted` is `false` or `true`

@@ -118,7 +118,7 @@ defmodule MutagenEx.JsonReporterTest do
   defp full_report do
     %Report{
       meta: %{
-        tool_version: "0.1.0",
+        tool_version: Mix.Project.config()[:version],
         elixir_version: "1.19.5",
         otp_version: "28",
         exunit_seed: 0
@@ -407,7 +407,7 @@ defmodule MutagenEx.JsonReporterTest do
       {iodata, _code} = JsonReporter.emit_error(report, :missing_scope)
       decoded = decode(iodata)
 
-      assert decoded["meta"]["tool_version"] == "0.1.0"
+      assert decoded["meta"]["tool_version"] == Mix.Project.config()[:version]
       assert decoded["meta"]["elixir_version"] == "1.19.5"
     end
 
@@ -528,7 +528,7 @@ defmodule MutagenEx.JsonReporterTest do
 
   defp meta_minimum do
     %{
-      tool_version: "0.1.0",
+      tool_version: Mix.Project.config()[:version],
       elixir_version: "1.19.5",
       otp_version: "28",
       exunit_seed: 0

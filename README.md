@@ -69,7 +69,7 @@ A survivor means “the tests you selected miss it”. First rerun with a
 wider `--tests` selection before writing a test.
 
 The sample is small and per-mutator confidence is provisional. Mutagen gives
-advice for the current run. See the [advisory decision](.spec/decisions/advisory_only.md).
+advice for the current run. See the [advisory decision](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/advisory_only.md).
 
 This measurement predates two changes that make a whole-file run mutate
 more code: sites on function-head lines (guards) now run, and sites that
@@ -215,7 +215,7 @@ mutagen_ex focuses on these workflows:
 - **JSON output.** `mix mutagen` writes the aggregate document to stdout or
   `--json <path>`. Use `--stream` to receive per-site JSON lines before
   the aggregate. Read the `--json` file with `jq` to inspect it.
-  [Output format decision](.spec/decisions/no_pretty_output_v1.md).
+  [Output format decision](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/no_pretty_output_v1.md).
 
 - **Stable mutation IDs.** Scheme 2 uses `{relative_file}:{hash}:{mutator}`.
   The hash includes the enclosing module, function name and declared arity,
@@ -231,7 +231,7 @@ mutagen_ex focuses on these workflows:
   `meta.id_scheme: "2"`, and matching `meta.elixir_version` and
   `meta.otp_version` before comparing. IDs and reports from earlier
   versions cannot be compared with version 2.
-  [Mutation ID scheme 2](.spec/decisions/mutation_id_scheme_2.md).
+  [Mutation ID scheme 2](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/mutation_id_scheme_2.md).
 
 - **Deterministic, serial-by-default execution.** Every phase — baseline,
   coverage, and each per-mutation run — forces `max_cases: 1` and a fixed
@@ -239,7 +239,7 @@ mutagen_ex focuses on these workflows:
   always yields the same per-site classification. Reproducibility is the
   point; a judge comparing two runs must be able to trust that a difference
   reflects a code change, not test-order flake. See
-  [`.spec/decisions/serial_execution_and_seed.md`](.spec/decisions/serial_execution_and_seed.md).
+  [`.spec/decisions/serial_execution_and_seed.md`](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/serial_execution_and_seed.md).
 
 - **Readable audit reports.** Markdown shows findings by function and
   offers a command to rerun each example. The JSON retains every site for
@@ -255,8 +255,8 @@ mutagen_ex focuses on these workflows:
   staying in-process is that mutagen_ex cannot mutate *itself* (doing so
   would corrupt the running runner); self-mutation is refused with
   `reason: :self_mutation_refused`. See
-  [`.spec/decisions/in_process_pipeline.md`](.spec/decisions/in_process_pipeline.md)
-  and [`.spec/decisions/self_mutation_refused.md`](.spec/decisions/self_mutation_refused.md).
+  [`.spec/decisions/in_process_pipeline.md`](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/in_process_pipeline.md)
+  and [`.spec/decisions/self_mutation_refused.md`](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/decisions/self_mutation_refused.md).
 
 ## The mutator catalog and its lineage
 
@@ -353,63 +353,42 @@ The repository tests mutation runs against the mutator registry, scope
 resolver, and JSON reporter. The harness copies those modules under a
 separate namespace in a temporary Mix project and runs `mix mutagen`
 from a fresh shell. Run it with `mix test --include self_mutation`.
-[Self-mutation test](test/integration/self_mutation_test.exs).
+[Self-mutation test](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/test/integration/self_mutation_test.exs).
 
 ## Install
 
-`mutagen_ex` is a development-time Mix task. It requires Elixir 1.18.0
-or later and Erlang/OTP 27 or later. To install it as a dependency, add it to your `mix.exs`.
+Mutagen requires Elixir 1.18 or later and Erlang/OTP 27 or later.
+
+### System tool
+
+Install the Mix task for your current Elixir installation. Mix fetches the
+source from Hex and builds the archive with your local toolchain.
+
+```sh
+mix archive.install hex mutagen_ex
+mix help mutagen
+```
+
+To pin a version in CI, use `mix archive.install hex mutagen_ex 0.2.0 --force`.
+
+### Project dependency
+
+Add this entry to `deps/0` in your project's `mix.exs`:
 
 ```elixir
-def deps do
-  [
-    {:mutagen_ex, "~> 0.1", only: [:dev, :test], runtime: false}
-  ]
-end
+{:mutagen_ex, "~> 0.2", only: [:dev, :test], runtime: false}
 ```
 
-Scoping to `only: [:dev, :test]` is the recommended posture: `mutagen_ex`
-starts a supervision tree (`MutagenEx.Application` → `MutagenEx.Supervisor`
-→ `MutagenEx.TaskSup`) on application boot, and you do not want that tree
-pulled into a `:prod` release.
-
-Then:
-
-```
+```sh
 mix deps.get
-mix help mutagen
+MIX_ENV=test mix help mutagen
 ```
 
-### Install via `mix archive` (no `mix.exs` change required)
+With either install, run the task from the host project:
 
-For ad-hoc use, downstream developers can install the `mix mutagen` task
-globally without changing a project's deps. This is useful for consultants
-running mutagen against client repos, or for one-off mutation-testing audits
-where the target project should stay untouched.
-
-From the `mutagen_ex` repo root, build the archive:
-
-```bash
-mix archive.build
+```sh
+MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs --json report.json
 ```
-
-Build the archive on the oldest OTP release that will run it. An older
-VM can reject BEAM files from a newer OTP release before Mutagen starts.
-
-Then install the generated archive:
-
-```bash
-mix archive.install ./mutagen_ex-<version>.ez
-```
-
-From any project, verify the task is available and run it against a target:
-
-```bash
-mix help mutagen
-MIX_ENV=test mix mutagen --scope lib/foo.ex --tests test/foo_test.exs
-```
-
-Pin the archive version or dependency version in CI.
 
 ## Host test setup
 
@@ -576,7 +555,7 @@ says “Mutagen found nothing in the sites it could check.”
   survivors and survivors away from changed lines stay in the JSON. The
   notes count them.
 - Classic and audit runs keep the provisional
-  [precision order](docs/precision/blind-2026-11.csv). They list
+  [precision order](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/docs/precision/blind-2026-11.csv). They list
   high-confidence survivors outside Check first, followed by those marked
   `not fully escalated`. Low-confidence survivors stay in the JSON.
   Change the default five Worth a look entries with `--summary-max N`.
@@ -650,7 +629,8 @@ jobs:
 
 A successful tool run exits 0 even when tests miss mutations. The
 `continue-on-error` setting also allows the job to proceed after a tool
-abort. The job summary includes the abort reason and its hint. To post the Markdown on a same-repository pull request, grant
+abort. The example assumes the project declares the dev/test dependency.
+The job summary includes the abort reason and its hint. To post the Markdown on a same-repository pull request, grant
 `pull-requests: write` to the job and set `GH_TOKEN` and `PR_NUMBER` for an
 optional step. Run `gh pr comment "$PR_NUMBER" --body-file mutagen.md`
 when the file exists.
@@ -691,7 +671,7 @@ the average cost per mutant.
 | `--unsafe-json-outside-project` | Opt-in to writing `--json` output outside the project root. CI integrations targeting an artifacts directory above the project root pass this; everyday use should leave it off. Emits a one-shot stderr warning naming the resolved target at run start. |
 | `--max-sites <int>` | Upper bound on enumerated mutation sites for one run. Default `10000`. Exceeding the cap aborts with `abort_reason: "too_many_sites"` BEFORE the mutation runner starts — narrow `--scope` (or raise the cap) to proceed. |
 | `--budget-ms <int>` | Optional aggregate wall-clock budget for the mutation phase, in milliseconds. Default unbounded (`--timeout-ms` still bounds each site). When elapsed, the runner stops dispatching new sites and emits a `truncated: true` partial JSON report. |
-| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (fully serial, byte-equivalent to v1.0). Values greater than `1` are EXPERIMENTAL and emit a one-shot stderr warning because real ExUnit/:cover backends can produce incorrect kill/survive classification and corrupted coverage. See [Parallel mode](#parallel-mode-streaming-and-progress) below. |
+| `--max-concurrency <int>` | Cap on the number of per-site mutation tasks `Task.Supervisor.async_stream_nolink/4` runs in parallel. Default `1` (serial execution). Values greater than `1` are EXPERIMENTAL and emit a one-shot stderr warning because real ExUnit/:cover backends can produce incorrect kill/survive classification and corrupted coverage. See [Parallel mode](#parallel-mode-streaming-and-progress) below. |
 | `--stream` | Emit one NDJSON line per completed site (and `start`/`end` envelope lines) to the same sink the aggregate document goes to. Off by default. |
 | `--no-progress` | Suppress the human-readable per-site progress feed on stderr. Default is auto-on when stderr is a TTY, auto-off otherwise. |
 
@@ -943,8 +923,8 @@ The aggregate and the stream end record include `summary`. The examples
 below show the existing pipeline fields. See [Reading the summary](#reading-the-summary)
 for the ranked findings and the per-function counts.
 
-The aggregate JSON document goes to stdout or the file named by
-`--json <path>` and ends with a newline. With `--stream`, it follows
+Use `--json PATH` for a guaranteed machine-readable report. The file ends
+with a newline. Output to stdout is best effort. With `--stream`, it follows
 the [per-site events](#ndjson-streaming---stream).
 
 `meta.timings_ms` measures elapsed milliseconds for boot, coverage,
@@ -999,7 +979,7 @@ MIX_ENV=test mix mutagen --scope lib/lane_fixture/arith.ex \
       "mutation": 98,
       "total": 266
     },
-    "tool_version": "0.1.0"
+    "tool_version": "0.2.0"
   },
   "mutation": {
     "compile_error": 0,
@@ -1177,7 +1157,7 @@ listed in the [abort reason table](#abort-reasons).
       "mutation": 0,
       "total": 72
     },
-    "tool_version": "0.1.0"
+    "tool_version": "0.2.0"
   },
   "mutation": null,
   "scope": [],
@@ -1189,7 +1169,7 @@ listed in the [abort reason table](#abort-reasons).
 ```
 
 Both examples are from CLI runs on the fixture. The schema contract is
-in [`.spec/specs/json_schema.spec.md`](.spec/specs/json_schema.spec.md).
+in [`.spec/specs/json_schema.spec.md`](https://github.com/iautom8things/mutagen_ex/blob/v0.2.0/.spec/specs/json_schema.spec.md).
 
 ## Baseline guard rail
 
@@ -1211,7 +1191,7 @@ regression test for this lives in
 `ExUnit.Server`, not a fake), with end-to-end coverage in
 `test/mutagen_ex/end_to_end_test.exs` (`:baseline_red_scenario`).
 
-> Earlier releases documented this as a limitation (the guard "did not
+> An earlier development snapshot documented this as a limitation (the guard "did not
 > trip"). That was fixed by the re-registration above; the manual
 > `mix test`-first workaround the old docs suggested is no longer
 > required.
@@ -1257,14 +1237,16 @@ The source checkout includes a benchmark harness at
 `scripts/helper_scripts/bench_ast_perf.exs`. It drives the full pipeline
 against `scripts/helper_scripts/bench_fixtures/wrd25_200sites/` and
 reports wall-clock, per-site time, peak `:erlang.memory/0`, and the
-SHA-256 of the emitted NDJSON. Run with `mix run scripts/helper_scripts/
-bench_ast_perf.exs`; pass `--baseline <path>` to capture a run for
-later comparison and `--compare <path>` to score a fresh run against a
-prior baseline.
+SHA-256 of the emitted NDJSON. Save a baseline with the following command.
+Replace `--baseline` with `--compare` to compare a fresh run to the saved file.
+
+```sh
+mix run scripts/helper_scripts/bench_ast_perf.exs --baseline /tmp/bench.json
+```
 
 The `.25` AST/perf epic measured a 1.66× wall-clock speedup on the
 wrd25 fixture between commit `978a995` (pre-.25) and `78b022f`
-(post-.25.6); see the `[Unreleased]` `.25` capstone entry in
+(post-.25.6); see the engineering appendix in
 `CHANGELOG.md` for the full table and the follow-up triage of the
 gap to the spec's documented 2-4× target. The byte-identity of the
 mutation results (site IDs, before/after slices, kill/survive
@@ -1295,7 +1277,7 @@ mix compile --warnings-as-errors
 mix test
 ```
 
-No third-party dependencies. Requires Elixir 1.18.0 or later for ExUnit
+No third-party runtime dependencies. Requires Elixir 1.18.0 or later for ExUnit
 case registration and Erlang/OTP 27 or later for JSON and trace sessions.
 
 ### Test suites

@@ -19,8 +19,7 @@ defmodule MutagenEx.Test.CompilerFacade do
   tuple. The runner now accepts both a plain module atom (preferred:
   the module implements this behaviour) and the legacy `{mod, fun}`
   tuple. The legacy shape is honored so existing test stubs that pass
-  `{CompilerStub, :compile_quoted}` keep working — see
-  `MutagenEx.MutationRunner.compiler_module/1` for the conversion site.
+  `{CompilerStub, :compile_quoted}` keep working.
   """
 
   @doc """
