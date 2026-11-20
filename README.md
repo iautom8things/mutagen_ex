@@ -421,20 +421,29 @@ searches for qualified function calls or captures, or bare calls where
 the matching module is imported or aliased. It counts text mentions and
 uses path order to break ties. Each step takes up to 20 files per function
 by default.
-Mutagen gives each added file up to five seconds on the original code,
-bounded by the host boot and mutant timeouts. If a batch fails, Mutagen
-keeps the files that pass together in score order. A pass judges its
-mutants with the files admitted in that pass.
+Mutagen tests each candidate on the original code. It allows ten times
+the narrow baseline duration, with a thirty-second floor capped by the
+host boot and mutant timeouts. Each step reports `candidate_deadline_ms`.
+If a batch fails, Mutagen keeps the files that pass together in score order.
+A pass judges its mutants with the files admitted in that pass. Only
+survivors and uncovered sites advance. A timeout stays unevaluated and
+keeps the step that recorded it.
 
 `meta.since` records the ref, merge base, and site counts.
 `meta.complete` and `meta.incomplete_reasons` record missing evidence from
 skipped or unreadable paths and sites that the runner dropped.
-`meta.since.unmapped` lists changed lines without runtime sites.
+Every abort sets `meta.complete` to false. `meta.since.unmapped` lists
+changed code without runtime sites and omits blank, comment and structural
+lines.
 `mutation.pending` shows sites with no outcome, including uncovered sites
 and covered sites left unrun. Coverage includes green
 tests added during escalation. `meta.tests_selected` lists why each test
-file joined, and each result lists the steps it ran. Discovered test paths
-follow `--no-source`. With `--stream`, changed-code
+file joined, and each result lists the steps it ran. Warnings name rejected
+files and give a reason. Selected and rejected test paths follow `--no-source`.
+Each step counts files dropped after a load attempt in `dropped_after_load`.
+Result selection includes `after_dropped_file: true` for verdicts made in
+that step or later. Those verdicts can reflect side effects the tool could
+not undo, such as writes to persistent terms. With `--stream`, changed-code
 and automatic runs emit final results and compile errors after all passes
 with the same fields as the aggregate. Pending sites appear in the final
 JSON document.

@@ -571,7 +571,7 @@ defmodule MutagenEx.JsonReporter do
 
   @structured_details ~w(file line column origin_file origin_line module exception reason phase step
                           note flag site_id passed failed failures excluded skipped include exclude
-                          limit cap count actual max_sites cause shallow)a
+                          limit cap count actual max_sites cause shallow root limit_files)a
 
   # The version values come from the runtime. Avoid compiled Regex structs,
   # which an older Elixir may be unable to read when loading an archive.
@@ -651,6 +651,14 @@ defmodule MutagenEx.JsonReporter do
 
   defp put_hint(details, nil), do: details
 
+  defp put_hint(%{"cause" => "file_limit", "root" => root} = details, "diff_unavailable") do
+    Map.put(
+      details,
+      "hint",
+      "Untracked files under #{root} exceeded the file limit. Ignore the directory to fix it."
+    )
+  end
+
   defp put_hint(%{"shallow" => true} = details, "diff_unavailable") do
     details
     |> Map.delete("shallow")
@@ -714,11 +722,15 @@ defmodule MutagenEx.JsonReporter do
     }
   end
 
+  defp put_abort_complete(wire, %Report{aborted: true}), do: Map.put(wire, "complete", false)
+  defp put_abort_complete(wire, _options), do: wire
+
   defp aggregate_meta_to_wire(meta, options) do
     meta
     |> meta_to_wire()
     |> put_timing_wire(meta)
     |> put_selected_meta(meta, options)
+    |> put_abort_complete(options)
   end
 
   @doc false
@@ -736,7 +748,7 @@ defmodule MutagenEx.JsonReporter do
           meta
       end
 
-    meta |> meta_to_wire() |> put_selected_meta(meta, options)
+    meta |> meta_to_wire() |> put_selected_meta(meta, options) |> put_abort_complete(options)
   end
 
   defp put_timing_wire(wire, %{timings_ms: timings}) do
@@ -1250,7 +1262,7 @@ defmodule MutagenEx.JsonReporter do
           render_host_names(kind, names, options.include_host_output)
 
         {:escalation_rejected, kind, paths} ->
-          render_host_names(kind, paths, options.source and options.include_host_output)
+          render_host_names(kind, paths, options.source)
 
         {:host_supervisor_changed, name} ->
           [Sanitizer.clean("host_supervisor_changed: #{name}")]

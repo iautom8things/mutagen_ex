@@ -124,7 +124,9 @@ defmodule MutagenEx.ChangedRun do
 
   defp abort(report, config, reason, details)
        when reason in [:diff_unavailable, :invalid_since_ref],
-       do: {:abort, report, config, reason, Map.take(details, [:cause, :shallow])}
+       do:
+         {:abort, report, config, reason,
+          Map.take(details, [:cause, :shallow, :root, :limit_files])}
 
   defp abort(report, config, reason, details), do: {:abort, report, config, reason, details}
 

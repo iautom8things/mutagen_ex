@@ -160,6 +160,14 @@ decisions:
     spans overlap changed lines. A failed base read records an incomplete
     reason. A later test diff must use the same HEAD and merge base.
 
+- id: mutagen.scope_resolution.r13
+  priority: must
+  statement: |
+    Unmapped changed-line ranges omit blank lines, comment-only lines and
+    structural lines like module openings and block endings. They retain
+    changed code without a runtime site, including attributes, macros, guards,
+    struct fields and delegates.
+
 ```
 
 ```spec-scenarios
@@ -313,4 +321,8 @@ decisions:
     - mutagen.scope_resolution.r8
     - mutagen.scope_resolution.r9
     - mutagen.scope_resolution.r10
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.scope_resolution.r13
 ```

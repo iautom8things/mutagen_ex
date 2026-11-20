@@ -228,7 +228,7 @@ defmodule MutagenEx.GitDiff do
          {:ok, output} <- diff_output(git, base, paths),
          {:ok, changes, changed_paths} <- parse_diff(output, roots, git),
          all_paths = Enum.uniq(changed_paths ++ untracked),
-         :ok <- check_file_limit(all_paths),
+         :ok <- check_untracked_limit(changed_paths, untracked, roots, git),
          :ok <- verify_directories(git, roots, snapshot, before, all_paths),
          {:ok, changes} <- add_untracked(git, changes, untracked),
          :ok <- validate_ranges(git, changes, anchors?),
@@ -271,7 +271,9 @@ defmodule MutagenEx.GitDiff do
 
         if is_binary(path) and safe_git_path?(path) and
              root_match(path, roots, git.ignore_case?) == :below do
-          {:cont, {:ok, [path | acc]}}
+          if selected_file?(path, git.file_kind) or String.ends_with?(name, "/"),
+            do: {:cont, {:ok, [path | acc]}},
+            else: {:cont, {:ok, acc}}
         else
           {:halt, unavailable(:invalid_path, :untracked)}
         end
@@ -279,6 +281,19 @@ defmodule MutagenEx.GitDiff do
     else
       {:error, _, _} = error -> error
       _ -> unavailable(:invalid_output, :untracked)
+    end
+  end
+
+  defp check_untracked_limit(changed, untracked, roots, git) do
+    files = Enum.filter(untracked, &selected_file?(&1, git.file_kind))
+
+    case Enum.fetch(files, @max_files - length(changed)) do
+      :error ->
+        :ok
+
+      {:ok, path} ->
+        root = Enum.find(roots, &(root_match(path, [&1], git.ignore_case?) == :below))
+        unavailable(:file_limit, :untracked, %{limit_files: @max_files, root: root})
     end
   end
 

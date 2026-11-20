@@ -278,6 +278,19 @@ defmodule MutagenEx.ReportSafetyTest do
     end
   end
 
+  @tag spec: "mutagen.json_schema.r33"
+  test "every registered abort overrides a complete changed-code report" do
+    report = %Report{meta: %{since: %{}, incomplete_reasons: []}}
+
+    for name <- JsonReporter.abort_reasons() do
+      {output, 2} = JsonReporter.emit_error(report, String.to_atom(name))
+      wire = output |> IO.iodata_to_binary() |> JSON.decode!()
+      assert wire["aborted"]
+      assert wire["abort_reason"] == name
+      assert wire["meta"]["complete"] == false
+    end
+  end
+
   @tag spec: "mutagen.json_schema.r20"
   test "a pipeline abort from a variable must use a registered reason" do
     reason = :unregistered_fixture_reason

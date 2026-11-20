@@ -44,6 +44,7 @@ surface:
   - lib/mutagen_ex/test_module_discovery.ex
   - lib/mix/tasks/mutagen.ex
 decisions:
+  - mutagen.decision.escalation_outcomes
   - mutagen.decision.advisory_changed_code
   - mutagen.decision.changed_code_run
   - mutagen.decision.report_text_policy
@@ -635,11 +636,37 @@ decisions:
     Escalation has a deadline for each admission baseline. Red,
     unloadable, crashed and timed-out candidates leave the run. If
     otherwise green files fail together, add them in ranked order while
-    the combined baseline stays green. Replay host application settings
-    from accepted file loads for the selected batch. A rejected file's
-    settings do not affect the other candidates. If a step cannot
+    the combined baseline stays green. Replay accepted files' load-time environment
+    changes for the selected batch. If a step cannot
     complete, retain the narrow results and warn. Explicit tests and mutation budget
     truncation disable escalation. Taint carries into later passes.
+
+- id: mutagen.mutation_pipeline.r32
+  priority: must
+  statement: |
+    Only survived and uncovered sites advance to another escalation step.
+    A timeout keeps its status and the step that observed it. Compile errors,
+    skipped sites and other terminal outcomes never run again.
+- id: mutagen.mutation_pipeline.r33
+  priority: must
+  statement: |
+    Candidate admission restores the OS environment and the environment of
+    every loaded application after each probe. The admitted files' load-time
+    environment changes apply only to their own pass. Side effects outside
+    those environments may persist after a candidate runs and is dropped.
+- id: mutagen.mutation_pipeline.r34
+  priority: must
+  statement: |
+    Death of the test group leader kills the current mutant and permits the
+    next site to run. In a baseline it is a red outcome. In candidate
+    admission that outcome drops the file and permits escalation to continue.
+- id: mutagen.mutation_pipeline.r35
+  priority: must
+  statement: |
+    A single candidate baseline gets ten times the narrow baseline duration
+    with a thirty-second floor, capped by the configured host boot and
+    mutant timeout ceilings. A combined baseline gets the single-candidate
+    deadline per file, capped by the host boot timeout.
 
 ```
 
@@ -958,4 +985,14 @@ decisions:
     - mutagen.mutation_pipeline.r25
     - mutagen.mutation_pipeline.r26
     - mutagen.mutation_pipeline.r27
+    - mutagen.mutation_pipeline.r32
+    - mutagen.mutation_pipeline.r34
+    - mutagen.mutation_pipeline.r35
+- kind: tagged_tests
+  target: test/integration/gate_wiring_test.exs
+  covers:
+    - mutagen.mutation_pipeline.r32
+    - mutagen.mutation_pipeline.r33
+    - mutagen.mutation_pipeline.r34
+    - mutagen.mutation_pipeline.r35
 ```
