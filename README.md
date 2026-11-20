@@ -568,8 +568,8 @@ the average cost per mutant.
 | `--summary <path>` | Write a Markdown summary to a separate file. Use `--json` for a JSON file or leave it off for JSON on stdout. |
 | `--summary-max <int>` | Maximum entries in Worth a look. Default 5. Zero keeps only the omitted count. |
 | `--site <id>` | Rerun one site using the report ID or opaque reference. |
-| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required without `--since`. Repeatable up to 100 occurrences. |
-| `--tests <target>` | A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Repeatable up to 100 times. Use `auto` on its own. Required without `--since`. |
+| `--scope <target>` | What to mutate. A `.ex` file path, a module name, or `Module.fun/arity`. Required unless you use `--since` or `--site`. Repeatable up to 100 occurrences. |
+| `--tests <target>` | A `_test.exs` path, a `file:line` pair, or `tag:<name>`. Repeatable up to 100 times. Use `auto` on its own. Required unless you use `--since` or `--site`. |
 | `--boot-timeout-ms <int>` | Deadline in milliseconds for startup after compilation. Default `300000`. |
 | `--no-source` | Omit source excerpts, excerpt lines, file and function fields from mutation results and compile errors, including stream entries. |
 | `--include-host-output` | Include captured compiler and test stderr and abort messages, with best-effort redaction. |

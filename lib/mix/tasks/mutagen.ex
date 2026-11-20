@@ -66,12 +66,12 @@ defmodule Mix.Tasks.Mutagen do
 
   ## Flags
 
-    * `--scope <target>` (repeatable, required without `--since`) — what to mutate. One of:
-      a file path ending in `.ex`, a module name (`Module.Name`), or
-      `Module.Name.function/arity`. Repeat the flag to add more targets.
-    * `--tests <target>` (repeatable, required without `--since`) — which tests judge the
-      mutations. One of: a test file path, a `file:line` reference, or
-      `tag:<name>`. Repeat the flag to add more targets, or use `auto`.
+    * `--scope <target>` selects a file ending in `.ex`, a module, or
+      `Module.Name.function/arity`. Repeat it to add targets. Required
+      unless you use `--since` or `--site`.
+    * `--tests <target>` selects a test file, a `file:line` reference, or
+      `tag:<name>`. Repeat it to add targets, or use `auto` on its own.
+      Required unless you use `--since` or `--site`.
     * `--summary <path>` writes Markdown to a file alongside the JSON report.
       The files must have distinct paths. The path follows the JSON path
       safety rules. Use a filename instead of `-`.

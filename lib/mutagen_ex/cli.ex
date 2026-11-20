@@ -20,11 +20,14 @@ defmodule MutagenEx.CLI do
 
   ## Recognised flags
 
-    * `--scope <target>` — required without `--since`, repeatable up to 100
-      occurrences. Shape validation happens during scope resolution.
-    * `--tests <target>` — repeatable up to 100 occurrences. Use `auto` as a
-      standalone target. With `--since`, omission defaults to `auto`.
-    * `--since <ref>` — plan changed runtime sites from the merge base.
+    * `--scope <target>` selects one scope, repeatable up to 100 times.
+      Required unless you use `--since` or `--site`.
+    * `--tests <target>` selects tests, repeatable up to 100 times. Use
+      `auto` on its own. It is the default with `--since` or `--site`.
+    * `--since <ref>` plans changed runtime sites from the merge base.
+    * `--site <id>` selects one site by report ID or opaque reference.
+    * `--summary <path>` writes a Markdown file with the run's main findings.
+    * `--summary-max <int>` caps the individual findings. Defaults to five.
     * `--no-escalate` — disable survivor escalation with automatic selection.
     * `--escalate-max-files <int>` — non-negative cap per step, default 20.
     * `--timeout-ms <int>` — positive per-mutant deadline override.
