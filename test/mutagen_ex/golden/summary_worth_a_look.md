@@ -9,7 +9,7 @@
   + x - 1
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000002:arith --tests auto --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
+  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000002:arith --tests auto --escalate --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
 
 - `lib/fixture.ex:3` `Fixture.fixture_3/1`. `arith` survived (narrow).
 
@@ -18,8 +18,8 @@
   + x - 1
   ```
 
-  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000003:arith --tests auto --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
+  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000003:arith --tests auto --escalate --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
 
-2 additional high-confidence survivors in the JSON.
+2 additional survivors in the JSON.
 
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.

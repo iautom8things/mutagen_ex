@@ -1,6 +1,19 @@
 **Tests failed on the unmutated code** `test/broken_test.exs`.
 
 **Mutagen has incomplete results.** 1 of 3 changed sites could not be checked. 3 mutants run · 1 killed · 1 survived · 1 unevaluated · kill rate 50.0% (1/2 evaluated) · 1 changed file · 1 changed function
+
+### Worth a look
+
+- `lib/fixture.ex:3` `Fixture.fixture/1`. `guard_drop` survived (low confidence, narrow).
+
+  ```diff
+  - x + 1
+  + x - 1
+  ```
+
+  This mutant ran after a state-leak warning. Rerun alone to confirm.
+  Rerun with `MIX_ENV=test mix mutagen --site lib/fixture.ex:00000000000000000000000000000003:arith --tests auto --escalate --escalate-max-files 40 --since bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb`.
+
 **What this means.** A survivor means the tests that ran did not notice the change. Check what they assert.
 
 ### Notes
@@ -11,4 +24,3 @@
 - 1 result followed a timeout or host state change.
 - 1 kill followed a dropped test file and may reflect its effects on the run.
 - Escalation tried to load 1 test file that it later dropped.
-- Only the JSON results list 1 low-confidence survivor.

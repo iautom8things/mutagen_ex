@@ -53,7 +53,7 @@ defmodule MutagenEx.Config do
             summary_max: 5,
             summary_path: nil,
             summary_requested: nil,
-            escalate: true,
+            escalate: false,
             escalate_max_files: 20,
             escalate_budget_ms: 120_000,
             timeout_ms: 30_000,

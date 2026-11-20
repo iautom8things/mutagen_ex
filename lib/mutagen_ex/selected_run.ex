@@ -133,13 +133,15 @@ defmodule MutagenEx.SelectedRun do
   end
 
   defp escalate(plan, %{tests: ["auto"], escalate: true} = config, state, test_paths, phases) do
-    timeout = candidate_timeout(config, state.report.meta.timings_ms[:baseline] || 0)
+    baseline_ms = state.report.meta.timings_ms[:baseline] || 0
+    timeout = candidate_timeout(config, baseline_ms)
+    budget = escalation_budget(config, baseline_ms)
 
     state =
-      if config.escalate_budget_ms > 0,
+      if budget > 0,
         do: %{
           state
-          | escalation_deadline: System.monotonic_time(:millisecond) + config.escalate_budget_ms
+          | escalation_deadline: System.monotonic_time(:millisecond) + budget
         },
         else: state
 
@@ -368,8 +370,17 @@ defmodule MutagenEx.SelectedRun do
 
   defp candidate_timeout(config, baseline_ms) do
     ceiling = min(config.boot_timeout_ms, config.timeout_ms)
-    min(ceiling, max(to_timeout(second: 30), 10 * baseline_ms))
+    min(ceiling, escalation_window(baseline_ms))
   end
+
+  defp escalation_budget(%{site: nil, escalate_budget_ms: budget}, _baseline_ms), do: budget
+
+  defp escalation_budget(%{escalate_budget_ms: budget}, baseline_ms) do
+    cap = escalation_window(baseline_ms)
+    if budget == 0, do: cap, else: min(budget, cap)
+  end
+
+  defp escalation_window(baseline_ms), do: max(to_timeout(second: 30), 10 * baseline_ms)
 
   defp run_stage(_step, [], _plan, _config, _timeout, state, _phases), do: {:ok, state, []}
 
