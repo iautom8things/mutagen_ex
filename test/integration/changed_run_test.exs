@@ -1132,7 +1132,25 @@ defmodule MutagenEx.ChangedRunTest do
       String.replace(original, "nil -> {:error, value}", "nil -> {:missing, value}")
     )
 
-    report = run(repo, ["--since", base, "--tests", @convention, "--summary", "out/case.md"])
+    {raw, 0} =
+      invoke(repo, [
+        "--since",
+        base,
+        "--tests",
+        @convention,
+        "--summary",
+        "out/case.md",
+        "--stream"
+      ])
+
+    [start | events] = raw |> String.split("\n", trim: true) |> Enum.map(&JSON.decode!/1)
+    assert start["kind"] == "start"
+    refute Map.has_key?(start["meta"], "complete")
+
+    assert [%{"kind" => "end", "meta" => %{"complete" => true}} = finish, report] =
+             Enum.take(events, -2)
+
+    assert finish["summary"] == report["summary"]
     assert report["summary"]["verdict"] == "partly_checked"
     assert [%{"path" => @source, "ranges" => [[5, 5]]}] = report["meta"]["since"]["uncovered"]
     assert report["meta"]["since"]["unmapped"] == []

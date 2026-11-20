@@ -786,7 +786,12 @@ defmodule MutagenEx.JsonReporter do
           meta
       end
 
-    meta |> meta_to_wire() |> put_selected_meta(meta, options) |> put_complete(options)
+    meta |> meta_to_wire() |> put_selected_meta(meta, options)
+  end
+
+  @doc false
+  def stream_end_meta_to_wire(%Report{} = report) do
+    report.meta |> stream_meta_to_wire(report) |> put_complete(report)
   end
 
   defp put_timing_wire(wire, %{timings_ms: timings}) do
