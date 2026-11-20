@@ -46,6 +46,9 @@ defmodule MutagenEx.JsonReporterTest do
              assert %{"aborted" => true, "abort_reason" => ^reason} = report
              assert get_in(report, ["meta", "complete"]) == false
 
+             assert [%{"reason" => ^reason, "path" => nil}] =
+                      get_in(report, ["meta", "incomplete_reasons"])
+
              code
            end)
            |> Enum.uniq() == [2]

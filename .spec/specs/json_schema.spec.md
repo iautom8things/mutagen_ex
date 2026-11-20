@@ -547,7 +547,8 @@ Top-level keys, all present in every variant unless noted:
   priority: must
   statement: |
     Every abort document, including the end record of an aborted stream,
-    sets meta.complete to false.
+    sets meta.complete to false and includes the abort reason in
+    meta.incomplete_reasons.
 - id: mutagen.json_schema.r34
   priority: must
   statement: |

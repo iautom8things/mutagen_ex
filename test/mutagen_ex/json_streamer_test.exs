@@ -311,6 +311,10 @@ defmodule MutagenEx.JsonStreamerTest do
 
       assert decoded["aborted"] == true
       assert decoded["meta"]["complete"] == false
+
+      assert [%{"reason" => "baseline_red", "path" => :null}] =
+               decoded["meta"]["incomplete_reasons"]
+
       assert decoded["abort_reason"] == "baseline_red"
       assert decoded["killed"] == 0
       assert decoded["kill_rate"] in [nil, :null]
