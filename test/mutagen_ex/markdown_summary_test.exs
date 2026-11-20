@@ -71,9 +71,28 @@ defmodule MutagenEx.MarkdownSummaryTest do
     text = doc |> MarkdownSummary.render() |> IO.iodata_to_binary()
 
     assert text =~
-             "**Mutagen found nothing to check.** 1 of 2 changed sites could not be checked."
+             "**Mutagen found nothing in the sites it could check.** 1 of 2 changed sites could not be checked."
+
+    refute text =~ "Mutagen found nothing to check."
 
     assert text =~ "1 unevaluated · kill rate 100.0% (1/1 evaluated)"
+  end
+
+  @tag spec: "mutagen.json_schema.r37"
+  test "a partial report with a finding keeps the finding first and labels low confidence" do
+    low = %{site(2, :survived) | mutator: :guard_drop}
+
+    text =
+      [low, site(3, :timeout)]
+      |> report(meta: since())
+      |> MarkdownSummary.render()
+      |> IO.iodata_to_binary()
+
+    assert text =~
+             "**Mutagen found changes worth a look.** 1 of 2 changed sites could not be checked."
+
+    assert text =~ "`guard_drop` survived (low confidence, narrow)"
+    assert text =~ "--tests auto --escalate --escalate-max-files 40"
   end
 
   @tag spec: "mutagen.json_schema.r37"
@@ -188,6 +207,19 @@ defmodule MutagenEx.MarkdownSummaryTest do
   end
 
   defp report(results, opts) do
+    opts =
+      case opts[:meta] do
+        %{since: _} = meta ->
+          Keyword.put(
+            opts,
+            :meta,
+            Map.put(meta, :changed_line_sites, MapSet.new(results, & &1.id))
+          )
+
+        _ ->
+          opts
+      end
+
     struct!(Report, Keyword.put(opts, :mutation, %{results: results}))
     |> JsonReporter.to_wire()
   end

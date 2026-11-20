@@ -148,8 +148,8 @@ decisions:
 - id: mutagen.test_selection.r10
   priority: must
   statement: |
-    Auto escalation ranks uncited test files by text mentions of surviving
-    mutants, using module matches first and function calls or captures
+    Auto escalation runs only with --escalate. It ranks uncited test files
+    by text mentions of surviving mutants, using module matches first and function calls or captures
     second. Equal scores sort by path. Each step admits at most the
     configured file cap and reports whether more files matched.
 

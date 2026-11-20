@@ -49,12 +49,13 @@ defmodule MutagenEx.ReportSummaryTest do
   end
 
   @tag spec: "mutagen.json_schema.r36"
-  test "only changed functions without any executed sites are marked not executed" do
+  test "only functions with exclusively probe-confirmed misses are marked not executed" do
     pending = [pending("not_reached", 11), pending("reached", 12)]
     reached = site("reached", 4, :survived)
     unrelated = site("other", 5, :survived)
     timeout = site("timed", 6, :timeout)
     pending = pending ++ [pending("timed", 13), %{pending("covered", 14) | reason: :not_run}]
+    pending = pending ++ [%{pending("not_confirmed", 15) | execution: :cover}]
     classic = report([reached, unrelated, timeout], pending)["summary"]
     changed = report([reached, unrelated, timeout], pending, meta: since())["summary"]
 
@@ -74,13 +75,37 @@ defmodule MutagenEx.ReportSummaryTest do
 
     assert changed["checked"] == %{
              "status" => "partial",
-             "total" => 7,
-             "uncovered" => 3,
+             "total" => 8,
+             "uncovered" => 4,
              "unevaluated" => 2
            }
 
-    assert %{"count" => 5, "uncovered" => 3, "not_run" => 1, "timeout" => 1} =
+    assert %{"count" => 6, "uncovered" => 4, "not_run" => 1, "timeout" => 1} =
              changed["unevaluated"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "changed findings sort by confidence, then file and line, and count survivors outside the diff" do
+    a = %{site("arith", 4, :survived) | file: "lib/a.ex"}
+    b = %{site("bool", 7, :survived) | file: "lib/a.ex", mutator: :boolean}
+    c = %{site("third", 2, :survived) | file: "lib/b.ex", mutator: :else_removal}
+    low = %{site("guard", 1, :survived) | file: "lib/a.ex", mutator: :guard_drop}
+    away = [site("off_diff", 2, :survived), %{low | id: "away"}]
+    visible = [a, b, c, low]
+    meta = Map.put(since(), :changed_line_sites, MapSet.new(visible, & &1.id))
+    doc = report(Enum.reverse(visible ++ away), [], meta: meta)
+
+    assert Enum.map(doc["summary"]["worth_a_look"], & &1["id"]) == Enum.map(visible, & &1.id)
+    assert List.last(doc["summary"]["worth_a_look"])["confidence"] == "low"
+    assert doc["summary"]["notes"] == [%{"kind" => "off_changed_line_survivors", "count" => 2}]
+    assert Enum.count(doc["mutation"]["results"], &(&1["status"] == "survived")) == 6
+    assert doc["summary"]["verdict"] == "worth_a_look"
+
+    assert %{"verdict" => "nothing_to_check", "worth_a_look" => [], "worth_a_look_omitted" => 0} =
+             report(away, [], meta: meta)["summary"]
+
+    assert %{"verdict" => "worth_a_look", "worth_a_look" => [%{"confidence" => "low"}]} =
+             report([low | away], [], meta: meta)["summary"]
   end
 
   @tag spec: "mutagen.json_schema.r36"
@@ -256,6 +281,19 @@ defmodule MutagenEx.ReportSummaryTest do
   end
 
   defp report(results, pending \\ [], opts \\ []) do
+    opts =
+      case opts[:meta] do
+        %{since: _} = meta ->
+          Keyword.put(
+            opts,
+            :meta,
+            Map.put_new(meta, :changed_line_sites, MapSet.new(results, & &1.id))
+          )
+
+        _ ->
+          opts
+      end
+
     struct!(Report, Keyword.put(opts, :mutation, %{results: results, pending: pending}))
     |> JsonReporter.to_wire()
   end
