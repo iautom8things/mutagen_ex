@@ -140,10 +140,13 @@ defmodule MutagenEx.MutationEnumerator do
   """
 
   alias MutagenEx.Ast
+  alias MutagenEx.AstCache
   alias MutagenEx.Mutators
   alias MutagenEx.Mutators.Dispatch
   alias MutagenEx.MutationEnumerator.Site
   alias MutagenEx.ScopeResolver.Scope
+
+  @definition_kinds [:def, :defp, :defmacro, :defmacrop, :defguard, :defguardp]
 
   @behaviour MutagenEx.Pipeline.EnumeratorFacade
 
@@ -165,6 +168,19 @@ defmodule MutagenEx.MutationEnumerator do
           warnings: [warning()]
         }
 
+  @opaque fingerprint_input :: {[Macro.t()], boolean()}
+  @type planned_entry :: %{
+          required(:group_key) => tuple(),
+          required(:fingerprint) => fingerprint_input() | String.t(),
+          required(:runtime?) => boolean(),
+          optional(atom()) => term()
+        }
+  @type planned_result :: %{
+          sites: [planned_entry()],
+          skipped: [planned_entry()],
+          warnings: [warning()]
+        }
+
   @typedoc "Enumeration error: site cap exceeded (r7)."
   @type error :: {:error, :too_many_sites, map()}
 
@@ -178,6 +194,12 @@ defmodule MutagenEx.MutationEnumerator do
 
     * `:mutators` — list of mutator modules to consult. Defaults to
       `MutagenEx.Mutators.all/0`.
+    * `:planned` — a map from files to lists of ascending, inclusive line ranges
+      or `{from, to}` pairs.
+      Selects candidates whose spans overlap those ranges and ignores
+      `covered_lines`. Sites and skips are plain maps that also carry
+      `:group_key`, deferred `:fingerprint` inputs, and `:runtime?`. Planned skips carry
+      the source span, function and path as well as the usual skip fields.
     * `:max_sites` — positive integer cap on the produced sites list
       (per `mutagen.mutation_enumeration.r7`). When the cap is exceeded
       the enumerator returns `{:error, :too_many_sites, details}` instead
@@ -202,13 +224,20 @@ defmodule MutagenEx.MutationEnumerator do
           Mix task does not expose this knob.
   """
   @impl MutagenEx.Pipeline.EnumeratorFacade
-  @spec enumerate(map(), [Scope.t()], map(), keyword) :: result | error
+  @spec enumerate(map(), [Scope.t()], map(), keyword) :: result | planned_result | error
   def enumerate(ast_cache, scope_records, covered_lines, opts \\ [])
       when is_map(ast_cache) and is_list(scope_records) and is_map(covered_lines) do
-    mutators = Keyword.get(opts, :mutators, Mutators.all())
+    catalog = Mutators.all()
+    mutators = Keyword.get(opts, :mutators, catalog)
     max_sites = Keyword.get(opts, :max_sites)
     dispatch_mode = Keyword.get(opts, :dispatch_mode, :head_atom)
     source? = Keyword.get(opts, :source, true)
+
+    filter =
+      case Keyword.fetch(opts, :planned) do
+        {:ok, changed_lines} -> {:planned, normalize_changed_lines(changed_lines)}
+        :error -> {:covered, covered_lines}
+      end
 
     unless dispatch_mode in [:head_atom, :legacy] do
       raise ArgumentError,
@@ -216,14 +245,14 @@ defmodule MutagenEx.MutationEnumerator do
               ":dispatch_mode must be :head_atom or :legacy, got #{inspect(dispatch_mode)}"
     end
 
+    mutators = if dispatch_mode == :head_atom and mutators == catalog, do: :all, else: mutators
     scopes = scope_records |> Enum.uniq() |> Enum.with_index()
 
     by_file =
       scopes
       |> Enum.group_by(fn {scope, _rank} -> scope.file end)
       |> Map.new(fn {file, file_scopes} ->
-        {file,
-         enumerate_file(file, file_scopes, ast_cache, covered_lines, mutators, dispatch_mode)}
+        {file, enumerate_file(file, file_scopes, ast_cache, filter, mutators, dispatch_mode)}
       end)
 
     final =
@@ -278,31 +307,312 @@ defmodule MutagenEx.MutationEnumerator do
     end)
   end
 
+  defp normalize_changed_lines(changed_lines)
+       when is_map(changed_lines) and not is_struct(changed_lines) do
+    Map.new(changed_lines, fn
+      {file, ranges} when is_binary(file) and byte_size(file) > 0 ->
+        {file, normalize_ranges(ranges, file)}
+
+      _ ->
+        invalid_changed_lines!()
+    end)
+  end
+
+  defp normalize_changed_lines(_), do: invalid_changed_lines!()
+
+  defp normalize_ranges([], _file), do: []
+
+  defp normalize_ranges([range | rest], file),
+    do: [normalize_range(range, file) | normalize_ranges(rest, file)]
+
+  defp normalize_ranges(_, _file), do: invalid_changed_lines!()
+
+  defp invalid_changed_lines! do
+    raise ArgumentError, ":planned must be a map from file paths to lists of line ranges"
+  end
+
+  defp normalize_range(first..last//1, file), do: normalize_range({first, last}, file)
+
+  defp normalize_range({first, last}, _file)
+       when is_integer(first) and is_integer(last) and first > 0 and first <= last,
+       do: {first, last}
+
+  defp normalize_range(range, file) do
+    raise ArgumentError,
+          ":planned expects a positive ascending line range for #{inspect(file)}, got #{inspect(range)}"
+  end
+
+  @doc "Returns the fingerprints of the ID groups in a parsed file."
+  @spec group_fingerprints(Macro.t()) :: %{tuple() => String.t()}
+  def group_fingerprints(ast) do
+    walked = walk_groups(ast, :all)
+
+    Map.new(walked.groups, fn {key, nodes} ->
+      {key, hash_fingerprint({nodes, MapSet.member?(walked.split_groups, key)})}
+    end)
+  end
+
+  defp walk_groups(ast, keys), do: walk_file(ast, %{by_module: %{}, mutators: []}, keys)
+
+  @doc "Resolves the fingerprint of a planned site or skip on demand."
+  @spec site_fingerprint(planned_entry()) :: String.t()
+  def site_fingerprint(%{fingerprint: digest}) when is_binary(digest), do: digest
+  def site_fingerprint(%{fingerprint: input}), do: hash_fingerprint(input)
+
+  @doc """
+  Keeps planned entries whose group differs from the same group in the base.
+
+  Pass the base source, including the old path's source for a rename, or
+  `:absent` for a new file. Returns `{entries, warnings}`. All entries
+  remain in scope when the base cannot be parsed. Groups with a
+  counterpart in the base are hashed once per call. Changed groups
+  return their resolved fingerprint. Entries with no counterpart keep
+  deferred fingerprints.
+  """
+  @spec fingerprint_scope([planned_entry()], binary() | :absent) ::
+          {[planned_entry()], [{:base_parse_error, integer() | :invalid_encoding}]}
+  def fingerprint_scope(entries, :absent), do: {entries, []}
+
+  def fingerprint_scope(entries, source) when is_binary(source) do
+    case AstCache.parse("nofile", source) do
+      {:ok, {ast, _source}} ->
+        base = walk_groups(ast, MapSet.new(entries, & &1.group_key))
+        {scope_by_group(entries, base), []}
+
+      {:error, :parse_error, %{line: line}} ->
+        {entries, [{:base_parse_error, line}]}
+    end
+  rescue
+    UnicodeConversionError -> {entries, [{:base_parse_error, :invalid_encoding}]}
+  end
+
+  defp scope_by_group(entries, base) do
+    {scoped, _decisions} =
+      Enum.flat_map_reduce(entries, %{}, fn %{group_key: key} = entry, decisions ->
+        case decisions do
+          %{^key => decision} ->
+            {scoped_entry(entry, decision), decisions}
+
+          %{} ->
+            decision = compare_group(entry, key, base)
+            {scoped_entry(entry, decision), Map.put(decisions, key, decision)}
+        end
+      end)
+
+    scoped
+  end
+
+  defp compare_group(entry, key, %{groups: groups, split_groups: split_groups}) do
+    case groups do
+      %{^key => nodes} ->
+        base_hash = hash_fingerprint({nodes, MapSet.member?(split_groups, key)})
+        current_hash = site_fingerprint(entry)
+        if base_hash == current_hash, do: :unchanged, else: current_hash
+
+      %{} ->
+        :absent
+    end
+  end
+
+  defp scoped_entry(_entry, :unchanged), do: []
+  defp scoped_entry(entry, :absent), do: [entry]
+  defp scoped_entry(entry, digest), do: [%{entry | fingerprint: digest}]
+
+  @doc "Converts a planned site into the struct accepted by the mutation runner."
+  @spec to_site(planned_entry()) :: Site.t()
+  def to_site(%{id: _} = entry) do
+    struct!(Site, Map.drop(entry, [:group_key, :fingerprint, :runtime?]))
+  end
+
+  @doc """
+  Partitions planned runtime entries by ID against the runner output and
+  validator skips. An entry missing from the output is an uncovered candidate.
+  """
+  @spec partition_planned_runtime_sites([planned_entry()], map()) :: %{
+          evaluated: [planned_entry()],
+          uncovered_candidate: [planned_entry()],
+          not_run: [planned_entry()]
+        }
+  def partition_planned_runtime_sites(entries, %{
+        results: results,
+        compile_errors: compile_errors,
+        skipped: skipped
+      }) do
+    by_id =
+      Enum.reduce(results, %{}, fn
+        %{id: id, status: :error}, acc -> Map.put_new(acc, id, :not_run)
+        %{id: id}, acc -> Map.put(acc, id, :evaluated)
+      end)
+
+    by_id = Enum.reduce(compile_errors, by_id, &Map.put(&2, &1.id, :evaluated))
+    by_id = Enum.reduce(skipped, by_id, &Map.put(&2, &1.site_id, :evaluated))
+
+    {parts, _seen} =
+      Enum.reduce(
+        entries,
+        {%{evaluated: [], uncovered_candidate: [], not_run: []}, MapSet.new()},
+        fn
+          entry, {parts, seen} ->
+            id = entry_id(entry)
+
+            if MapSet.member?(seen, id) do
+              raise ArgumentError, "duplicate planned mutation ID: #{inspect(id)}"
+            end
+
+            bucket = Map.get(by_id, id, :uncovered_candidate)
+            {Map.update!(parts, bucket, &[entry | &1]), MapSet.put(seen, id)}
+        end
+      )
+
+    Map.new(parts, fn {bucket, entries} -> {bucket, Enum.reverse(entries)} end)
+  end
+
+  defp entry_id(%{id: id}), do: id
+  defp entry_id(%{site_id: id}), do: id
+
   # Count occurrences in file order before applying scope or coverage filters.
-  defp enumerate_file(file, scopes, ast_cache, covered_lines, mutators, dispatch_mode) do
+  defp enumerate_file(file, scopes, ast_cache, {mode, lines}, mutators, dispatch_mode) do
     with {:ok, entry} <- Map.fetch(ast_cache, file) do
-      ast = cached_ast(entry)
+      selection = file_selection(mode, Map.get(lines, file), entry)
+      mutators = if selection == {:planned, []}, do: [], else: mutators
 
       env = %{
         file: file,
         by_module: Enum.group_by(scopes, fn {scope, _rank} -> scope.module end),
-        covered: Map.get(covered_lines, file, MapSet.new()),
+        filter: selection,
         mutators: mutators,
-        dispatch_mode: dispatch_mode,
+        dispatch_mode: dispatch_mode
+      }
+
+      group_filter = if mode == :planned and mutators != [], do: :all
+      walked = walk_file(cached_ast(entry), env, group_filter)
+      {:ok, finish_file(walked)}
+    end
+  end
+
+  # A new file's full range overlaps every site in its cached parse.
+  defp file_selection(:planned, [{1, last}], {_ast, source}) when is_binary(source) do
+    if length(:binary.matches(source, "\n")) < last,
+      do: {:planned, :whole_file},
+      else: {:planned, [{1, last}]}
+  end
+
+  defp file_selection(:planned, lines, _entry), do: {:planned, lines || []}
+  defp file_selection(:covered, lines, _entry), do: {:covered, lines || MapSet.new()}
+
+  defp walk_file(ast, env, group_filter) do
+    ambient =
+      case env do
+        %{filter: {:planned, [_ | _]}} -> {nil, 1, nil, nil}
+        _ -> {nil, 1}
+      end
+
+    env =
+      Map.merge(env, %{
         modules: Ast.module_index(ast),
         module_key: nil,
         statement: nil,
         enclosing: nil,
+        group_root: nil,
+        group_filter: group_filter,
+        definition_kind: nil,
         quoted: false,
         scopes: [],
         path: []
-      }
+      })
 
-      acc = %{ordinals: %{}, scopes: %{}, sites: %{}, skipped: %{}}
-      walked = walk_tree(ast, {nil, 1}, nil, env, acc)
-      {:ok, Map.take(walked, [:scopes, :sites, :skipped])}
-    end
+    walk_tree(ast, ambient, nil, env, %{
+      ordinals: %{},
+      scopes: %{},
+      sites: %{},
+      skipped: %{},
+      groups: if(group_filter, do: %{}),
+      split_groups: MapSet.new()
+    })
   end
+
+  defp finish_file(%{groups: nil} = walked), do: Map.take(walked, [:scopes, :sites, :skipped])
+
+  defp finish_file(walked) do
+    %{
+      scopes: walked.scopes,
+      sites: attach_fingerprint_inputs(walked.sites, walked),
+      skipped: attach_fingerprint_inputs(walked.skipped, walked)
+    }
+  end
+
+  defp attach_fingerprint_inputs(entries_by_scope, walked) do
+    Map.new(entries_by_scope, fn {rank, entries} ->
+      entries =
+        Enum.map(entries, fn {entry, group, runtime?} ->
+          entry = if is_struct(entry, Site), do: Map.from_struct(entry), else: entry
+          input = {Map.fetch!(walked.groups, group), MapSet.member?(walked.split_groups, group)}
+
+          Map.merge(entry, %{group_key: group, runtime?: runtime?, fingerprint: input})
+        end)
+
+      {rank, entries}
+    end)
+  end
+
+  defp hash_fingerprint({nodes, split?}) do
+    owned =
+      if split? do
+        Enum.reduce(nodes, [], &[prune_group(&1) | &2])
+      else
+        Enum.reverse(nodes)
+      end
+
+    Mutators.identity_hash(owned, :ast_list)
+  end
+
+  defp prune_group({kind, _, [head | _]} = definition)
+       when kind in @definition_kinds and not is_nil(head),
+       do: prune_call(definition)
+
+  defp prune_group(node), do: prune_nested(node)
+
+  defp prune_nested({:quote, _, _} = node), do: node
+
+  defp prune_nested({kind, meta, [name | options]} = node)
+       when kind in [:defmodule, :defprotocol, :defimpl] do
+    if Enum.any?(options, &(is_list(&1) and List.keymember?(&1, :do, 0))),
+      do: {kind, meta, [name]},
+      else: prune_call(node)
+  end
+
+  defp prune_nested({kind, meta, [head | _]}) when kind in @definition_kinds and not is_nil(head),
+    do: {kind, meta, []}
+
+  defp prune_nested({_, _, args} = node) when is_list(args), do: prune_call(node)
+
+  defp prune_nested({left, right} = node) do
+    if bare_mutable_literal?(left) or bare_mutable_literal?(right) or mutable_expression?(node),
+      do: node,
+      else: {prune_nested(left), prune_nested(right)}
+  end
+
+  defp prune_nested(list) when is_list(list) do
+    if Enum.any?(list, &bare_mutable_literal?/1), do: list, else: Enum.map(list, &prune_nested/1)
+  end
+
+  defp prune_nested(node), do: node
+
+  # A mutator can identify this entire subtree, or a bare literal can
+  # identify its whole parent. Keep those ID inputs in the outer hash.
+  defp prune_call({form, meta, args} = node) do
+    if Enum.any?(args, &bare_mutable_literal?/1) or mutable_expression?(node),
+      do: node,
+      else: {prune_nested(form), meta, Enum.map(args, &prune_nested/1)}
+  end
+
+  defp bare_mutable_literal?(node) when is_integer(node) or is_boolean(node),
+    do: Mutators.Literal.match?(node)
+
+  defp bare_mutable_literal?(_node), do: false
+
+  defp mutable_expression?(node),
+    do: Enum.any?(Dispatch.mutators_for_node(node), & &1.match?(node))
 
   defp cached_ast({ast, source}) when is_binary(source), do: ast
   defp cached_ast(ast), do: ast
@@ -328,16 +638,16 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  defp walk_tree({kind, meta, [name | _]} = node, ambient, context, %{quoted: false} = env, acc)
+  defp walk_tree({kind, _, [name | _]} = node, ambient, context, %{quoted: false} = env, acc)
        when kind in [:defmodule, :defprotocol, :defimpl] do
     case Map.get(env.modules, node) do
       {modules, body, path} ->
         acc = try_mutators(node, ambient, context, env, acc)
-        position = update_ambient(meta, ambient)
+        position = update_ambient(node, ambient)
         scopes = Enum.flat_map(modules, &Map.get(env.by_module, &1, []))
 
         acc =
-          Enum.reduce(scopes, acc, fn {_scope, rank}, acc ->
+          Enum.reduce(scopes, mark_split_group(acc, env), fn {_scope, rank}, acc ->
             %{acc | scopes: Map.put_new(acc.scopes, rank, :empty)}
           end)
 
@@ -354,6 +664,8 @@ defmodule MutagenEx.MutationEnumerator do
           env
           | module_key: module_key,
             enclosing: nil,
+            group_root: nil,
+            definition_kind: nil,
             scopes: Enum.sort_by(scopes ++ env.scopes, &elem(&1, 1)),
             path: Enum.reverse(path, env.path)
         }
@@ -369,21 +681,33 @@ defmodule MutagenEx.MutationEnumerator do
     walk_node(node, ambient, context, env, acc)
   end
 
-  defp walk_module_body({:__block__, meta, [_, _ | _] = args} = block, ambient, env, acc) do
-    position = update_ambient(meta, ambient)
+  defp walk_module_body({:__block__, _, [_, _ | _] = args} = block, ambient, env, acc) do
+    position = update_ambient(block, ambient)
     acc = try_mutators(block, ambient, nil, %{env | statement: :block}, acc)
 
     args
     |> Enum.with_index()
     |> Enum.reduce(acc, fn {child, index}, acc ->
-      child_env = %{env | statement: statement_head(child), path: [{:arg, index} | env.path]}
-      walk_tree(child, position, %{parent: block, index: index}, child_env, acc)
+      child_env = %{env | path: [{:arg, index} | env.path]}
+      walk_statement(child, position, %{parent: block, index: index}, child_env, acc)
     end)
   end
 
   defp walk_module_body(body, ambient, env, acc) do
     context = %{parent: {:do, body}, index: 1}
-    walk_tree(body, ambient, context, %{env | statement: statement_head(body)}, acc)
+    walk_statement(body, ambient, context, env, acc)
+  end
+
+  defp walk_statement(node, ambient, context, env, acc) do
+    env = %{env | statement: statement_head(node)}
+    {env, acc} = record_statement(env, acc, node)
+    walk_tree(node, ambient, context, env, acc)
+  end
+
+  defp record_statement(env, %{groups: nil} = acc, _node), do: {env, acc}
+
+  defp record_statement(env, acc, node) do
+    if is_nil(Ast.definition_head(node)), do: record_group(env, acc, node), else: {env, acc}
   end
 
   defp statement_head({:@, _, [{name, _, _}]}), do: {:@, name}
@@ -409,16 +733,39 @@ defmodule MutagenEx.MutationEnumerator do
       else: walk_mutable_node(node, ambient, context, env, acc)
   end
 
-  defp walk_node(node, ambient, context, env, acc),
-    do: walk_mutable_node(node, ambient, context, env, acc)
+  defp walk_node({:quote, _, _} = node, ambient, context, env, acc) do
+    walk_mutable_node(node, ambient, context, %{env | quoted: true}, acc)
+  end
+
+  defp walk_node(
+         {kind, _, [head | _]} = node,
+         ambient,
+         context,
+         %{quoted: false} = env,
+         acc
+       )
+       when kind in @definition_kinds and not is_nil(head) do
+    enclosing =
+      case Ast.definition_signature(node) do
+        {name, arity} -> {env.module_key, name, arity}
+        nil -> {env.module_key, :generated, Mutators.identity_node(head)}
+      end
+
+    acc = mark_split_group(acc, env)
+    {env, acc} = record_group(%{env | enclosing: enclosing, definition_kind: kind}, acc, node)
+    walk_mutable_node(node, ambient, context, env, acc)
+  end
+
+  defp walk_node(node, ambient, context, env, acc) do
+    walk_mutable_node(node, ambient, context, env, acc)
+  end
 
   defp walk_mutable_node(node, ambient, context, env, acc) do
-    env = enter_definition(node, env)
     acc = try_mutators(node, ambient, context, env, acc)
 
     case node do
       {form, meta, args} when is_list(meta) ->
-        position = update_ambient(meta, ambient)
+        position = update_ambient(node, ambient)
 
         acc =
           if is_atom(form) do
@@ -441,28 +788,33 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
-  defp enter_definition({:quote, _, _}, env), do: %{env | quoted: true}
-  defp enter_definition(_node, %{quoted: true} = env), do: env
+  defp group_key(env), do: env.enclosing || {env.module_key, env.statement}
 
-  defp enter_definition(node, env) do
-    case Ast.definition_signature(node) do
-      {name, arity} ->
-        %{env | enclosing: {env.module_key, name, arity}}
+  defp record_group(env, %{groups: nil} = acc, _node), do: {env, acc}
 
-      nil ->
-        case Ast.definition_head(node) do
-          nil -> env
-          head -> %{env | enclosing: {env.module_key, :generated, Mutators.identity_node(head)}}
-        end
+  defp record_group(env, acc, node) do
+    key = group_key(env)
+
+    if env.group_filter == :all or MapSet.member?(env.group_filter, key) do
+      {%{env | group_root: key},
+       %{acc | groups: Map.update(acc.groups, key, [node], &[node | &1])}}
+    else
+      {%{env | group_root: nil}, acc}
     end
   end
 
-  defp walk_children(children, ambient, parent, step, env, acc) do
-    children
-    |> Enum.with_index()
-    |> Enum.reduce(acc, fn {child, index}, acc ->
-      walk_child(child, ambient, parent, index, {step, index}, env, acc)
-    end)
+  defp mark_split_group(acc, %{group_root: nil}), do: acc
+
+  defp mark_split_group(acc, %{group_root: group}),
+    do: %{acc | split_groups: MapSet.put(acc.split_groups, group)}
+
+  defp walk_children(children, ambient, parent, step, env, acc, index \\ 0)
+
+  defp walk_children([], _ambient, _parent, _step, _env, acc, _index), do: acc
+
+  defp walk_children([child | rest], ambient, parent, step, env, acc, index) do
+    acc = walk_child(child, ambient, parent, index, {step, index}, env, acc)
+    walk_children(rest, ambient, parent, step, env, acc, index + 1)
   end
 
   defp walk_child(child, ambient, parent, index, step, env, acc) do
@@ -488,6 +840,8 @@ defmodule MutagenEx.MutationEnumerator do
   # head-atom equivalence test
   # (`test/mutagen_ex/head_atom_dispatch_test.exs`); it is not exposed
   # via the Mix task.
+  defp try_mutators(_node, _ambient, _context, %{mutators: []}, acc), do: acc
+
   defp try_mutators(node, ambient, context, env, acc) do
     mutators =
       node
@@ -500,7 +854,7 @@ defmodule MutagenEx.MutationEnumerator do
 
       mutators ->
         normalized = identity_expression(node, context)
-        enclosing = env.enclosing || {env.module_key, env.statement}
+        enclosing = group_key(env)
 
         Enum.reduce(mutators, acc, fn mutator, acc ->
           name = mutator.name()
@@ -540,6 +894,8 @@ defmodule MutagenEx.MutationEnumerator do
   # of `mutators`, identical in order. This preserves byte-identity of
   # site emission order (r1) when callers pass a non-default
   # `:mutators` list.
+  defp pre_filter_mutators(node, :all, :head_atom), do: Dispatch.mutators_for_node(node)
+
   defp pre_filter_mutators(node, mutators, :head_atom) do
     candidate_set = MapSet.new(Dispatch.mutators_for_node(node))
     Enum.filter(mutators, &MapSet.member?(candidate_set, &1))
@@ -553,7 +909,8 @@ defmodule MutagenEx.MutationEnumerator do
   defp emit_site(mutator, node, ambient, context, env, identity, acc) do
     {line, column} = effective_position(node, ambient)
 
-    with true <- is_integer(line) and MapSet.member?(env.covered, line),
+    with true <- is_integer(line),
+         true <- select_span(env.filter, node, ambient, line),
          [{_scope, owner} | _] = scopes <-
            Enum.filter(env.scopes, fn {scope, _rank} -> in_scope?(scope, line, env.enclosing) end) do
       matched =
@@ -568,6 +925,70 @@ defmodule MutagenEx.MutationEnumerator do
     end
   end
 
+  defp select_span({:covered, covered}, _node, _ambient, line) do
+    MapSet.member?(covered, line)
+  end
+
+  defp select_span({:planned, []}, _node, _ambient, _line), do: false
+  defp select_span({:planned, :whole_file}, _node, _ambient, _line), do: true
+
+  defp select_span({:planned, ranges}, node, {_line, _column, parent, closing_line}, line) do
+    case Ast.node_line(node) do
+      nil ->
+        last = max(line, closing_line || line)
+
+        overlaps_range?(ranges, {line, last}) or
+          overlaps_range?(ranges, positionless_range(node, parent, line, last))
+
+      start ->
+        overlaps_line?(ranges, start) or overlaps_range?(ranges, source_range(node, nil))
+    end
+  end
+
+  defp positionless_range(node, parent, line, last) do
+    case source_range(node, nil) || source_range(parent, nil) do
+      nil -> {line, last}
+      {first, ending} -> {min(first, line), max(ending, last)}
+    end
+  end
+
+  defp overlaps_line?(_ranges, nil), do: false
+  defp overlaps_line?(ranges, line), do: overlaps_range?(ranges, {line, line})
+
+  defp overlaps_range?(ranges, {first, last}) do
+    Enum.any?(ranges, fn {from, to} -> first <= to and from <= last end)
+  end
+
+  defp source_range({form, meta, args}, range) when is_list(meta) do
+    range =
+      Enum.reduce(meta, range, fn
+        {:line, line}, range ->
+          extend_range(range, line)
+
+        {key, position}, range
+        when key in [:closing, :end, :end_of_expression] and is_list(position) ->
+          extend_range(range, Keyword.get(position, :line))
+
+        _, range ->
+          range
+      end)
+
+    source_range(args, source_range(form, range))
+  end
+
+  defp source_range({left, right}, range), do: source_range(right, source_range(left, range))
+  defp source_range([first | rest], range), do: source_range(rest, source_range(first, range))
+  defp source_range(_, range), do: range
+
+  defp extend_range(range, line) when not is_integer(line), do: range
+  defp extend_range(nil, line), do: {line, line}
+
+  defp extend_range({first, last}, line) do
+    {min(first, line), max(last, line)}
+  end
+
+  defp plan_mode(%{filter: {mode, _}}), do: mode
+
   defp in_scope?(%Scope{function: nil, line_range: range}, line, _enclosing), do: line in range
 
   defp in_scope?(
@@ -581,7 +1002,16 @@ defmodule MutagenEx.MutationEnumerator do
 
   defp in_scope?(_scope, _line, _enclosing), do: false
 
-  defp record_site(mutator, node, {line, column}, context, env, {identity, name}, owner, acc) do
+  defp record_site(
+         mutator,
+         node,
+         {line, column},
+         context,
+         env,
+         {identity, name},
+         owner,
+         acc
+       ) do
     file = env.file
     id = Mutators.site_id(file, identity, name)
     mutated = mutator.mutate(node)
@@ -595,10 +1025,7 @@ defmodule MutagenEx.MutationEnumerator do
 
     case validation do
       :ok ->
-        # Per `mutagen.mutation_enumeration.r8`: derive the exclusive
-        # end position of `node` best-effort. Nil when not derivable;
-        # the JSON renderer's `before_source` path treats that as the
-        # signal to fall back to `Macro.to_string/1`.
+        # These coordinates are the fallback when the exact source span is unavailable.
         {end_line, end_column} = compute_end_position(node)
 
         site = %Site{
@@ -615,12 +1042,39 @@ defmodule MutagenEx.MutationEnumerator do
           end_column: end_column
         }
 
+        site = plan_site(site, plan_mode(env), env)
         %{acc | sites: Map.update(acc.sites, owner, [site], &[site | &1])}
 
       {:skip, reason} ->
         entry = %{site_id: id, reason: reason, mutator: name, file: file}
+        entry = plan_skip(entry, node, {line, column}, plan_mode(env), env)
         %{acc | skipped: Map.update(acc.skipped, owner, [entry], &[entry | &1])}
     end
+  end
+
+  defp plan_site(site, :covered, _env), do: site
+  defp plan_site(site, :planned, env), do: plan_entry(site, env)
+
+  defp plan_skip(entry, _node, _position, :covered, _env), do: entry
+
+  defp plan_skip(entry, node, {line, column}, :planned, env) do
+    {end_line, end_column} = compute_end_position(node)
+
+    entry
+    |> Map.merge(%{
+      function: format_function(env.enclosing),
+      path: Enum.reverse(env.path),
+      line: line,
+      column: column,
+      end_line: end_line,
+      end_column: end_column
+    })
+    |> plan_entry(env)
+  end
+
+  defp plan_entry(entry, env) do
+    runtime? = env.definition_kind in [:def, :defp] and entry.function != nil and not env.quoted
+    {entry, group_key(env), runtime?}
   end
 
   defp format_function({module, name, arity})
@@ -664,9 +1118,9 @@ defmodule MutagenEx.MutationEnumerator do
   # for the Site's positional fields. The node's own metadata wins when
   # present; otherwise inherit from the nearest enclosing 3-tuple
   # (`ambient`).
-  defp effective_position(node, {ambient_line, ambient_column}) do
-    line = Ast.node_line(node) || ambient_line
-    column = node_column_or_nil(node) || ambient_column || 1
+  defp effective_position(node, ambient) do
+    line = Ast.node_line(node) || elem(ambient, 0)
+    column = node_column_or_nil(node) || elem(ambient, 1) || 1
     {line, column}
   end
 
@@ -674,10 +1128,29 @@ defmodule MutagenEx.MutationEnumerator do
   # the ambient tuple. Missing keys fall back to the prior ambient (we
   # don't want a 3-tuple without `:column` to reset ambient_column to
   # nil — the closest known column is still useful).
-  defp update_ambient(meta, {prior_line, prior_column}) when is_list(meta) do
+  defp update_ambient({_, meta, _}, {prior_line, prior_column}) do
     line = Keyword.get(meta, :line, prior_line)
     column = Keyword.get(meta, :column, prior_column)
     {line, column}
+  end
+
+  defp update_ambient({_, meta, _} = node, {prior_line, prior_column, prior_node, prior_end}) do
+    column = Keyword.get(meta, :column, prior_column)
+    ending = Keyword.get(meta, :end) || Keyword.get(meta, :closing)
+    end_line = (ending && Keyword.get(ending, :line)) || prior_end
+
+    case Keyword.fetch(meta, :line) do
+      {:ok, line} ->
+        {line, column, node, end_line}
+
+      :error ->
+        parent =
+          if Enum.any?(meta, fn {key, _} -> key in [:closing, :end, :end_of_expression] end),
+            do: node,
+            else: prior_node
+
+        {prior_line, column, parent, end_line}
+    end
   end
 
   # --- AST helpers ----------------------------------------------------------
