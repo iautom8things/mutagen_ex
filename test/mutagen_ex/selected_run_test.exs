@@ -402,6 +402,50 @@ defmodule MutagenEx.SelectedRunTest do
     end
   end
 
+  @tag :tmp_dir
+  @tag spec: ["mutagen.cli.r37", "mutagen.mutation_pipeline.r36"]
+  test "caps a single-site escalation budget using its narrow baseline", %{tmp_dir: dir} do
+    candidate = write_candidate(dir, "candidate")
+    phases = callbacks(self(), candidate, false, :ok)
+    narrow = ["checks/narrow_test.exs"]
+
+    for {baseline, budget, cap} <- [
+          {500, 120_000, 30_000},
+          {4_500, 0, 45_000},
+          {500, 10_000, 10_000}
+        ] do
+      config = %Config{
+        scopes: [],
+        tests: ["auto"],
+        since: "HEAD",
+        site: "id",
+        escalate: true,
+        escalate_budget_ms: budget,
+        timeout_ms: 60_000,
+        boot_timeout_ms: 80_000
+      }
+
+      observed = %{
+        phases
+        | baseline: fn input, report ->
+            measured = if input.test_filter.files == narrow, do: baseline, else: 1
+            phases.baseline.(input, put_in(report.meta.timings_ms.baseline, measured))
+          end,
+          mutation: fn input, sites, budget, report ->
+            if input.test_filter.files != narrow do
+              remaining = input.escalation_deadline_ms - System.monotonic_time(:millisecond)
+              assert remaining in (cap - 1_000)..cap
+            end
+
+            phases.mutation.(input, sites, budget, report)
+          end
+      }
+
+      {report, _} = exercise(dir, config.tests, observed, config)
+      assert [%{files_added: [^candidate]}] = report.meta.escalation
+    end
+  end
+
   defp write_candidate(dir, name) do
     path = Path.join(dir, name <> "_test.exs")
     File.write!(path, "# Fixture.Store")

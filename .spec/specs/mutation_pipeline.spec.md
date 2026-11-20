@@ -677,7 +677,9 @@ decisions:
   priority: must
   statement: |
     Auto escalation shares a wall-clock budget across module and function
-    passes. Candidate probes use at most the remaining time. Before each
+    passes. With --site, the budget is bounded by the larger of 30 seconds
+    and ten times the narrow baseline. Candidate probes use at most the
+    remaining time. Before each
     pass, measured candidate baselines estimate its combined baseline,
     coverage and mutation cost. Files that cannot fit are omitted with
     escalation_budget_exhausted. The pass starts only with files that fit.

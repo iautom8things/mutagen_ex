@@ -49,6 +49,62 @@ defmodule MutagenEx.ReportSummaryTest do
   end
 
   @tag spec: "mutagen.json_schema.r36"
+  test "keeps pipeline survivors in JSON and shows the other changed-line low-confidence mutators" do
+    high = site("arithmetic", 9, :survived)
+    pipeline = %{site("chain", 2, :survived) | mutator: :pipeline}
+    with_swap = %{site("swap", 3, :survived) | mutator: :with_swap}
+    guard = %{site("guard", 4, :survived) | mutator: :guard_drop}
+    away = %{site("other_chain", 8, :survived) | mutator: :pipeline}
+    on_line = [pipeline, with_swap, guard, high]
+    meta = Map.put(since(), :changed_line_sites, MapSet.new(on_line, & &1.id))
+    doc = report([away | on_line], [], meta: meta)
+
+    assert Enum.map(doc["mutation"]["results"], & &1["mutator"])
+           |> Enum.count(&(&1 == "pipeline")) == 2
+
+    assert [
+             %{"mutator" => "arith"},
+             %{"mutator" => "with_swap", "confidence" => "low"},
+             %{"mutator" => "guard_drop", "confidence" => "low"}
+           ] = doc["summary"]["worth_a_look"]
+
+    assert doc["summary"]["notes"] == [
+             %{"kind" => "off_changed_line_survivors", "count" => 1},
+             %{"kind" => "pipeline_survivors", "count" => 1}
+           ]
+
+    assert %{"verdict" => "nothing_to_check", "worth_a_look" => []} =
+             report([pipeline, away], [], meta: meta)["summary"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "counts inconclusive probe sites by function and only names functions without kills" do
+    inconclusive = fn function, line, reason ->
+      pending(function, line)
+      |> Map.merge(%{reason: :could_not_tell, execution: :could_not_tell, probe_reason: reason})
+    end
+
+    rows = [
+      inconclusive.("examined", 9, :probe_unwrappable),
+      inconclusive.("unknown", 10, :probe_suite_failed),
+      inconclusive.("no_tests", 11, :probe_no_tests)
+    ]
+
+    summary = report([site("examined", 2, :killed)], rows, meta: since())["summary"]
+    assert summary["execution"]["could_not_tell"] == 2
+    assert summary["unevaluated"]["could_not_tell"] == 3
+
+    assert [
+             %{
+               "kind" => "execution_could_not_tell",
+               "count" => 2,
+               "functions" => ["Fixture.unknown/1"]
+             }
+           ] =
+             summary["notes"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
   test "only functions with exclusively probe-confirmed misses are marked not executed" do
     pending = [pending("not_reached", 11), pending("reached", 12)]
     reached = site("reached", 4, :survived)

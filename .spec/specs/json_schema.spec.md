@@ -584,19 +584,27 @@ Top-level keys, all present in every variant unless noted:
     the function. The verdict keeps incomplete and no_mutable_changes
     and prioritizes baseline_red, check_first, worth_a_look, the unranked
     survivor verdicts and nothing_to_check. summary.checked names the
-    status (full or partial), total sites, uncovered sites, and sites
+    status (full, partial, or none on abort), total sites, uncovered sites, and sites
     left unevaluated for reasons other than lack of coverage.
     Runtime rows carry execution set to cover, probe or could_not_tell.
-    The summary counts rows by execution evidence. A not_executed
+    The summary counts rows by execution evidence, excluding probe_no_tests.
+    If changes have planned sites but no test file is selected, a separate
+    note identifies the empty selection. A not_executed
     finding requires only probe-confirmed uncovered sites in its function.
-    A function with inconclusive sites and no probe hit appears in a
-    note and stays out of Check first.
+    A function with inconclusive sites and no probe hit stays out of Check
+    first. A note counts functions with inconclusive probe evidence and
+    lists names only for functions without kills. Rows with probe_no_tests
+    do not contribute to that note.
+    Preexisting links under source roots make checked partial and preserve
+    the verdict of any finding. The counts describe the known sites.
     Uncovered lines inside evaluated sites appear separately in meta.since.
     Validator skips are counted separately from unevaluated mutants.
     In changed-code runs, Worth a look includes only survivors with a
     source span that overlaps a changed diff line. High-confidence
     survivors precede low-confidence survivors. Each group sorts by file,
-    line and ID. Low-confidence entries carry confidence: low. Survivors
+    line and ID. Low-confidence entries carry confidence: low. Pipeline
+    survivors stay in mutation results. Those on changed lines add to
+    the pipeline_survivors note. Survivors
     elsewhere in changed functions remain in mutation results and add to
     the off_changed_line_survivors note. A changed-code run with only
     those survivors can yield nothing_to_check.
@@ -606,7 +614,8 @@ Top-level keys, all present in every variant unless noted:
     verdict is low_confidence_survivors. The report records the number
     omitted by the cap. Only a nonempty list yields worth_a_look. If the
     cap hides all eligible entries, the verdict is unranked_survivors.
-    Timeouts are unevaluated. Taint is counted as a note.
+    Timeouts are unevaluated. Taint is counted as a note and a tainted
+    survivor also carries that evidence in its summary entry.
     Kills marked selection.after_dropped_file still count as kills and carry
     a run-level note with their count. Each step's dropped_after_load count
     contributes to the run's loaded-and-dropped file count. Per-function
@@ -624,8 +633,14 @@ Top-level keys, all present in every variant unless noted:
     when the escalation budget runs out and labels survivors with
     incomplete escalation as not fully escalated. Preexisting symlinks
     and submodules under a source root have distinct wording.
+    Markdown and the stream end use the same final completeness metadata,
+    including the reason for a mutation budget truncation.
+    With no test file selected for planned changes, Markdown gives a
+    headline note naming --tests PATH and --escalate. A single-site
+    escalation attempt that admits no files is reported in the notes.
     The headline names the finding first and gives the unchecked count
-    and site total when checked is partial. With nothing_to_check and
+    and site total when checked is partial and there are known unchecked
+    sites. With nothing_to_check and
     partial evidence it says Mutagen found nothing in the sites it could
     check. It says Mutagen found nothing to check only when checked is
     full. Worth a look labels low-confidence entries low confidence.
@@ -635,7 +650,9 @@ Top-level keys, all present in every variant unless noted:
     per run. An abort replaces the
     summary with the fixed abort reason and hint. A single-line excerpt
     can show the full line before and after to distinguish repeated
-    literals. A clean run renders two lines.
+    literals. The survivor explanation is a separate paragraph and only
+    appears when the summary shows a survivor. A survivor that ran after
+    a state-leak warning is marked beside its rerun command.
 - id: mutagen.json_schema.r38
   priority: must
   statement: |

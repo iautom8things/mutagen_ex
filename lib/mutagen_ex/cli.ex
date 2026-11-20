@@ -33,6 +33,8 @@ defmodule MutagenEx.CLI do
       `--no-escalate` is accepted with no effect for one release.
     * `--escalate-max-files <int>` — non-negative cap per step, default 20.
     * `--escalate-budget-ms <int>` — total time for the extra passes, default 120000.
+      Single-site runs cap it at the larger of 30 seconds and ten times
+      the narrow baseline duration.
       Use 0 to remove the escalation time limit.
     * `--timeout-ms <int>` — positive per-mutant deadline override.
     * `--seed <int>` — non-negative integer, default 0.
