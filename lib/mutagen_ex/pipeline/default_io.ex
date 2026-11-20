@@ -88,8 +88,6 @@ defmodule MutagenEx.Pipeline.DefaultIo do
         "mutagen" | argv
       ]
 
-      env = [{to_charlist(@report_pipe_env), ~c"4"}, {~c"MIX_ENV", Atom.to_charlist(Mix.env())}]
-
       # Relay raw chunks, including those that split a UTF-8 character.
       :ok = :io.setopts(:standard_io, encoding: :latin1)
 
@@ -100,7 +98,7 @@ defmodule MutagenEx.Pipeline.DefaultIo do
           :exit_status,
           :nouse_stdio,
           args: command,
-          env: env
+          env: [{to_charlist(@report_pipe_env), ~c"4"}]
         ])
 
       forward_report(port)
