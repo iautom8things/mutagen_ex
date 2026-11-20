@@ -223,8 +223,9 @@ defmodule MutagenEx.RuntimeTest do
       fn result -> send(caller, {:cleanup_finished, result}) end
     ]
 
-    assert :timeout =
-             Runtime.finish(%{worker: nil, callbacks: callbacks, cleanup_timeout: 100}, stats)
+    session = %{worker: nil, callbacks: callbacks, cleanup_timeout: to_timeout(second: 3)}
+
+    assert :timeout = Runtime.finish(session, stats)
 
     assert_received {:cleanup_finished, ^stats}
   end

@@ -9,6 +9,7 @@ defmodule MutagenEx.FailFastTest do
   @source "lib/arithmetic.ex"
   @tests "test/arithmetic_test.exs"
   @test_steps [:first, :same_module_tail, :next_module_tail]
+  @timeout_args ["--timeout-ms", Integer.to_string(to_timeout(second: 3))]
 
   defmodule Probe do
     def record_test(step) do
@@ -149,11 +150,12 @@ defmodule MutagenEx.FailFastTest do
   @tag scenario: :after_failure
   @tag spec: ["mutagen.mutation_pipeline.r4", "mutagen.mutation_pipeline.r20"]
   test "a failed test followed by a slow test changes only timeout to killed" do
-    {capped, capped_traces, _} = run_pipeline(["--timeout-ms", "250"])
-    {full, full_traces, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
+    {capped, capped_traces, _} = run_pipeline(@timeout_args)
+    {full, full_traces, _} = run_pipeline(["--no-fail-fast" | @timeout_args])
 
     assert [{id, "timeout"} | rest] = verdicts(full)
     assert [{^id, "killed"} | ^rest] = verdicts(capped)
+    assert Enum.map(rest, &elem(&1, 1)) == ~w(killed killed survived)
     assert survivor_ids(full) == survivor_ids(capped)
     assert test_events(hd(full_traces)) == test_steps(:infinity)
     assert test_events(hd(capped_traces)) == [{:first, 1}]
@@ -215,11 +217,12 @@ defmodule MutagenEx.FailFastTest do
   @tag scenario: :slow_cleanup
   @tag spec: "mutagen.mutation_pipeline.r4"
   test "a failure recorded before the deadline is a kill even if suite cleanup takes longer" do
-    {capped, _, _} = run_pipeline(["--timeout-ms", "250"])
-    {full, _, _} = run_pipeline(["--timeout-ms", "250", "--no-fail-fast"])
+    {capped, _, _} = run_pipeline(@timeout_args)
+    {full, _, _} = run_pipeline(["--no-fail-fast" | @timeout_args])
 
     assert [{id, "timeout"} | rest] = verdicts(full)
     assert [{^id, "killed"} | ^rest] = verdicts(capped)
+    assert Enum.map(rest, &elem(&1, 1)) == ~w(killed killed survived)
     assert [first, second | _] = capped["mutation"]["results"]
     assert "deadline exceeded after a test failure" in first["warnings"]
     assert second["tainted_predecessors"]
@@ -544,7 +547,7 @@ defmodule MutagenEx.FailFastTest do
 
       if Probe.scenario() == :slow_cleanup and
            apply(FailFastFixture.Arithmetic, :first, [2, 3]) != 5 do
-        Process.sleep(800)
+        Process.sleep(:infinity)
       end
     end
   end
