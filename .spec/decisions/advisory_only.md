@@ -32,3 +32,12 @@ with previous reports, enforce mode, and blocking exit codes are out of scope.
 If a future need calls for explicit acknowledgements, prefer reading a
 commit-message trailer from Git history. The current implementation reads
 no acknowledgement data. The JSON remains the CLI's stdout document.
+
+Coverage has a known limit. If a guard runs and fails and its clause body
+never runs, Mutagen reports the guard site as not executed.
+
+Execution probes refine that rule. Mutagen uses line coverage first. It
+recompiles uncovered runtime expressions with counters and runs the
+admitted tests once. It restores the original bytecode before mutation.
+If a guard or pattern cannot be probed, the report records that the
+execution evidence was inconclusive.

@@ -159,6 +159,9 @@ decisions:
     roots and test support paths. It counts only entries whose source
     spans overlap changed lines. A failed base read records an incomplete
     reason. A later test diff must use the same HEAD and merge base.
+    Existing test files use their normalized AST at that base to
+    distinguish edits from formatting and comments. For a rename the
+    comparison uses the old path.
 
 - id: mutagen.scope_resolution.r13
   priority: must

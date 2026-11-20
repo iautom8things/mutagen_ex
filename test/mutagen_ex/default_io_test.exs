@@ -7,6 +7,20 @@ defmodule MutagenEx.DefaultIoTest do
   alias MutagenEx.{Config, JsonPath}
   alias MutagenEx.Pipeline.DefaultIo
 
+  @tag spec: "mutagen.json_schema.r39"
+  test "writes one report to stdout with one fixed notice on stderr" do
+    document = "{\"aborted\":false}\n"
+
+    {stdout, stderr} =
+      with_io(:stderr, fn ->
+        capture_io(fn -> DefaultIo.write(document, %Config{scopes: [], tests: []}) end)
+      end)
+
+    assert stdout == document
+    assert JSON.decode!(stdout) == %{"aborted" => false}
+    assert stderr == "Use --json PATH for reliable reports in scripts and CI.\n"
+  end
+
   @tag :tmp_dir
   test "creates an in-project report directory and atomically replaces the report", %{
     tmp_dir: dir

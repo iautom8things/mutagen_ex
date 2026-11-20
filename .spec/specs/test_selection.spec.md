@@ -138,9 +138,12 @@ decisions:
   statement: |
     With --tests auto, relative paths under the configured source roots
     map to *_test.exs paths under the configured test roots when present.
-    A --since auto run also selects surviving test files changed in Git,
-    including renamed files, when a file matches the convention or mentions
-    an in-scope module under the same whole-word rule as the module step.
+    A --since auto run with runtime sites selects every new test file and
+    every changed test file whose normalized AST differs from the merge
+    base. Renamed files compare against their old path. A file with an
+    unavailable comparison stays eligible. Convention files can still
+    join by path. With no runnable runtime sites the run selects no tests
+    and skips host setup.
 
 - id: mutagen.test_selection.r10
   priority: must
@@ -154,6 +157,8 @@ decisions:
   priority: must
   statement: |
     Escalation counts whole module names and qualified calls or captures.
+    A brace alias names each member module. An explicit as: alias also
+    counts references to the alias for the named module.
     A bare function call or capture requires an import or alias of the
     matching module. The file cap applies separately to each function.
     The step ranks the union by mentions and path. Unreadable candidate

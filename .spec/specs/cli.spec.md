@@ -591,6 +591,8 @@ decisions:
     A changed-code run checks the Mix environment and refuses an umbrella
     root before reading Git or starting the host. A plan that names Mutagen
     modules refuses self mutation before coverage and baseline.
+    With no runnable runtime sites, it returns an empty test selection
+    without reading the test diff or starting the host.
 
 - id: mutagen.cli.r35
   priority: must
@@ -608,7 +610,8 @@ decisions:
     --site ID runs just the selected site, by report ID or by its opaque
     reference. An unknown site produces an abort document. The generated
     command reruns the site with automatic discovery and a larger search
-    allowance. With --since it retains the original merge base.
+    allowance of 40 files per function in each pass and the default time
+    budget. With --since it retains the original merge base.
 
 - id: mutagen.cli.r37
   priority: must

@@ -33,6 +33,7 @@ summary: One-shot :cover run plus AST + source-text caching for downstream phase
 surface:
   - lib/mutagen_ex/coverage_runner.ex
   - lib/mutagen_ex/ast_cache.ex
+  - lib/mutagen_ex/probe.ex
   - lib/mutagen_ex/test/suite.ex
 decisions:
   - mutagen.decision.advisory_changed_code
@@ -230,7 +231,7 @@ decisions:
   statement: |
     Automatic escalation tries unresolved runtime sites even if the
     narrow selection is empty. A site is uncovered if no accepted test
-    pass covers it under the clause rule in mutagen.coverage.r14.
+    pass covers it under the line and branch rule in mutagen.coverage.r14.
 
 - id: mutagen.coverage.r14
   priority: must
@@ -238,9 +239,29 @@ decisions:
     In classic and changed-code runs, an instrumented site line with
     zero calls stays uncovered. If the site's line has no coverage
     entry, any hit within the site's source span covers the site.
-    If the entire span has no coverage entry, any hit in the same
-    clause body covers the site. Both coverage and zero-call entries
-    are retained through automatic escalation.
+    If the entire span has no coverage entry, a hit in the innermost
+    enclosing branch body covers the site. This includes if and unless
+    blocks, case, cond and with arms, anonymous function clauses,
+    rescue and catch clauses, and comprehension bodies. An arm's
+    arrow line counts as part of that arm. If that branch
+    has no counter, the site stays uncovered. Without an enclosing
+    branch, use the site's own function clause body. If that body has
+    no coverable line, use the hit count on that clause's definition line.
+    A nested branch cannot use the definition line of the outer function.
+    A guard that fails while its clause body never runs can lack a hit
+    in the line-coverage pass. Both
+    coverage and zero-call entries are retained through automatic escalation.
+
+- id: mutagen.coverage.r15
+  priority: must
+  statement: |
+    After line coverage, runtime sites still without a hit use an
+    execution probe. Place counters only at runtime expression positions.
+    Run the admitted tests once with all usable probes installed and
+    restore bytecode through the mutation runner's snapshot path. A hit
+    qualifies the site for mutation. A counter that never fires in a
+    green run confirms the site was uncovered. Unwrappable sites and
+    probes that could not run have inconclusive evidence.
 
 ```
 
@@ -392,4 +413,5 @@ decisions:
   target: test/integration/changed_run_test.exs
   covers:
     - mutagen.coverage.r14
+    - mutagen.coverage.r15
 ```

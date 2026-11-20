@@ -520,13 +520,17 @@ Top-level keys, all present in every variant unless noted:
     deadline when it runs mutants. A verified before_source slice has a
     one-based excerpt_line at its first byte, omitted with --no-source.
     AST-rendered fallbacks have no excerpt_line.
+    If the probe phase runs, meta.timings_ms.probe records its wall time
+    separately from the baseline and mutation phases.
 
 - id: mutagen.json_schema.r31
   priority: must
   statement: |
     Changed-code reports have meta.complete and meta.incomplete_reasons.
     A report is incomplete when the run aborts, is truncated, or has
-    incomplete inputs. A non-aborting incomplete run exits 0.
+    incomplete inputs. Mutation time budget truncation adds
+    mutation_budget_exhausted to meta.incomplete_reasons. The site cap
+    abort adds too_many_sites. A non-aborting incomplete run exits 0.
     Changed ranges outside explicit scope appear separately in
     meta.since.out_of_scope. Changed ranges without runtime sites
     appear in meta.since.unmapped without making the run incomplete.
@@ -559,6 +563,9 @@ Top-level keys, all present in every variant unless noted:
     later include selection.after_dropped_file when one or more files were
     dropped after a load attempt. Rejection warnings name repository paths
     and fixed reasons by default. With --no-source they show counts.
+    Survivors with candidate files or mutant reruns skipped by the
+    escalation time budget carry selection.escalation_incomplete: true and
+    selection.escalation_incomplete_reason: escalation_budget_exhausted.
 - id: mutagen.json_schema.r35
   priority: must
   statement: |
@@ -571,15 +578,29 @@ Top-level keys, all present in every variant unless noted:
   statement: |
     The aggregate and stream end carry the same additive summary. Check
     first identifies a function with only uncovered sites in a changed-code
-    run or at least three evaluated high-confidence sites with no kill
-    at any confidence and no rejected red test file that mentions the
-    function. Uncovered or unevaluated sites yield partly_checked when
-    the run is otherwise complete. A changed, uncovered line within
-    an evaluated multi-line site also yields partly_checked. A run
-    with surviving sites never says nothing_to_check.
-    Remaining high-confidence survivors are ranked by the provisional
-    mutator order and then file, line and ID. The report records the number
-    omitted by the cap. Timeouts are unevaluated. Taint is counted as a note.
+    run or at least three evaluated high-confidence sites with complete
+    escalation evidence, no kill
+    at any confidence and no test file that failed alone and mentions
+    the function. The verdict keeps incomplete and no_mutable_changes
+    and prioritizes baseline_red, check_first, worth_a_look, the unranked
+    survivor verdicts and nothing_to_check. summary.checked names the
+    status (full or partial), total sites, uncovered sites, and sites
+    left unevaluated for reasons other than lack of coverage.
+    Runtime rows carry execution set to cover, probe or could_not_tell.
+    The summary counts rows by execution evidence. A not_executed
+    finding requires only probe-confirmed uncovered sites in its function.
+    A function with inconclusive sites and no probe hit appears in a
+    note and stays out of Check first.
+    Uncovered lines inside evaluated sites appear separately in meta.since.
+    Validator skips are counted separately from unevaluated mutants.
+    A run with surviving sites never says nothing_to_check.
+    Remaining high-confidence survivors are ranked by escalation
+    completeness, provisional mutator order, file, line and ID.
+    The report records the number omitted by the cap. Only a nonempty
+    ranked list can yield worth_a_look. If every survivor is low-confidence,
+    the unranked verdict is low_confidence_survivors. If the cap hides a
+    nonempty ranking, the unranked verdict is unranked_survivors.
+    Timeouts are unevaluated. Taint is counted as a note.
     Kills marked selection.after_dropped_file still count as kills and carry
     a run-level note with their count. Each step's dropped_after_load count
     contributes to the run's loaded-and-dropped file count. Per-function
@@ -593,8 +614,16 @@ Top-level keys, all present in every variant unless noted:
     diagnostics. --no-source omits function names, file paths and excerpts
     from summary entries and uses opaque rerun references. The rendered
     summary describes incomplete evidence, unmapped lines, out-of-scope
-    lines and skipped escalation files. It leads with a note naming test
-    files that failed on the unmutated code. An abort replaces the
+    lines and skipped escalation files. It names --escalate-budget-ms
+    when the escalation budget runs out and labels survivors with
+    incomplete escalation as not fully escalated. Preexisting symlinks
+    and submodules under a source root have distinct wording.
+    The headline names the finding first and gives the unchecked count
+    and site total when checked is partial.
+    It leads with a note for escalation candidates that failed alone
+    on the unmutated code. Candidates that failed in combination
+    appear in the notes. The escalation budget note counts a file once
+    per run. An abort replaces the
     summary with the fixed abort reason and hint. A single-line excerpt
     can show the full line before and after to distinguish repeated
     literals. A clean run renders two lines.
@@ -617,6 +646,16 @@ Top-level keys, all present in every variant unless noted:
     write directly to file descriptor 1, including when an OTP logger
     handler crashes. In-process I/O routing cannot intercept those writes.
     Use `--json PATH` and `--summary PATH` in CI.
+    A report written to stdout emits one fixed stderr line naming
+    `--json PATH` as the reliable form for scripts and CI.
+
+- id: mutagen.json_schema.r40
+  priority: must
+  statement: |
+    If at least three mutants time out and their combined wait occupies
+    more than half the mutation phase wall time, the summary includes
+    a mutation_timeouts_dominate note. Overlapping waits count once.
+    Markdown suggests --timeout-ms or --budget-ms.
 
 ```
 
@@ -857,6 +896,8 @@ Top-level keys, all present in every variant unless noted:
     - mutagen.json_schema.r34
     - mutagen.json_schema.r36
     - mutagen.json_schema.r37
+    - mutagen.json_schema.r39
+    - mutagen.json_schema.r40
 - kind: tagged_tests
   target: test/integration/changed_run_test.exs
   covers:
@@ -885,6 +926,7 @@ the envelope fields and add `kind`.
 | `meta.elixir_version` | Runner toolchain | Keep |
 | `meta.otp_version` | Runner toolchain | Keep |
 | `summary.verdict` | Tool vocabulary | Keep |
+| `summary.checked.status` | Tool coverage vocabulary | Keep |
 | `summary.check_first[].kind` | Tool vocabulary | Keep |
 | `summary.check_first[].file` | Project source path | Omit with --no-source |
 | `summary.check_first[].function` | Source definition | Omit with --no-source |
@@ -910,6 +952,7 @@ the envelope fields and add `kind`.
 | `summary.notes[].step` | Tool escalation step | Keep |
 | `summary.notes[].reason` | Tool escalation vocabulary | Keep |
 | `summary.notes[].files[]` | Project test paths from discovery | Omit with --no-source |
+| `summary.notes[].functions[]` | Source definition | Omit with --no-source |
 | `meta.timings_ms` | Mutagen monotonic clock | Keep the integer durations in the aggregate |
 | `meta.since.ref` | CLI ref | Keep after Git resolves it |
 | `meta.since.base` | Verified Git object ID | Keep |
@@ -923,15 +966,20 @@ the envelope fields and add `kind`.
 | `meta.escalation[].step` | Mutagen escalation vocabulary | Keep |
 | `mutation.results[].excerpt_line` | Verified repository slice start | Keep with source enabled |
 | `mutation.results[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.results[].execution` | Mutagen coverage vocabulary | Keep |
 | `mutation.results[].selection.killed_at` | Mutagen selection step | Keep |
 | `mutation.results[].selection.steps_run[]` | Mutagen selection steps | Keep |
+| `mutation.results[].selection.escalation_incomplete_reason` | Mutagen escalation vocabulary | Keep |
 | `mutation.compile_errors[].in_scope` | Mutagen scope vocabulary | Keep |
+| `mutation.compile_errors[].execution` | Mutagen coverage vocabulary | Keep |
 | `mutation.pending[].id` | Source path, MD5 of normalized source AST, mutator | Keep |
 | `mutation.pending[].file` | Repository path | Keep with source enabled |
 | `mutation.pending[].function` | Repository definition | Keep with source enabled |
 | `mutation.pending[].mutator` | Mutagen catalog | Keep |
 | `mutation.pending[].confidence` | Mutagen catalog | Keep |
 | `mutation.pending[].reason` | Mutagen coverage and run vocabulary | Keep |
+| `mutation.pending[].execution` | Mutagen coverage vocabulary | Keep |
+| `mutation.pending[].probe_reason` | Mutagen probe vocabulary | Keep |
 | `mutation.pending[].in_scope` | Mutagen scope vocabulary | Keep |
 | `details.cause` | Git reader failure vocabulary | Keep |
 | `details.root` | Configured repository root | Keep for an untracked-file limit abort |
