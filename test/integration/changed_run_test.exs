@@ -296,6 +296,79 @@ defmodule MutagenEx.ChangedRunTest do
     end
   end
 
+  @tag spec: ["mutagen.coverage.r15", "mutagen.json_schema.r36"]
+  test "probes counterless expressions in both branches and leaves guard evidence inconclusive",
+       %{repo: repo} do
+    write(repo, @source, "defmodule ChangedRunFixture.Example do\nend\n")
+
+    write(
+      repo,
+      @convention,
+      test_case("Probe", """
+      alias ChangedRunFixture.Example
+      test "calls live branch and rejects a guard" do
+        assert Example.branch(true) == {:ok, true}
+        assert Example.guarded(2) == :fallback
+      end
+      """)
+    )
+
+    base = commit(repo)
+
+    write(repo, @source, """
+    defmodule ChangedRunFixture.Example do
+      def branch(flag) do
+        if flag do
+          {:ok, true}
+        else
+          {:error, false}
+        end
+      end
+
+      def guarded(n) when n > 10 do
+        n * 2
+      end
+
+      def guarded(_), do: :fallback
+    end
+    """)
+
+    for args <- [["--since", base], ["--scope", @source]] do
+      report = run(repo, args ++ ["--tests", @convention, "--summary", "out/probe.md"])
+      assert report["meta"]["timings_ms"]["probe"] >= 0
+      results = report["mutation"]["results"]
+
+      assert Enum.any?(
+               results,
+               &(&1["before"] == "{:ok, true}" and &1["execution"] == "probe" and
+                   &1["status"] == "killed")
+             )
+
+      refute Enum.any?(results, &(&1["before"] == "{:error, false}"))
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "result_tuple" and &1["reason"] == "uncovered" and
+                   &1["execution"] == "probe")
+             )
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "compare" and &1["reason"] == "could_not_tell" and
+                   &1["probe_reason"] == "probe_unwrappable")
+             )
+
+      assert Enum.any?(
+               report["mutation"]["pending"],
+               &(&1["mutator"] == "arith" and &1["reason"] == "uncovered" and
+                   &1["execution"] == "probe")
+             )
+
+      refute Enum.any?(report["summary"]["check_first"], &(&1["function"] =~ ".guarded/1"))
+      assert File.read!(Path.join(repo, "out/probe.md")) =~ "Probe evidence was inconclusive"
+    end
+  end
+
   @tag spec: ["mutagen.coverage.r14", "mutagen.json_schema.r36"]
   test "reports a counterless branch within a tested site as uncovered", %{repo: repo} do
     write(repo, @source, """
@@ -444,7 +517,10 @@ defmodule MutagenEx.ChangedRunTest do
       refute row["function"] =~ "unchanged"
     end
 
-    assert Enum.all?(report["mutation"]["pending"], &(&1["reason"] == "uncovered"))
+    assert Enum.all?(
+             report["mutation"]["pending"],
+             &(&1["reason"] == "uncovered" and &1["execution"] == "probe")
+           )
 
     assert_summary(
       report,
@@ -609,7 +685,10 @@ defmodule MutagenEx.ChangedRunTest do
     report = run(repo, ["--since", base, "--no-escalate"])
     assert report["meta"]["since"]["changed_files"] == 1
 
-    assert [%{"function" => "ChangedRunFixture.Example.first/1", "reason" => "uncovered"} | _] =
+    assert [
+             %{"function" => "ChangedRunFixture.Example.first/1", "reason" => "could_not_tell"}
+             | _
+           ] =
              report["mutation"]["pending"]
 
     assert_fast(report, repo)
@@ -751,7 +830,7 @@ defmodule MutagenEx.ChangedRunTest do
              &String.contains?(&1, "escalation_test_file_load_failed: checks/broken_test.exs")
            )
 
-    assert File.read!(Path.join(repo, "narrow-runs")) == String.duplicate("run\n", 5)
+    assert File.read!(Path.join(repo, "narrow-runs")) == String.duplicate("run\n", 6)
     assert File.read!(Path.join(repo, "module-loads")) == "once\n"
     assert File.read!(Path.join(repo, "function-loads")) == "once\n"
 

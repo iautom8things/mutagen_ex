@@ -41,7 +41,7 @@ defmodule MutagenEx.ReportSummary do
     red_functions = Map.get(meta, :red_functions, MapSet.new())
 
     check_first =
-      if interrupted?, do: [], else: check_first(groups, since != nil, red_functions, report)
+      if interrupted?, do: [], else: check_first(groups, red_functions, report)
 
     hidden = MapSet.new(check_first, &elem(&1, 0))
     survivors = for {:survived, site} <- sites, do: site
@@ -87,16 +87,53 @@ defmodule MutagenEx.ReportSummary do
     %{
       "verdict" => verdict,
       "checked" => checked(total + missing, unevaluated),
+      "execution" => execution_counts(sites),
       "counts" => if(skipped > 0, do: Map.put(totals, "skipped", skipped), else: totals),
       "changed_functions" => if(since, do: changed_functions(groups, mutation)),
       "check_first" => Enum.map(check_first, &elem(&1, 1)),
       "worth_a_look" => Enum.map(ranked, &example(&1, report)),
       "worth_a_look_omitted" => length(worth) - length(ranked),
       "unevaluated" => unevaluated,
-      "notes" => notes(report, results, length(low), red, rejections),
+      "notes" =>
+        notes(report, results, length(low), red, rejections) ++
+          uncertain_functions(groups, report),
       "by_function" => by_function(groups, report),
       "source" => report.source
     }
+  end
+
+  defp execution_counts(sites) do
+    counts = Enum.frequencies_by(sites, fn {_, site} -> site[:execution] end)
+    Map.new([:cover, :probe, :could_not_tell], &{to_string(&1), Map.get(counts, &1, 0)})
+  end
+
+  defp uncertain_functions(groups, report) do
+    functions =
+      for {{_, function}, rows} <- groups,
+          inconclusive?(rows),
+          uniq: true,
+          do: function
+
+    case functions do
+      [] ->
+        []
+
+      _ ->
+        note = %{"kind" => "execution_could_not_tell", "count" => length(functions)}
+
+        if report.source,
+          do: [
+            Map.put(note, "functions", functions |> Enum.sort() |> Enum.map(&Sanitizer.source/1))
+          ],
+          else: [note]
+    end
+  end
+
+  defp inconclusive?(rows) do
+    Enum.any?(rows, &match?({:could_not_tell, _}, &1)) and
+      not Enum.any?(rows, fn {status, row} ->
+        status != :uncovered and row[:execution] == :probe
+      end)
   end
 
   defp checked(total, %{"count" => unchecked, "uncovered" => uncovered}) do
@@ -120,7 +157,7 @@ defmodule MutagenEx.ReportSummary do
     |> MapSet.size()
   end
 
-  defp check_first(groups, since?, red_functions, report) do
+  defp check_first(groups, red_functions, report) do
     groups
     |> Enum.sort_by(fn {{file, function}, rows} -> {file, definition_line(rows), function} end)
     |> Enum.flat_map(fn {{_file, function} = key, rows} ->
@@ -136,7 +173,10 @@ defmodule MutagenEx.ReportSummary do
             do: {status, site}
 
       cond do
-        since? and uncovered == length(rows) ->
+        inconclusive?(rows) ->
+          []
+
+        Enum.all?(rows, &match?({:uncovered, %{execution: :probe}}, &1)) ->
           [finding(key, rows, "not_executed", survived, 0, rows, report)]
 
         length(examined) >= 3 and not Map.has_key?(counts, :killed) and
@@ -298,7 +338,7 @@ defmodule MutagenEx.ReportSummary do
 
   defp unevaluated(counts) do
     counts =
-      Map.new(~w(timeout error compile_error uncovered not_run)a, fn key ->
+      Map.new(~w(timeout error compile_error uncovered not_run could_not_tell)a, fn key ->
         {Atom.to_string(key), Map.get(counts, key, 0)}
       end)
 

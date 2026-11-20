@@ -58,7 +58,7 @@ defmodule MutagenEx.ReportSummaryTest do
     classic = report([reached, unrelated, timeout], pending)["summary"]
     changed = report([reached, unrelated, timeout], pending, meta: since())["summary"]
 
-    assert classic["check_first"] == []
+    assert Enum.map(classic["check_first"], & &1["kind"]) == ["not_executed"]
 
     assert [
              %{
@@ -81,6 +81,21 @@ defmodule MutagenEx.ReportSummaryTest do
 
     assert %{"count" => 5, "uncovered" => 3, "not_run" => 1, "timeout" => 1} =
              changed["unevaluated"]
+  end
+
+  @tag spec: "mutagen.json_schema.r36"
+  test "inconclusive functions with no probe hit stay out of check first" do
+    results = sites("maybe", [:survived, :survived, :survived])
+    pending = %{pending("maybe", 9) | reason: :could_not_tell, execution: :could_not_tell}
+    summary = report(results, [pending], meta: since())["summary"]
+    assert summary["check_first"] == []
+
+    assert [%{"kind" => "execution_could_not_tell", "functions" => ["Fixture.maybe/1"]}] =
+             summary["notes"]
+
+    [first | rest] = results
+    with_hit = report([Map.put(first, :execution, :probe) | rest], [pending], meta: since())
+    assert [%{"kind" => "nothing_asserted"}] = with_hit["summary"]["check_first"]
   end
 
   @tag spec: "mutagen.json_schema.r36"
@@ -248,7 +263,9 @@ defmodule MutagenEx.ReportSummaryTest do
   defp since, do: %{since: %{runtime: 6}, incomplete_reasons: []}
 
   defp pending(function, line) do
-    site(function, line, :pending) |> Map.delete(:status) |> Map.put(:reason, :uncovered)
+    site(function, line, :pending)
+    |> Map.delete(:status)
+    |> Map.merge(%{reason: :uncovered, execution: :probe})
   end
 
   defp sites(function, statuses) do
