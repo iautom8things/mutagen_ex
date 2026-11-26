@@ -84,6 +84,10 @@
     {
       "text": "MERGE_CONFLICT: CHANGELOG.md (real-code conflict between .27 and .28 [Unreleased] entries)",
       "timestamp": "2026-11-26T14:36:28Z"
+    },
+    {
+      "text": "APPROVED. Merged into epic/mutagen-wrd. Closing per orchestrator sign-off.",
+      "timestamp": "2026-11-26T14:36:28Z"
     }
   ],
   "priority": 3,
