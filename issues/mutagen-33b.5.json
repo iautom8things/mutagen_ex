@@ -15,5 +15,5 @@
   "status": "open",
   "title": "F2b: Narrow test_modules per site from the coverage index (O(S*N) -\u003e O(S*k))",
   "type": "task",
-  "updated_at": "2026-06-22T18:54:00Z"
+  "updated_at": "2026-11-26T14:37:13Z"
 }
