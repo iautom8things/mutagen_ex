@@ -121,8 +121,8 @@
     }
   ],
   "priority": 1,
-  "status": "closed",
+  "status": "in_progress",
   "title": "Runtime preamble: start host OTP application before tests in archive-install mode",
   "type": "bug",
-  "updated_at": "2026-11-26T14:37:54Z"
+  "updated_at": "2026-11-26T14:38:09Z"
 }
