@@ -4,7 +4,7 @@
   "blocks": [],
   "closed_at": "2026-05-18T10:21:12Z",
   "created": "2026-05-18T00:39:46Z",
-  "description": "Jira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nNo spec subject (epic groups stages; each stage carries its own Advances:)\n\nDistilled from /mini-plan run 20260517-200928-claude-mini.\nPlan source: ~/vaults/work-vault/plans/<project>/2026-05-17-archive-install-fix/runs/20260517-200928-claude-mini/05-refined-plan.md\nPlan epic: think-ijk (bw-plan, closed)\nImplementation epic mirror: think-pvr (bw-plan, will close at end of /distill)\n\nGoal: repair the mix mutagen runtime preamble so that mix archive.install ./mutagen_ex-X.Y.Z.ez followed by mix mutagen works in a host project that does NOT declare :mutagen_ex in its mix.exs. Adds mutagen.cli.r16, scenarios s14c/s14d, verification v11 to .spec/specs/cli.spec.md. The path: / hex / git dep adoption paths covered by r14 are byte-for-byte unaffected — the repair branch is gated by the failure-tuple shape from Application.ensure_all_started/1 and never runs on the success path.\n\nBranch already created: think-pvr/archive-install-fix (worktree: ~/dev/mz/mutagen_ex-archive-install-fix).",
+  "description": "Jira: TBD\n(Jira MCP unavailable at /distill time — record TBD; PR-creation hook should backfill.)\n\nNo spec subject (epic groups stages; each stage carries its own Advances:)\n\nDistilled from /mini-plan run 20260517-200928-claude-mini.\nPlan source: ~/vaults/work-vault/plans/\u003cproject\u003e/2026-05-17-archive-install-fix/runs/20260517-200928-claude-mini/05-refined-plan.md\nPlan epic: think-ijk (bw-plan, closed)\nImplementation epic mirror: think-pvr (bw-plan, will close at end of /distill)\n\nGoal: repair the mix mutagen runtime preamble so that mix archive.install ./mutagen_ex-X.Y.Z.ez followed by mix mutagen works in a host project that does NOT declare :mutagen_ex in its mix.exs. Adds mutagen.cli.r16, scenarios s14c/s14d, verification v11 to .spec/specs/cli.spec.md. The path: / hex / git dep adoption paths covered by r14 are byte-for-byte unaffected — the repair branch is gated by the failure-tuple shape from Application.ensure_all_started/1 and never runs on the success path.\n\nBranch already created: think-pvr/archive-install-fix (worktree: ~/dev/mz/mutagen_ex-archive-install-fix).",
   "id": "mutagen-wrd.40",
   "labels": [],
   "parent": "mutagen-wrd",
@@ -20,11 +20,15 @@
     {
       "text": "ORCHESTRATED\nChildren closed: 4 (S1, S2, S3 + S1b scope expansion)\nBOUNCEs encountered: 1 (S2 round 1 — mix-in-mix lock deadlock; respawn redesigned with Mix.Task.run in-process)\nScope expansions: 1 (S1b for :code.add_pathz charlist cast)\nUser escalations: 1 (telemetry transitive-dep gap; user overrode with \"merge and clean up\")\n\nEpic branch think-pvr/archive-install-fix at e8c04aa. make smoke 640/0 (19 excluded). Default lane unaffected.\n\nKnown limitation persisting at close: mix archive.build does not bundle mutagen_ex's telemetry runtime dep, so `mix archive.install ./mutagen_ex-X.Y.Z.ez \u0026\u0026 mix mutagen` against a host with no telemetry dep still aborts with runtime_load_failed (rather than the original MatchError). The v11 stub command `mix test test/integration/archive_install_test.exs --include archive_integration` is red on that scenario. S2's test correctly documents the failure mode; resolution is deferred per user direction (see options A-E on mutagen-wrd.40.2's ORCHESTRATOR_ESCALATION comment).",
       "timestamp": "2026-05-18T10:21:12Z"
+    },
+    {
+      "text": "Orchestrator scope expansion: spawned mutagen-wrd.40.4 to fix a :code.add_pathz/1 charlist/binary bug in S1's runtime preamble repair that S2's end-to-end integration test exposed (the test S1 explicitly deferred to S2). S2 (mutagen-wrd.40.2) is now blocked by mutagen-wrd.40.4. S1 (mutagen-wrd.40.1) was unit-test green but the s14c success-after-self-heal scenario could only be validated end-to-end in S2 — and it is what surfaced the bug. S3 (mutagen-wrd.40.3) already closed independently and is merged into the epic at 677a209.",
+      "timestamp": "2026-11-26T14:36:56Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "Archive-install adoption",
   "type": "epic",
-  "updated_at": "2026-08-25T10:20:11Z"
+  "updated_at": "2026-11-26T14:36:56Z"
 }
