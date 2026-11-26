@@ -7,7 +7,7 @@
   "description": "Only efficacy number today is ~15ms/site on a SYNTHETIC 87-site fixture (wrd25_200sites); CHANGELOG honestly logs a 1.66x speedup (below the 2-4x target). No mutation score on real code is public.\n\nRun mutagen against at least one small, real Elixir library and report the kill rate + a few representative survived mutants in the README. The cross-project efficacy study (vault report 2026-05-18: app_a 0.67, app-b 0.70) already has data — surface a sanitized version publicly.\n\nAcceptance: README cites at least one real-codebase kill rate with context.",
   "id": "mutagen-bqd.2",
   "labels": [
-    "phase:verifying"
+    "phase:merging"
   ],
   "parent": "mutagen-bqd",
   "comments": [
@@ -40,5 +40,5 @@
   "status": "closed",
   "title": "Real-world mutation score in README",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:21Z"
+  "updated_at": "2026-11-26T14:37:27Z"
 }
