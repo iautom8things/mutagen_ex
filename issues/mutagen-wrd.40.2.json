@@ -51,11 +51,15 @@
     {
       "text": "APPROVED (user override). Merged into think-pvr/archive-install-fix at e8c04aa per direct user direction \"merge and clean up\" — overriding the prior ORCHESTRATOR_ESCALATION.\n\nState of the deliverable at merge:\n- Test body (Mix.Task.run in-process + scoped MIX_ARCHIVES + on_exit cleanup) is structurally correct and runs to a deterministic outcome.\n- The test currently FAILS on the telemetry.app code-path gap documented in the prior ORCHESTRATOR_ESCALATION comment — that is a known limitation of the current archive-install design (mix archive.build doesn't bundle transitive deps), not a defect in this stage's test code.\n- @moduletag :archive_integration excludes the test from default `mix test`, so `make smoke` remains green (640/0 confirmed post-merge).\n- v11.execute is `true`. Any future `mix spec.check`-style runner that exercises the v11 stub will see it as red. Resolution path is a separate workstream (see the five options A-E in the ORCHESTRATOR_ESCALATION comment).\n\nClosing per user sign-off.",
       "timestamp": "2026-05-18T10:20:52Z"
+    },
+    {
+      "text": "IMPLEMENTED\\nSession: codex-3a5e7c19\\nLog: /Users/mz/dev/mz/mutagen_ex-archive-install-test/.codex-runs/mutagen-wrd.40.2.log\\n\\nCommit: f2834abc9d6e395bf4fff472d6c48e4952594215\\nFiles touched: test/integration/archive_install_test.exs, mix.exs, test/test_helper.exs, .spec/specs/cli.spec.md\\nTests added: MutagenEx.Integration.ArchiveInstallTest test \"fresh-shell `mix mutagen` succeeds when mutagen_ex is installed as an archive\"\\nVerification stubs flipped: mutagen.cli.v11\\n\\nSummary: Added the archive-install integration test for mutagen.cli.r16. The test builds the current versioned .ez archive, installs it into a hermetic MIX_ARCHIVES directory, runs a generated host project with no mutagen_ex dependency, and asserts the emitted JSON completes with aborted false and mutation.total \u003e 0.",
+      "timestamp": "2026-11-26T14:36:53Z"
     }
   ],
   "priority": 2,
   "status": "closed",
   "title": "S2: Archive-install integration test (mirrors downstream-adoption)",
   "type": "task",
-  "updated_at": "2026-11-26T14:36:52Z"
+  "updated_at": "2026-11-26T14:36:53Z"
 }
