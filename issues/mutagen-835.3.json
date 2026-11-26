@@ -1,6 +1,7 @@
 {
   "assignee": "Manuel Zubieta",
   "blocked_by": [
+    "mutagen-835.2.1",
     "mutagen-835.2.2",
     "mutagen-835.2.3",
     "mutagen-835.2.4",
@@ -43,5 +44,5 @@
   "status": "closed",
   "title": "phase2: author realized_by.api_boundary bindings for all subjects",
   "type": "task",
-  "updated_at": "2026-06-22T14:41:58Z"
+  "updated_at": "2026-11-26T14:37:07Z"
 }
