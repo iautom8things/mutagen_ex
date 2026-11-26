@@ -2,7 +2,8 @@
   "assignee": "Manuel Zubieta",
   "blocked_by": [
     "mutagen-33b.1",
-    "mutagen-33b.2"
+    "mutagen-33b.2",
+    "mutagen-33b.5"
   ],
   "blocks": [],
   "closed_at": "2026-06-24T11:47:38Z",
