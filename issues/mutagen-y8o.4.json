@@ -28,5 +28,5 @@
   "status": "deferred",
   "title": "Capstone: mix hex.publish --dry-run green + confirm GitHub repo/tag",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:06Z"
+  "updated_at": "2026-11-26T14:37:29Z"
 }
