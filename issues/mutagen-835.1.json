@@ -2,6 +2,7 @@
   "assignee": "",
   "blocked_by": [],
   "blocks": [
+    "mutagen-835.2.1",
     "mutagen-835.2.2",
     "mutagen-835.2.3",
     "mutagen-835.2.4",
@@ -21,5 +22,5 @@
   "status": "closed",
   "title": "phase0: land spec_led_ex tooling scaffolding",
   "type": "task",
-  "updated_at": "2026-06-22T11:32:55Z"
+  "updated_at": "2026-11-26T14:37:07Z"
 }
