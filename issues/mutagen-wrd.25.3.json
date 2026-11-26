@@ -62,6 +62,10 @@
     {
       "text": "APPROVED. Merged into epic/mutagen-wrd (fast-forward post-rebase, post-merge smoke 608/0/16-excluded + format clean). Closing per orchestrator sign-off.",
       "timestamp": "2026-11-26T14:36:43Z"
+    },
+    {
+      "text": "SCOPE_EXPANSION: spawned mutagen-wrd.25.8 (production phase_baseline cache wiring) and mutagen-wrd.25.9 (root-cause fix for the pre-existing flaky ast_test atom-count test). Neither blocks .25.3 (already merged); both are follow-ups under the .25 epic.",
+      "timestamp": "2026-11-26T14:36:43Z"
     }
   ],
   "priority": 2,
