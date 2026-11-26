@@ -13,5 +13,5 @@
   "status": "deferred",
   "title": "[EPIC] Coverage-driven per-mutant test selection (O(S*N) -\u003e O(S*k))",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:48Z"
+  "updated_at": "2026-11-26T14:37:50Z"
 }
