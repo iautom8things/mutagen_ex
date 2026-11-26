@@ -42,11 +42,15 @@
     {
       "text": "APPROVED (full audit). Auditor independently reproduced the self-mutation score (46/79 = 0.58) and confirmed cli exclusion justified + mechanism sound. ff-merged 004f219..7f2478b; epic smoke green (640 tests, self_mutation tag-excluded from default lane). Closing per orchestrator sign-off.",
       "timestamp": "2026-06-22T14:10:27Z"
+    },
+    {
+      "text": "ORCHESTRATOR NOTE: first implementer attempt was interrupted by a Claude spend/usage limit before it could commit or post IMPLEMENTED (infra, not a code defect). Its uncommitted scratch (a self_mutation_test.exs + self_mutation_harness.exs sketch) was saved for reference. Stage reset to the current epic HEAD (004f219, which now contains the .1/.2/.4 README sections) and a fresh --impl-only worker is being respawned on the remembers profile. This consumes attempts.impl (now 2 of 2).",
+      "timestamp": "2026-11-26T14:37:32Z"
     }
   ],
   "priority": 3,
   "status": "closed",
   "title": "Dogfood: child-BEAM self-mutation score",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:17Z"
+  "updated_at": "2026-11-26T14:37:32Z"
 }
