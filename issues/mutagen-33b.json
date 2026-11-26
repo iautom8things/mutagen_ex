@@ -30,11 +30,15 @@
     {
       "text": "DELIVERED. Merged to main (756c289) and pushed to origin/main. mutagen_ex is a library (no deploy to monitor); merge-to-main is the terminal shipping evidence. CF1 + CF2a + spec delta (mutagen-33b.7) closed; capstone (mutagen-33b.6) green. CF2b (mutagen-33b.3) intentionally deferred (P2, cross-epic blocked by mutagen-33b.5). Pre-existing baseline (mutagen-ua9) verified resolved on main and closed; scenario-5 golden drift spun out to mutagen-y9k. Closing epic.",
       "timestamp": "2026-06-24T20:48:06Z"
+    },
+    {
+      "text": "WORKTREE RENAME (2026-06-23): branch epic/33b -\u003e mutagen-33b/tier1-review-hardening; worktree dir ../mutagen_ex-33b -\u003e ../mutagen_ex-tier1-review-hardening. Stages mutagen-33b.1 and mutagen-33b.2 merge back into this renamed branch.",
+      "timestamp": "2026-11-26T14:37:54Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "[EPIC] Parallel-path correctness hardening (gate + warn; real isolation deferred)",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:50Z"
+  "updated_at": "2026-11-26T14:37:54Z"
 }
