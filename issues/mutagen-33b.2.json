@@ -36,11 +36,15 @@
     {
       "text": "APPROVED. Merged into mutagen-33b/tier1-review-hardening (4d343cf). Smoke green on epic (641 tests, 0 failures). Closing per orchestrator sign-off.",
       "timestamp": "2026-06-24T11:28:50Z"
+    },
+    {
+      "text": "WORKER_ERROR: mix spec.check fails on out-of-scope pre-existing spec/integration checks; compile, targeted test, and mix test pass",
+      "timestamp": "2026-11-26T14:37:52Z"
     }
   ],
   "priority": 1,
   "status": "closed",
   "title": "CF2a: Gate --max-concurrency \u003e 1 as warned-experimental",
   "type": "task",
-  "updated_at": "2026-11-26T14:37:51Z"
+  "updated_at": "2026-11-26T14:37:52Z"
 }
