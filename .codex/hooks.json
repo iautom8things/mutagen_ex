@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "env AGENT_RULES_AGENT=codex \"$(git rev-parse --show-toplevel)/.claude/scripts/inject-rules.py\""
+          }
+        ],
+        "matcher": "Bash|apply_patch"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/.claude/scripts/prune-rules-cache\""
+          }
+        ]
+      }
+    ]
+  }
+}
