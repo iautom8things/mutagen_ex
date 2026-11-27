@@ -1,0 +1,13 @@
+{
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "command": "AGENT_RULES_AGENT=grok $CLAUDE_PROJECT_DIR/.claude/scripts/clear-rules-cache.sh"
+    },
+    {
+      "event": "PreToolUse",
+      "matcher": "Bash|Edit|Write|MultiEdit",
+      "command": "AGENT_RULES_AGENT=grok $CLAUDE_PROJECT_DIR/.grok/hooks/grok-hook-adapter.sh $CLAUDE_PROJECT_DIR/.claude/scripts/inject-rules.py"
+    }
+  ]
+}

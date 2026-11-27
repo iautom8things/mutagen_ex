@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# agent-rules: generated v0.29.5
+# SessionStart hook: reset the compacting context's markers and prune stale caches.
+#
+# On compact or clear, reset <agent>/<session>/<context> so subsequent calls
+# can see the rules again. <context> matches inject-rules.py's marker key: main
+# or agent-<agent_id>. Also clear old flat markers when resetting main.
+# Per-repo registrations do not identify the CLI, so a native session ID is
+# checked in each CLI namespace. An AGY conversationId identifies AGY alone.
+#
+# Then, on every SessionStart, it removes <agent>/<session>/ directories older
+# than 7 days. AGY advisory queues are aged by their pending items under the
+# queue lock, so an active conversation keeps its pending notices.
+#
+# An <agent> directory that is a symlink, or resolves outside the cache root, is
+# never pruned: deleting through it would delete outside the cache. The global
+# and per-repo registrations both fire on compact, so two prunes can race; an
+# entry the other one already removed is not an error, and the hook exits 0.
+
+set -euo pipefail
+
+# The builtin read, not $(cat): with stdin closed, the substitution's own pipe
+# lands on fd 0 and cat would wait on it forever. A closed or empty stdin is an
+# empty payload, so only the age prune runs.
+payload=""
+IFS= read -r -d '' payload 2>/dev/null || true
+
+# Neither XDG_CACHE_HOME nor HOME: there is no cache to prune.
+cache_base="${XDG_CACHE_HOME:-${HOME:+$HOME/.cache}}"
+[ -n "$cache_base" ] || exit 0
+cache_root="$cache_base/agent-rules"
+[ -d "$cache_root" ] && [ ! -L "$cache_root" ] || exit 0
+
+# Keep the shell-only age sweep when there is no queue or compaction.
+if [[ "$payload" == *compact* || "$payload" == *Compact* || "$payload" == *clear* || -d "$cache_root/agy-queue" ]]; then
+  python3 -IB - "$cache_root" "${BASH_SOURCE[0]}" 3<<<"$payload" <<'PY' || true
+import importlib.util
+import json
+import re
+import shutil
+import sys
+from pathlib import Path
+
+cache_root = Path(sys.argv[1])
+modules = Path(sys.argv[2]).resolve().parent
+
+
+def load_sibling(name):
+    spec = importlib.util.spec_from_file_location(name, modules / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def compact_keys(payload, agents):
+    if "conversationId" in payload:
+        key = agents.agy_key(payload["conversationId"])
+        return {agents.AGENT_AGY: key} if key else {}
+
+    session_id = payload.get("session_id") or payload.get("sessionId")
+    if not isinstance(session_id, str):
+        return {}
+    clean = agents.safe_marker_id(session_id)
+    if not clean:
+        return {}
+    keys = {agent: clean for agent in agents.SUPPORTED_AGENTS - {agents.AGENT_AGY}}
+    if key := agents.agy_key(session_id):
+        keys[agents.AGENT_AGY] = key
+    return keys
+
+
+try:
+    with open(3, encoding="utf-8") as handle:
+        payload = json.load(handle)
+except (ValueError, RecursionError):
+    payload = None
+
+def is_compact(payload):
+    if not isinstance(payload, dict):
+        return False
+    event = payload.get("hook_event_name") or payload.get("hookEventName")
+    return event == "PostCompact" or payload.get("source") in ("compact", "clear")
+
+
+compact = is_compact(payload)
+agents = load_sibling("agent_rules_agents") if compact else None
+keys = compact_keys(payload, agents) if compact else {}
+for agent, key in keys.items():
+    agent_dir = cache_root / agent
+    session_dir = agent_dir / key
+    try:
+        if agent_dir.is_symlink() or agent_dir.resolve() != cache_root.resolve() / agent:
+            continue
+        if session_dir.is_symlink():
+            session_dir.unlink(missing_ok=True)
+            continue
+        if not session_dir.is_dir():
+            continue
+        context = agents.agent_context(payload, agent)
+        context_dir = session_dir / context
+        if context_dir.is_symlink():
+            context_dir.unlink(missing_ok=True)
+        elif context_dir.is_dir():
+            shutil.rmtree(context_dir, ignore_errors=True)
+            if context_dir.exists():
+                print(f"prune-rules-cache: could not remove {context_dir}", file=sys.stderr)
+        if context == agents.MAIN_CONTEXT:
+            for marker in session_dir.iterdir():
+                if re.fullmatch(r".+-[0-9a-f]{12}", marker.name) and marker.is_file():
+                    marker.unlink(missing_ok=True)
+        try:
+            session_dir.rmdir()  # A sibling context keeps this directory alive.
+        except OSError:
+            pass
+    except FileNotFoundError:
+        pass  # The global and project hooks can prune the same context.
+    except OSError as exc:
+        print(f"prune-rules-cache: {session_dir}: {exc}", file=sys.stderr)
+
+if (cache_root / "agy-queue").is_dir():
+    load_sibling("agy_queue_cache").prune()
+PY
+fi
+
+for agent in claude codex grok agy; do
+  agent_dir="$cache_root/$agent"
+  [ -d "$agent_dir" ] && [ ! -L "$agent_dir" ] || continue
+
+  find "$agent_dir" -mindepth 1 -maxdepth 1 -type d -mtime +7 -prune \
+    -exec rm -rf -- {} + 2>/dev/null || true
+done
+
+exit 0
